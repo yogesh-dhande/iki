@@ -250,7 +250,7 @@ class ProjectOut(Schema):
     )
     my_lab_roles: list[str] = Field(
         description="The lab roles you hold here (ADR 0116), from your own grant or your "
-        "teams', by name, such as iki/example_lims.qa: what /lab-roles describes."
+        "teams', by name, such as iki/lab_roles.qa: what /lab-roles describes."
     )
     can: ProjectCan = Field(description="What you may do with it.")
 
@@ -330,7 +330,7 @@ class ProjectPatch(Schema):
 
 
 class LabRoleGrantOut(Schema):
-    role: str = Field(description="The lab role, by name, such as iki/example_lims.qa.")
+    role: str = Field(description="The lab role, by name, such as iki/lab_roles.qa.")
     label: str = Field(
         description="What people call it, such as QA: with its plugin's title after it where "
         "another plugin's role has the same label, such as QA (Lots)."
@@ -398,7 +398,7 @@ class LabRolesIn(Schema):
     roles: list[str] = Field(
         max_length=50,
         description="Every lab role the grant should carry, by name (such as "
-        "iki/example_lims.qa): those it has and aren't listed are taken away.",
+        "iki/lab_roles.qa): those it has and aren't listed are taken away.",
     )
 
 
@@ -422,7 +422,7 @@ class LabRoleUseOut(Schema):
 
 
 class LabRoleOut(Schema):
-    name: str = Field(description="Its name, such as iki/example_lims.qa.")
+    name: str = Field(description="Its name, such as iki/lab_roles.qa.")
     label: str = Field(
         description="What people call it: its label, and where another plugin's role has the "
         "same one, its plugin's title after it, such as QA (Lots)."

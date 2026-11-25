@@ -54,7 +54,7 @@ export default tseslint.config(
       // component's source, which is linted where it's written (web/src).
       "plugins/small_molecule/components/depiction.js",
       // The source adapters are linted before bundling for the component sandbox.
-      "plugins/example_lims/components/booking-calendar.js",
+      "plugins/equipment/components/booking-calendar.js",
       "plugins/plasmid/components/plasmid-map.js",
       "plugins/oligo/components/chemistry.js",
       "plugins/oligo/components/duplex.js",

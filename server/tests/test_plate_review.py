@@ -10,7 +10,7 @@ from django.core.exceptions import PermissionDenied
 from first_party_dependencies import PLUGINS, build_order
 from org_world import World, build_world
 from test_plugin_migrations import database, django, iki, migrate, sync
-from test_signatures import begin, ready, signed
+from test_signatures import begin, evidence, ready, signed
 
 from iki_server.entities import registry, requests, services, states
 from iki_server.entities.models import Entity, ProjectLink, Revision
@@ -23,13 +23,14 @@ from iki_server.runs.services import plugin_settings
 from iki_server.setup import starters
 from iki_server.setup.models import StarterApplication
 from iki_server.signatures.models import Signature
-from iki_server.signatures.services import verify
+from iki_server.signatures.services import finish, verify
 
 __all__ = ["database"]
 
 PLUGIN = PLUGINS / "plate_assays"
 PREFIX = "iki/plate_assays."
-REQUEST = "iki/example_lims.AnalysisRequest"
+RESEARCH = "iki/requests.ResearchRequest"
+QC = "iki/requests.QCRequest"
 
 
 def test_both_plate_review_flows_deliver_the_signed_result(tmp_path: Path, database: str) -> None:
@@ -72,17 +73,28 @@ def _check_inherited_flows(world: World) -> None:
     }
 
 
-def _request(world: World) -> Entity:
+def _requests(world: World) -> tuple[Entity, Entity, Entity]:
     asking = Project.objects.create(team=world.team, name="Project requesting an assay")
     editor = world.users["editor"]
     ProjectMembership.objects.create(project=asking, user=editor, role=ProjectRole.EDITOR)
     requests.set_intake(
-        world.project, types=[REQUEST], from_registry=True, sources=[], by=world.users["admin"]
+        world.project, types=[RESEARCH, QC], from_registry=True, sources=[], by=world.users["admin"]
     )
-    saved = services.create(editor, REQUEST, asking, {"title": "Synthetic plate review"})
-    request = Entity.objects.get(pk=saved.entity.pk)
-    requests.submit(editor, request, world.project, expected_revision=request.revision)
-    return request
+    sample = services.create(editor, "iki/inventory.Tube", asking, {"name": "Review tube"}).entity
+
+    def send(type_name: str, tubes: list[str]) -> Entity:
+        saved = services.create(
+            editor, type_name, asking, {"title": "Synthetic plate review", "tubes": tubes}
+        )
+        request = Entity.objects.get(pk=saved.entity.pk)
+        requests.submit(editor, request, world.project, expected_revision=request.revision)
+        return request
+
+    return (
+        send(RESEARCH, [str(sample.pk)]),
+        send(QC, [str(sample.pk)]),
+        Entity.objects.get(pk=sample.pk),
+    )
 
 
 def _sign(world: World, who: str, record: Entity, to: str) -> Signature:
@@ -108,21 +120,15 @@ def exercise_reviews() -> None:
         for role in held:
             LabRoleGrant.objects.create(membership=membership, role=PREFIX + role)
 
-    request = _request(world)
+    request, qc_request, sample = _requests(world)
     editor = world.users["editor"]
-    sample = services.create(
-        editor,
-        "iki/protein.Protein",
-        world.project,
-        {"name": "Synthetic plate review fixture", "sequence": "AGAGAGAG"},
-    ).entity
     read_id = _read_evidence(world, str(sample.pk))
 
     def result(type_name: str, flow: str) -> Entity:
         fields = {
             "read": read_id,
             "sample": str(sample.pk),
-            "request": str(request.pk),
+            "request": str(qc_request.pk if type_name == "RequestedQCAssayResult" else request.pk),
             "review_flow": flow,
             "fit_version": "4PL-OLS/1",
             "fit_status": "unreportable",
@@ -138,7 +144,7 @@ def exercise_reviews() -> None:
         project=world.project,
         requester_project=asking,
         starter="dose-response",
-        version="1.0.0",
+        version="1.2.0",
         flow="research",
         applied_by=world.users["admin"],
     )
@@ -153,7 +159,7 @@ def exercise_reviews() -> None:
     application.save()
     # A newly installed plugin may advertise a recipe this server doesn't yet offer.
     # The previously applied choice remains binding for runs and direct creates.
-    with patch.dict(registry.plugins()[fit.plugin].starters, {"dose-response": "1.1.0"}):
+    with patch.dict(registry.plugins()[fit.plugin].starters, {"dose-response": "99.0.0"}):
         starters.installed_starters.cache_clear()
         assert "dose-response" not in starters.installed_starters()
         assert plugin_settings(fit, world.project)["review_flow"] == "regulated_qc"
@@ -168,6 +174,20 @@ def exercise_reviews() -> None:
     starters.installed_starters.cache_clear()
     with pytest.raises(PermissionDenied):
         begin(world, "viewer", str(research.pk), "signed", field="review")
+    pending = begin(world, "admin", str(research.pk), "signed", field="review")
+    services.update(editor, request, {"tubes": []}, expected_revision=request.revision)
+    refused = finish(pending, evidence(world, "admin"))
+    assert refused.signature_id is None and "sample or tube" in refused.message
+    assert not ProjectLink.objects.filter(entity=research, via_request=request).exists()
+    assert states.values_of(research)["review"] == "recorded"
+    qc_request.refresh_from_db()
+    services.update(editor, qc_request, {"tubes": []}, expected_revision=qc_request.revision)
+    with pytest.raises(Invalid, match="sample or tube"):
+        result("RequestedQCAssayResult", "regulated_qc")
+    request.refresh_from_db()
+    services.update(
+        editor, request, {"tubes": [str(sample.pk)]}, expected_revision=request.revision
+    )
     witness = _sign(world, "admin", research, "signed")
     assert Signature.objects.filter(entity=research).count() == 1
     assert json.loads(witness.content)["values"]["fit_status"] == "unreportable"
@@ -177,6 +197,10 @@ def exercise_reviews() -> None:
         states.set_state(
             editor, research, "review", "recorded", expected_revision=research.revision
         )
+    qc_request.refresh_from_db()
+    services.update(
+        editor, qc_request, {"tubes": [str(sample.pk)]}, expected_revision=qc_request.revision
+    )
     qc = result("RequestedQCAssayResult", "regulated_qc")
     with pytest.raises(Invalid):
         services.update(editor, qc, {"review_flow": "research"}, expected_revision=qc.revision)
@@ -202,7 +226,7 @@ def exercise_reviews() -> None:
         with pytest.raises(Refused):
             begin(world, author, str(qc.pk), "reviewed", field="review")
     first_review = _sign(world, "runner", qc, "reviewed")
-    assert not ProjectLink.objects.filter(entity=qc, via_request=request).exists()
+    assert not ProjectLink.objects.filter(entity=qc, via_request=qc_request).exists()
 
     previous_revision = qc.revision
     correction = "Checked the retained reader export"
@@ -234,7 +258,7 @@ def exercise_reviews() -> None:
     assert json.loads(first_review.content)["values"]["notes"] == "Checked dilution labels"
     assert qc.released_review_revision == review.revision
     assert (
-        ProjectLink.objects.get(entity=qc, via_request=request).project_id
+        ProjectLink.objects.get(entity=qc, via_request=qc_request).project_id
         == request.owner_project_id
     )
 

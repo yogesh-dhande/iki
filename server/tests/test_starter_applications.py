@@ -2,11 +2,13 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
+from functools import partial
 from threading import Barrier
 from unittest.mock import Mock
 from uuid import UUID, uuid4
 
 import pytest
+from api_client import Api, problem
 from django.db import connection, transaction
 from django.http import Http404
 from org_world import World, build_world
@@ -40,6 +42,7 @@ def setup(monkeypatch: pytest.MonkeyPatch) -> Setup:
     examples.seed_example.side_effect = lambda *a, **kw: {"plate": str(uuid4())}
     recipe = replace(
         starters.DOSE_RESPONSE,
+        version="1.0.0",
         roles={ANALYST: ProjectRole.EDITOR, REVIEWER: ProjectRole.VIEWER, QA: ProjectRole.VIEWER},
         required_roles={"research": (ANALYST, REVIEWER), "regulated_qc": (ANALYST, REVIEWER, QA)},
         independent_roles={"regulated_qc": (ANALYST, REVIEWER, QA)},
@@ -60,6 +63,27 @@ def setup(monkeypatch: pytest.MonkeyPatch) -> Setup:
     return Setup(world, requester, roles, examples)
 
 
+def test_an_upgrade_previews_the_new_examples_and_applies_them_once(setup: Setup) -> None:
+    project, admin, requester = setup.world.project, setup.world.users["admin"], setup.requester
+    previous = {"legacy_plate": str(uuid4())}
+    StarterApplication.objects.create(
+        project=project,
+        requester_project=requester,
+        starter="dose-response",
+        version="0.9.0",
+        flow="regulated_qc",
+        examples=previous,
+        applied_by=admin,
+    )
+    args = (project, "dose-response", "1.0.0", "regulated_qc", setup.roles)
+    plan = starters.preview(*args, requester_project=requester, by=admin)
+    assert plan["examples_to_create"] == ["plate"] and plan["examples"] == previous
+    applied = starters.apply(*args, requester_project=requester, by=admin, plan=plan["plan"])
+    replay = starters.apply(*args, requester_project=requester, by=admin, plan=plan["plan"])
+    assert applied["examples"] == replay["examples"] and not replay["changed"]
+    setup.examples.seed_example.assert_called_once()
+
+
 def test_preview_apply_replay_and_switch(setup: Setup) -> None:
     world, ask, roles = setup.world, setup.requester, setup.roles
     project, admin = world.project, world.users["admin"]
@@ -67,14 +91,16 @@ def test_preview_apply_replay_and_switch(setup: Setup) -> None:
     plan = starters.preview(*args, requester_project=ask, by=admin)
     assert plan["changed"] and plan["examples_to_create"] == ["plate"] and plan["examples"] == {}
     assert plan["grants_to_add"] == {k: list(map(str, v)) for k, v in roles.items()}
+    assert len(plan["plan"]) == 64
     assert not StarterApplication.objects.exists() and not LabRoleGrant.objects.exists()
     assert not AuditEvent.objects.filter(action="starter.applied").exists()
     setup.examples.seed_example.assert_not_called()
 
-    applied = starters.apply(*args, requester_project=ask, by=admin)
+    applied = starters.apply(*args, requester_project=ask, by=admin, plan=plan["plan"])
     original = applied["examples"]
     assert applied["changed"] and str(UUID(original["plate"])) == original["plate"]
-    replay = starters.apply(*args, requester_project=ask, by=admin)
+    # Sent again, the same approval changes nothing: it's set up that way already.
+    replay = starters.apply(*args, requester_project=ask, by=admin, plan=plan["plan"])
     assert (
         not replay["changed"] and replay["grants_to_add"] == {} and replay["examples"] == original
     )
@@ -85,6 +111,7 @@ def test_preview_apply_replay_and_switch(setup: Setup) -> None:
     first = events.get()
     assert first.data["before"] is None and first.data["after"]["flow"] == "regulated_qc"
     assert first.data["grants_added"] == plan["grants_to_add"]
+    assert first.data["plan"] == plan["plan"]
     assert starters.list_starters(project, by=admin)[0]["applied"]["requester_project"] == str(
         ask.pk
     )
@@ -92,36 +119,104 @@ def test_preview_apply_replay_and_switch(setup: Setup) -> None:
     assert visible == {"version": "1.0.0", "flow": "regulated_qc", "requester_project": None}
 
     research_roles = {k: v for k, v in roles.items() if k != QA}
-    switched = starters.apply(
-        project,
-        "dose-response",
-        "1.0.0",
-        "research",
-        research_roles,
-        requester_project=ask,
-        by=admin,
-    )
+    switch = (project, "dose-response", "1.0.0", "research", research_roles)
+    reviewed = starters.preview(*switch, requester_project=ask, by=admin)
+    assert reviewed["changed"] and reviewed["grants_to_add"] == {}
+    # Another Admin revokes the reviewer's grant before this switch is applied. The switch
+    # reviewed grants nothing (ADR 0207): applying it is refused, and changes nothing.
+    revoked = LabRoleGrant.objects.get(role=REVIEWER)
+    revoked.delete()
+    with pytest.raises(starters.PlanChanged) as refused:
+        starters.apply(*switch, requester_project=ask, by=admin, plan=reviewed["plan"])
+    now = refused.value.plan
+    assert now["grants_to_add"] == {REVIEWER: list(map(str, roles[REVIEWER]))}
+    assert now["plan"] != reviewed["plan"]
+    assert starters.effective_flow(project, "dose-response") == "regulated_qc"
+    assert not LabRoleGrant.objects.filter(role=REVIEWER).exists()
+    assert events.count() == 1
+    # Reviewed again, the switch shows the grant it adds back; applying that plan adds it.
+    again = starters.preview(*switch, requester_project=ask, by=admin)
+    assert again == now
+    switched = starters.apply(*switch, requester_project=ask, by=admin, plan=again["plan"])
     assert switched["changed"] and switched["examples"] == original
-    assert switched["grants_to_add"] == {} and switched["examples_to_create"] == []
+    assert switched["grants_to_add"] == {REVIEWER: list(map(str, roles[REVIEWER]))}
+    assert switched["examples_to_create"] == []
     assert LabRoleGrant.objects.filter(role=QA).exists()
+    assert LabRoleGrant.objects.filter(role=REVIEWER, granted_by=admin).exists()
     assert starters.effective_flow(project, "dose-response") == "research"
     change = events.exclude(pk=first.pk).get()
     assert change.data["before"]["flow"] == "regulated_qc"
     assert change.data["after"] == {"version": "1.0.0", "flow": "research"}
+    assert change.data["grants_added"] == switched["grants_to_add"]
+    assert change.data["plan"] == again["plan"]
     setup.examples.seed_example.assert_called_once()
-    # If a requested grant was subsequently revoked, reapplying restores just that one.
-    LabRoleGrant.objects.filter(role=REVIEWER).delete()
-    restored = starters.apply(
+
+
+def test_a_stale_first_apply_seeds_nothing(setup: Setup) -> None:
+    """Applied first by another Admin, a first apply's plan (examples to create, every grant)
+    no longer holds: it creates no second example and grants nothing it didn't show."""
+    world, ask, roles = setup.world, setup.requester, setup.roles
+    project, admin = world.project, world.users["admin"]
+    args = (project, "dose-response", "1.0.0", "regulated_qc", roles)
+    mine = starters.preview(*args, requester_project=ask, by=admin)
+    # The other Admin applies the Research flow first; then this one's plan, which showed
+    # every grant and a new example, is stale.
+    fewer = {k: v for k, v in roles.items() if k != QA}
+    theirs = starters.preview(
+        project, "dose-response", "1.0.0", "research", fewer, requester_project=ask, by=admin
+    )
+    starters.apply(
         project,
         "dose-response",
         "1.0.0",
         "research",
-        research_roles,
+        fewer,
         requester_project=ask,
         by=admin,
+        plan=theirs["plan"],
     )
-    assert restored["grants_to_add"] == {REVIEWER: list(map(str, roles[REVIEWER]))}
-    assert restored["examples"] == original
+    grants = set(LabRoleGrant.objects.values_list("membership_id", "role"))
+    with pytest.raises(starters.PlanChanged) as refused:
+        starters.apply(*args, requester_project=ask, by=admin, plan=mine["plan"])
+    assert refused.value.plan["examples_to_create"] == []
+    assert set(LabRoleGrant.objects.values_list("membership_id", "role")) == grants
+    assert starters.effective_flow(project, "dose-response") == "research"
+    assert AuditEvent.objects.filter(action="starter.applied").count() == 1
+    setup.examples.seed_example.assert_called_once()
+
+
+def test_the_api_refuses_a_changed_plan_and_answers_what_applying_does_now(setup: Setup) -> None:
+    """409 ``starter_plan_changed``, with the plan as it is now: applying that applies it."""
+    world, roles = setup.world, setup.roles
+    api = Api(world.browser("admin"))
+    body = {
+        "project": str(world.project.pk),
+        "requester_project": str(setup.requester.pk),
+        "version": "1.0.0",
+        "flow": "regulated_qc",
+        "role_assignments": {k: list(map(str, v)) for k, v in roles.items()},
+    }
+    reviewed = api.post("/starters/dose-response/preview", body).json()
+    # Another Admin grants the reviewer role first: applying would no longer grant it.
+    membership = ProjectMembership.objects.get(pk=roles[REVIEWER][0])
+    services.set_lab_roles(membership, {REVIEWER}, by=world.users["admin"])
+    refused = problem(
+        api.post("/starters/dose-response/apply", {**body, "plan": reviewed["plan"]}),
+        409,
+        "starter_plan_changed",
+    )
+    now = refused["plan"]
+    assert REVIEWER in reviewed["grants_to_add"] and REVIEWER not in now["grants_to_add"]
+    assert now == api.post("/starters/dose-response/preview", body).json()
+    assert not StarterApplication.objects.exists()
+    assert not AuditEvent.objects.filter(action="starter.applied").exists()
+    assert LabRoleGrant.objects.count() == 1
+    setup.examples.seed_example.assert_not_called()
+    applied = api.post("/starters/dose-response/apply", {**body, "plan": now["plan"]})
+    assert applied.status_code == 200, applied.content
+    assert applied.json()["grants_to_add"] == now["grants_to_add"]
+    missing = problem(api.post("/starters/dose-response/apply", body), 422, "validation_failed")
+    assert missing["errors"][0]["pointer"] == "#/plan"
 
 
 def test_rejects_unusable_role_choices_and_stale_recipe_without_writes(setup: Setup) -> None:
@@ -132,7 +227,14 @@ def test_rejects_unusable_role_choices_and_stale_recipe_without_writes(setup: Se
         assign: dict[str, list[UUID]], *, version: str = "1.0.0", starter: str = "dose-response"
     ) -> None:
         starters.apply(
-            project, starter, version, "regulated_qc", assign, requester_project=ask, by=admin
+            project,
+            starter,
+            version,
+            "regulated_qc",
+            assign,
+            requester_project=ask,
+            by=admin,
+            plan="0" * 64,
         )
 
     with pytest.raises(Http404):
@@ -158,7 +260,7 @@ def test_rejects_unusable_role_choices_and_stale_recipe_without_writes(setup: Se
     setup.examples.seed_example.assert_not_called()
 
 
-@pytest.mark.parametrize("operation", [starters.preview, starters.apply])
+@pytest.mark.parametrize("operation", [starters.preview, partial(starters.apply, plan="0" * 64)])
 def test_archived_service_refuses_setup(setup: Setup, operation: object) -> None:
     assert callable(operation)
     with pytest.raises(services.Refused, match="Restore the assay project"):
@@ -179,6 +281,16 @@ def test_concurrent_applies_keep_one_example_and_other_role_grants(setup: Setup)
     project, admin = setup.world.project, setup.world.users["admin"]
     membership = ProjectMembership.objects.get(pk=setup.roles[ANALYST][0])
     barrier = Barrier(3, timeout=20)
+    # Both reviewed the same plan: the membership update below doesn't change what it does.
+    reviewed = starters.preview(
+        project,
+        "dose-response",
+        "1.0.0",
+        "regulated_qc",
+        setup.roles,
+        requester_project=setup.requester,
+        by=admin,
+    )["plan"]
 
     def apply() -> bool:
         try:
@@ -193,6 +305,7 @@ def test_concurrent_applies_keep_one_example_and_other_role_grants(setup: Setup)
                     setup.roles,
                     requester_project=setup.requester,
                     by=actor,
+                    plan=reviewed,
                 )["changed"]
             )
         finally:

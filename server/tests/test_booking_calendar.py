@@ -1,5 +1,5 @@
 # ruff: noqa: F811 - test_browser's fixtures, imported by name, are parameters here.
-"""The example LIMS plugin's booking calendar (ADR 0117), in each browser, under the
+"""The equipment plugin's booking calendar (ADR 0117), in each browser, under the
 policy Iki's component frames have (ADR 0084): it draws the bookings it's given by day,
 asks for a month at a time and for the rest of one, and opens only a booking it shows.
 
@@ -29,7 +29,7 @@ pytestmark = pytest.mark.built_web_app
 MODULE = (
     Path(__file__).resolve().parents[2]
     / "plugins"
-    / "example_lims"
+    / "equipment"
     / "components"
     / "booking-calendar.js"
 )
@@ -55,8 +55,8 @@ document.addEventListener("securitypolicyviolation", (e) => {
   window.refused.push(`${e.violatedDirective} ${e.blockedURI}`);
 });
 window.sent = [];
-await customElements.whenDefined("lims-booking-calendar");
-const element = document.createElement("lims-booking-calendar");
+await customElements.whenDefined("equipment-booking-calendar");
+const element = document.createElement("equipment-booking-calendar");
 for (const name of ["iki-refine", "iki-more", "iki-open", "iki-select"]) {
   element.addEventListener(name, (e) => window.sent.push({ type: name, detail: e.detail }));
 }
@@ -111,7 +111,7 @@ def booking(n: int, starts: dt.datetime, purpose: str) -> dict[str, Any]:
         "id": f"00000000-0000-7000-8000-00000000b00{n}",
         "hrid": f"BKG-00000{n}",
         "title": purpose,
-        "type": "iki/example_lims.Booking",
+        "type": "iki/equipment.Booking",
         "revision": 1,
         "project": {"id": "p", "name": "Kinase Atlas", "slug": "kinase-atlas"},
         "values": {
@@ -124,7 +124,7 @@ def booking(n: int, starts: dt.datetime, purpose: str) -> dict[str, Any]:
             instrument: {
                 "hrid": "INS-000001",
                 "title": "Plate reader",
-                "type": "iki/example_lims.Instrument",
+                "type": "iki/equipment.Instrument",
                 "archived": False,
                 "purged": False,
             }

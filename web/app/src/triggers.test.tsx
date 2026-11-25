@@ -16,6 +16,7 @@ const OFF: Schemas["ProjectTriggerOut"] = {
   label: "Compute each new protein's properties",
   description: null,
   on: "entity.created",
+  recheck: false,
   type: "iki/protein.Protein",
   schedule: "",
   timezone: "",
@@ -96,20 +97,19 @@ const FIRING: Schemas["FiringOut"] = {
   fired_at: "2026-03-14T10:00:01Z",
 };
 
-/** One that gives its runs what's related (ADR 0123): a donor's aliquots and results. */
+/** One that gives its runs what's related (ADR 0123): a tube's derived stock. */
 const HOLD: Schemas["ProjectTriggerOut"] = {
   ...OFF,
-  name: "iki/example_lims.hold_withdrawn_consent",
-  label: "Hold what a withdrawn consent touches",
+  name: "iki/inventory.hold_derived_tubes",
+  label: "Hold portions of withdrawn stock",
   on: "entity.updated",
-  type: "iki/example_lims.Donor",
-  fields: ["consent"],
-  action: "iki/example_lims.hold_withdrawn",
+  type: "iki/inventory.Tube",
+  fields: ["on_hold"],
+  action: "iki/inventory.hold_withdrawn",
   action_label: "Hold withdrawn",
-  input: "donor",
+  input: "source",
   related: {
-    aliquots: { direction: "downstream", depth: 2, edges: ["reference"] },
-    results: { direction: "downstream", depth: 10, edges: [] },
+    tubes: { direction: "downstream", depth: 10, edges: ["aliquot", "transfer"] },
   },
 };
 
@@ -174,23 +174,21 @@ describe("a project's triggers", () => {
       trigger: HOLD.name,
       label: HOLD.label,
       event: "entity.updated",
-      entity: { id: "00000000-0000-7000-8000-0000000000e2", hrid: "DNR-000001", type: HOLD.type },
-      related: { aliquots: 3, results: 0 },
+      entity: { id: "00000000-0000-7000-8000-0000000000e2", hrid: "TUB-000001", type: HOLD.type },
+      related: { tubes: 3 },
     };
     onProject([HOLD], [held]);
     const { user } = await renderApp("/projects/kinase-atlas/automation/triggers/");
     const rows = await screen.findByRole("list", { name: "Triggers" });
     expect(rows).toHaveTextContent(
-      "Each run is also given, from Kinase Atlas: aliquots, what was derived from it, up to 2 " +
-        "steps away, through references; results, what was derived from it, up to 10 steps " +
-        "away. All of them, or the run doesn’t start.",
+      "Each run is also given, from Kinase Atlas: tubes, what was derived from it, up to 10 steps away",
     );
     const fired = await screen.findByRole("list", { name: "Firings" });
-    expect(fired).toHaveTextContent("given 3 aliquots and 0 results");
+    expect(fired).toHaveTextContent("given 3 tubes");
     await user.click(within(rows).getByRole("button", { name: "Turn on" }));
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent(
-      "Each run is also given what you can read in Kinase Atlas of: aliquots,",
+      "Each run is also given what you can read in Kinase Atlas of: tubes,",
     );
     expect(dialog).toHaveTextContent("If there are more than its action takes");
   });

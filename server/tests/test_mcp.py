@@ -400,7 +400,7 @@ async def test_tools_see_only_what_the_grant_allows(world: World) -> None:
 
 @pytest.mark.wasm
 async def test_agents_write_an_app_check_it_and_create_it(world: World) -> None:
-    token = await token_for(world)
+    token = await token_for(world, scope="read apps")
     guide = data(await tool(token, "describe_apps"))
     assert [c["name"] for c in guide["components"]] == ["iki.entities", "iki.viewer", "iki.text"]
     assert guide["spec_schema"]["properties"]["version"] == {"const": 1}
@@ -443,10 +443,35 @@ async def test_agents_write_an_app_check_it_and_create_it(world: World) -> None:
 
 
 @pytest.mark.wasm
+async def test_app_building_tools_report_the_missing_apps_scope(world: World) -> None:
+    from test_api_entities import api_as
+
+    record = await sync_to_async(lambda: protein(api_as(world), world.project, "test"))()
+    token = await token_for(world, "admin", scope="read write")
+    project = str(world.project.pk)
+    draft = {"project": project, "name": "Draft", "spec": {"version": 1, "panels": []}}
+    for name, params in (
+        ("create_app", draft),
+        ("preview_app", draft),
+        (
+            "create_view",
+            {
+                "project": project,
+                "name": "View",
+                "shows": [{"entity": record["hrid"], "viewer": "sequence"}],
+            },
+        ),
+        ("set_project_dashboard", {"project": project, "app": None}),
+    ):
+        refused = error(await tool(token, name, **params))
+        assert "(403, insufficient_scope)" in refused and "apps scope" in refused
+
+
+@pytest.mark.wasm
 async def test_agents_show_their_person_an_app_first_and_place_it(world: World) -> None:
     from iki_server.entities.models import AppDraft
 
-    token = await token_for(world)
+    token = await token_for(world, scope="read apps")
     spec = {
         "version": 1,
         "panels": [{"id": "hi", "component": "iki.text", "props": {"text": "Hi"}}],
@@ -477,7 +502,7 @@ async def test_agents_show_their_person_an_app_first_and_place_it(world: World) 
     # Placing it takes the project's Admin.
     place = {"project": str(world.project.pk), "app": made["hrid"]}
     assert "(403" in error(await tool(token, "set_project_dashboard", **place))
-    admin = await token_for(world, "admin")
+    admin = await token_for(world, "admin", scope="read apps")
     assert data(await tool(admin, "set_project_dashboard", **place))["app"]["hrid"] == made["hrid"]
     cleared = await tool(admin, "set_project_dashboard", project=str(world.project.pk), app=None)
     assert note(cleared) == "The project's page opens without an app now."
@@ -501,10 +526,10 @@ async def test_an_agent_drafts_and_places_apps_only_where_its_grant_reaches(
         "version": 1,
         "panels": [{"id": "hi", "component": "iki.text", "props": {"text": "Hi"}}],
     }
-    token = await token_for(world, projects=[world.project])
+    token = await token_for(world, scope="read apps", projects=[world.project])
     drafted = await tool(token, "preview_app", project=str(other.pk), name="X", spec=spec)
     assert "(404" in error(drafted)
-    admin = await token_for(world, "admin", projects=[world.project])
+    admin = await token_for(world, "admin", scope="read apps", projects=[world.project])
     placed = await tool(admin, "set_project_dashboard", project=str(other.pk), app="APP-000001")
     assert "(404" in error(placed)
 
@@ -597,7 +622,7 @@ async def test_agents_save_views_of_several_entities_each_at_a_revision(world: W
         return first, second, protein(api_as(world, "admin"), other, "secret")
 
     first, second, secret = await sync_to_async(make)()
-    token = await token_for(world)
+    token = await token_for(world, scope="read apps")
     shows = [
         {"entity": first["hrid"], "viewer": "sequence", "label": "kinase"},
         {"entity": second["id"], "viewer": "sequence", "revision": 1},

@@ -17,6 +17,7 @@ import io
 import json
 import os
 import secrets
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -28,12 +29,16 @@ from typing import Any, TextIO
 from urllib.parse import urlsplit, urlunsplit
 
 from iki_codegen import build as build_apps
-from iki_spec import action_tests
-from iki_spec.model import EntityType, Field, Plugin
+from iki_spec import action_tests, naming
+from iki_spec.builtin import using_core
+from iki_spec.model import BUILTIN_TYPES, EntityType, Field, Plugin, included_reference
 from iki_spec.yamlsource import read_documents
 
 #: How much of a failing step's log is shown.
 LOG_LINES = 20
+
+_CORE_SOURCE = Path("spec/src/iki_spec/core")
+_CORE_APP = Path("server/src") / naming.package(naming.CORE)
 
 
 def run(
@@ -57,7 +62,8 @@ def run(
         return False
     with tempfile.TemporaryDirectory(prefix="iki-upgrade-") as tmp:
         work = Path(tmp)
-        found = _checkout(directory, ref, work / "earlier", err)
+        checkout = work / "earlier"
+        found = _checkout(directory, ref, checkout, err)
         if found is None:
             return False
         sha, earlier_dir = found
@@ -77,23 +83,41 @@ def run(
                 "upgrade from.\n"
             )
             return True
-        earlier = _built(earlier_dir, dependencies, work / "build-earlier", err)
-        current = _built(directory, dependencies, work / "build-current", err)
-        if earlier is None or current is None:
+        earlier_build = work / "build-earlier"
+        earlier_core = checkout / _CORE_SOURCE if (checkout / _CORE_APP).is_dir() else None
+        try:
+            with using_core(earlier_core):
+                earlier = _built(earlier_dir, dependencies, earlier_build, err, historical=True)
+                if earlier is None:
+                    return False
+                earlier_types = {
+                    **{name: t for name, t in types.items() if t.plugin != naming.CORE},
+                    **BUILTIN_TYPES,
+                }
+                marked = _samples(earlier_dir, earlier, earlier_types, marked_only=True)
+                fallback = [] if marked else _samples(earlier_dir, earlier, earlier_types)
+        except RuntimeError as error:
+            err.write(f"error: {error}\n")
             return False
-        samples = _samples(earlier_dir, earlier, types)
+        if earlier_core is not None:
+            shutil.copytree(checkout / _CORE_APP, earlier_build / _CORE_APP.name)
+        if _built(directory, dependencies, work / "build-current", err) is None:
+            return False
+        sample_source = "earlier"
+        if not marked:
+            marked = _samples(directory, plugin, types, marked_only=True)
+            sample_source = "current"
+        samples = marked or fallback
         steps = [
             (
                 "before",
-                work / "build-earlier",
+                earlier_build,
                 "migrated to the earlier commit and made the samples",
             ),
             ("after", work / "build-current", "upgraded: the samples and their history are intact"),
         ]
         if rollback:
-            steps.append(
-                ("rollback", work / "build-earlier", "rolled back: the samples have their values")
-            )
+            steps.append(("rollback", earlier_build, "rolled back: the samples have their values"))
         state = work / "state.json"
         state.write_text(json.dumps({"samples": samples}), "utf-8")
         scratch = _scratch(database, err)
@@ -105,6 +129,10 @@ def run(
                 f"{plugin.version} on the scratch database {scratch.name}, with "
                 f"{len(samples)} sample(s):\n"
             )
+            if marked:
+                out.write(
+                    f"          Using fixtures marked upgrade in the {sample_source} plugin.\n"
+                )
             if not samples:
                 out.write(
                     f"          The earlier commit has no action tests with entities in "
@@ -128,7 +156,8 @@ def run(
                 )
             for step, build, done in steps:
                 started = time.monotonic()
-                problems, log = _step(step, build, url, state)
+                core = earlier_core if build == earlier_build else None
+                problems, log = _step(step, build, url, state, core=core)
                 took = time.monotonic() - started
                 out.write(f"  {'ok    ' if not problems else 'FAILED'}  {done}  ({took:.1f}s)\n")
                 if problems:
@@ -213,8 +242,14 @@ def _checkout(directory: Path, ref: str, into: Path, err: TextIO) -> tuple[str, 
         err.write(f"error: {ref} isn't a commit of the git repository {directory} is in.\n")
         return None
     inside = directory.resolve().relative_to(Path(top).resolve()).as_posix()
+    paths = [inside]
+    if all(
+        _git([*git, "cat-file", "-e", f"{sha}:{marker.as_posix()}"]) is not None
+        for marker in (_CORE_SOURCE / "plugin.yaml", _CORE_APP / "manifest.json")
+    ):
+        paths.extend([_CORE_SOURCE.as_posix(), _CORE_APP.as_posix()])
     archive = subprocess.run(  # noqa: S603 - git, with a SHA it resolved
-        [*git[:1], "-C", top, "archive", "--format=tar", sha, "--", inside],
+        [*git[:1], "-C", top, "archive", "--format=tar", sha, "--", *paths],
         capture_output=True,
         check=False,
     )
@@ -241,7 +276,12 @@ def _git(command: list[str]) -> str | None:
 
 
 def _built(
-    directory: Path, dependencies: Sequence[Path], output: Path, err: TextIO
+    directory: Path,
+    dependencies: Sequence[Path],
+    output: Path,
+    err: TextIO,
+    *,
+    historical: bool = False,
 ) -> Plugin | None:
     """Builds the plugin with its dependencies into ``output``; returns the plugin."""
     from iki_cli.plugin import _defaults, _load
@@ -249,7 +289,7 @@ def _built(
     loaded = []
     for d in [directory, *dependencies]:
         others = [o for o in [directory, *dependencies] if o != d]
-        result = _load(d, others, err)
+        result = _load(d, others, err, require_setting_policy=not historical)
         if result is None or result.plugin is None:
             return None
         loaded.append((result.plugin, d))
@@ -267,22 +307,53 @@ def _built(
     return loaded[0][0]
 
 
-def _samples(directory: Path, plugin: Plugin, types: dict[str, EntityType]) -> list[dict[str, Any]]:
-    """The earlier commit's action tests' input entities, without values that name files."""
+def _samples(
+    directory: Path,
+    plugin: Plugin,
+    types: dict[str, EntityType],
+    *,
+    marked_only: bool = False,
+) -> list[dict[str, Any]]:
+    """Earlier worker inputs, or complete fixtures marked for database seeding."""
     loaded = action_tests.load_tests(directory, plugin, types)
-    out = []
+    every = {**types, **{t.qualified_name: t for t in plugin.types.values()}}
+    samples = []
     for test in loaded.tests:
+        if marked_only and not test.upgrade:
+            continue
         for name, entities in test.inputs.items():
             for n, entity in enumerate(entities, start=1):
-                values = {k: v for k, v in entity["values"].items() if not _names_a_file(v)}
-                out.append(
-                    {
-                        "type": entity.get("type") or test.action.inputs[name].type,
-                        "values": values,
-                        "from": f"{test.name}'s {name} {n}",
-                    }
-                )
-    return out
+                type_name = entity.get("type") or test.action.inputs[name].type
+                label = f"{test.name}'s {name} {n}"
+                sample = _sample(type_name, entity, label)
+                if marked_only and entity.get("included"):
+                    fields = action_tests.fields_of(every[type_name], every)
+                    included = {}
+                    for reference, named in entity["included"].items():
+                        field = included_reference(fields, reference)
+                        assert field is not None  # noqa: S101 - validated by load_tests
+                        targets = action_tests.targets_of(field)
+                        included[reference] = [
+                            _sample(
+                                other.get("type") or targets[0],
+                                other,
+                                f"{label}'s {reference} {index}",
+                            )
+                            for index, other in enumerate(named, 1)
+                        ]
+                    sample["included"] = included
+                samples.append(sample)
+    return samples
+
+
+def _sample(type_name: str, entity: dict[str, Any], label: str) -> dict[str, Any]:
+    return {
+        "type": type_name,
+        "values": {
+            name: value for name, value in entity["values"].items() if not _names_a_file(value)
+        },
+        "from": label,
+    }
 
 
 def _names_a_file(value: Any) -> bool:  # noqa: ANN401 - YAML data
@@ -349,7 +420,9 @@ def _safe(url: str) -> str:
     return urlunsplit(parts._replace(netloc=netloc))
 
 
-def _step(step: str, build: Path, url: str, state: Path) -> tuple[list[str], list[str]]:
+def _step(
+    step: str, build: Path, url: str, state: Path, *, core: Path | None = None
+) -> tuple[list[str], list[str]]:
     """What's wrong after the step (nothing if it passed), and its log."""
     before = json.loads(state.read_text("utf-8")).get("problems", [])
     env = {
@@ -358,8 +431,11 @@ def _step(step: str, build: Path, url: str, state: Path) -> tuple[list[str], lis
         "PYTHONDONTWRITEBYTECODE": "1",
         "IKI_HARNESS_DATABASE_URL": url,
     }
+    command = [sys.executable, "-m", "iki_server.plugins.upgrade_test", step, str(state)]
+    if core is not None:
+        command.append(str(core))
     done = subprocess.run(  # noqa: S603 - our own module, with this interpreter
-        [sys.executable, "-m", "iki_server.plugins.upgrade_test", step, str(state)],
+        command,
         env=env,
         capture_output=True,
         text=True,

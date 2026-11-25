@@ -122,7 +122,7 @@ def prepared_source(name: str, directory: Path, output: Path, *, pinned: bool = 
         return directory
     staged = _stage_resources(directory, output, resources)
     if has_pin:
-        _place_modules(staged, [staged / marker])
+        _place_modules(staged, [staged / marker], pinned=pinned)
     return staged
 
 
@@ -172,7 +172,7 @@ def _measurement_resources(directory: Path, *, pinned: bool) -> dict[Path, bytes
     expected = marker.read_text("ascii").strip()
     if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
         raise ValueError("The DNA measurement marker must hold a SHA-256 digest.")
-    if platform.system() == "Linux" and platform.machine().lower() in {"x86_64", "amd64"}:
+    if pinned or _digests_hold_here():
         module = resources[relative]
         assert module is not None  # noqa: S101 - populated above
         actual = hashlib.sha256(module).hexdigest()
@@ -294,20 +294,11 @@ DIGEST_SUFFIX = ".sha256"
 
 
 def _digests_hold_here() -> bool:
-    """Whether a tracked module digest is of the build this machine makes.
-
-    The digests are of the Linux x86-64 build, because that is the platform every worker
-    image and every deployment runs, and because a Rust WebAssembly build is reproducible
-    on one platform but not across them: rustc links its own precompiled wasm32 standard
-    library, and the copy shipped for macOS arm64 is not byte-identical to the one for
-    Linux x86-64 (ADR 0200). So the bytes that can reach a worker are always compared,
-    and a developer building a deployment on another platform, which only a dev cluster
-    ever runs, gets the module they built without a comparison that could only fail.
-    """
-    return platform.system() == "Linux" and platform.machine() in {"x86_64", "amd64"}
+    """Whether even a development build should match the canonical Linux x86-64 digest."""
+    return platform.system() == "Linux" and platform.machine().lower() in {"x86_64", "amd64"}
 
 
-def _place_modules(directory: Path, files: Sequence[Path]) -> list[Path]:
+def _place_modules(directory: Path, files: Sequence[Path], *, pinned: bool) -> list[Path]:
     """Puts each compiled module `directory` asks for beside its digest, and checks it.
 
     A plugin asks for one by tracking ``<module>.sha256``, which a ``git archive`` export
@@ -318,8 +309,8 @@ def _place_modules(directory: Path, files: Sequence[Path]) -> list[Path]:
     was built from this commit's Rust and nothing else.
 
     Returns the modules it placed, to add to the bundle. Raises :class:`ValueError` naming
-    the module where there is none to be had, its digest is empty, or -- on the platform
-    the digests are of, see :func:`_digests_hold_here` -- the bytes don't match. A plugin
+    the module where there is none to be had, its digest is empty, or the bytes differ
+    in a pinned build or a native Linux x86-64 development build. A plugin
     tracking no digest gets nothing and passes.
     """
     placed: list[Path] = []
@@ -351,7 +342,7 @@ def _place_modules(directory: Path, files: Sequence[Path]) -> list[Path]:
             module.chmod(0o644)
             placed.append(module)
         made = _sha256(module)
-        if not _digests_hold_here():
+        if not pinned and not _digests_hold_here():
             continue
         if made != want[0]:
             raise ValueError(
@@ -376,7 +367,7 @@ def _files(directory: Path) -> list[Path]:
     return sorted(found)
 
 
-def bundle(directory: Path, output: Path) -> dict[str, Any]:
+def bundle(directory: Path, output: Path, *, pinned: bool = False) -> dict[str, Any]:
     """Writes `directory`'s code to `output`, a gzipped tar workers fetch, and returns its
     ``sha256`` and ``size``. Only regular files: a symbolic link could point anywhere on
     the computer that unpacks it, so a plugin with one is refused. Times, owners and
@@ -385,7 +376,7 @@ def bundle(directory: Path, output: Path) -> dict[str, Any]:
     A module `directory` tracks a digest for is put there and checked first, or the
     bundle is refused: see :func:`_place_modules`."""
     files = _files(directory)
-    files = sorted({*files, *_place_modules(directory, files)})
+    files = sorted({*files, *_place_modules(directory, files, pinned=pinned)})
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode="w", format=tarfile.PAX_FORMAT) as tar:
         for file in files:

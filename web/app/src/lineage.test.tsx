@@ -166,9 +166,9 @@ describe("a walk's results", () => {
 
 describe("searching by lineage", () => {
   it("reads downstream: and upstream: in the search box as conditions", () => {
-    expect(searchWords("downstream:DNR-000001 lot 7")).toEqual({
+    expect(searchWords("downstream:TUB-000001 lot 7")).toEqual({
       text: "lot 7",
-      conditions: [{ field: "downstream", op: "of", value: "DNR-000001" }],
+      conditions: [{ field: "downstream", op: "of", value: "TUB-000001" }],
     });
     expect(searchWords("upstream:res-000004").conditions).toEqual([
       { field: "upstream", op: "of", value: "res-000004" },

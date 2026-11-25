@@ -74,6 +74,7 @@ class TriggerOut(Schema):
     )
     action: str = Field(description="The qualified name of the action it runs.")
     action_label: str
+    recheck: bool = Field(False, description="Recheck an edited record on the editor’s authority.")
     input: str = Field(description="The action's input that takes the entity; empty on a schedule.")
     related: dict[str, RelatedOut] = Field(
         description="Other inputs it gives the entities related to the one that fired it "
@@ -102,6 +103,7 @@ def _trigger_out(spec: Trigger) -> dict[str, Any]:
         "field": spec.state_field,
         "states": list(spec.states),
         "action": f"{spec.plugin}.{spec.run}",
+        "recheck": bool(spec.recheck),
         "action_label": action.label if action is not None else spec.run,
         "input": spec.input,
         "related": {
@@ -176,16 +178,22 @@ def _project_triggers_out(me: User, found: Project) -> list[dict[str, Any]]:
         mine = (
             row is not None and row.enabled and row.enabled_by_id == me.pk and spec.on != "schedule"
         )
+        enabled = row.enabled if row is not None else bool(spec.recheck)
         out.append(
             {
                 **_trigger_out(spec),
                 **_state(row),
+                "enabled": enabled,
                 "last_fired_at": last.get(name),
                 "run_as_choices": triggers.run_as_choices(found, spec) if admin else [],
                 "why_not_enable": why,
                 "can": {
-                    "enable": admin and web and why is None and not mine,
-                    "disable": admin and row is not None and row.enabled,
+                    "enable": admin
+                    and web
+                    and why is None
+                    and not mine
+                    and not (spec.recheck and enabled),
+                    "disable": admin and enabled,
                 },
             }
         )
@@ -291,17 +299,26 @@ def enable_trigger(
     return _one(me, found, name)
 
 
+class DisableIn(Schema):
+    reason: str = Field("", max_length=2000)
+
+
 @router.post(
     "/projects/{project_id}/triggers/{qualified:name}/disable",
     response=ProjectTriggerOut,
     summary="Turn a trigger off in a project",
 )
-def disable_trigger(request: HttpRequest, project_id: UUID, name: str) -> dict[str, Any]:
+def disable_trigger(
+    request: HttpRequest, project_id: UUID, name: str, payload: DisableIn | None = None
+) -> dict[str, Any]:
     """Changes after this fire nothing; runs it already launched carry on."""
     me = caller(request)
     found = project(me, project_id, permissions.Action.PROJECT_TRIGGERS_MANAGE)
     _installed(name)
-    triggers.disable(me, found, name)
+    try:
+        triggers.disable(me, found, name, reason=payload.reason if payload else "")
+    except Refused as error:
+        raise Problem(422, str(error), code="invalid") from None
     return _one(me, found, name)
 
 
@@ -326,6 +343,7 @@ class FiringErrorOut(Schema):
 
 
 class FiringOut(Schema):
+    editor: PersonRef | None = None
     id: UUID
     trigger: str = Field(description="The trigger's qualified name.")
     label: str

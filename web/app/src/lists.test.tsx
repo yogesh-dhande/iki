@@ -631,12 +631,12 @@ describe("a list's columns", () => {
 
   it("names a type with its plugin only when another has its label", () => {
     const sample = { name: "acme/example.Sample", label: "Sample", plugin: "acme/example" };
-    const lims = { name: "iki/example_lims.Sample", label: "Sample", plugin: "iki/example_lims" };
+    const lims = { name: "iki/samples.Sample", label: "Sample", plugin: "iki/samples" };
     expect(typeDisplayName(sample, [sample, lims, PROTEIN])).toEqual({
       label: "Sample",
       plugin: "acme/example",
     });
-    expect(typeDisplayText(lims, [sample, lims])).toBe("Sample (iki/example_lims)");
+    expect(typeDisplayText(lims, [sample, lims])).toBe("Sample (iki/samples)");
     expect(typeDisplayName(PROTEIN, [sample, lims, PROTEIN])).toEqual({ label: "Protein" });
   });
 

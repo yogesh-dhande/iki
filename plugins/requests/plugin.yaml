@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: iki/requests
+version: 0.1.0
+title: Requests
+description: Work sent between projects, private service work items and released deliverables.
+license: Apache-2.0
+iki: ">=0.1"
+dependencies:
+  iki/inventory: { types: { Tube: ">=1" } }
+  iki/lab_roles: {}

@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from iki_server.entities import registry
-from iki_server.entities.models import Entity
+from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid, shape, to_json
 from iki_spec import rules as spec_rules
 from iki_spec.model import Field, Rule
@@ -147,7 +147,16 @@ def digest_of(type_name: str) -> str:
     )
     data = {
         "checks": [
-            [r.key, r.check, r.when, r.message, list(r.hold), list(r.fields)]
+            [
+                r.key,
+                r.check,
+                r.when,
+                r.message,
+                list(r.hold),
+                list(r.fields),
+                r.reference_revisions,
+                r.recheck_before_signing,
+            ]
             for r in checks_of(type_name)
         ],
         "plugins": [[p, plugins[p].version] for p in owners if p in plugins],
@@ -225,18 +234,70 @@ def _load(ids: set[Any]) -> dict[Any, dict[str, Any]]:
     installed = registry.types()
     found = [e for e in Entity.objects.filter(pk__in=ids) if e.type in installed]
     values_of = current_values_of(found)
-    out: dict[Any, dict[str, Any]] = {}
-    for entity in found:
-        form = shape(entity.type)
-        own = form.entry_fields() if entity.registry_id is not None else form.fields()
-        stored = values_of.get(entity.pk, {})
-        record = {"id": str(entity.pk), "hrid": entity.hrid}
-        for name, f in own.items():
-            value = stored.get(name)
-            # Its own references are their IDs: an expression reads one step, no further.
-            record[name] = cel_value(f, value)
-        out[entity.pk] = record
-    return out
+    return {entity.pk: _neighbor(entity, values_of.get(entity.pk, {})) for entity in found}
+
+
+def _neighbor(entity: Entity, values: Mapping[str, Any]) -> dict[str, Any]:
+    form = shape(entity.type)
+    fields = form.entry_fields() if entity.registry_id is not None else form.fields()
+    return {
+        "id": str(entity.pk),
+        "hrid": entity.hrid,
+        **{name: cel_value(field, values.get(name)) for name, field in fields.items()},
+    }
+
+
+def historical_reference(pk: uuid.UUID, revision: int | None) -> dict[str, Any] | None:
+    from iki_server.entities.services import values_at
+
+    if revision is None:
+        return None
+    saved = Revision.objects.select_related("entity").filter(entity_id=pk, number=revision).first()
+    if saved is None or saved.entity.type not in registry.types():
+        return None
+    return _neighbor(saved.entity, values_at(saved.entity, revision))
+
+
+def evaluate_pinned(
+    variables: dict[str, Any],
+    expressions: Sequence[tuple[str, str]],
+    contexts: Sequence[dict[str, Any]],
+    pins: tuple[tuple[str, str], ...],
+) -> list[list[spec_rules.Outcome]]:
+    """Keep a pinned subtype's fields available to explicit CEL dyn() reads.
+
+    The manifest checks ordinary field access against the declared reference type. The
+    interpreter also uses that schema to project its inputs. Give each distinct pinned
+    shape its own projection so a sibling's field stays absent, even in a bulk import.
+    """
+    if not pins:
+        return spec_rules.evaluate(variables, expressions, contexts)
+    record = variables["record"]
+    fields = record["fields"]
+    groups: dict[tuple[tuple[str, tuple[str, ...]], ...], list[int]] = {}
+    for index, context in enumerate(contexts):
+        extras = []
+        for name, _ in pins:
+            evidence = context["record"].get(name)
+            declared = fields.get(name, {}).get("fields")
+            if declared is not None and isinstance(evidence, dict):
+                additional = evidence.keys() - declared.keys()
+                if additional:
+                    extras.append((name, tuple(sorted(additional))))
+        groups.setdefault(tuple(extras), []).append(index)
+
+    outcomes: list[list[spec_rules.Outcome]] = [[] for _ in contexts]
+    for extra_fields, indices in groups.items():
+        projected = dict(fields)
+        for name, additional in extra_fields:
+            reference = fields[name]
+            extra = {key: {"type": "dyn"} for key in additional}
+            projected[name] = reference | {"fields": reference["fields"] | extra}
+        schema = variables | {"record": record | {"fields": projected}}
+        batch = spec_rules.evaluate(schema, expressions, [contexts[index] for index in indices])
+        for index, found in zip(indices, batch, strict=True):
+            outcomes[index] = found
+    return outcomes
 
 
 def record_json(
@@ -318,10 +379,37 @@ def _applies(rule: Rule, changed: frozenset[str] | None) -> bool:
     return changed is None or bool(set(rule.reads) & changed) or not rule.reads
 
 
-def broken(type_name: str, savings: Sequence[Saving]) -> list[list[Broken]]:
+def broken(
+    type_name: str, savings: Sequence[Saving], *, before_signing: bool = False
+) -> list[list[Broken]]:
     """The checks each record about to be saved breaks: false, or not worked out for a
     reason other than an empty value. Each record's are in its rules' order."""
+    groups: dict[tuple[tuple[str, str], ...], list[Rule]] = {}
     checks = checks_of(type_name)
+    for rule in checks:
+        if not before_signing or rule.recheck_before_signing:
+            groups.setdefault(rule.reference_revisions, []).append(rule)
+    if len(groups) == 1:
+        pins, checks_here = next(iter(groups.items()))
+        return _evaluate_checks(type_name, savings, checks_here, pins)
+    failures: list[list[Broken]] = [[] for _ in savings]
+    for pins, checks_here in groups.items():
+        for found, batch in zip(
+            failures, _evaluate_checks(type_name, savings, checks_here, pins), strict=True
+        ):
+            found.extend(batch)
+    order = {r.key: i for i, r in enumerate(checks)}
+    for found in failures:
+        found.sort(key=lambda failure: order[failure.rule.key])
+    return failures
+
+
+def _evaluate_checks(
+    type_name: str,
+    savings: Sequence[Saving],
+    checks: Sequence[Rule],
+    pins: tuple[tuple[str, str], ...],
+) -> list[list[Broken]]:
     if not checks or not savings:
         return [[] for _ in savings]
     form = shape(type_name)
@@ -348,17 +436,39 @@ def broken(type_name: str, savings: Sequence[Saving]) -> list[list[Broken]]:
     times = now_values()
     contexts: list[dict[str, Any]] = []
     missing: list[dict[str, int]] = []
+    invalid_pins: list[list[str]] = []
     for group in _groups(fields, reads, savings):
         referenced = _load(set().union(*(ids for _, ids in group)))
+        historical: dict[tuple[uuid.UUID, int | None], dict[str, Any] | None] = {}
         for s, _ in group:
             record = record_json(form, s.values, reads, referenced, entity_id=s.id, hrid=s.hrid)
+            invalid: list[str] = []
+            for ref, number in pins:
+                if (pk := s.values(ref)) is None:
+                    continue
+                key = (pk, s.values(number))
+                if key not in historical:
+                    historical[key] = historical_reference(*key)
+                record[ref] = historical[key]
+                if record[ref] is None:
+                    invalid.append(number)
+            invalid_pins.append(invalid)
             contexts.append({"record": record, **times})
             missing.append(unread(form, s.values, reads, referenced))
-    results = spec_rules.evaluate(record_variables(type_name), expressions, contexts)
+    results = evaluate_pinned(record_variables(type_name), expressions, contexts, pins)
     out: list[list[Broken]] = []
-    for outcomes, rules_here, gone in zip(results, applying, missing, strict=True):
+    for outcomes, rules_here, gone, invalid in zip(
+        results, applying, missing, invalid_pins, strict=True
+    ):
         found = []
         for rule in rules_here:
+            if invalid:
+                found.append(
+                    Broken(
+                        rule, "Choose a saved revision of the referenced record.", tuple(invalid)
+                    )
+                )
+                continue
             if lost := {n: k for n, k in gone.items() if n in rule.reads}:
                 log.warning("entities.rule_unworkable", rule=rule.key, type=type_name, unread=lost)
                 text = f"“{rule.label}” couldn’t be checked: {unread_text(lost)}"

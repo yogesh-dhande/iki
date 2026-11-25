@@ -172,12 +172,80 @@ describe("plasmid map with sequencing evidence", () => {
     expect(dl).toContain("Read depth fromSynthetic reads");
   });
 
+  it("draws a feature with no strand, or both, without an arrowhead, and says so", () => {
+    const map = document.createElement("iki-plasmid-map");
+    map.data = {
+      name: "Synthetic circle",
+      length: 100,
+      topology: "circular" as const,
+      parts: {
+        items: [
+          { start: 10, end: 30, name: "Unstranded", type: "misc_feature", strand: "none" as const },
+          { start: 50, end: 70, name: "Split", type: "CDS", strand: "mixed" as const },
+          { start: 80, end: 90, name: "Ahead", type: "CDS", strand: "forward" as const },
+        ],
+        own: true,
+      },
+      notes: ["The consensus's bases 101 to 200 of its 200 repeat bases already placed."],
+    };
+    document.body.append(map);
+    const root = map.shadowRoot;
+    assert(root);
+    const said = root.querySelector("p")?.textContent ?? "";
+    expect(said).toContain("Unstranded, 10 to 30 on neither strand");
+    expect(said).toContain("Split, 50 to 70 on both strands");
+    expect(said).toContain("Ahead, 80 to 90 on the forward strand");
+    // One arrowhead, the forward feature's: the others' head paths are empty.
+    const heads = Array.from(root.querySelectorAll("svg path:not(.arc):not(.depth)")).filter(
+      (path) => (path.getAttribute("d") ?? "").endsWith("Z"),
+    );
+    expect(heads).toHaveLength(1);
+    const strands = Array.from(
+      root.querySelectorAll('[aria-label="Features"] tbody tr'),
+      (row) => row.children[3]?.textContent,
+    );
+    expect(strands).toEqual(["neither", "both", "forward"]);
+    expect(root.querySelector("p.note")?.textContent).toBe(
+      "The consensus's bases 101 to 200 of its 200 repeat bases already placed.",
+    );
+  });
+
+  it("reports measured gaps when their coordinates are missing", () => {
+    for (const low of [undefined, []]) {
+      const map = document.createElement("iki-plasmid-map");
+      map.data = { ...evidence, coverage: { ...evidence.coverage, low } };
+      document.body.append(map);
+      expect(map.shadowRoot?.querySelector("p")?.textContent).not.toContain("every base at");
+      expect(
+        map.shadowRoot?.querySelector('[aria-label="Read depth"] table')?.textContent,
+      ).toContain("interval details unavailable");
+    }
+  });
+
+  it("identifies partial interval coordinates in its description and table", () => {
+    const map = document.createElement("iki-plasmid-map");
+    map.data = { ...evidence, coverage: { ...evidence.coverage, low_count: 202 } };
+    document.body.append(map);
+    for (const selector of ["p", '[aria-label="Read depth"] table']) {
+      expect(map.shadowRoot?.querySelector(selector)?.textContent).toContain(
+        "showing 1 of 202 intervals; see coverage.tsv for all",
+      );
+    }
+  });
+
   it("says when every base is deep enough and nothing differs", () => {
     const map = document.createElement("iki-plasmid-map");
     map.data = {
       ...evidence,
       parts: { items: [], own: true },
-      coverage: { ...evidence.coverage, low: [] },
+      coverage: {
+        ...evidence.coverage,
+        mean: [30, 15],
+        min: [25, 10],
+        meanDepth: 22.5,
+        leastDepth: 10,
+        low: [],
+      },
       differences: { items: [] },
     };
     document.body.append(map);

@@ -58,7 +58,6 @@ from iki_server.files import services as files
 from iki_server.files.models import File
 from iki_server.org import permissions
 from iki_server.org.models import Project, registry_of
-from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 from iki_server.runs import imports
 from iki_server.runs.models import SERVER_TIER, ActionRun, RunStatus
@@ -186,10 +185,10 @@ def action_for(type_name: str) -> SpecAction:
 # --- Starting and choosing ---------------------------------------------------------------------
 
 
-def _may_write(user: User, project: Project) -> None:
+def _may_write(user: User, project: Project, type_name: str) -> None:
     if project.is_archived:
         raise Refused(f"{project.name} is archived: restore it to import into it.")
-    if not permissions.can(user, Action.PROJECT_EDIT, project):
+    if not permissions.can(user, access.edit_action(type_name), project):
         raise PermissionDenied(f"You can't add records to {project.name}.")
 
 
@@ -199,7 +198,7 @@ def start(user: User, project: Project, file_id: uuid.UUID, type_name: str) -> S
     :class:`PermissionDenied`."""
     from iki_server.spreadsheets import tasks
 
-    _may_write(user, project)
+    _may_write(user, project, type_name)
     if not mapping.is_type(type_name):
         raise Refused(f"There's no entity type {type_name} to import into.", field="type")
     why = entities.frozen(shape(type_name))
@@ -339,7 +338,7 @@ def change(
     starts again. Raises :class:`Stale` if it's moved on from ``expected_revision``,
     :class:`Invalid` with what's wrong, by where, or :class:`Refused`. Nothing is
     changed unless all of it is."""
-    _may_write(user, imported.project)
+    _may_write(user, imported.project, imported.type)
     with transaction.atomic():
         imported = _locked(imported, expected_revision)
         if imported.state not in (
@@ -567,7 +566,7 @@ def save_mapping(
     """Keeps the import's mapping in its project, by its headers, as ``name``: or as
     ``replace``, changing it. The mapping kept is the one at ``expected_revision``, the
     one the person saw. Raises :class:`Stale` or :class:`Refused`."""
-    _may_write(user, imported.project)
+    _may_write(user, imported.project, imported.type)
     if (replace is None) != (target_revision is None):
         raise Invalid({"target_revision": ["Give a template ID and its revision together."]})
     name = name.strip()
@@ -627,7 +626,7 @@ def save_mapping(
 
 
 def delete_mapping(user: User, saved: SavedMapping) -> None:
-    _may_write(user, saved.project)
+    _may_write(user, saved.project, saved.type)
     with transaction.atomic():
         saved = SavedMapping.objects.select_for_update().get(pk=saved.pk)
         audit.record(
@@ -651,7 +650,7 @@ def preview(
     :class:`Stale` if it's moved on since, or :class:`Refused` while it can't be."""
     from iki_server.spreadsheets import tasks
 
-    _may_write(user, imported.project)
+    _may_write(user, imported.project, imported.type)
     with transaction.atomic():
         imported = _locked(imported, expected_revision)
         if imported.state not in (
@@ -1459,7 +1458,7 @@ def commit(
     ``skip_problems`` leaves them out. Raises :class:`Stale` or :class:`Refused`."""
     from iki_server.spreadsheets import tasks
 
-    _may_write(user, imported.project)
+    _may_write(user, imported.project, imported.type)
     with transaction.atomic():
         imported = _locked(imported, expected_revision)
         if imported.state != ImportState.PREVIEWED:
@@ -1520,7 +1519,7 @@ def committing(import_id: str) -> str:
         user, project = locked.requested_by, locked.project
         if (
             not user.is_active
-            or not permissions.can(user, Action.PROJECT_EDIT, project)
+            or not permissions.can(user, access.edit_action(locked.type), project)
             or project.is_archived
         ):
             locked.state = ImportState.FAILED

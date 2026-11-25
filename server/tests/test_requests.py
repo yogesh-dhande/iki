@@ -738,7 +738,7 @@ def test_results_are_the_services_until_it_releases_them(lab: Lab) -> None:
 
 @pytest.fixture
 def signed_result(lab: Lab, monkeypatch: pytest.MonkeyPatch) -> tuple[str, str]:
-    """Run the request fixture's review and release through SSO, as in example_lims."""
+    """Run the request fixture's review and release through SSO, as in the requests plugin."""
     field = states.state_fields(RESULT)["review"]
     for state_name, meaning in [("reviewed", "review"), ("released", "approval")]:
         target = field.states[state_name]

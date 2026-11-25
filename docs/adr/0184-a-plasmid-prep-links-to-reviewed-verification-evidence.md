@@ -70,3 +70,9 @@ choice. A recorded match requires a written reason when the alignment reports
 the verification record checks the same immutable verdict when a reviewer
 edits or corrects the outcome or reason. The reason is part of the record's
 revision history and the content attested by its signatures.
+
+A comparison run supplies the immutable verdict. A whole-plasmid result also
+retains its reference revision, reference length, consensus file and called
+percentage. When the alignment names a physical sample, the verification
+requires that sample to be the selected prep. A generic alignment without a
+sample or verdict can still be cited with the reviewer’s attestation.

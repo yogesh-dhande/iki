@@ -53,10 +53,6 @@ DSDNA_PER_A260 = 50.0
 CYSTINE = 125
 #: Hydrogen's standard atomic weight, as the complex plugin weighs a disulfide's two.
 HYDROGEN = 1.00794
-#: How finely a measured mass is compared with its tolerance, in u: a micro-dalton, far
-#: finer than any mass spectrometer resolves, and far coarser than the binary rounding of
-#: two masses' difference. The type's rule compares to the same.
-MASS_RESOLUTION = Decimal("0.000001")
 
 
 def number(value: Any) -> float | None:  # noqa: ANN401 - a value's JSON
@@ -197,7 +193,7 @@ def oligo(lot: Lot) -> None:
             f"({basis}), {sign}{_given(abs(error))} Da"
         )
         if tolerance is not None:
-            within = abs(error) <= Decimal(repr(tolerance)) + MASS_RESOLUTION
+            within = abs(error) <= Decimal(repr(tolerance))
             said += f", {'within' if within else 'outside'} ±{_given(tolerance)} Da"
         print(said)
     od = lot.get("yield_od")

@@ -4,11 +4,12 @@
 apiVersion: iki/v1
 kind: ActionTest
 name: refuse_a_file_of_two_consensuses
+upgrade: true
 description: A service sends one consensus for a prep; a file of two (synthetic) is refused.
 action: verify_plasmid_consensus
 inputs:
   plasmid:
-    - values: { name: pUC19 }
+    - values: { name: Synthetic reference }
       included:
         sequence:
           - values: { bases: ACGTACGTACGTACGTACGT, topology: circular }

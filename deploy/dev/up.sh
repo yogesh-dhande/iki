@@ -157,10 +157,10 @@ if ! kc -n "$NAMESPACE" get secret fake-lims-tls >/dev/null 2>&1 ||
       --cert="$certs/$service.crt" --key="$certs/$service.key" >/dev/null
   done
 fi
-# The secrets plugins' actions declare (runSecrets): the example LIMS plugin's
+# The secrets plugins' actions declare (runSecrets): the example LIMS connector's
 # token, which the fake LIMS checks too, and the example models plugin's API
 # key and webhook secret, which the fake FoldCloud checks and signs with.
-ensure_secret iki-run-secrets --from-literal=iki__example_lims.LIMS_TOKEN="$(rand 32 32)"
+ensure_secret iki-run-secrets --from-literal=iki__lims_connector_example.LIMS_TOKEN="$(rand 32 32)"
 ensure_run_secret() {
   local key="$1" value="$2"
   if [ -z "$(kc -n "$NAMESPACE" get secret iki-run-secrets -o "jsonpath={.data.${key//./\\.}}")" ]; then

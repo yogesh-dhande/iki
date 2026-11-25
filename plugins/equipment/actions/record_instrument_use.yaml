@@ -4,7 +4,7 @@ name: record_instrument_use
 label: Record instrument use
 description: Pin the measured record and the signed calibration in force when the measurement was made.
 inputs:
-  instrument: { type: iki/example_lims.Instrument }
+  instrument: { type: Instrument }
   result: { type: iki/core.Entity, label: Measured result }
   calibration: { type: EquipmentService, label: Passing calibration }
 params:

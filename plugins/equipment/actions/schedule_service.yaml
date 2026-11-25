@@ -4,7 +4,7 @@ name: schedule_service
 label: Schedule service
 description: Create an instrument service appointment under this deployment's selected review flow.
 inputs:
-  instrument: { type: iki/example_lims.Instrument }
+  instrument: { type: Instrument }
 params:
   kind: { type: enum, values: [calibration, maintenance], required: true }
   due_on: { type: date, required: true, label: Scheduled for }

@@ -6,7 +6,7 @@ description: >-
   Fit the sample's dose series from a committed plate read. Each fit keeps
   its measurements, raw responses, exclusions and the selected review flow.
 inputs:
-  read: { type: PlateRead, schema: ">=1", include: [measurements] }
+  read: { type: PlateRead, schema: ">=1", include: [measurements, request] }
   sample: { type: iki/core.Entity, description: The sample assigned to the dilution series. }
 params:
   endpoint_kind:

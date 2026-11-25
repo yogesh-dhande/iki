@@ -113,7 +113,13 @@ inputs:
           - values:
               approval: approved
               criteria:
-                - { attribute: IC50, method: 4PL-OLS/1, unit: nM, lower: 20, upper: 30 }
+                - attribute: IC50
+                  method: 4PL-OLS/1
+                  procedure: SOP-A
+                  procedure_revision: "2"
+                  unit: nM
+                  lower: 20
+                  upper: 30
   assay:
     - type: iki/plate_assays.ResearchAssayResult
       values:
@@ -121,6 +127,8 @@ inputs:
         endpoint_kind: IC50
         endpoint_value: 25
         concentration_unit: nM
+        procedure: SOP-A
+        procedure_revision: "2"
         fit_version: 4PL-OLS/1
         fit_status: fitted
         qualifier: within_range
@@ -146,7 +154,13 @@ inputs:
           - values:
               approval: approved
               criteria:
-                - { attribute: IC50, method: 4PL-OLS/1, unit: nM, lower: 20, upper: 30 }
+                - attribute: IC50
+                  method: 4PL-OLS/1
+                  procedure: SOP-A
+                  procedure_revision: "2"
+                  unit: nM
+                  lower: 20
+                  upper: 30
   assay:
     - type: iki/plate_assays.QCAssayResult
       values:
@@ -154,6 +168,8 @@ inputs:
         endpoint_kind: IC50
         endpoint_value: 25
         concentration_unit: nM
+        procedure: SOP-A
+        procedure_revision: "2"
         fit_version: 4PL-OLS/1
         fit_status: fitted
         qualifier: within_range

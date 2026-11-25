@@ -34,7 +34,7 @@ with nothing to migrate.
 identifiers, as names were before: 2 to 30 letters, digits and single
 underscores, starting with a letter. Iki's own plugins are `iki/core`,
 `iki/dna`, `iki/protein`, `iki/antibody`, `iki/small_molecule` and
-`iki/example_lims`. The plugin template is `acme/example`; its README says
+`iki/inventory`. The plugin template is `acme/example`; its README says
 to use your lab's or company's namespace in place of the placeholder.
 Everything else follows from the name:
 

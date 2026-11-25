@@ -107,10 +107,14 @@ def _csv_rows(content: bytes) -> list[tuple[int, list[str]]]:
     return parsed
 
 
-def _matrix(content: bytes, rows: int, columns: int) -> tuple[str, list[tuple[int, list[str]]]]:
-    parsed = _csv_rows(content)
+def _heading(parsed: list[tuple[int, list[str]]]) -> tuple[int, str, str]:
+    if parsed and parsed[0][1] == ["Normalized activity (%)"]:
+        return 0, "Normalized activity", "%"
     if not parsed or not parsed[0][1][0].startswith("User:"):
-        raise ValueError("Choose a BMG MARS MicroPlate View CSV with its export header.")
+        raise ValueError(
+            "Choose a BMG MARS MicroPlate View CSV with its export header "
+            "or a normalized activity matrix."
+        )
     starts = [i for i, (_, row) in enumerate(parsed) if row[0].lower().startswith("raw data")]
     if len(starts) != 1:
         raise ValueError("Export exactly one Raw Data absorbance endpoint matrix per file.")
@@ -121,13 +125,21 @@ def _matrix(content: bytes, rows: int, columns: int) -> tuple[str, list[tuple[in
     wavelength = RAW.fullmatch(title[0])
     if len(title) != 1 or not wavelength or int(wavelength[1]) == 0:
         raise ValueError("The Raw Data heading must give one absorbance wavelength in nm.")
+    return index, f"Absorbance {int(wavelength[1])} nm", "AU"
+
+
+def _matrix(
+    content: bytes, rows: int, columns: int
+) -> tuple[str, str, list[tuple[int, list[str]]]]:
+    parsed = _csv_rows(content)
+    index, channel, unit = _heading(parsed)
     headings = ["", *(str(column) for column in range(1, columns + 1))]
     if index + 1 >= len(parsed) or parsed[index + 1][1] != headings:
         raise ValueError(
             f"The matrix must label columns 1 through {columns} in order, "
             f"once each, for a {rows * columns}-well plate."
         )
-    return f"Absorbance {int(wavelength[1])} nm", parsed[index + 2 :]
+    return channel, unit, parsed[index + 2 :]
 
 
 def preview_reader(content: bytes, plate_size: int, layout: list[dict[str, Any]]) -> dict[str, Any]:
@@ -147,11 +159,11 @@ def preview_reader(content: bytes, plate_size: int, layout: list[dict[str, Any]]
     rows, columns = DIMENSIONS[plate_size]
     assignments = _layout(layout, rows, columns, issues)
     try:
-        channel, matrix = _matrix(content, rows, columns)
+        channel, unit, matrix = _matrix(content, rows, columns)
     except (ValueError, csv.Error) as exc:
         issues.append(str(exc))
         return preview
-    preview["channel"] = channel
+    preview.update(channel=channel, unit=unit)
     seen_rows: set[str] = set()
     measured: set[str] = set()
     unassigned: list[str] = []
@@ -173,7 +185,8 @@ def preview_reader(content: bytes, plate_size: int, layout: list[dict[str, Any]]
             well = f"{letter}{column}"
             measured.add(well)
             if not NUMBER.fullmatch(cell) or not math.isfinite(value := float(cell)):
-                issues.append(f"File row {source_row}, {well}: expected a finite OD reading.")
+                kind = "OD" if unit == "AU" else "activity"
+                issues.append(f"File row {source_row}, {well}: expected a finite {kind} reading.")
                 continue
             if well not in assignments:
                 unassigned.append(well)
@@ -182,7 +195,7 @@ def preview_reader(content: bytes, plate_size: int, layout: list[dict[str, Any]]
                 {
                     **assignments[well],
                     "value": value,
-                    "unit": "AU",
+                    "unit": unit,
                     "channel": channel,
                     "source_row": source_row,
                 }

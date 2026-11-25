@@ -48,6 +48,8 @@ def plate_run():
                         "assignments": rows,
                         "reader_file": uid(2),
                         "name": "Synthetic",
+                        "procedure": "SOP-A",
+                        "procedure_revision": "2",
                     },
                 }
             ]
@@ -89,6 +91,9 @@ def committed_read(actions):
 def test_fit_from_committed_measurements(actions, flow, request_id, kind):
     read = committed_read(actions)
     read["values"]["request"] = request_id
+    read["included"]["request"] = (
+        [{"id": request_id, "covered_materials": [uid(6)]}] if request_id else []
+    )
     run = {
         "run": {"requested_by": uid(8)},
         "inputs": {"read": [read], "sample": [{"id": uid(6), "entry_id": uid(5)}]},
@@ -99,6 +104,7 @@ def test_fit_from_committed_measurements(actions, flow, request_id, kind):
     assert fit["type"] == f"iki/plate_assays.{kind}"
     assert fit["derived_from"] == [uid(3), uid(6)]
     evidence = fit["values"]
+    assert (evidence["procedure"], evidence["procedure_revision"]) == ("SOP-A", "2")
     assert evidence["fit_status"] == "fitted"
     assert evidence["ci_low"] < evidence["endpoint_value"] < evidence["ci_high"]
     assert evidence["review_flow"] == flow
@@ -128,6 +134,10 @@ def test_commit_requires_the_clean_preview_of_the_current_input(actions):
     prior = actions.reader_output(run, commit=False)["updates"]["plate"][0]["values"]
     plate = run["inputs"]["plate"][0]["values"]
     plate.update(deepcopy(prior))
+    plate["procedure_revision"] = "3"
+    with pytest.raises(ValueError, match="current layout"):
+        actions.reader_output(run, commit=True)
+    plate["procedure_revision"] = "2"
     plate["assignments"][0]["concentration"] = 70
     with pytest.raises(ValueError, match="current layout"):
         actions.reader_output(run, commit=True)

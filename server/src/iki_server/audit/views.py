@@ -1,21 +1,26 @@
 """The audit log page, for Auditors."""
 
+import json
 import uuid
-from datetime import datetime, time, tzinfo
+from collections.abc import Iterator
+from datetime import UTC, datetime, time, tzinfo
 from typing import Any
 
 from django import forms
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q, QuerySet
-from django.http import HttpRequest, HttpResponse, QueryDict
+from django.db.models import CharField, Q, QuerySet
+from django.db.models.functions import Cast
+from django.http import HttpRequest, HttpResponse, QueryDict, StreamingHttpResponse
 from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.http import require_GET
 
+from iki_server.api import csvs
 from iki_server.api.schemas import agent_out
-from iki_server.audit import details
+from iki_server.audit import details, log
 from iki_server.audit.log import ACTIONS
 from iki_server.audit.models import AuditEvent, Via
+from iki_server.entities.models import Entity
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
@@ -36,6 +41,13 @@ class FilterForm(forms.Form):
         max_length=254,
         help_text="Who did it or who it was about: an email address, or part of one.",
         widget=forms.TextInput(attrs={"autocomplete": "off", "spellcheck": "false"}),
+    )
+    actor = forms.CharField(label="Actor email or ID", required=False, max_length=254)
+    record_type = forms.CharField(
+        label="Record type",
+        required=False,
+        max_length=255,
+        help_text="An audit target such as project, or a qualified entity type.",
     )
     project = forms.ModelChoiceField(
         label="Project", required=False, queryset=Project.objects.order_by("name")
@@ -82,6 +94,16 @@ def _filtered(form: FilterForm) -> QuerySet[AuditEvent]:
     data: dict[str, Any] = form.cleaned_data
     if data["action"]:
         events = events.filter(action=data["action"])
+    if actor := data["actor"]:
+        actor_id = _uuid(actor)
+        events = (
+            events.filter(actor_id=actor_id)
+            if actor_id
+            else events.filter(actor_label__iexact=actor)
+        )
+    if kind := data["record_type"]:
+        records = Entity.objects.filter(type=kind).values_list(Cast("pk", CharField()), flat=True)
+        events = events.filter(Q(target_type=kind) | Q(target_type="entity", target_id__in=records))
     if data["person"]:
         events = events.filter(
             Q(actor_label__icontains=data["person"]) | Q(target_label__icontains=data["person"])
@@ -139,6 +161,7 @@ def audit_log(request: HttpRequest) -> HttpResponse:
     page = page[:PAGE_SIZE]
     query = request.GET.copy()
     query.pop("before", None)
+    export_query = query.urlencode()
     if more:
         query["before"] = str(page[-1].pk)
     with timezone.override(zone):
@@ -157,9 +180,87 @@ def audit_log(request: HttpRequest) -> HttpResponse:
                     )
                     for event in page
                 ],
+                "export_query": export_query,
                 "older_query": query.urlencode() if more else "",
                 "filtered": any(
                     v for k, v in request.GET.items() if k not in {"before", timezones.PARAMETER}
                 ),
             },
         )
+
+
+@login_required
+@require_GET
+def export(request: HttpRequest) -> HttpResponse | StreamingHttpResponse:
+    permissions.require(request.user, Action.AUDIT_READ)
+    form = FilterForm(request.GET, zone=timezones.viewer_zone(request))
+    if not form.is_valid():
+        return HttpResponse("Check the audit log filters.", status=400)
+    through = timezone.now()
+    events = _filtered(form).filter(occurred_at__lte=through).order_by("-occurred_at", "-id")
+    name = "Organization audit log.csv"
+    filters = {
+        key: str(value.pk if isinstance(value, Project) else value)
+        for key, value in form.cleaned_data.items()
+        if value
+    }
+    event = log.record(
+        "audit.exported",
+        actor=request.user,
+        data={"file": name, "filters": filters, "through": through.isoformat()},
+    )
+
+    def rows() -> Iterator[list[object]]:
+        yield [
+            "Event ID",
+            "Time (UTC)",
+            "Action",
+            "Actor ID",
+            "Actor",
+            "Through",
+            "Target type",
+            "Target ID",
+            "Target",
+            "Project ID",
+            "Project",
+            "Team ID",
+            "Team",
+            "Request ID",
+            "Client IP",
+            "OAuth client",
+            "Agent ID",
+            "Client ID",
+            "Grant",
+            "MCP session",
+            "Agent software",
+            "Agent model",
+            "Details",
+        ]
+        for row in events.exclude(pk=event.pk).iterator(chunk_size=500):
+            yield [
+                row.pk,
+                row.occurred_at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+                row.action,
+                row.actor_id,
+                row.actor_label,
+                row.via,
+                row.target_type,
+                row.target_id,
+                row.target_label,
+                row.project_id,
+                row.project.name if row.project else "",
+                row.team_id,
+                row.team.name if row.team else "",
+                row.request_id,
+                row.client_ip,
+                row.oauth_client,
+                row.agent_id,
+                row.agent.client_id if row.agent else "",
+                row.agent.grant if row.agent else None,
+                row.agent.session if row.agent else "",
+                row.agent.software if row.agent else "",
+                row.agent.model if row.agent else "",
+                json.dumps(row.data, ensure_ascii=False, sort_keys=True),
+            ]
+
+    return csvs.streamed(request, csvs.chunks(rows()), name)

@@ -96,7 +96,7 @@ def test_strain_identity_and_stock_to_data_lineage(tmp_path: Path, database: str
 
         source = stock(strain, "SYNTHETIC-1")
         different = stock(yeast, "SYNTHETIC-2")
-        rack = make("iki/example_lims.Rack", name="Synthetic rack")
+        rack = make("iki/inventory.Rack", name="Synthetic rack")
         box = make("iki/strains.StrainBox", name="Synthetic stock box", rows=2, columns=3)
         storage.move(user, [storage.Wanted(box, rack, "1"), storage.Wanted(source, box, "B3")],
                      reason="Inventory fixture")

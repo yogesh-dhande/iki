@@ -33,7 +33,7 @@ params:
 effects:
   updates:
     - input: assembly
-      fields: [simulated_length, simulated_topology, matches_product, junctions]
+      fields: [simulated_length, simulated_topology, matches_product, junctions, verification_note]
 software:
   - { name: Biopython, version: "1.88", url: https://biopython.org }
   - { name: Iki molecular module, version: "0.3.0", url: https://ikisci.org/plugins/plasmid }

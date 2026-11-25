@@ -3,7 +3,7 @@ kind: EntityType
 name: Study
 label: Stability study
 label_plural: Stability studies
-schema_version: 1
+schema_version: 2
 hrid: { prefix: STB }
 description: One revision of a protocol for studying a lot at planned conditions and time points.
 fields:
@@ -60,7 +60,7 @@ fields:
       fields:
         condition: { type: string, max_length: 24, required: true }
         month: { type: int, min: 0, max: 120, required: true }
-        tube: { type: ref, to: iki/example_lims.Tube, required: true }
+        tube: { type: ref, to: iki/inventory.Tube, required: true }
         volume_ul:
           { type: quantity, unit: uL, label: Planned volume (µL), min: 0.000001, required: true }
   tests:

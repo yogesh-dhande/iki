@@ -101,7 +101,12 @@ templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: iki/example_lims.lims-tools
+environment: iki/inventory.stock-tools
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: iki/lims_connector_example.lims-tools
 templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1

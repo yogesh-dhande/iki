@@ -8,6 +8,8 @@
   [0128](0128-guards-say-when-a-state-may-be-set.md) and
   [0149](0149-a-result-leaves-its-service-only-by-release.md).
 
+Updated by [ADR 0211](0211-lots-inventory-samples-and-requests.md). A QC deliverable now returns from Submitted or Reviewed to Recorded for correction. A reviewed sample returns to Retesting with a signed reason and starts a fresh testing cycle.
+
 ## Context
 
 An analyst submits a measurement, a reviewer checks it, and QA releases

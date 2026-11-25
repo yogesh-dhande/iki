@@ -83,6 +83,30 @@ def test_a_bundle_carries_its_records_signatures(world: World, tmp_path: Path) -
     assert "you don't trust test's key" in said  # only its signatures were checked
 
 
+@pytest.mark.parametrize("label", ["", "Approved by the review panel"])
+def test_offline_and_server_signature_labels_match(label: str) -> None:
+    document = {
+        "signer": {"name": "Editor"},
+        "signed_at": "2026-11-24T02:30:00+02:00",
+        "signature": {"meaning": "review", "label": label},
+    }
+    shown = signature_services.manifestation(document)
+    assert "00:30:00 UTC" in shown
+    assert shown.endswith(f"Meaning: {label or 'Review'}.")
+    line = {
+        "id": "signature",
+        "record": "record",
+        "revision": 1,
+        "field": "status",
+        "state": "reviewed",
+        "key": "",
+        "signature": "",
+        "content": "{}",
+        "document": json.dumps(document),
+    }
+    assert offline._one(line, {}, None, {}).manifestation == shown
+
+
 def test_a_bundle_with_no_signatures_checks_out_only_by_its_trusted_key(
     world: World, tmp_path: Path
 ) -> None:

@@ -70,6 +70,7 @@ from iki_spec.model import (
     TypeNotification,
     Viewer,
     Workflow,
+    WorkItemSpec,
     lab_role_name,
     matches_format,
     names_people,
@@ -268,12 +269,17 @@ class _Checker:
 
 
 def load_plugin(
-    directory: FilePath | str, *, dependencies: Sequence[FilePath | str] = (), core: bool = False
+    directory: FilePath | str,
+    *,
+    dependencies: Sequence[FilePath | str] = (),
+    core: bool = False,
+    require_setting_policy: bool = True,
 ) -> Result:
     """Read and check the plugin in `directory`, resolving references with `dependencies`.
 
     ``core`` is for :mod:`iki_spec.builtin` only: the core plugin itself, which
     has the reserved name and can't use its own types before they're read.
+    Only an upgrade probe loading old manifests can relax the explicit setting policy.
     """
     root = FilePath(directory)
     loaded = _read(root)
@@ -303,7 +309,7 @@ def load_plugin(
             )
             continue
         others[other.plugin.name] = other
-    _Semantics(loaded, others, core=core).run()
+    _Semantics(loaded, others, core=core).run(require_setting_policy=require_setting_policy)
     return loaded.result()
 
 
@@ -345,6 +351,7 @@ class _Loaded:
     plugin: Plugin | None = None
     plugin_source: Document | None = None
     type_sources: dict[str, Document] = field(default_factory=dict)
+    invalid_types: set[str] = field(default_factory=set)
     extension_sources: list[Document] = field(default_factory=list)
     action_sources: dict[str, Document] = field(default_factory=dict)
     environment_sources: dict[str, Document] = field(default_factory=dict)
@@ -438,7 +445,7 @@ def _read(root: FilePath) -> _Loaded:
 
     types: dict[str, EntityType] = {}
     extensions: list[Extension] = []
-    for document in _manifests(root, TYPES_DIR, checker):
+    for document in _manifests(root, TYPES_DIR, checker, invalid_types=loaded.invalid_types):
         body = document.data
         if _kind(document) == "EntityType":
             entity_type = _entity_type(name, body, document)
@@ -562,7 +569,9 @@ def _read(root: FilePath) -> _Loaded:
     return loaded
 
 
-def _manifests(root: FilePath, directory: str, checker: _Checker) -> list[Document]:
+def _manifests(
+    root: FilePath, directory: str, checker: _Checker, *, invalid_types: set[str] | None = None
+) -> list[Document]:
     """The schema-valid manifests under `directory`, after reporting any that belong elsewhere."""
     usable = []
     for file in _files(root, directory):
@@ -587,6 +596,12 @@ def _manifests(root: FilePath, directory: str, checker: _Checker) -> list[Docume
                 continue
             if _schema_ok(document, checker):
                 usable.append(document)
+            elif (
+                invalid_types is not None
+                and kind == "EntityType"
+                and isinstance(name := document.data.get("name"), str)
+            ):
+                invalid_types.add(name)
     return usable
 
 
@@ -773,8 +788,10 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
             if isinstance(x, dict)
         },
         request=_request(body.get("request"), plugin),
+        work_item=WorkItemSpec(**body["work_item"]) if "work_item" in body else None,
         result=ResultSpec(
             of=body["result"]["of"],
+            material=body["result"].get("material"),
             released_field=body["result"]["released"]["field"],
             released_states=tuple(body["result"]["released"]["states"]),
         )
@@ -803,12 +820,12 @@ def _draw_target(data: dict[str, Any] | None, plugin: str) -> DrawTarget | None:
         return None
     return DrawTarget(
         from_field=data["from"],
-        source=data["source"],
+        source=data.get("source"),
         state_field=data["state"]["field"],
         state=data["state"]["is"],
-        by=tuple(lab_role_name(role, plugin) for role in data["by"]),
-        ready=data["ready"],
-        amount=data["amount"],
+        by=tuple(lab_role_name(role, plugin) for role in data.get("by", [])),
+        ready=data.get("ready"),
+        amount=data.get("amount"),
         stored=data.get("stored", False),
     )
 
@@ -839,6 +856,9 @@ def _request(data: Any, plugin: str) -> RequestSpec | None:  # noqa: ANN401 - YA
     return RequestSpec(
         service_fields=tuple(data.get("service_fields") or ()),
         sends=tuple(data.get("sends") or ()),
+        materials=tuple(data.get("materials") or ()),
+        completed_field=(data.get("completed") or {}).get("field"),
+        completed_state=(data.get("completed") or {}).get("state"),
         receives=receives.get("field"),
         receives_by=tuple(lab_role_name(role, plugin) for role in receives.get("by") or ()),
     )
@@ -986,6 +1006,15 @@ class _Semantics:
             assert other.plugin is not None  # noqa: S101 - an invariant, not a check
             self.types.update(other.plugin.types)
         self.types.update(self.plugin.types)
+        invalid = {qualify(n, self.plugin.name) for n in loaded.invalid_types} - self.types.keys()
+        self.invalid_types = invalid
+        if invalid:
+            # A subtype's inherited fields can't be checked until its parent can be read.
+            self.invalid_types |= {
+                t.qualified_name
+                for t in self.plugin.types.values()
+                if any(parent.extends in invalid for parent in [t, *self.ancestors(t)])
+            }
         self.stock_lots = {
             t.stock_catalogue.lots.type: t for t in self.types.values() if t.stock_catalogue
         }
@@ -998,11 +1027,12 @@ class _Semantics:
         self.unavailable: set[str] = set()
         self.used: set[str] = set()
 
-    def run(self) -> None:
+    def run(self, *, require_setting_policy: bool) -> None:
         self.plugin_manifest()
         self.lab_roles()
         for qualified, entity_type in self.plugin.types.items():
-            self.entity_type(entity_type, self.loaded.type_sources[qualified])
+            if qualified not in self.invalid_types:
+                self.entity_type(entity_type, self.loaded.type_sources[qualified])
         self.hrid_prefixes()
         self.table_names()
         seen: dict[str, Document] = {}
@@ -1010,7 +1040,7 @@ class _Semantics:
             self.plugin.extensions, self.loaded.extension_sources, strict=True
         ):
             self.extension(extension, document, seen)
-        self.settings()
+        self.settings(require_policy=require_setting_policy)
         # With what each rule and guard reads, for the server to load and point at.
         types, extensions = rules.check(self)
         self.plugin = self.loaded.plugin = dataclasses.replace(
@@ -1206,6 +1236,8 @@ class _Semantics:
 
     def reference(self, ref: str, source: Document, path: Path) -> EntityType | None:
         """The type `ref` names, or None after reporting why it can't be used."""
+        if ref in self.invalid_types:
+            return None  # The root schema error has already been reported.
         plugin, name = ref.split(".")
         if "/" not in plugin:
             own = plugin == naming.short_name(self.plugin.name)
@@ -1382,6 +1414,7 @@ class _Semantics:
             self.request(entity_type, source, every)
         if entity_type.result is not None:
             self.result(entity_type, source, every)
+        self.work_item(entity_type, source, every)
         self.amount(entity_type, source, every)
         self.draws_received(entity_type, source, every)
         self.stock_catalogue(entity_type, source)
@@ -1541,6 +1574,8 @@ class _Semantics:
             ("source", target.source, "ref"),
             ("amount", target.amount, "quantity"),
         ):
+            if name is None:
+                continue
             field = fields.get(name)
             if field is None or field.type != kind or not field.immutable or not field.required:
                 self.add(
@@ -1557,8 +1592,9 @@ class _Semantics:
                 source,
                 ("draw_target", "state"),
             )
-        prepared = fields.get(target.ready)
-        if prepared is None or not prepared.computed:
+        if target.ready is not None and (
+            target.ready not in fields or not fields[target.ready].computed
+        ):
             self.add(
                 "invalid-draw-target",
                 f"`{target.ready}` must be a computed field set when preparing the record.",
@@ -1789,6 +1825,42 @@ class _Semantics:
                 )
                 continue
             self.service_field(found[0], source, at)
+        if spec.completed_field is not None:
+            found = every.get(spec.completed_field)
+            state = found[0].states.get(spec.completed_state or "") if found else None
+            if (
+                spec.completed_field not in spec.service_fields
+                or not found
+                or found[0].removed
+                or found[0].type != "state"
+                or state is None
+                or state.removed
+                or found[0].initial == spec.completed_state
+            ):
+                self.add(
+                    "request-completion-state",
+                    "Completion must name a non-initial state of a state field the service writes.",
+                    source,
+                    ("request", "completed"),
+                )
+        for index, name in enumerate(spec.materials):
+            if name not in spec.sends:
+                self.add(
+                    "request-material-not-sent",
+                    f"Request material `{name}` must be one of the fields in `sends`.",
+                    source,
+                    ("request", "materials", index),
+                )
+            if name in every:
+                field = every[name][0]
+                target = field.items if field.type == "list" else field
+                if target and self._refers_to_identity(target):
+                    self.add(
+                        "request-material-identity",
+                        "A material field must identify a physical record.",
+                        source,
+                        ("request", "materials", index),
+                    )
         for index, name in enumerate(spec.sends):
             at = ("request", "sends", index)
             found = every.get(name)
@@ -1911,6 +1983,77 @@ class _Semantics:
                 at,
             )
 
+    def _refers_to_identity(self, field: Field) -> bool:
+        return any(
+            ancestor.identity
+            for name in field.to
+            if (target := self.types.get(name))
+            for ancestor in [target, *self.ancestors(target)]
+        )
+
+    def work_item(
+        self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
+    ) -> None:
+        lineage = [entity_type, *self.ancestors(entity_type)]
+        if not any(t.work_item is not None for t in lineage):
+            return
+        if any(t.identity or t.request is not None or t.result is not None for t in lineage):
+            self.add(
+                "work-item-conflict",
+                "A work item belongs to the service project. It can't be a request, a result "
+                "or a registry record.",
+                source,
+                ("work_item",),
+                key=True,
+            )
+            return
+        spec = entity_type.work_item
+        if spec is not None:
+            self._request_reference(entity_type, source, every, "work_item", spec.of)
+
+    def _request_reference(
+        self,
+        entity_type: EntityType,
+        source: Document,
+        every: dict[str, tuple[Field, EntityType]],
+        section: str,
+        name: str,
+    ) -> None:
+        """A service record names one request with an immutable, required reference."""
+        kind = section.replace("_", " ")
+        code = section.replace("_", "-")
+        found = every.get(name)
+        if found is None or found[0].removed:
+            present = [n for n, (f, _) in every.items() if not f.removed]
+            self.add(
+                "unknown-field",
+                f"`{name}` isn't a field of `{entity_type.name}`.",
+                source,
+                (section, "of"),
+                hint=schemas._did_you_mean(name, present),
+            )
+            return
+        f = found[0]
+        targets = [self.types.get(t) for t in f.to] if f.type == "ref" else []
+        if any(t is None for t in targets):
+            return  # reported with the field
+        if not targets or any(t is None or self.request_of(t) is None for t in targets):
+            self.add(
+                f"{code}-of-not-a-request",
+                f"`{name}` must refer to a request type, one with `request:`, as the "
+                f"request this is a {kind} of.",
+                source,
+                (section, "of"),
+            )
+        elif not (f.required and f.immutable):
+            self.add(
+                f"{code}-of-changes",
+                f"`{name}` must be `required` and `immutable`: a {kind} is of one request, "
+                "for good.",
+                source,
+                (section, "of"),
+            )
+
     def result(
         self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
     ) -> None:
@@ -1918,7 +2061,6 @@ class _Semantics:
         to the asking project in."""
         spec = entity_type.result
         assert spec is not None  # noqa: S101 - only called with one
-        present = [n for n, (f, _) in every.items() if not f.removed]
         if any(t.identity for t in [entity_type, *self.ancestors(entity_type)]):
             self.add(
                 "result-with-identity",
@@ -1929,36 +2071,20 @@ class _Semantics:
                 key=True,
             )
             return
-        found = every.get(spec.of)
-        if found is None or found[0].removed:
-            self.add(
-                "unknown-field",
-                f"`{spec.of}` isn't a field of `{entity_type.name}`.",
-                source,
-                ("result", "of"),
-                hint=schemas._did_you_mean(spec.of, present),
-            )
-        else:
-            f = found[0]
-            # Each of the types it may name is a request type (ADR 0136).
-            targets = [self.types.get(t) for t in f.to] if f.type == "ref" else []
-            if any(t is None for t in targets):
-                pass  # reported with the field
-            elif not targets or any(t is None or self.request_of(t) is None for t in targets):
+        self._request_reference(entity_type, source, every, "result", spec.of)
+        if spec.material is not None:
+            material = every.get(spec.material)
+            if material is None or not (
+                material[0].type == "ref"
+                and material[0].immutable
+                and not self._refers_to_identity(material[0])
+                and not material[0].removed
+            ):
                 self.add(
-                    "result-of-not-a-request",
-                    f"`{spec.of}` must refer to a request type, one with `request:`, as the "
-                    "request this is a result of.",
+                    "result-material",
+                    "Material must be an immutable reference to a physical record.",
                     source,
-                    ("result", "of"),
-                )
-            elif not (f.required and f.immutable):
-                self.add(
-                    "result-of-changes",
-                    f"`{spec.of}` must be `required` and `immutable`: a result is of one "
-                    "request, for good.",
-                    source,
-                    ("result", "of"),
+                    ("result", "material"),
                 )
         found = every.get(spec.released_field)
         state = found[0] if found is not None else None
@@ -2404,17 +2530,17 @@ class _Semantics:
     ) -> None:
         found = every.get(name)
         f = found[0] if found is not None else None
-        if f is None or f.removed or f.type != "ref" or not (f.required and f.immutable):
+        if f is None or f.removed or f.type != "ref" or not f.immutable:
             self.add(
                 "amount-material",
-                f"`material` names a required, immutable reference of the type, to what its "
+                f"`material` names an immutable reference of the type, to what its "
                 f"amount is of, and `{name}` "
                 + (
                     "isn't one."
                     if f is None or f.removed
                     else f"is a {f.type} field."
                     if f.type != "ref"
-                    else "isn't both required and immutable: what a record is of can't change."
+                    else "isn't immutable: what a record is of can't change."
                 ),
                 source,
                 ("amount", "material"),
@@ -2425,6 +2551,8 @@ class _Semantics:
     def aliquots(self, entity_type: EntityType, amount: Amount, source: Document) -> None:
         target = self.types.get(amount.aliquots or "")
         at: Path = ("amount", "aliquots")
+        if amount.aliquots in self.invalid_types:
+            return
         if target is None:
             self.add(
                 "unknown-type",
@@ -3711,9 +3839,23 @@ class _Semantics:
 
     # Settings -----------------------------------------------------------------------------------
 
-    def settings(self) -> None:
+    def settings(self, *, require_policy: bool) -> None:
         for name, setting in self.plugin.settings.items():
             path: Path = ("settings", name)
+            if (
+                require_policy
+                and not setting.has_default
+                and "required" not in self.source.data["settings"][name]
+            ):
+                self.add(
+                    "setting-policy",
+                    f"`{name}` must declare whether it is required or give a default.",
+                    self.source,
+                    path,
+                    key=True,
+                    hint="Give a `default`, write `required: true`, or write "
+                    "`required: false` to let deployments leave it unset.",
+                )
             if setting.required and setting.has_default:
                 self.add(
                     "required-with-default",

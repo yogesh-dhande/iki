@@ -269,8 +269,11 @@ def create(
         access.refs_for(user, project),
         by_run=by_run,
         hold_reason=hold_reason,
+        defer_result_check=True,
     )
     with transaction.atomic(), _unique_values():
+        if errors := requests.check_result(project, type_name, given, lock=True):
+            raise Invalid(errors)
         if refused := starter_flows.refused_create(project, [type_name]):
             raise Invalid({"type": [refused]})
         saved = _create(user, form, project, values, given, reason, by_run, fills)
@@ -740,6 +743,7 @@ def prepare(
     by_run: bool = False,
     hold_reason: str = "",
     check_rules: bool = True,
+    defer_result_check: bool = False,
 ) -> tuple[Shape, dict[str, Any], list[checking.Broken]]:
     """A new entity's values as the database stores them, defaults filled in, checked
     against its type's fields and rules, with the plugins' rules it breaks that hold it
@@ -802,6 +806,8 @@ def prepare(
 
         errors = stock.check_item(type_name, project, given)
     if not errors:
+        errors = requests.check_work_item(project, type_name, given)
+    if not errors and not defer_result_check:
         errors = requests.check_result(project, type_name, given)
     if not errors:
         errors = rules.check(user, entity_type, project, given.get)
@@ -1009,6 +1015,14 @@ def update(
             fields[name].reason_on_clear and rows.get(name) is True for name in new
         ):
             raise ClearReasonRequired({"reason": ["Give a reason for clearing this flag."]})
+        from iki_server.runs import triggers
+
+        rechecks = triggers.rechecks(locked.type, set(new)) if new else []
+        for spec, outputs in rechecks:
+            for name in outputs:
+                value = "Needs re-verification" if name == spec.recheck else None
+                if rows.get(name) != value or name in new:
+                    new[name] = value
         changing = {**new, **for_entry}
         if changing:
             if returns:
@@ -1089,6 +1103,20 @@ def update(
         if holding:
             _hold(saved, holding, user, hold_reason, revision.number, held_entry_revision)
         declared.changed(locked, revision, {n: (was.get(n), v) for n, v in new.items()}, user)
+        for spec, _ in rechecks:
+            problem = triggers.recheck_edit(user, locked, revision, spec)
+            if problem:
+                with log.using(log.Context(via="trigger")):
+                    saved = update(
+                        user,
+                        locked,
+                        {spec.recheck: f"Needs re-verification. {problem}"[:10000]},
+                        by_run=True,
+                        expected_revision=saved.revision.number
+                        if saved.revision
+                        else revision.number,
+                        reason=f"Automatic recheck {spec.qualified_name}.",
+                    )
     return saved
 
 
@@ -1232,6 +1260,8 @@ def unshareable(user: User, entity: Entity, project: Project) -> str:
     """Why ``project`` may not use an entity the user reads (:func:`access.why_held`)."""
     owner = owner_of(entity)
     match access.why_held(user, entity, project):
+        case "work_item":
+            return f"{entity.hrid} stays in {owner.name}: it's an internal work item."
         case "unreleased":
             return not_released(entity, project)
         case "registry":
@@ -1703,6 +1733,7 @@ def _announce(
     from iki_server.runs import triggers
 
     triggers.noticed(entity, revision, registered=registered)
+    triggers.source_changed(entity, revision)
 
 
 def _state_data(entity: Entity, revision: Revision) -> dict[str, Any]:
@@ -1746,6 +1777,9 @@ def _announce_entry(entry_id: Any, revision: Revision, user: User | None) -> Non
     from iki_server.entities import entries
 
     entries.announce(entry_id, revision, user)
+    from iki_server.runs import triggers
+
+    triggers.source_changed(Entity.objects.get(pk=entry_id), revision)
 
 
 def _write_history(touched: list[Part], rows: Rows, number: int) -> None:

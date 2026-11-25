@@ -17,6 +17,7 @@ from django.utils import timezone
 from first_party_dependencies import PLUGINS, ROOT, build_order
 from org_world import build_world
 from test_api_entities import patch
+from test_plate_review import _read_evidence, _requests
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, ready, signed
 
@@ -64,14 +65,15 @@ def exercise_qc() -> None:
     world = build_world()
     ready(world)
     project, editor = world.project, world.users["editor"]
+    plate = "iki/plate_assays."
     for person, roles in {
-        "editor": ("analyst", "reviewer", "qa"),
-        "runner": ("reviewer",),
-        "admin": ("qa",),
+        "editor": (PREFIX + "analyst", PREFIX + "reviewer", PREFIX + "qa", plate + "analyst"),
+        "runner": (PREFIX + "reviewer", plate + "reviewer"),
+        "admin": (PREFIX + "qa", plate + "qa"),
     }.items():
         membership = project.memberships.get(user=world.users[person])
         LabRoleGrant.objects.bulk_create(
-            [LabRoleGrant(membership=membership, role=PREFIX + role) for role in roles]
+            [LabRoleGrant(membership=membership, role=role) for role in roles]
         )
     environment = PREFIX + "qc-tools"
     catalog.compute().bindings[environment] = Binding(
@@ -149,6 +151,78 @@ def exercise_qc() -> None:
     )
     sign("admin", successor, "approved", field="approval")
     execute("publish_version", {"schedule": [schedule.pk], "version": [successor.pk]})
+    # A submitted request covers only its tube. Even the right procedure cannot
+    # deliver a fit on this other lot to that requester. Internal QC may use it
+    # for its own lot release only under the procedure revision in the specification.
+    _, request, _ = _requests(world)
+    control = make(
+        "iki/small_molecule.Compound",
+        name="Water",
+        smiles="O",
+        inchikey="XLYOFNOQVPJJNP-UHFFFAOYSA-N",
+    )
+    assert control.entry_id is not None
+    control_schedule = make(PREFIX + "SpecificationSchedule", material=str(control.entry_id))
+    fit_method = {"attribute": "IC50", "method": "4PL-OLS/1", "unit": "nM"}
+    fit_criterion = {**fit_method, "upper": 10, "procedure": "SOP-PLATE", "procedure_revision": "2"}
+    control_spec = make(
+        PREFIX + "SpecificationVersion",
+        schedule=str(control_schedule.pk),
+        version="1",
+        source="Synthetic plate QC fixture",
+        effective_from=today.isoformat(),
+        criteria=[fit_criterion],
+    )
+    sign("admin", control_spec, "approved", field="approval")
+    execute("publish_version", {"schedule": [control_schedule.pk], "version": [control_spec.pk]})
+    assay_lot = make("iki/lots.GenericLot", of=str(control.entry_id), lot_number="Plate QC lot")
+    read = _read_evidence(world, str(assay_lot.pk))
+    assay_inputs = {"lot": [assay_lot.pk], "schedule": [control_schedule.pk]}
+    assay_case = made(
+        execute("open_release", assay_inputs, testing_on=today.isoformat()),
+        "ReleaseCase",
+    )
+    fit_values = {
+        "read": read,
+        "sample": str(assay_lot.pk),
+        "review_flow": "regulated_qc",
+        "fit_version": fit_method["method"],
+        "fit_status": "fitted",
+        "qualifier": "within_range",
+        "endpoint_kind": fit_method["attribute"],
+        "endpoint_value": 5,
+        "concentration_unit": fit_method["unit"],
+        "procedure": fit_criterion["procedure"],
+    }
+    with pytest.raises(Invalid, match="sample or tube"):
+        services.create(
+            editor,
+            plate + "RequestedQCAssayResult",
+            project,
+            {**fit_values, "request": str(request.pk), "procedure_revision": "2"},
+            by_run=True,
+        )
+    for revision in ("1", "2"):
+        saved = services.create(
+            editor,
+            plate + "QCAssayResult",
+            project,
+            {**fit_values, "procedure_revision": revision},
+            by_run=True,
+        )
+        fit = Entity.objects.get(pk=saved.entity.pk)
+        sign("editor", fit, "submitted")
+        sign("runner", fit, "reviewed")
+        sign("admin", fit, "released")
+        chosen = {"case": [assay_case.pk], "assay": [fit.pk]}
+        if revision == "1":
+            with pytest.raises(ValueError, match="procedure"):
+                execute("record_test", chosen, **fit_method)
+        else:
+            recorded = made(execute("record_test", chosen, **fit_method), "ReleaseTest")
+            measured = services.current_values_of([recorded])[recorded.pk]
+            assert (measured["evidence"], measured["evidence_revision"]) == (fit.pk, fit.revision)
+
     opening = {"lot": [lot.pk], "schedule": [schedule.pk]}
     case = made(execute("open_release", opening, testing_on=today.isoformat()), "ReleaseCase")
     with pytest.raises(results.InvalidOutput) as duplicate:

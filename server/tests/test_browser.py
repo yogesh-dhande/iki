@@ -477,6 +477,7 @@ PAGES = [
     ("compute_admin", "/admin/compute/workers/"),
     ("compute_admin", "/admin/compute/slurm/"),
     ("compute_admin", "/admin/compute/quotas/"),
+    ("compute_admin", "/admin/compute/images/"),
     ("org_admin", "/admin/registries/"),
     ("org_admin", "/admin/signatures/"),
     ("org_admin", "/admin/people/"),
@@ -4739,18 +4740,21 @@ def _starter_api(page: Page) -> dict[str, Any]:
     and is not its coverage: what the endpoints themselves do, grants and examples included,
     is tested against the real server in test_starter_applications, test_starter_api and
     test_dose_response_starter. Members, projects and everything else here are the real
-    server's. Returns what the page sent."""
+    server's. Like the server, it applies only the plan previewed (ADR 0207): a grant put in
+    ``held`` is one the member holds already, and taking it out changes the plan. Returns
+    what the page sent, and ``held``."""
+    import hashlib
     import json
 
     fixtures = json.loads(FLOW_FIXTURES.read_text())
     roles = {
-        "iki/example_lims.coordinator": ("Coordinator", "editor"),
+        "iki/lab_roles.coordinator": ("Coordinator", "editor"),
         PLATE + "analyst": ("Assay analyst", "editor"),
         PLATE + "reviewer": ("Assay reviewer", "viewer"),
         PLATE + "qa": ("Assay QA", "viewer"),
     }
     flows = {"research": "ResearchAssayResult", "regulated_qc": "QCAssayResult"}
-    state: dict[str, Any] = {"applied": None, "sent": []}
+    state: dict[str, Any] = {"applied": None, "sent": [], "held": set()}
 
     def starters() -> list[dict[str, Any]]:
         required = list(roles)
@@ -4804,26 +4808,49 @@ def _starter_api(page: Page) -> dict[str, Any]:
         )
 
     def setup(route: Any) -> None:
-        body = route.request.post_data_json
-        state["sent"].append((route.request.url.rsplit("/", 1)[1], body))
+        sent = route.request.post_data_json
+        state["sent"].append((route.request.url.rsplit("/", 1)[1], sent))
         applying = route.request.url.endswith("/apply")
+        reviewed = sent.get("plan")
+        body = {k: v for k, v in sent.items() if k != "plan"}
+        grants = {
+            role: missing
+            for role, members in body["role_assignments"].items()
+            if (missing := [m for m in members if (role, m) not in state["held"]])
+        }
+        plan = {
+            **body,
+            "starter": "dose-response",
+            "result_type": f"{PLATE}Requested{flows[body['flow']]}",
+            "changed": True,
+            "grants_to_add": grants,
+            "examples_to_create": ["request", "protein", "sample", "tube", "plate"],
+            "examples": {},
+        }
+        plan["plan"] = hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).hexdigest()
+        if applying and reviewed != plan["plan"]:
+            route.fulfill(
+                status=409,
+                content_type="application/problem+json",
+                json={
+                    "type": "about:blank",
+                    "title": "Conflict",
+                    "status": 409,
+                    "code": "starter_plan_changed",
+                    "detail": "What applying does changed since it was previewed. Review what "
+                    "it does now, then apply again.",
+                    "plan": plan,
+                },
+            )
+            return
         if applying:
             state["applied"] = {
                 "version": "1.0.0",
                 "flow": body["flow"],
                 "requester_project": body["requester_project"],
             }
-        route.fulfill(
-            json={
-                **body,
-                "starter": "dose-response",
-                "result_type": f"{PLATE}Requested{flows[body['flow']]}",
-                "changed": True,
-                "grants_to_add": body["role_assignments"],
-                "examples_to_create": ["request", "protein", "sample", "tube", "plate"],
-                "examples": {"request": str(uuid.uuid4())} if applying else {},
-            }
-        )
+            plan["examples"] = {"request": str(uuid.uuid4())}
+        route.fulfill(json=plan)
 
     page.route(re.compile(r"/api/v1/starters(\?.*)?$"), lambda r: r.fulfill(json=starters()))
     page.route(re.compile(r"/api/v1/entity-types/.*Requested.*/flow$"), flow_of)
@@ -4895,6 +4922,62 @@ def test_an_admin_sets_a_project_up_from_a_starter(
     assert sent["sent"][1][1]["role_assignments"][PLATE + "qa"] == [
         str(world.project.memberships.get(user=world.users["admin"]).pk)
     ]
+    assert_clean(page, axe_in_firefox=False)
+    page.context.close()
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_starter_whose_plan_changed_is_reviewed_again_before_it_applies(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    """Applying commits the plan previewed (ADR 0207). Here another Admin revokes the
+    reviewer's grant after the preview, so applying would also grant it: nothing is applied,
+    the screen says what changed and shows what applying does now, and applying that
+    applies it. At 390px, in both schemes."""
+    requester = Project.objects.create(team=world.team, name="Assay Requests")
+    ProjectMembership.objects.create(
+        project=requester, user=world.users["admin"], role=ProjectRole.EDITOR
+    )
+    page: Page = open_as("admin", "/projects/kinase-atlas/settings/starters/", color_scheme)
+    page.set_viewport_size({"width": 390, "height": 844})
+    api = _starter_api(page)
+    reviewer = str(world.project.memberships.get(user=world.users["viewer"]).pk)
+    api["held"].add((PLATE + "reviewer", reviewer))
+    card = page.get_by_role("region", name="Dose-response plate assay")
+    card.get_by_text("Not applied here").wait_for()
+    card.get_by_role("radio", name=re.compile("^Research")).check()
+    card.get_by_role("combobox", name=re.compile("^Requesting project")).select_option(
+        label="Assay Requests"
+    )
+    card.get_by_role("group", name="Coordinator").get_by_role("checkbox", name="Admin").check()
+    card.get_by_role("group", name="Assay analyst").get_by_role("checkbox", name="Editor").check()
+    card.get_by_role("group", name="Assay reviewer").get_by_role("checkbox", name="Viewer").check()
+    card.get_by_role("button", name="Preview").click()
+    plan = card.get_by_role("status", name="What applying will do")
+    plan.get_by_text("Editor becomes Assay analyst.").wait_for()
+    assert plan.get_by_text("Viewer becomes Assay reviewer.").count() == 0
+
+    api["held"].clear()  # another Admin revoked it
+    card.get_by_role("button", name="Apply").click()
+    note = card.get_by_role("alert")
+    note.get_by_text(
+        "What applying does changed while you were looking at it.", exact=False
+    ).wait_for()
+    note.get_by_text("Applying now also: Viewer becomes Assay reviewer.").wait_for()
+    plan.get_by_text("Viewer becomes Assay reviewer.").wait_for()
+    assert card.get_by_text("Not applied here").count() == 1
+    # Chromium and WebKit log the refusal, which the test expects, as a failed load.
+    PAGE_ERRORS[page][:] = [e for e in PAGE_ERRORS[page] if "status of 409 (Conflict)" not in e]
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    # Playwright's Firefox crashes in axe on this page (see assert_clean).
+    assert_clean(page, axe_in_firefox=False)
+
+    card.get_by_role("button", name="Apply").click()
+    page.get_by_text("Applied Dose-response plate assay with the Research flow.").wait_for()
+    card.get_by_text("Applied: Research, version 1.0.0").wait_for()
+    applies = [body for what, body in api["sent"] if what == "apply"]
+    assert len(applies) == 2 and applies[0]["plan"] != applies[1]["plan"]
+    assert note.count() == 0
     assert_clean(page, axe_in_firefox=False)
     page.context.close()
 

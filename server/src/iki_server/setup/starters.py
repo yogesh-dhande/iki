@@ -1,5 +1,7 @@
 """Recipes installed with active plugins and applied to projects (ADR 0198)."""
 
+import hashlib
+import json
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -23,9 +25,11 @@ from iki_server.setup.models import StarterApplication
 
 
 class Examples(Protocol):
-    def check_example(self, project: Project, requester_project: Project, *, by: User) -> None: ...
+    def check_example(
+        self, project: Project, requester_project: Project, flow: str, *, by: User
+    ) -> None: ...
     def seed_example(
-        self, project: Project, requester_project: Project, *, by: User
+        self, project: Project, requester_project: Project, flow: str, *, by: User
     ) -> dict[str, str]: ...
 
 
@@ -49,13 +53,13 @@ class Starter:
 
 
 PLATE = "iki/plate_assays."
-COORDINATOR = "iki/example_lims.coordinator"
+COORDINATOR = "iki/lab_roles.coordinator"
 ANALYST, REVIEWER, QA = PLATE + "analyst", PLATE + "reviewer", PLATE + "qa"
 FLOW_LABELS = {"research": "Research", "regulated_qc": "Regulated QC"}
 
 DOSE_RESPONSE = Starter(
     id="dose-response",
-    version="1.0.0",
+    version="1.2.0",
     label="Dose-response plate assay",
     description="Receive an example request, map a reader file to wells, fit a curve and return "
     "the signed result to the requester.",
@@ -69,9 +73,11 @@ DOSE_RESPONSE = Starter(
     },
     types=(
         "iki/protein.Protein",
-        "iki/example_lims.Sample",
-        "iki/example_lims.Tube",
-        "iki/example_lims.AnalysisRequest",
+        "iki/small_molecule.Compound",
+        "iki/lots.GenericLot",
+        "iki/samples.Sample",
+        "iki/inventory.Tube",
+        *dose_response.REQUEST_TYPES.values(),
         PLATE + "AssayPlate",
         PLATE + "PlateRead",
         PLATE + "WellMeasurement",
@@ -92,7 +98,16 @@ DOSE_RESPONSE = Starter(
         "regulated_qc": (COORDINATOR, ANALYST, REVIEWER, QA),
     },
     independent_roles={"regulated_qc": (ANALYST, REVIEWER, QA)},
-    example_keys=("request", "protein", "sample", "tube", "reader_file", "plate"),
+    example_keys=(
+        "request",
+        "protein",
+        "sample",
+        "tube",
+        "apigenin",
+        "daidzein",
+        "reader_file",
+        "plate",
+    ),
     examples=dose_response,
 )
 CATALOG = (DOSE_RESPONSE,)
@@ -232,6 +247,25 @@ def _members(
     return memberships
 
 
+class PlanChanged(Exception):  # noqa: N818 - what happened, as the API says it
+    """What applying would do isn't what was previewed (ADR 0207). Nothing was changed;
+    ``plan`` is what applying would do now, to review instead."""
+
+    def __init__(self, plan: dict[str, Any]) -> None:
+        super().__init__(
+            "What applying does changed since it was previewed. Review what it does now, "
+            "then apply again."
+        )
+        self.plan = plan
+
+
+def _identify(result: Mapping[str, Any], before: Mapping[str, str] | None) -> str:
+    """Names what applying does: the choice, what's set up already, and every change."""
+    shown = {**result, "before": before}
+    text = json.dumps(shown, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
 @dataclass
 class _Plan:
     starter: Starter
@@ -270,8 +304,11 @@ def _plan(
             "Use the original requester project to keep its example request and results together.",
             field="requester_project",
         )
-    if current is None:
-        recipe.examples.check_example(project, requester_project, by=by)
+    new_examples = current is None or (
+        current.version != version and not set(recipe.example_keys).issubset(current.examples)
+    )
+    if new_examples:
+        recipe.examples.check_example(project, requester_project, flow, by=by)
     selected = {role: set(ids) for role, ids in role_assignments.items()}
     members = _members(project, recipe, flow, selected)
     held = {key: {g.role for g in m.lab_roles.all()} for key, m in members.items()}
@@ -284,28 +321,25 @@ def _plan(
             if role not in held[pk]:
                 grants[pk].add(role)
                 missing.setdefault(role, []).append(str(pk))
-    return _Plan(
-        recipe,
-        current,
-        members,
-        grants,
-        {
-            "starter": starter,
-            "version": version,
-            "project": str(project.pk),
-            "requester_project": str(requester_project.pk),
-            "flow": flow,
-            "result_type": recipe.requested_types[flow],
-            "changed": current is None
-            or current.version != version
-            or current.flow != flow
-            or bool(grants),
-            "role_assignments": assignments,
-            "grants_to_add": missing,
-            "examples_to_create": list(recipe.example_keys) if current is None else [],
-            "examples": dict(current.examples) if current is not None else {},
-        },
-    )
+    result: dict[str, Any] = {
+        "starter": starter,
+        "version": version,
+        "project": str(project.pk),
+        "requester_project": str(requester_project.pk),
+        "flow": flow,
+        "result_type": recipe.requested_types[flow],
+        "changed": current is None
+        or current.version != version
+        or current.flow != flow
+        or bool(grants),
+        "role_assignments": assignments,
+        "grants_to_add": missing,
+        "examples_to_create": list(recipe.example_keys) if new_examples else [],
+        "examples": dict(current.examples) if current is not None else {},
+    }
+    before = {"version": current.version, "flow": current.flow} if current is not None else None
+    result["plan"] = _identify(result, before)
+    return _Plan(recipe, current, members, grants, result)
 
 
 def preview(
@@ -331,7 +365,12 @@ def apply(
     *,
     requester_project: Project,
     by: User,
+    plan: str,
 ) -> dict[str, Any]:
+    """Applies the plan a preview returned, identified by its ``plan``. If what applying
+    does has changed since (another Admin changed a grant, or applied it first), raises
+    :class:`PlanChanged` before changing anything (ADR 0207). Applying a setup that's in
+    place already changes nothing, whatever the plan."""
     # Both intake and example writes involve the two projects. Ordered locking also
     # serializes two first applications and a flow switch against new result records.
     locked = {
@@ -342,20 +381,25 @@ def apply(
     }
     project, requester_project = locked[project.pk], locked[requester_project.pk]
     permissions.forget(by)
-    plan = _plan(project, starter, version, flow, role_assignments, requester_project, by)
-    result = plan.result
+    planned = _plan(project, starter, version, flow, role_assignments, requester_project, by)
+    result = planned.result
     if not result["changed"]:
         return result
-    current = plan.application
+    if result["plan"] != plan:
+        raise PlanChanged(result)
+    current = planned.application
     previous = {"version": current.version, "flow": current.flow} if current else None
-    for key, roles in plan.grants.items():
-        membership = plan.members[key]
+    for key, roles in planned.grants.items():
+        membership = planned.members[key]
         held = {g.role for g in membership.lab_roles.all()}
         services.set_lab_roles(membership, held | roles, by=by)
     if current is None:
-        examples = plan.starter.examples.seed_example(project, requester_project, by=by)
         current = StarterApplication(
-            project=project, requester_project=requester_project, starter=starter, examples=examples
+            project=project, requester_project=requester_project, starter=starter
+        )
+    if result["examples_to_create"]:
+        current.examples = planned.starter.examples.seed_example(
+            project, requester_project, flow, by=by
         )
     current.version, current.flow, current.applied_by = version, flow, by
     current.save()
@@ -371,6 +415,7 @@ def apply(
             "after": {"version": version, "flow": flow},
             "role_assignments": result["role_assignments"],
             "grants_added": result["grants_to_add"],
+            "plan": result["plan"],
             "requester_project": str(requester_project.pk),
             "examples": result["examples"],
         },

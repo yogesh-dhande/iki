@@ -417,7 +417,7 @@ it.
 - `GET /entities/{ref}/graph?up=3&down=3` is a few steps each way, with the
   edges between, to draw.
 - Search takes `upstream` and `downstream` as fields, with any other
-  condition: `downstream` `of` `DNR-000001`, or of
+  condition: `downstream` `of` `TUB-000001`, or of
   `{"entity": …, "depth": …, "edges": […]}`; `is_set` for anything that
   way. Each walk runs within search's time limit.
 - A trigger's `related` gives its action's other inputs what's that way of

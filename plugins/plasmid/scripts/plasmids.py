@@ -741,8 +741,11 @@ def check(run: dict[str, Any]) -> dict[str, Any]:
         except Stop as why:
             # No result, so the old one goes: whatever a run found of an earlier plan
             # says nothing of this one, and Checked must not be reached on it.
-            messages.append({"level": "error", "text": str(why), "entity": assembly["id"]})
-            updates.append({"entity": assembly["id"], "values": dict(NO_RESULT)})
+            messages.append({"level": "warning", "text": str(why), "entity": assembly["id"]})
+            cleared = dict(NO_RESULT)
+            if "verification_note" in assembly["values"]:
+                cleared["verification_note"] = f"Needs re-verification. {why}"
+            updates.append({"entity": assembly["id"], "values": cleared, "require_unchanged": True})
             continue
         values = values_of(product)
         stated = values["bases"].upper()
@@ -838,7 +841,9 @@ def check(run: dict[str, Any]) -> dict[str, Any]:
                     f"{assembly['hrid']}: the plan makes {len(candidates)} different {what} "
                     f"({lengths}), and {product['hrid']}, {len(stated)} bp, is none of them"
                 )
-        updates.append({"entity": assembly["id"], "values": values_out})
+        if "verification_note" in assembly["values"]:
+            values_out["verification_note"] = None
+        updates.append({"entity": assembly["id"], "values": values_out, "require_unchanged": True})
         progress(done, len(assemblies))
     return {"updates": {"assembly": updates}, "messages": messages}
 

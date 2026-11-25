@@ -39,7 +39,7 @@ from typing import Any
 
 from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
-from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Now
 from psycopg import sql
 
@@ -60,7 +60,7 @@ from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
-from iki_spec.model import RequestSpec, ResultSpec
+from iki_spec.model import RequestSpec, ResultSpec, WorkItemSpec, amount_of
 
 __all__ = [
     "ASKER",
@@ -116,6 +116,23 @@ def result_spec(type_name: str) -> ResultSpec | None:
         if t.result is not None:
             return t.result
     return None
+
+
+@cache
+def work_item_spec(type_name: str) -> WorkItemSpec | None:
+    """What makes this type an internal work item, including an inherited declaration."""
+    entity_type = registry.types().get(type_name)
+    if entity_type is None:
+        return None
+    return next(
+        (t.work_item for t in [entity_type, *registry.ancestors(entity_type)] if t.work_item),
+        None,
+    )
+
+
+def work_item_types() -> list[str]:
+    """Every installed type whose records are work items, including subtypes."""
+    return sorted(n for n in registry.types() if work_item_spec(n) is not None)
 
 
 def request_types() -> list[str]:
@@ -192,32 +209,24 @@ def sides(
     """The sides of a request ``user`` may change it as: the asking project's, as its
     Editor, and the service's, as an Editor there. ``acting_in``: only as that project
     (a run in it writes as it)."""
+    from iki_server.entities.access import edit_action
+
+    action = edit_action(entity.type, by_run=acting_in is not None)
     out = set()
     owner = entity.owner_project
     if (
         owner is not None
         and (acting_in is None or acting_in.pk == owner.pk)
-        and permissions.can(user, Action.PROJECT_EDIT, owner)
+        and permissions.can(user, action, owner)
     ):
         out.add(ASKER)
     if (
         request is not None
         and (acting_in is None or acting_in.pk == request.service_id)
-        and permissions.can(user, Action.PROJECT_EDIT, request.service)
+        and permissions.can(user, action, request.service)
     ):
         out.add(SERVICE)
     return frozenset(out)
-
-
-def can_change(user: Any, entity: Entity) -> bool:  # noqa: ANN401 - a User
-    """Whether ``user`` may change some of a record's values: as an Editor in its project,
-    or, for a request, as an Editor of the service it was sent to."""
-    if entity.owner_project_id is None:
-        return False
-    if permissions.can(user, Action.PROJECT_EDIT, Project.objects.get(pk=entity.owner_project_id)):
-        return True
-    request = of(entity)
-    return request is not None and permissions.can(user, Action.PROJECT_EDIT, request.service)
 
 
 def refused_fields(
@@ -558,15 +567,236 @@ def send(user: User, locked: Entity, values: Mapping[str, Any]) -> None:
         _link(user, Entity.objects.get(pk=record), request.service, locked)
 
 
-def check_result(
+MATERIAL_REFUSAL = "Choose a sample or tube on this request, or a recorded aliquot of its material."
+
+
+def materials_of(request: Entity, revision: int | None = None) -> set[uuid.UUID]:
+    """The physical records commissioned by the requester, excluding references sent for context."""
+    from iki_server.entities import services
+
+    spec = spec_of(request.type)
+    if spec is None or not spec.materials:
+        return set()
+    values = services.values_at(request, revision or request.revision)
+    materials: set[uuid.UUID] = set()
+    for name in spec.materials:
+        value = values.get(name)
+        if isinstance(value, list):
+            materials.update(value)
+        elif value is not None:
+            materials.add(value)
+    # Identity references can name a registry entry shared by several physical records.
+    # Only a reference that actually identifies one project record establishes coverage.
+    return set(
+        Entity.objects.filter(pk__in=materials, registry__isnull=True).values_list("pk", flat=True)
+    )
+
+
+def covers(materials: set[uuid.UUID], material: uuid.UUID | None) -> bool:
+    """Whether a result covers at least one of the commissioned materials."""
+    return next(_covered_subjects(materials, material), None) is not None
+
+
+def covered_subjects(entity: Entity, values: Mapping[str, Any]) -> list[str]:
+    """Commissioned subjects this result covers, including through nested aliquots."""
+    result = result_spec(entity.type)
+    if result is None or not result.material:
+        return []
+    material = values.get(result.material)
+    reference = values.get(result.of)
+    if material is None or reference is None:
+        return []
+    request = (
+        Request.objects.select_related("entity")
+        .filter(entity_id=reference, service_id=entity.owner_project_id)
+        .first()
+    )
+    if request is None:
+        return []
+    return [str(subject) for subject in _covered_subjects(materials_of(request.entity), material)]
+
+
+def _covered_subjects(materials: set[uuid.UUID], material: uuid.UUID | None) -> Iterator[uuid.UUID]:
+    """A requested record or its physical derivative through an immutable aliquot chain."""
+    from iki_server.amounts.models import Movement, MovementKind
+
+    seen: set[uuid.UUID] = set()
+    pending = [material] if materials and material is not None else []
+    while pending:
+        child = pending.pop()
+        if child in seen:
+            continue
+        seen.add(child)
+        if child in materials:
+            yield child
+        parent = (
+            Movement.objects.filter(entity_id=child, kind=MovementKind.ALIQUOT)
+            .values_list("counterpart_id", flat=True)
+            .first()
+        )
+        if parent is not None:
+            pending.append(parent)
+        else:
+            pending.extend(_declared_parents(child))
+
+
+def _declared_parents(child_id: uuid.UUID) -> list[uuid.UUID]:
+    """A registered aliquot's source, as declared by the source type's amount."""
+    from iki_server.entities import services
+
+    child = Entity.objects.filter(pk=child_id, registry__isnull=True).first()
+    if child is None or child.type not in registry.types():
+        return []
+    kind = registry.types()[child.type]
+    lineage = {t.qualified_name for t in [kind, *registry.ancestors(kind)]}
+    # The declaration lives on the source type and names a field of the aliquot type.
+    fields = shape(child.type).fields()
+    names = {
+        spec.aliquots_of
+        for t in registry.types().values()
+        if (spec := t.amount)
+        and spec.aliquots in lineage
+        and spec.aliquots_of
+        and spec.aliquots_of in fields
+        and fields[spec.aliquots_of].immutable
+    }
+    if not names:
+        return []
+    values = services.current_values_of([child])[child.pk]
+    parents = Entity.objects.filter(pk__in=[values.get(n) for n in names], registry__isnull=True)
+    return [
+        parent.pk
+        for parent in parents
+        if (spec := amount_of(parent.type, registry.types()))
+        and spec.aliquots in lineage
+        and spec.aliquots_of in names
+        and values.get(spec.aliquots_of) == parent.pk
+    ]
+
+
+def check_work_item(
     project: Project, type_name: str, given: Mapping[str, Any]
+) -> dict[str, list[str]]:
+    """The work item belongs to the project the request was sent to."""
+    spec = work_item_spec(type_name)
+    if spec is None:
+        return {}
+    reference = given.get(spec.of)
+    if (
+        isinstance(reference, (str, uuid.UUID))
+        and Request.objects.filter(entity_id=reference, service=project).exists()
+    ):
+        return {}
+    return {spec.of: [f"isn't a request sent to {project.name}: work items are the service's."]}
+
+
+def _material_matches(request: Entity, material: uuid.UUID | None) -> bool:
+    subjects = materials_of(request)
+    return covers(subjects, material) if material is not None else not subjects
+
+
+def result_rows(request: Entity) -> Iterator[tuple[str, ResultSpec, QuerySet[Any]]]:
+    """Each concrete type of result that can answer this request and all its recorded results."""
+    from iki_server.entities.values import subtypes
+
+    for name in result_types():
+        spec = result_spec(name)
+        if spec is None or registry.types()[name].abstract:
+            continue
+        form = shape(name)
+        if any(request.type in subtypes(t) for t in form.fields()[spec.of].to):
+            yield (
+                name,
+                spec,
+                form.model._default_manager.filter(type=name, **{f"{spec.of}_id": request.pk}),
+            )
+
+
+def delivery_refusal(request: Entity) -> str | None:
+    """Every result has been returned as its type requires, covering each expected subject."""
+    from iki_server.entities import services
+    from iki_server.entities.values import to_json
+    from iki_spec import titles
+
+    owner = request.owner_project_id
+    if owner is None:
+        return "Only a project request can be delivered."
+    missing = materials_of(request)
+    any_result = False
+    pending = False
+    for name, spec, rows in result_rows(request):
+        release = shape(name).fields()[spec.released_field]
+        signed_states = {
+            state for state in spec.released_states if release.states[state].signatures
+        }
+        links = ProjectLink.objects.filter(
+            entity_id=OuterRef("pk"), project_id=owner, via_request=request
+        )
+        # A plain release needs its recorded transition. A signed release also needs the
+        # signatures on that transition, even when a previous revision was signed.
+        last_transition = Revision.objects.filter(
+            entity_id=OuterRef("pk"), state_field=spec.released_field
+        ).order_by("-number")
+        signatures = Subquery(last_transition.values("signatures")[:1])
+        material_field = [spec.material] if spec.material else []
+        for state, returned, evidence, *material in rows.values_list(
+            spec.released_field, Exists(links), signatures, *material_field
+        ).iterator():
+            any_result = True
+            if (
+                state not in spec.released_states
+                or not returned
+                or evidence is None
+                or (state in signed_states and not evidence)
+            ):
+                pending = True
+            elif missing and material:
+                missing.difference_update(_covered_subjects(missing, material[0]))
+    if missing:
+        records = list(Entity.objects.filter(pk__in=missing).order_by("hrid", "pk"))
+        values = services.current_values_of(records)
+        labels = []
+        for record in records:
+            fields_of_type = shape(record.type).fields()
+            shown = {
+                k: to_json(fields_of_type[k], v)
+                for k, v in values[record.pk].items()
+                if k in fields_of_type
+            }
+            template = registry.display_title(registry.types()[record.type])
+            labels.append(titles.render(template, shown, record.hrid, fields_of_type))
+        return " ".join(f"{label} has no returned result yet." for label in labels)
+    if pending:
+        return "Every recorded deliverable must be returned before completing this request."
+    if not any_result:
+        return "At least one deliverable must be returned before completing this request."
+    return None
+
+
+def check_result(
+    project: Project, type_name: str, given: Mapping[str, Any], *, lock: bool = False
 ) -> dict[str, list[str]]:
     """A new result of a request must be made by the service the request was sent to."""
     spec = result_spec(type_name)
     if spec is None or given.get(spec.of) is None:
         return {}
-    found = Request.objects.filter(entity_id=given[spec.of]).select_related("service").first()
+    sent = Request.objects.filter(entity_id=given[spec.of]).select_related("entity")
+    if lock:
+        sent = sent.select_for_update(of=("entity",))
+    found = sent.first()
     if found is not None and found.service_id == project.pk:
+        from iki_server.entities import states
+
+        request = spec_of(found.entity.type)
+        if (
+            request
+            and request.completed_field
+            and states.values_of(found.entity).get(request.completed_field)
+            == request.completed_state
+        ):
+            return {spec.of: ["This request has already been delivered."]}
+        if spec.material and not _material_matches(found.entity, given.get(spec.material)):
+            return {spec.material: [MATERIAL_REFUSAL]}
         return {}
     return {
         spec.of: [
@@ -589,11 +819,13 @@ def released(user: User | None, locked: Entity, field: str, state: str, revision
     spec = result_spec(locked.type)
     if spec is None or field != spec.released_field or state not in spec.released_states:
         return
-    value = services.current_values(services.specific(locked)).get(spec.of)
+    values = services.current_values(services.specific(locked))
+    value = values.get(spec.of)
     if value is None:
         return
     request = (
         Request.objects.select_related("entity__owner_project", "service")
+        .select_for_update(of=("entity",))
         .filter(entity_id=value, service_id=locked.owner_project_id)
         .first()
     )
@@ -601,6 +833,8 @@ def released(user: User | None, locked: Entity, field: str, state: str, revision
         return
     asking = request.entity.owner_project
     assert asking is not None  # noqa: S101 - a request is a record
+    if spec.material and not _material_matches(request.entity, values.get(spec.material)):
+        raise Refused(MATERIAL_REFUSAL)
     there = ProjectLink.objects.select_for_update().filter(entity=locked, project=asking).first()
     if there is not None and there.via_request_id == request.entity_id:
         return  # Released already: a release is told once.

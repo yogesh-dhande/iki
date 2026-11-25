@@ -33,7 +33,10 @@ predecessor. Publication appends versions and retains all earlier ones.
 2. Record each criterion's value with its declared method and unit. For a manual observation,
    attach the source laboratory report if available. The plate-assay path uses a signed,
    reportable, in-range IC50 or EC50 result for the same physical lot and pins its revision.
-   Set the criterion method to the assay's fit version, for example `4PL-OLS/1`.
+   Record the same analytical procedure ID and revision on the plate and the
+   specification criterion. Set the criterion method to the assay's fit version,
+   for example `4PL-OLS/1`. Signed endpoints qualify as evidence when all three
+   identifiers agree.
    Regulated release requires a QA-released plate-assay result.
 3. Open the investigation created with an out-of-specification observation. Record the
    findings and conclusion. Invalidation needs the assigned cause, supporting evidence

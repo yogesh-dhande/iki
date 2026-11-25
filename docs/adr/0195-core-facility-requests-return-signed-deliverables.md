@@ -15,14 +15,14 @@ delivery to the requesting project.
 
 ## Decision
 
-Example LIMS adds two concrete types that inherit `AnalysisRequest`. They
+ResearchRequest and QCRequest in `iki/requests` inherit the abstract Request. They
 use the existing intake, queue, assignee, receipt, cross-project field
 permissions, and delivery notifications. A service admin chooses Research or
 Regulated QC in the service project's request intake by accepting the
-corresponding request type. Intake for the parent `AnalysisRequest` also
+corresponding request type. Intake for the parent `Request` also
 accepts its subtypes under ADR 0132. The type chosen for each sent request
-fixes its flow. Each deliverable type requires an immutable reference to the
-matching concrete request type.
+sets the deliveries it can receive. Each deliverable type requires an immutable
+reference to the matching concrete request type.
 
 Protein production requests name a registered protein and a positive
 requested mass. A successful deliverable records the same protein and the
@@ -46,6 +46,9 @@ that releases it. The requesting project then receives the locked signed
 result and the release receipt under ADR 0149. The service marks the request
 Delivered after the intended individual deliverables have come back. The
 status describes the request as a whole and its assignment queue.
+
+The service project can track internal work with a `WorkItem` (ADR 0132).
+For a PlainRequest it records a PlainDeliverable. A reviewer delivers the result to the requester. Research and QC requests require the signed deliverables named in [ADR 0211](0211-lots-inventory-samples-and-requests.md).
 
 ## Consequences
 

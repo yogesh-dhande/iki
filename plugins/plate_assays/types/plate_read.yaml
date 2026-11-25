@@ -2,10 +2,12 @@ apiVersion: iki/v1
 kind: EntityType
 name: PlateRead
 label: Committed plate read
-schema_version: 1
+schema_version: 3
 hrid: { prefix: PRD }
 description: The reader file and measurement records committed together for this version of the plate layout.
 fields:
+  procedure: { type: string, computed: true, max_length: 200, label: Analytical procedure ID }
+  procedure_revision: { type: string, computed: true, max_length: 80, label: Procedure revision }
   plate: { type: ref, to: AssayPlate, required: true, immutable: true }
   name: { type: string, computed: true, max_length: 200 }
   import_key:
@@ -17,7 +19,7 @@ fields:
     description: The plate ID. A plate can commit only once, including when requests overlap.
   plate_revision: { type: int, min: 1, computed: true }
   reader_file: { type: file, computed: true }
-  request: { type: ref, to: iki/example_lims.AnalysisRequest, computed: true }
+  request: { type: ref, to: iki/requests.Request, computed: true }
   measurements:
     { type: list, items: { type: ref, to: WellMeasurement }, max_items: 384, computed: true }
 display: { title: "{{ name or hrid }}" }

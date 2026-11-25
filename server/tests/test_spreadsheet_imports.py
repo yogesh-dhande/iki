@@ -100,6 +100,28 @@ def started(
     return body
 
 
+@pytest.mark.parametrize("type_name", ["iki/core.App", "iki/core.View"])
+def test_a_spreadsheet_needs_the_apps_scope_to_author_apps_or_views(
+    world: World, type_name: str
+) -> None:
+    file = workbook(world, b"name\nExample\n", name="records.csv")
+    path = f"/projects/{world.project.pk}/spreadsheet-imports"
+    body = {"file": file, "type": type_name}
+    _, writer = signed_in_token(world, scope="read write")
+    _, author = signed_in_token(world, scope="read apps")
+    missing = bearer(writer["access_token"], "POST", path, body)
+    problem(missing, 403, "insufficient_scope")
+    assert missing["WWW-Authenticate"] == 'Bearer error="insufficient_scope", scope="apps"'
+    created = bearer(author["access_token"], "POST", path, body)
+    assert created.status_code == 201, created.content
+    # The same person can return through a client with a narrower grant.
+    # Staging with the first grant does not authorize committing with the second.
+    commit = f"/spreadsheet-imports/{created.json()['id']}/commit"
+    denied = bearer(writer["access_token"], "POST", commit, {}, {"If-Match": created["ETag"]})
+    problem(denied, 403, "insufficient_scope")
+    assert denied["WWW-Authenticate"] == missing["WWW-Authenticate"]
+
+
 def seen(imported: dict[str, Any]) -> dict[str, str]:
     """If-Match: the revision of the import as it was read."""
     return {"If-Match": f'"{imported["revision"]}"'}

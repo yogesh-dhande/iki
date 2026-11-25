@@ -1001,8 +1001,8 @@ class _Writer:
                     document=output["document"],
                     received_at=output["received_at"],
                 )
-        # Each outside API call, as the source's egress proxy recorded it: provenance, not
-        # cost, which was the source deployment's.
+        # The source's recorded call price travels as provenance with the call.
+        # Only the source keeps its accounting ledger entry.
         ApiCall.objects.bulk_create(
             ApiCall(
                 run=run,
@@ -1024,6 +1024,8 @@ class _Writer:
                 version=c["version"],
                 parameters=c["parameters"],
                 usage=c["usage"],
+                cost=c.get("cost", {}).get("amount"),
+                currency=c.get("cost", {}).get("currency", ""),
             )
             for c in line.get("api_calls", ())
         )
@@ -1042,6 +1044,7 @@ class _Writer:
             RunInclusion(
                 run=run,
                 input=c["input"],
+                covered_materials=c.get("covered_materials"),
                 position=c["position"],
                 field=c["field"],
                 index=c["index"],

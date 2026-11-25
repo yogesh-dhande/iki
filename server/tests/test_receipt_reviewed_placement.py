@@ -6,7 +6,7 @@ import pytest
 from api_client import Api
 from test_receipt_observation_history import change, read
 from test_requests import Lab
-from test_storage import box, contents, errors, sent_with_tubes
+from test_storage import box, contents, errors, moved, sent_with_tubes, tube
 from test_storage import lab as lab
 
 from iki_server.audit.models import AuditEvent
@@ -203,3 +203,38 @@ def test_an_archived_box_and_tube_read_back_as_archived_where_receiving_offers_w
     shown = read(api, f"/storage/containers/{incoming['id']}")
     assert shown["archived"] is True
     assert [line["ref"]["archived"] for line in read(api, path)["lines"]] == [False, True]
+
+
+def test_next_free_receipt_placement_requires_the_current_reviewed_plan(lab: Lab) -> None:
+    api = lab.api("tech")
+    dest = box(api, lab.core, "Receiving", 1, 2)
+    other = tube(api, lab.core, "BLOCKER")
+    request, tubes = sent_with_tubes(lab, 1)
+    opened = change(api, "POST", f"/entities/{request['id']}/receipts", status=201)
+    path = f"/receipts/{opened['id']}"
+    matched = opened["lines"][0]["id"]
+    receipt = change(api, "POST", path + "/scan", code="RC000")["receipt"]
+    receipt = change(api, "PATCH", path, receipt, handed_over_by="Courier")
+    body = {
+        "plan_revision": receipt["plan_revision"],
+        "put_away": [{"line": matched, "to": dest["id"]}],
+    }
+    ids = [tubes[0]["id"]]
+    before = custody_state(api, path, ids)
+    preview = api.post(path + "/put-away/preview", body)
+    assert preview.status_code == 200 and preview.json()["items"][0]["to"]["position"] == "A1"
+    assert custody_state(api, path, ids) == before
+    for expected in ["A1", "A2"]:
+        before = custody_state(api, path, ids)
+        response = api.post(path + "/complete", body)
+        assert response.status_code == 409, response.content
+        current = response.json()["moves"]
+        assert current["items"][0]["to"]["position"] == expected
+        assert custody_state(api, path, ids) == before
+        body["plan"] = current["plan"]
+        if expected == "A1":
+            assert body["plan"] == preview.json()["plan"]
+            moved(api, (other, dest, "A1"))
+    done = api.post(path + "/complete", body)
+    assert done.status_code == 200, done.content
+    assert done.json()["lines"][0]["put_away"]["position"] == "A2"

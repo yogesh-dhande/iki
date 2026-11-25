@@ -21,4 +21,6 @@ description: >-
 on: entity.updated
 type: OligoLot
 fields: [measured_mass, mass_basis, yield_od, extinction_260]
+watch_included:
+  oligonucleotide: [molecular_weight, monoisotopic_mass, extinction_260]
 run: compute_oligo_lot

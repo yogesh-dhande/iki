@@ -523,6 +523,9 @@ class Rule:
     fields: tuple[str, ...] = ()
     #: Every field of the record its expressions read, filled in by the validator.
     reads: tuple[str, ...] = ()
+    #: Reference field and revision field pairs for this check's historical evidence.
+    reference_revisions: tuple[tuple[str, str], ...] = ()
+    recheck_before_signing: bool = False
     #: An extension's rule, rather than a type's own.
     extension: bool = False
 
@@ -556,6 +559,8 @@ class Rule:
             message=data.get("message") or "",
             check=data.get("check"),
             when=data.get("when"),
+            reference_revisions=tuple(sorted((data.get("reference_revisions") or {}).items())),
+            recheck_before_signing=data.get("recheck_before_signing", False),
             unique=tuple(data.get("unique") or ()),
             no_overlap=(str(overlap.get("from", "")), str(overlap.get("to", "")))
             if isinstance(overlap, dict)
@@ -722,6 +727,18 @@ class RequestSpec:
     #: and the service's lab roles that receive them (any Editor's, if none).
     receives: str | None = None
     receives_by: tuple[str, ...] = ()
+    #: Sent fields that identify the physical material commissioned for testing.
+    materials: tuple[str, ...] = ()
+    #: The service transition that certifies delivery of the request.
+    completed_field: str | None = None
+    completed_state: str | None = None
+
+
+@dataclass(frozen=True)
+class WorkItemSpec:
+    """The reference to the request this service-project work item is for (ADR 0132)."""
+
+    of: str
 
 
 @dataclass(frozen=True)
@@ -734,6 +751,8 @@ class ResultSpec:
     #: The state field, and its states, in which it's released to the asking project.
     released_field: str
     released_states: tuple[str, ...] = ()
+    #: Immutable reference to the tested material, if the result concerns one.
+    material: str | None = None
 
     def requires_review(self, field: Field, state: str) -> bool:
         """Whether this signed release follows a separately signed review (ADR 0179)."""
@@ -860,12 +879,12 @@ class DrawTarget:
     """A record intended to receive one matched draw while it awaits material."""
 
     from_field: str
-    source: str
+    source: str | None
     state_field: str
     state: str
     by: tuple[str, ...]
-    ready: str
-    amount: str
+    ready: str | None
+    amount: str | None
     stored: bool = False
 
 
@@ -903,6 +922,7 @@ class EntityType:
     request: RequestSpec | None = None
     #: Its records are a request's results (ADR 0132).
     result: ResultSpec | None = None
+    work_item: WorkItemSpec | None = None
     #: How much of each record there is (ADR 0139): its own or a parent's.
     amount: Amount | None = None
     #: Optional record field maintained by the amounts ledger when a draw goes into this record.
@@ -1452,6 +1472,8 @@ class Trigger:
     file: str | None = None
     #: Inputs given the entities related to the one that fired it, by input (ADR 0123).
     related: dict[str, Related] = field(default_factory=dict)
+    recheck: str = ""
+    watch_included: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -1653,6 +1675,7 @@ _DATACLASSES = (
     TypeNotification,
     RequestSpec,
     ResultSpec,
+    WorkItemSpec,
     EntityType,
     Export,
     ReportExport,
@@ -1710,9 +1733,25 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
                 and not value.reason_on_clear
             )
             and not (
+                isinstance(value, RequestSpec)
+                and f.name in {"materials", "completed_field", "completed_state"}
+                and not getattr(value, f.name)
+            )
+            and not (
+                isinstance(value, ResultSpec) and f.name == "material" and value.material is None
+            )
+            and not (
+                isinstance(value, EntityType) and f.name == "work_item" and value.work_item is None
+            )
+            and not (
                 f.name == "customer_image_required"
                 and isinstance(value, Environment)
                 and not value.customer_image_required
+            )
+            and not (
+                isinstance(value, Rule)
+                and f.name in {"recheck_before_signing", "reference_revisions"}
+                and not getattr(value, f.name)
             )
         }
     if isinstance(value, dict):
@@ -1757,6 +1796,7 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         # ...or requests.
                         "request": _request(v.get("request")),
                         "result": _result(v.get("result")),
+                        "work_item": WorkItemSpec(**v["work_item"]) if v.get("work_item") else None,
                         "stock_catalogue": StockCatalogue.read(v["stock_catalogue"], data["name"])
                         if v.get("stock_catalogue")
                         else None,
@@ -1804,6 +1844,10 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "fields": tuple(v["fields"]),
                         "state_field": v.get("state_field", ""),
                         "states": tuple(v.get("states", ())),
+                        "watch_included": {
+                            n: tuple(fields)
+                            for n, fields in (v.get("watch_included") or {}).items()
+                        },
                         # ...or related entities.
                         "related": {
                             n: Related(**{**r, "edges": tuple(r["edges"])})
@@ -1841,6 +1885,9 @@ def _request(data: dict[str, Any] | None) -> RequestSpec | None:
     return RequestSpec(
         service_fields=tuple(data["service_fields"]),
         sends=tuple(data["sends"]),
+        materials=tuple(data.get("materials") or ()),
+        completed_field=data.get("completed_field"),
+        completed_state=data.get("completed_state"),
         receives=data.get("receives"),
         receives_by=tuple(data.get("receives_by") or ()),
     )
@@ -2051,6 +2098,7 @@ def _rule(data: dict[str, Any]) -> Rule:
     return Rule(
         **{
             **data,
+            "reference_revisions": tuple((k, v) for k, v in data.get("reference_revisions") or ()),
             "unique": tuple(data.get("unique") or ()),
             "no_overlap": tuple(data.get("no_overlap") or ()),
             "per": tuple(data.get("per") or ()),

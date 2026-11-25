@@ -44,7 +44,11 @@ def archive(run: dict[str, Any]) -> dict[str, Any]:
         alignment = alignments[0]
         if alignment["values"].get("reference") != sequence:
             raise ValueError("The alignment reference must be the prep plasmid's registered DNA.")
-        verdict = alignment["values"].get("verdict")
+        sample = alignment["values"].get("sample")
+        if sample is not None and sample != prep["id"]:
+            raise ValueError("The alignment names a different physical prep.")
+        # Earlier whole-plasmid comparisons kept the verdict in their subtype's agreement.
+        verdict = alignment["values"].get("verdict") or alignment["values"].get("agreement")
         if params["outcome"] == "match" and verdict in {"differs", "incomplete"} and not reason:
             raise ValueError(
                 "Give a reason to record a match over differing or incomplete evidence."

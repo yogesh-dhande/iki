@@ -106,6 +106,10 @@ copies. First it checks what reversing would destroy:
 If any check fails, it changes nothing and says what would be lost, and
 restoring the backup taken before the upgrade is the way back. A rollback
 right after a bad deploy, before anyone used the new fields, goes through.
+When a replacement migration represents migrations the older build retains,
+the Job uses the replacement's state to reverse its successors. It then
+clears the replacement's applied marker and keeps the original migrations
+applied.
 
 It also refuses:
 

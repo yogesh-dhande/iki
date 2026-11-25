@@ -1,4 +1,4 @@
-"""Protein production and sequencing on the example LIMS cross-project request path."""
+"""Protein production and sequencing as cross-project requests."""
 
 import hashlib
 import json
@@ -7,12 +7,14 @@ from typing import Any
 
 import pytest
 from api_client import Api
+from django.core.exceptions import PermissionDenied
 from first_party_dependencies import PLUGINS, build_order
 from org_world import World, build_world
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, ready, signed
 
-from iki_server.entities import requests, services, states
+from iki_server.amounts import services as amounts
+from iki_server.entities import access, requests, services, states
 from iki_server.entities.models import Entity, ProjectLink
 from iki_server.entities.values import Invalid
 from iki_server.files.models import Blob, File
@@ -25,19 +27,24 @@ from iki_server.storage.models import ReceiptStatus
 
 __all__ = ["database"]
 
-PLUGIN = PLUGINS / "example_lims"
+PLUGIN = PLUGINS / "requests"
 EXAMPLES = PLUGIN / "examples"
-LIMS = "iki/example_lims."
-RESEARCH = LIMS + "ResearchCoreRequest"
-REGULATED = LIMS + "QCCoreRequest"
-RESEARCH_DELIVERY = LIMS + "ResearchCoreDeliverable"
-REGULATED_DELIVERY = LIMS + "QCCoreDeliverable"
+REQUESTS = "iki/requests."
+PLAIN = REQUESTS + "PlainRequest"
+RESEARCH = REQUESTS + "ResearchRequest"
+REGULATED = REQUESTS + "QCRequest"
+RESEARCH_DELIVERY = REQUESTS + "ResearchDeliverable"
+REGULATED_DELIVERY = REQUESTS + "QCDeliverable"
+BASIC_DELIVERY = REQUESTS + "PlainDeliverable"
+WORK = REQUESTS + "WorkItem"
 REQUESTER = "outsider"
 
 
 def test_the_shipping_lims_serves_both_facility_requests(tmp_path: Path, database: str) -> None:
     build = tmp_path / "build"
-    built = iki("plugin", "build", *build_order(PLUGIN), "--output", build, cwd=PLUGINS)
+    built = iki(
+        "plugin", "build", *build_order(PLUGIN, PLUGINS / "protein"), "--output", build, cwd=PLUGINS
+    )
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(build, database)
     sync(build, database)
@@ -132,12 +139,17 @@ def exercise_core_requests() -> None:
     }.items():
         membership = core.memberships.get(user=world.users[person])
         for role in roles:
-            LabRoleGrant.objects.create(membership=membership, role=LIMS + role)
+            LabRoleGrant.objects.create(membership=membership, role="iki/lab_roles." + role)
     request_api = Api(world.browser(REQUESTER))
     requests.set_intake(
-        core, types=[RESEARCH], from_registry=False, sources=[asking], by=world.users["admin"]
+        core,
+        types=[RESEARCH, PLAIN],
+        from_registry=False,
+        sources=[asking],
+        by=world.users["admin"],
     )
     _production(world, asking)
+    _plain_delivery_coverage(world, asking)
     _sequencing(world, asking, request_api)
 
 
@@ -156,22 +168,26 @@ def _production(world: World, asking: Project) -> None:
     )
     subject = {"title": "Training: ADH1 production", "facility_service": "protein_production"}
     with pytest.raises(Invalid, match="positive requested mass"):
-        _make(world, REQUESTER, RESEARCH, asking, **subject, protein=str(protein.entry_id))
+        _make(world, REQUESTER, RESEARCH, asking, **subject, records=[str(protein.pk)])
     research = _make(
         world,
         REQUESTER,
         RESEARCH,
         asking,
         **subject,
-        protein=str(protein.entry_id),
+        records=[str(protein.pk)],
         requested_mass=1,
     )
+    with pytest.raises(Invalid, match="isn't a request sent to"):
+        _make(world, REQUESTER, WORK, asking, request=str(research.pk))
     _send(world, research)
+    with pytest.raises(Refused, match="returned"):
+        _status(world, research, "admin", "delivered")
     report_path = EXAMPLES / "P00330-production.txt"
     report = _report(world.project, report_path.name, report_path.read_bytes())
     fields = {
         "request": str(research.pk),
-        "protein": str(protein.entry_id),
+        "protein": str(protein.pk),
         "outcome": "fulfilled",
         "lot_number": "TRAINING-ADH1-01",
         "delivered_mass": 0.8,
@@ -181,18 +197,172 @@ def _production(world: World, asking: Project) -> None:
         _make(world, "editor", REGULATED_DELIVERY, world.project, **fields)
     deliverable = _make(world, "editor", RESEARCH_DELIVERY, world.project, **fields)
     assert not ProjectLink.objects.filter(entity=deliverable, project=asking).exists()
+    with pytest.raises(Refused, match="returned"):
+        _status(world, research, "admin", "delivered")
     review = _sign(world, "admin", deliverable, "signed_off")
     assert Signature.objects.filter(entity=deliverable).count() == 1
     assert json.loads(review.content)["values"]["report"] == report
     assert ProjectLink.objects.get(entity=deliverable, project=asking).via_request_id == research.pk
+    with pytest.raises(Invalid):
+        _make(world, "editor", BASIC_DELIVERY, world.project, **fields)
+    plain = _make(world, REQUESTER, PLAIN, asking, title="Training bench work")
+    _send(world, plain)
+    _private_work_and_basic_deliveries(
+        world, asking, plain, {"request": str(plain.pk), "outcome": "fulfilled", "report": report}
+    )
     _status(world, research, "admin", "delivered")
+
+
+def _private_work_and_basic_deliveries(
+    world: World, asking: Project, request: Entity, fields: dict[str, Any]
+) -> None:
+    core = world.project
+    assert ProjectLink.objects.get(entity=request, project=core).via_request_id == request.pk
+    item = _make(
+        world,
+        "editor",
+        WORK,
+        core,
+        request=str(request.pk),
+        scheduled_on="2026-11-24",
+        instrument="Training bench",
+        notes="Internal queue notes",
+    )
+    cancelled = _make(world, "editor", WORK, core, request=str(request.pk))
+    assert item.owner_project_id == core.pk
+    assert states.values_of(item)["status"] == "queued"
+    assert services.current_values(services.specific(item))["priority"] == "routine"
+    with pytest.raises(Refused):
+        _status(world, item, "editor", "running")
+    with pytest.raises(PermissionDenied):
+        _status(world, item, "admin", "scheduled")
+    for target in ("scheduled", "running", "done"):
+        _status(world, item, "editor", target)
+    with pytest.raises(Invalid, match="needs a reason"):
+        _status(world, cancelled, "editor", "cancelled")
+    states.set_state(
+        world.users["editor"],
+        cancelled,
+        "status",
+        "cancelled",
+        expected_revision=cancelled.revision,
+        reason="Cancelled by the core",
+    )
+    cancelled.refresh_from_db()
+    assert states.values_of(cancelled)["status"] == "cancelled"
+
+    recorded = _make(world, "editor", BASIC_DELIVERY, core, **fields)
+    delivered = _make(world, "editor", BASIC_DELIVERY, core, **fields)
+    with pytest.raises(PermissionDenied):
+        _status(world, delivered, "viewer", "delivered")
+    _status(world, delivered, "admin", "delivered")
+    assert not Signature.objects.filter(entity=delivered).exists()
+    assert ProjectLink.objects.get(entity=delivered, project=asking).via_request_id == request.pk
+    assert not ProjectLink.objects.filter(
+        entity__in=[item, cancelled, recorded], project=asking
+    ).exists()
+
+    # As in the request access matrix, compare UUID reads, listings and search for both sides.
+    candidates = [item, cancelled, recorded, delivered]
+    all_ids = {str(record.pk) for record in candidates}
+    for who, expected in (("editor", all_ids), (REQUESTER, {str(delivered.pk)})):
+        api = Api(world.browser(who))
+        for record in candidates:
+            status = api.get(f"/entities/{record.pk}").status_code
+            assert status == (200 if str(record.pk) in expected else 404), (who, record.hrid)
+        visible = {str(pk) for pk in access.visible(world.users[who]).values_list("pk", flat=True)}
+        assert visible & all_ids == expected
+        found = api.post("/entities/search", {"limit": 100}).json()["items"]
+        assert {e["id"] for e in found} & all_ids == expected
+
+    request_view = Api(world.browser(REQUESTER)).get(f"/entities/{request.pk}/request").json()
+    assert str(delivered.pk) in {result["id"] for result in request_view["results"]}
+    assert not {str(item.pk), str(cancelled.pk), str(recorded.pk)} & {
+        result["id"] for result in request_view["results"]
+    }
+
+    # A person in both projects may see the work item in the core and still cannot share it.
+    analyst = world.users["editor"]
+    ProjectMembership.objects.create(project=asking, user=analyst, role=ProjectRole.EDITOR)
+    with pytest.raises(Refused, match="stays in"):
+        services.link(analyst, item, asking)
+    member = {"name": "Work collection", "members": [str(item.pk)]}
+    _make(world, "editor", "iki/core.Collection", core, **member)
+    with pytest.raises(Invalid, match="stays in"):
+        _make(world, "editor", "iki/core.Collection", asking, **member)
+    with pytest.raises(Invalid, match="isn't a request sent to"):
+        _make(world, "editor", WORK, asking, request=str(request.pk))
+
+    with pytest.raises(Refused, match="Every recorded deliverable"):
+        _status(world, request, "admin", "delivered")
+    _status(world, recorded, "admin", "delivered")
+
+
+def _plain_delivery_coverage(world: World, asking: Project) -> None:
+    core = world.project
+    first, second = [
+        _make(world, REQUESTER, "iki/inventory.Tube", asking, name=name)
+        for name in ("First tube", "Second tube")
+    ]
+    unrequested = _make(world, "editor", "iki/inventory.Tube", core, name="Unrequested tube")
+    subjects = [str(first.pk), str(second.pk)]
+    request = _make(
+        world,
+        REQUESTER,
+        PLAIN,
+        asking,
+        title="Two tube reports",
+        tubes=subjects,
+    )
+    _send(world, request)
+    fields = {
+        "request": str(request.pk),
+        "outcome": "unsuccessful",
+        "report": _report(core, "service-report.txt", b"Service could not complete the work."),
+    }
+    with pytest.raises(Invalid, match="Choose a sample or tube on this request"):
+        _make(world, "editor", BASIC_DELIVERY, core, **fields, material=str(unrequested.pk))
+    for _ in range(2):
+        result = _make(world, "editor", BASIC_DELIVERY, core, **fields, material=str(first.pk))
+        _status(world, result, "admin", "delivered")
+    with pytest.raises(Refused, match="Second tube has no returned result"):
+        _status(world, request, "admin", "delivered")
+    last = _make(world, "editor", BASIC_DELIVERY, core, **fields, material=str(second.pk))
+    services.update(
+        world.users[REQUESTER], request, {"tubes": subjects[:1]}, expected_revision=request.revision
+    )
+    request.refresh_from_db()
+    with pytest.raises(Refused, match="Choose a sample or tube on this request"):
+        _status(world, last, "admin", "delivered")
+    services.update(
+        world.users[REQUESTER], request, {"tubes": subjects}, expected_revision=request.revision
+    )
+    request.refresh_from_db()
+    _status(world, last, "admin", "delivered")
+    assert not Signature.objects.filter(entity=last).exists()
+    _status(world, request, "admin", "delivered")
 
 
 def _sequencing(world: World, asking: Project, api: Api) -> None:
     # ERR13376132 is the public long-read run for natural yeast isolate CEY652.
     # https://www.ncbi.nlm.nih.gov/sra/ERX12747051
-    tube = _make(world, REQUESTER, LIMS + "Tube", asking, name="CEY652", barcode="TRAINING-CEY652")
-    private_tube = _make(world, REQUESTER, LIMS + "Tube", asking, name="Another project tube")
+    sender = world.users[REQUESTER]
+    stock = _make(world, REQUESTER, "iki/core.Collection", asking, name="CEY652 stock")
+    tube = services.create(
+        sender,
+        "iki/inventory.Tube",
+        asking,
+        {"name": "CEY652", "barcode": "TRAINING-CEY652", "contents": str(stock.pk)},
+        amount={"value": 10, "unit": "uL"},
+    ).entity
+    tube = Entity.objects.get(pk=tube.pk)
+    (child,) = amounts.split(sender, tube, 1, amounts.Given.of({"value": 4, "unit": "uL"})).aliquots
+    (portion,) = amounts.split(
+        sender, child, 1, amounts.Given.of({"value": 2, "unit": "uL"})
+    ).aliquots
+    private_tube = _make(
+        world, REQUESTER, "iki/inventory.Tube", asking, name="Another project tube"
+    )
     fields = {
         "title": "Training: long-read sequencing",
         "facility_service": "sequencing",
@@ -214,25 +384,27 @@ def _sequencing(world: World, asking: Project, api: Api) -> None:
     assert ProjectLink.objects.get(entity=tube, project=world.project).via_request_id == qc.pk
     assert not ProjectLink.objects.filter(entity=private_tube, project=world.project).exists()
 
+    services.link(world.users["editor"], portion, world.project)
     report_path = EXAMPLES / "ERR13376132-delivery.txt"
     report = _report(world.project, report_path.name, report_path.read_bytes())
     fields = {
         "request": str(qc.pk),
         "outcome": "fulfilled",
-        "tube": str(tube.pk),
+        "material": str(portion.pk),
         "report": report,
         "run_accession": "ERR13376132",
     }
-    with pytest.raises(Invalid):
-        _make(world, "editor", RESEARCH_DELIVERY, world.project, **fields)
-    duplicate_tube = _make(world, "editor", LIMS + "Tube", world.project, name="Unsent tube")
-    with pytest.raises(Invalid, match="Name a tube on the request"):
+    for type_name in (RESEARCH_DELIVERY, BASIC_DELIVERY):
+        with pytest.raises(Invalid):
+            _make(world, "editor", type_name, world.project, **fields)
+    duplicate_tube = _make(world, "editor", "iki/inventory.Tube", world.project, name="Unsent tube")
+    with pytest.raises(Invalid, match="Choose a sample or tube on this request"):
         _make(
             world,
             "editor",
             REGULATED_DELIVERY,
             world.project,
-            **{**fields, "tube": str(duplicate_tube.pk)},
+            **{**fields, "material": str(duplicate_tube.pk)},
         )
     with pytest.raises(Invalid, match="attach files or a public run accession"):
         _make(
@@ -288,4 +460,35 @@ def _sequencing(world: World, asking: Project, api: Api) -> None:
     # The prior signed review and its attachments remain readable in record history.
     assert api.get(f"/files/{report}").status_code == 200
     assert api.get(f"/entities/{deliverable.pk}").json()["values"]["report"] == corrected
+    second_tube = _make(world, REQUESTER, "iki/inventory.Tube", asking, name="Tube B")
+    services.update(
+        requester, qc, {"tubes": [str(tube.pk), str(second_tube.pk)]}, expected_revision=qc.revision
+    )
+    qc.refresh_from_db()
+    for material, outcome in [(tube, "fulfilled"), (second_tube, "unsuccessful")]:
+        with pytest.raises(Refused, match="Tube B has no returned result yet"):
+            _status(world, qc, "admin", "delivered")
+        result = _make(
+            world,
+            "editor",
+            REGULATED_DELIVERY,
+            world.project,
+            **{
+                **fields,
+                "material": str(material.pk),
+                "outcome": outcome,
+                "run_accession": None if outcome == "unsuccessful" else fields["run_accession"],
+            },
+        )
+        _sign(world, "editor", result, "submitted")
+        _sign(world, "admin", result, "reviewed")
+        _sign(world, "viewer", result, "released")
+    draft = _make(world, "editor", REGULATED_DELIVERY, world.project, **fields)
+    with pytest.raises(Refused, match="Every recorded deliverable"):
+        _status(world, qc, "admin", "delivered")
+    _sign(world, "editor", draft, "submitted")
+    _sign(world, "admin", draft, "reviewed")
+    _sign(world, "viewer", draft, "released")
     _status(world, qc, "admin", "delivered")
+    with pytest.raises(Invalid, match="already been delivered"):
+        _make(world, "editor", REGULATED_DELIVERY, world.project, **fields)

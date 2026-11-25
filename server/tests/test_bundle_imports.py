@@ -1117,14 +1117,35 @@ def test_runs_come_with_what_they_made_and_read(world: World, tmp_path: Path) ->
 def test_a_run_that_parked_brings_each_attempts_output(world: World, tmp_path: Path) -> None:
     """A run that parked on an outside API's job and resumed (ADR 0130): each attempt's
     output comes as its command sent it, and the run's is still its last attempt's."""
-    from iki_server.runs.models import ActionRun, RunOutput
+    from decimal import Decimal
+
+    from iki_server.runs.models import ActionRun, ApiCall, CostRecord, Job, RunOutput
 
     parking = {"apiVersion": "iki/v1", "kind": "RunOutput", "park": {"api": "fold", "job": "j-1"}}
 
     def elsewhere() -> list[Any]:
         read = protein(world, "MKPARKED", name="read")
         made = protein(world, "MKRESUME", name="made")
-        ran(world, made, read, parked=parking)
+        run = ran(world, made, read, parked=parking)
+        job = Job.objects.get(run=run, attempt=1)
+        assert job.started_at is not None
+        for path, cost, currency in (
+            ("/quoted", Decimal("0.001234"), "EUR"),
+            ("/unpriced", None, ""),
+        ):
+            ApiCall.objects.create(
+                run=run,
+                job=job,
+                api="acme/protein.fold",
+                host="fold.example.org",
+                kind="poll",
+                method="GET",
+                path=path,
+                started_at=job.started_at,
+                duration_ms=1,
+                cost=cost,
+                currency=currency,
+            )
         return [made]
 
     path = bundle_of(world, tmp_path, elsewhere)
@@ -1133,6 +1154,9 @@ def test_a_run_that_parked_brings_each_attempts_output(world: World, tmp_path: P
         (1, "parked", parking),
         (2, "succeeded", {"creates": []}),
     ]
+    priced, unpriced = line["api_calls"]
+    assert priced["cost"] == {"amount": "0.001234", "currency": "EUR"}
+    assert "cost" not in unpriced
     api = Api(world.browser("admin"))
     done = applied(api, upload(api, world.project, path))
     assert done["state"] == "applied", done
@@ -1140,6 +1164,12 @@ def test_a_run_that_parked_brings_each_attempts_output(world: World, tmp_path: P
     kept = RunOutput.objects.filter(run=run).select_related("job")
     assert {o.job.attempt: o.document for o in kept} == {1: parking, 2: {"creates": []}}
     assert kept.final().get().job.attempt == 2
+
+    calls = list(ApiCall.objects.filter(run=run).order_by("id").values_list("cost", "currency"))
+    assert calls == [(Decimal("0.001234"), "EUR"), (None, "")]
+    assert not CostRecord.objects.filter(run=run).exists()
+    page = api.get(f"/runs/{run.hrid}/api-calls").json()
+    assert [(c["cost"], c["currency"]) for c in page["items"]] == [(0.001234, "EUR"), (None, None)]
 
 
 def reading_runs(path: Path) -> list[dict[str, Any]]:

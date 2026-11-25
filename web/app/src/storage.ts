@@ -322,6 +322,18 @@ export async function cancelReceipt(
   );
 }
 
+export async function previewReceiptPlacement(
+  receipt: string,
+  choice: Schemas["ReceiptPlacementIn"],
+): Promise<Schemas["MovesOut"]> {
+  return unwrap(
+    await iki.POST("/api/v1/receipts/{receipt_id}/put-away/preview", {
+      params: { path: { receipt_id: receipt } },
+      body: choice,
+    }),
+  );
+}
+
 export async function completeReceipt(
   receipt: string,
   approval: Schemas["CompleteReceiptIn"],

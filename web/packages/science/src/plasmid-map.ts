@@ -4,7 +4,9 @@ import { rangesOf, stretchLength } from "./sequence.js";
 export interface MapSpan {
   start: number;
   end: number;
-  strand?: "forward" | "reverse" | "none";
+  /** `none` has no strand, and `mixed` has parts on both: neither is drawn with an
+   * arrowhead. Unsaid, it's forward. */
+  strand?: "forward" | "reverse" | "none" | "mixed";
   qualifiers?: { label?: string; role?: string; identity?: string };
 }
 export interface MapFeature extends MapSpan {
@@ -32,7 +34,8 @@ export interface MapBindingSite extends MapSpan {
  * reference bases from `start` to `end` (an insertion's are the two bases either side). */
 export interface MapDifference extends MapSpan {
   hgvs: string;
-  kind: "substitution" | "deletion" | "insertion" | "deletion_insertion";
+  kind:
+    "substitution" | "deletion" | "insertion" | "duplication" | "inversion" | "deletion_insertion";
   reference: string;
   observed: string;
   length_change: number;
@@ -55,7 +58,8 @@ export interface MapCoverage {
   minDepth?: number;
   meanDepth?: number;
   leastDepth?: number;
-  low?: readonly MapSpan[];
+  low?: readonly MapSpan[] | undefined;
+  low_count?: number;
   source?: string;
 }
 
@@ -81,6 +85,8 @@ export interface PlasmidMapData {
   linkedPrimerIds?: readonly string[];
   emptyMessage?: string;
   emptyAction?: string;
+  /** What else to say beneath the description, a paragraph each. */
+  notes?: readonly string[];
 }
 type View = "line" | "ring";
 type LayerKey = "parts" | "orfs" | "primers" | "coverage" | "differences";
@@ -243,6 +249,29 @@ function spanOf(feature: MapSpan, length: number) {
   return stretchLength(feature.start, feature.end, length);
 }
 
+/** Whether a strand has a direction to draw: not `none`, nor `mixed`. */
+function directed(strand?: MapSpan["strand"]) {
+  return strand !== "none" && strand !== "mixed";
+}
+
+/** A strand in words: as a table writes it, and as a sentence does. */
+function strandWord(strand?: MapSpan["strand"]) {
+  return strand === "reverse"
+    ? "reverse"
+    : strand === "none"
+      ? "neither"
+      : strand === "mixed"
+        ? "both"
+        : "forward";
+}
+function onStrand(strand?: MapSpan["strand"]) {
+  return strand === "none"
+    ? "on neither strand"
+    : strand === "mixed"
+      ? "on both strands"
+      : `on the ${strandWord(strand)} strand`;
+}
+
 /** An arc from base `from` for `span` bases, as an SVG path, with an arrowhead at the end
  * it runs to. */
 function arc(
@@ -252,7 +281,7 @@ function arc(
   radius: number,
   strand?: MapSpan["strand"],
 ): [string, string] {
-  const head = Math.min(span / 2, (14 * length) / (2 * Math.PI * radius));
+  const head = directed(strand) ? Math.min(span / 2, (14 * length) / (2 * Math.PI * radius)) : 0;
   const forward = strand !== "reverse";
   const bodyFrom = forward ? from : from + head;
   const bodySpan = span - head;
@@ -265,7 +294,7 @@ function arc(
   const [bx, by] = point(forward ? from + bodySpan : from + head, length, radius - 5);
   const [cx, cy] = point(forward ? from + bodySpan : from + head, length, radius + 5);
   const head3 = `M ${bx.toFixed(2)} ${by.toFixed(2)} L ${tx.toFixed(2)} ${ty.toFixed(2)} L ${cx.toFixed(2)} ${cy.toFixed(2)} Z`;
-  return [body, head3];
+  return [body, head ? head3 : ""];
 }
 
 /** Ticks every 500, 1,000, 2,000 bases and so on: the first step that gives at most ten
@@ -664,7 +693,7 @@ function lineDrawing(
       const y = forward ? spine - 20 - lane * LANE : spine + 34 + lane * LANE;
       const colour = layer.colour ? colourOf(layer.colour) : colourOf(item.qualifiers?.role);
       // The arrowhead goes on the stretch that holds its 3' end.
-      const tipped = forward ? pieces.length - 1 : 0;
+      const tipped = !directed(item.strand) ? -1 : forward ? pieces.length - 1 : 0;
       pieces.forEach(([from, to], i) => {
         for (const drawn of bar(from, to, length, y, forward, i === tipped)) {
           drawn.setAttribute(drawn.tagName === "line" ? "stroke" : "fill", colour);
@@ -693,6 +722,11 @@ function middle(parts: SVGSVGElement, name: string, length: number, count: numbe
   }
 }
 
+function tableHead(...labels: string[]) {
+  const cells = labels.map((label) => element("th", { scope: "col" }, label));
+  return element("thead", {}, element("tr", {}, ...cells));
+}
+
 function table(features: MapFeature[], length: number, own = false) {
   const rows = features.map((feature) => {
     const where =
@@ -707,7 +741,7 @@ function table(features: MapFeature[], length: number, own = false) {
       element("th", { scope: "row" }, swatch, feature.qualifiers?.label ?? feature.name),
       element("td", { className: "where" }, where),
       element("td", {}, `${spanOf(feature, length).toLocaleString("en")} bp`),
-      element("td", {}, feature.strand === "reverse" ? "reverse" : "forward"),
+      element("td", {}, strandWord(feature.strand)),
       element("td", {}, ROLES[feature.qualifiers?.role ?? ""] ?? feature.type),
       ...(own ? [] : [element("td", {}, feature.qualifiers?.identity ?? "")]),
     );
@@ -716,19 +750,13 @@ function table(features: MapFeature[], length: number, own = false) {
     "table",
     {},
     element("caption", {}, own ? "Its features" : "Parts found along it"),
-    element(
-      "thead",
-      {},
-      element(
-        "tr",
-        {},
-        element("th", { scope: "col" }, own ? "Feature" : "Part"),
-        element("th", { scope: "col" }, "Bases"),
-        element("th", { scope: "col" }, "Length"),
-        element("th", { scope: "col" }, "Strand"),
-        element("th", { scope: "col" }, "What it is"),
-        ...(own ? [] : [element("th", { scope: "col" }, "Matched")]),
-      ),
+    tableHead(
+      own ? "Feature" : "Part",
+      "Bases",
+      "Length",
+      "Strand",
+      "What it is",
+      ...(own ? [] : ["Matched"]),
     ),
     element("tbody", {}, ...rows),
   );
@@ -771,21 +799,7 @@ function orfTable(orfs: MapOrf[], length: number) {
     "table",
     {},
     element("caption", {}, "Open reading frames"),
-    element(
-      "thead",
-      {},
-      element(
-        "tr",
-        {},
-        element("th", { scope: "col" }, "Bases"),
-        element("th", { scope: "col" }, "Frame"),
-        element("th", { scope: "col" }, "Strand"),
-        element("th", { scope: "col" }, "Length"),
-        element("th", { scope: "col" }, "Protein"),
-        element("th", { scope: "col" }, "Start"),
-        element("th", { scope: "col" }, "Translation"),
-      ),
-    ),
+    tableHead("Bases", "Frame", "Strand", "Length", "Protein", "Start", "Translation"),
     element("tbody", {}, ...rows),
   );
 }
@@ -847,21 +861,15 @@ function siteTable(
     "table",
     {},
     element("caption", {}, "Primer binding sites"),
-    element(
-      "thead",
-      {},
-      element(
-        "tr",
-        {},
-        element("th", { scope: "col" }, "Primer"),
-        element("th", { scope: "col" }, "Bases"),
-        element("th", { scope: "col" }, "Strand"),
-        element("th", { scope: "col" }, "3\u2032 end"),
-        element("th", { scope: "col" }, "Annealed"),
-        element("th", { scope: "col" }, "5\u2032 tail"),
-        element("th", { scope: "col" }, "Pairing"),
-        element("th", { scope: "col" }, "Tm (50 mM Na⁺)"),
-      ),
+    tableHead(
+      "Primer",
+      "Bases",
+      "Strand",
+      "3\u2032 end",
+      "Annealed",
+      "5\u2032 tail",
+      "Pairing",
+      "Tm (50 mM Na⁺)",
     ),
     element("tbody", {}, ...rows),
   );
@@ -918,27 +926,39 @@ function differenceTable(differences: MapDifference[], length: number) {
     "table",
     {},
     element("caption", {}, "Differences from the record"),
-    element(
-      "thead",
-      {},
-      element(
-        "tr",
-        {},
-        element("th", { scope: "col" }, "HGVS"),
-        element("th", { scope: "col" }, "Bases"),
-        element("th", { scope: "col" }, "Change"),
-        element("th", { scope: "col" }, "In"),
-        element("th", { scope: "col" }, "Reads agreeing"),
-        element("th", { scope: "col" }, "Repeated base"),
-      ),
-    ),
+    tableHead("HGVS", "Bases", "Change", "In", "Reads agreeing", "Repeated base"),
     element("tbody", {}, ...rows),
   );
 }
 
+/** Summarize the recorded interval list alongside the minima and the full count. */
+function lowCoverage(coverage: MapCoverage, low: MapCoverage["low"], length: number) {
+  const minimum = coverage.minDepth ?? 1;
+  const total = coverage.low_count;
+  if (!low?.length) {
+    if (
+      !low ||
+      total ||
+      (coverage.leastDepth ?? minimum) < minimum ||
+      coverage.min.some((value) => value < minimum)
+    ) {
+      return "interval details unavailable; see coverage.tsv";
+    }
+    return `every base at the minimum depth of ${String(minimum)} or more`;
+  }
+  const places = low.map((span) => whereOf(span, length)).join(", ");
+  let limit = "";
+  if (total !== undefined && total > low.length) {
+    limit = `showing ${String(low.length)} of ${String(total)} intervals`;
+  } else if (total === undefined && low.length === 200) {
+    limit = "first 200 intervals";
+  }
+  const detail = limit ? ` (${limit}; see coverage.tsv for all)` : "";
+  return `under the minimum depth of ${String(minimum)} at ${places}${detail}`;
+}
+
 /** The depth of reads in figures, with each stretch under the minimum depth. */
-function coverageTable(coverage: MapCoverage, length: number) {
-  const low = coverage.low ?? [];
+function coverageTable(coverage: MapCoverage, under: string) {
   const row = (what: string, value: string) =>
     element("tr", {}, element("th", { scope: "row" }, what), element("td", {}, value));
   const rows = [];
@@ -948,9 +968,7 @@ function coverageTable(coverage: MapCoverage, length: number) {
     rows.push(row("Least depth", `${String(coverage.leastDepth)} reads`));
   if (coverage.minDepth !== undefined)
     rows.push(row("Called at", `${String(coverage.minDepth)} reads or more`));
-  rows.push(
-    row("Under it", low.length ? low.map((span) => whereOf(span, length)).join("; ") : "none"),
-  );
+  rows.push(row("Under it", under));
   return element("table", {}, element("caption", {}, "Read depth"), element("tbody", {}, ...rows));
 }
 
@@ -997,7 +1015,7 @@ function eachOf<T extends MapSpan>(items: T[], how: (item: T) => string) {
   return items
     .map(
       (i) =>
-        `${how(i)}, ${i.start.toLocaleString("en")} to ${i.end.toLocaleString("en")} on the ${i.strand === "reverse" ? "reverse" : "forward"} strand`,
+        `${how(i)}, ${i.start.toLocaleString("en")} to ${i.end.toLocaleString("en")} ${onStrand(i.strand)}`,
     )
     .join("; ");
 }
@@ -1019,17 +1037,12 @@ function describeOrfs(items: MapOrf[]) {
   return `with ${count}: ${eachOf(items, (i) => `${String(i.amino_acids)} amino acids in frame ${frameOf(i)}`)}`;
 }
 
-function describeCoverage(coverage: MapCoverage, length: number) {
+function describeCoverage(coverage: MapCoverage, under: string) {
   const mean =
     coverage.meanDepth !== undefined ? `${String(coverage.meanDepth)} reads deep on average` : "";
   const least =
     coverage.leastDepth !== undefined ? `${String(coverage.leastDepth)} at the least` : "";
   const depth = [mean, least].filter(Boolean).join(", ");
-  const low = coverage.low ?? [];
-  const minimum = coverage.minDepth ?? 1;
-  const under = low.length
-    ? `under the minimum depth of ${String(minimum)} at ${low.map((span) => whereOf(span, length)).join(", ")}`
-    : `every base at the minimum depth of ${String(minimum)} or more`;
   return `with the depth of reads drawn along it${depth ? `, ${depth}` : ""}, and ${under}`;
 }
 
@@ -1162,18 +1175,19 @@ export class PlasmidMap extends HTMLElement {
     );
     const coverage = data.coverage;
     if (coverage && coverage.bin_size > 0 && coverage.mean.length) {
-      const low = (coverage.low ?? []).filter((item) => onMap(item, length));
+      const low = coverage.low?.filter((item) => onMap(item, length));
+      const under = lowCoverage(coverage, low, length);
       const shown = !this.#hidden.has("coverage");
       made.push({
         key: "coverage",
         colour: "depth",
         label: LABELS.coverage,
-        count: low.length,
+        count: coverage.low_count ?? low?.length ?? 0,
         button: LABELS.coverage,
         shown,
-        items: shown ? [...low] : [],
-        describe: () => describeCoverage({ ...coverage, low }, length),
-        table: () => coverageTable({ ...coverage, low }, length),
+        items: shown ? (low ?? []) : [],
+        describe: () => describeCoverage(coverage, under),
+        table: () => coverageTable(coverage, under),
       });
     }
     add("differences", "difference", data.differences, describeDifferences, (items) =>
@@ -1239,6 +1253,7 @@ export class PlasmidMap extends HTMLElement {
     );
     children.push(
       element("p", {}, describe(length, layers, circular, this.#view)),
+      ...(data.notes ?? []).map((note) => element("p", { className: "note" }, note)),
       element(
         "div",
         { className: "map" },

@@ -9,6 +9,8 @@
   [0123](0123-queries-walk-the-graph-of-what-depends-on-what.md),
   [0129](0129-types-declare-their-notifications.md)
 
+Updated by [ADR 0211](0211-lots-inventory-samples-and-requests.md). Freezer, Shelf, Rack, Box and Tube now belong to `iki/inventory`. Tube follows its contents. The shipment list and coordinator receipt belong to `iki/requests.Request`.
+
 ## Context
 
 A lab keeps its material in freezers, on shelves, in racks and in boxes, and
@@ -123,7 +125,12 @@ order. Iki locks the records' places and the containers in ID order, checks
 every move, and applies all of them or none, with one reason and one
 operation ID. A preview gives the same plan without changing anything, so
 the person sees each record's new position, and anything refused, before
-they confirm. Moving a box moves what's in it: its tubes stay in its
+they confirm. It returns a `plan` that names each record, where it is and
+the position it goes to. Confirming sends it back, and the moves are made
+only as shown: if another placement took a position shown, or one of the
+records moved meanwhile, nothing moves and the answer (409
+`moves_plan_changed`) says what they would do now, for review (ADR 0207).
+Moving a box moves what's in it: its tubes stay in its
 positions, and no tube's place changes.
 
 **Checking out keeps its position.** A record checked out is still in its

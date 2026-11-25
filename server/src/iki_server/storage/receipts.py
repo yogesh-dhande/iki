@@ -498,12 +498,58 @@ class PutAway:
     position: str | None = None
 
 
+def _placements(
+    lines: Sequence[ReceiptLine],
+    put_away: Sequence[PutAway],
+    wrong: dict[str, list[str]],
+) -> tuple[list[ReceiptLine], list[storage.Wanted], set[UUID]]:
+    by_id = {str(line.pk): line for line in lines}
+    undecided = {
+        line.pk for line in lines if line.outcome in RECEIVED and line.entity_id is not None
+    }
+    wanted: list[storage.Wanted] = []
+    putting: list[ReceiptLine] = []
+    for index, p in enumerate(put_away):
+        chosen = by_id.get(str(p.line))
+        if chosen is None:
+            wrong[f"put_away/{index}"] = ["isn't one of this receipt's lines."]
+        elif chosen.outcome not in RECEIVED or chosen.entity is None:
+            wrong[f"put_away/{index}"] = ["is put away only once it's matched or damaged."]
+        elif chosen.pk not in undecided:
+            wrong[f"put_away/{index}"] = ["is put away twice."]
+        else:
+            undecided.remove(chosen.pk)
+            putting.append(chosen)
+            wanted.append(storage.Wanted(chosen.entity, p.to, p.position))
+    return putting, wanted, undecided
+
+
+@transaction.atomic
+def preview_put_away(
+    user: User, receipt: Receipt, put_away: Sequence[PutAway], *, plan_revision: int
+) -> list[storage.Planned]:
+    """Plan from the custody the receipt will take, without changing it or the box."""
+    receipt = _open(user, receipt, plan_revision)
+    lines = list(receipt.lines.filter(removed=False).select_related("entity"))
+    wrong: dict[str, list[str]] = {}
+    _, wanted, _ = _placements(lines, put_away, wrong)
+    if wrong:
+        raise Wrong(wrong)
+    taken = frozenset(
+        line.entity_id
+        for line in lines
+        if line.entity_id and line.outcome in (*RECEIVED, Outcome.REJECTED)
+    )
+    return storage.plan(user, wanted, taken_into_custody=taken)
+
+
 def complete(
     user: User,
     receipt: Receipt,
     put_away: Sequence[PutAway] = (),
     *,
     plan_revision: int,
+    plan: str | None = None,
     keep_in_custody: Sequence[UUID] = (),
     missing_rest: bool = False,
 ) -> Receipt:
@@ -526,24 +572,7 @@ def complete(
                 wrong[f"lines/{line.pk}"] = ["hasn't been checked: scan it, or mark it missing."]
             elif line.outcome in NOTED and not line.note:
                 wrong[f"lines/{line.pk}"] = [f"needs a note: say why it's {line.outcome}."]
-        by_id = {str(line.pk): line for line in lines}
-        undecided = {
-            line.pk for line in lines if line.outcome in RECEIVED and line.entity_id is not None
-        }
-        wanted: list[storage.Wanted] = []
-        putting: list[ReceiptLine] = []
-        for index, p in enumerate(put_away):
-            chosen = by_id.get(str(p.line))
-            if chosen is None:
-                wrong[f"put_away/{index}"] = ["isn't one of this receipt's lines."]
-            elif chosen.outcome not in RECEIVED or chosen.entity is None:
-                wrong[f"put_away/{index}"] = ["is put away only once it's matched or damaged."]
-            elif chosen.pk not in undecided:
-                wrong[f"put_away/{index}"] = ["is put away twice."]
-            else:
-                undecided.remove(chosen.pk)
-                putting.append(chosen)
-                wanted.append(storage.Wanted(chosen.entity, p.to, p.position))
+        putting, wanted, undecided = _placements(lines, put_away, wrong)
         for index, line_id in enumerate(keep_in_custody):
             if line_id in undecided:
                 undecided.remove(line_id)
@@ -570,7 +599,14 @@ def complete(
                 )
         if wanted:
             try:
-                storage.move(user, wanted, reason=reason, operation=receipt.operation)
+                storage.move(
+                    user,
+                    wanted,
+                    reason=reason,
+                    operation=receipt.operation,
+                    reviewed=plan,
+                    require_position_review=True,
+                )
             except Wrong as error:
                 raise Wrong(
                     {

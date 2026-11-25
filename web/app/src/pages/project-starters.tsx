@@ -5,6 +5,7 @@
  * other members read what's installed and what's applied.
  */
 
+import { ApiError } from "@ikisci/sdk";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useMemo, useState, type SubmitEvent } from "react";
@@ -14,6 +15,7 @@ import { typeFlowQuery } from "../flow";
 import { FlowDiagram, useRoleLabels } from "../flow-diagram";
 import { usePageTitle } from "../layout";
 import { either } from "../flow-model";
+import { StaleNote } from "../observations";
 import { intakeQuery, listed } from "../requests";
 import {
   applyStarter,
@@ -21,6 +23,7 @@ import {
   exampleLabel,
   flowSummary,
   independentEnough,
+  planChanges,
   previewStarter,
   signingRoles,
   STARTERS,
@@ -164,6 +167,8 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
   // Who's chosen for each role: until the Admin chooses, whoever holds it already.
   const [picked, setPicked] = useState<Record<string, string[]> | null>(null);
   const [plan, setPlan] = useState<{ key: string; plan: StarterPlan } | null>(null);
+  // After a refused apply: how what applying does changed since it was previewed.
+  const [changes, setChanges] = useState<{ key: string; body: string }[] | null>(null);
   const [tried, setTried] = useState(false);
 
   const roleOf = (role: string) => starter.roles.find((r) => r.id === role);
@@ -199,12 +204,19 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
   const previewed = plan?.key === key ? plan.plan : null;
 
   const preview = useApiMutation((s: StarterSetup) => previewStarter(starter.id, s), []);
+  // It applies the plan shown, as Iki identified it (ADR 0207).
   const apply = useApiMutation(
-    (s: StarterSetup) => applyStarter(starter.id, s),
+    ({ setup: s, plan: reviewed }: { setup: StarterSetup; plan: string }) =>
+      applyStarter(starter.id, s, reviewed),
     [STARTERS, ["projects"], ["entities"]],
   );
   const problem =
     (apply.error ?? preview.error) ? problemOf(apply.error ?? preview.error) : undefined;
+  const memberById = new Map((members.data ?? []).map((m) => [m.id, m]));
+  const nameOf = (member: string) => {
+    const found = memberById.get(member);
+    return found ? memberName(found) : "someone";
+  };
 
   const blocked = !requester
     ? "Choose the project that asks for the example assay."
@@ -220,6 +232,7 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
     if (blocked || cannotSwitch) return;
     if (!previewed) {
       apply.reset();
+      setChanges(null);
       preview.mutate(setup, {
         onSuccess: (result) => {
           setPlan({ key, plan: result });
@@ -227,19 +240,34 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
       });
       return;
     }
-    apply.mutate(setup, {
-      onSuccess: (result) => {
-        setPlan({
-          key,
-          plan: { ...result, changed: false, grants_to_add: {}, examples_to_create: [] },
-        });
-        say(
-          result.changed
-            ? `Applied ${starter.label} with the ${flow?.label ?? ""} flow.`
-            : `${starter.label} was already set up this way.`,
-        );
+    const shown = previewed;
+    setChanges(null);
+    apply.mutate(
+      { setup, plan: shown.plan },
+      {
+        onError: (error) => {
+          // What applying does changed: nothing was applied. Show it as it is now, and what
+          // changed, to review; applying again applies that.
+          const now = error instanceof ApiError ? error.problem.plan : undefined;
+          if (error instanceof ApiError && error.problem.code === "starter_plan_changed" && now) {
+            apply.reset();
+            setPlan({ key, plan: now });
+            setChanges(planChanges(shown, now, label, nameOf));
+          }
+        },
+        onSuccess: (result) => {
+          setPlan({
+            key,
+            plan: { ...result, changed: false, grants_to_add: {}, examples_to_create: [] },
+          });
+          say(
+            result.changed
+              ? `Applied ${starter.label} with the ${flow?.label ?? ""} flow.`
+              : `${starter.label} was already set up this way.`,
+          );
+        },
       },
-    });
+    );
   }
 
   const people = (role: string) => {
@@ -253,7 +281,6 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
     !intake.data.from_registry;
   const requesterName =
     projects.data?.find((p) => p.id === requester)?.name ?? "the requesting project";
-  const memberById = new Map((members.data ?? []).map((m) => [m.id, m]));
 
   return (
     <section className="card card-wide starter" aria-labelledby={`${id}-title`}>
@@ -384,15 +411,23 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
         ) : null}
 
         <ProblemAlert problem={problem} />
+        {previewed && changes ? (
+          <StaleNote
+            changes={changes}
+            what="What applying does"
+            again={
+              previewed.changed
+                ? "If it’s still what you want, apply it."
+                : "Nothing is left to apply."
+            }
+          />
+        ) : null}
         {previewed ? (
           <Plan
             plan={previewed}
             flowLabel={starter.flows.find((f) => f.id === previewed.flow)?.label ?? previewed.flow}
             label={label}
-            memberName={(member) => {
-              const found = memberById.get(member);
-              return found ? memberName(found) : "someone";
-            }}
+            memberName={nameOf}
             intake={
               intakeEmpty && !applied
                 ? `${project.name} takes no requests yet: applying lets it take analysis requests from ${requesterName}, and from no other project.`
@@ -415,6 +450,7 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
               variant="quiet"
               onClick={() => {
                 setPlan(null);
+                setChanges(null);
               }}
             >
               Change it

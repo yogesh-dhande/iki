@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/plasmid_sequencing
-version: 0.1.1
+version: 0.3.0
 title: Whole-plasmid sequencing
 description: >-
   Check a plasmid prep's whole-plasmid sequencing against the plasmid's own registered

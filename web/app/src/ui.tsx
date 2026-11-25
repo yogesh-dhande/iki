@@ -301,8 +301,32 @@ export function CheckboxField({
   );
 }
 
-/** A value to copy, such as a secret shown once, with a Copy button. */
-export function CopyValue({ value, label }: { value: string; label: string }) {
+/**
+ * A value to copy, such as a secret shown once, with a Copy button. `shown` stands in for a
+ * long value, such as an image reference with its digest cut short: the whole value is
+ * still what's copied, and what a pointer resting on it shows.
+ */
+export function CopyValue({
+  value,
+  label,
+  shown,
+}: {
+  value: string;
+  label: string;
+  shown?: string;
+}) {
+  return (
+    <div className="copy-row">
+      <code className="copy-value" title={shown === undefined ? undefined : value}>
+        {shown ?? value}
+      </code>
+      <CopyButton value={value} label={label} />
+    </div>
+  );
+}
+
+/** Copies `value`, and says whether it could. */
+export function CopyButton({ value, label }: { value: string; label: string }) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   useEffect(() => {
     if (state === "idle") return;
@@ -314,8 +338,7 @@ export function CopyValue({ value, label }: { value: string; label: string }) {
     };
   }, [state]);
   return (
-    <div className="copy-row">
-      <code className="copy-value">{value}</code>
+    <>
       <button
         className="button button-quiet"
         type="button"
@@ -337,7 +360,7 @@ export function CopyValue({ value, label }: { value: string; label: string }) {
       <span className="visually-hidden" role="status">
         {state === "copied" ? "Copied." : state === "failed" ? "Couldn’t copy." : ""}
       </span>
-    </div>
+    </>
   );
 }
 

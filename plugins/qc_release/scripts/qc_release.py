@@ -239,7 +239,10 @@ def repeat(
 
 
 def observation(
-    case: dict[str, Any], params: dict[str, Any], assay: dict[str, Any] | None
+    case: dict[str, Any],
+    params: dict[str, Any],
+    assay: dict[str, Any] | None,
+    criterion: dict[str, Any],
 ) -> tuple[int | float, dict[str, Any]]:
     if assay is None:
         if params.get("value") is None:
@@ -268,6 +271,12 @@ def observation(
         or values.get("fit_version") != params["method"]
     ):
         raise ValueError("The assay's endpoint, unit and fit method must match the criterion.")
+    for field in ("procedure", "procedure_revision"):
+        expected = criterion.get(field)
+        if not isinstance(expected, str) or not expected.strip() or values.get(field) != expected:
+            raise ValueError(
+                "The assay procedure and revision must match the specification criterion."
+            )
     return values["endpoint_value"], {
         "evidence": assay["id"],
         "evidence_revision": assay["revision"],
@@ -299,7 +308,7 @@ def record_test(run: dict[str, Any]) -> dict[str, Any]:
     original = optional_input(run, "repeat_of")
     investigation = optional_input(run, "investigation")
     repeat(case, attribute, original, investigation)
-    reading, evidence = observation(case, params, assessor)
+    reading, evidence = observation(case, params, assessor, criterion)
     measured = number(reading)
     lower, upper = criterion.get("lower"), criterion.get("upper")
     # Stored specification bounds are inclusive. Compare the supplied value directly,

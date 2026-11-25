@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Deliverable
+label: Deliverable
+abstract: true
+schema_version: 1
+description: The service project's outcome, report and supporting evidence.
+fields:
+  outcome:
+    type: enum
+    values: [fulfilled, unsuccessful]
+    required: true
+    description: Whether the requested work was fulfilled.
+  report:
+    type: file
+    required: true
+    media_types: [application/pdf, text/plain, text/csv]
+    max_size: 50MiB
+    description: The delivery report, including the reason for any unsuccessful work.
+  protein:
+    type: ref
+    to: iki/core.Entity
+    description: The protein record the service worked on, for a production request.
+  lot_number:
+    type: string
+    label: Produced lot number
+    max_length: 100
+    description: The number on the container label and production report, for successful protein production.
+  delivered_mass:
+    type: quantity
+    label: Delivered protein mass
+    unit: mg
+    min: 0
+  material:
+    type: ref
+    to: iki/core.Entity
+    immutable: true
+    description: The commissioned material or its recorded aliquot that this result covers.
+  data_files:
+    type: list
+    label: Sequencing files
+    items: { type: file }
+    max_items: 12
+    description: Chromatograms, reads, or assembled sequences generated for this tube.
+  run_accession:
+    type: string
+    label: Public read archive accession
+    pattern: "^(SRR|ERR|DRR)[0-9]+$"
+    max_length: 30
+    link: https://www.ebi.ac.uk/ena/browser/view/{value}
+    description: A public INSDC run accession can supply reads in place of locally uploaded files.
+display:
+  title: "{{ lot_number or run_accession or hrid }}"

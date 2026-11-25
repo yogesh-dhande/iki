@@ -511,7 +511,7 @@ describe("a project's entities", () => {
       where: {
         all: [
           { field: "name", op: "contains", value: "kinase" },
-          { all: [{ field: "downstream", op: "of", value: "DNR-000001" }] },
+          { all: [{ field: "downstream", op: "of", value: "TUB-000001" }] },
         ],
       },
     };
@@ -526,13 +526,13 @@ describe("a project's entities", () => {
       updated_at: "2026-03-14T09:00:00Z",
       can: { change: true, delete: true },
     });
-    answer("GET /api/v1/saved-searches", [saved("From the donor", lineage)]);
+    answer("GET /api/v1/saved-searches", [saved("From the tube", lineage)]);
     answer("POST /api/v1/saved-searches", respond(201, saved("Kinases", lineage)));
     const filters = encodeURIComponent(
       JSON.stringify([{ field: "name", op: "contains", value: "kinase" }]),
     );
     const { router, user } = await renderApp(
-      `/projects/kinase-atlas/entities/?type=iki/protein.Protein&q=downstream:DNR-000001%20abl&filters=${filters}`,
+      `/projects/kinase-atlas/entities/?type=iki/protein.Protein&q=downstream:TUB-000001%20abl&filters=${filters}`,
     );
     await screen.findByRole("navigation", { name: "Saved searches" });
     await user.click(screen.getByRole("button", { name: "Save this search" }));
@@ -548,13 +548,11 @@ describe("a project's entities", () => {
     const ran = calls("POST", "/api/v1/entities/search").at(-1)?.body;
     expect(ran).toEqual({ ...lineage, sort: newest, limit: 100, project: KINASE.id });
 
-    await user.click(
-      within(screen.getByRole("main")).getByRole("link", { name: "From the donor" }),
-    );
+    await user.click(within(screen.getByRole("main")).getByRole("link", { name: "From the tube" }));
     await waitFor(() => {
       expect(router.state.location.search).toEqual({
         type: "iki/protein.Protein",
-        q: "abl downstream:DNR-000001",
+        q: "abl downstream:TUB-000001",
         filters: [{ field: "name", op: "contains", value: "kinase" }],
       });
     });
@@ -578,10 +576,10 @@ describe("a project's entities", () => {
       // Sequences, and not their subtypes: the grid shows a type's subtypes too.
       made("Plain sequences", { type: "iki/core.Sequence", exact_type: true }),
       // Text that the search box would read as a lineage condition.
-      made("Notes naming a donor", { exact_type: false, q: "downstream:DNR-000001" }),
+      made("Notes naming a tube", { exact_type: false, q: "downstream:TUB-000001" }),
       made("Lineage", {
         exact_type: false,
-        where: { all: [{ all: [{ field: "downstream", op: "of", value: "DNR-000001" }] }] },
+        where: { all: [{ all: [{ field: "downstream", op: "of", value: "TUB-000001" }] }] },
       }),
     ]);
     await renderApp("/projects/kinase-atlas/entities/?type=iki/protein.Protein");
@@ -591,10 +589,10 @@ describe("a project's entities", () => {
       "title",
       "Made with the API: the grid can’t show its conditions.",
     );
-    expect(within(saved).queryByRole("link", { name: "Notes naming a donor" })).toBeNull();
+    expect(within(saved).queryByRole("link", { name: "Notes naming a tube" })).toBeNull();
     expect(within(saved).getByRole("link", { name: "Lineage" })).toHaveAttribute(
       "href",
-      expect.stringContaining("q=downstream%3ADNR-000001"),
+      expect.stringContaining("q=downstream%3ATUB-000001"),
     );
   });
 
@@ -621,7 +619,7 @@ describe("a project's entities", () => {
           { op: "contains", field: "name", value: "kinase" },
           {
             all: [
-              { op: "of", field: "downstream", value: "DNR-000001" },
+              { op: "of", field: "downstream", value: "TUB-000001" },
               { op: "has", field: "components", value: { part: "PRT-000001", role: "cargo" } },
             ],
           },
@@ -637,7 +635,7 @@ describe("a project's entities", () => {
       value: `part${String(i + 1)}`,
     }));
     answer("GET /api/v1/saved-searches", [
-      made("Kinases from the donor", stored),
+      made("Kinases from the tube", stored),
       made("Twenty-one names", { exact_type: false, where: { all: many } }),
       made("Long text", { exact_type: false, q: "kinase ".repeat(40).trim() }),
     ]);
@@ -651,11 +649,11 @@ describe("a project's entities", () => {
       "Made with the API: the grid can’t show its conditions.",
     );
     expect(within(saved).queryByRole("link", { name: "Long text" })).toBeNull();
-    await user.click(within(saved).getByRole("link", { name: "Kinases from the donor" }));
+    await user.click(within(saved).getByRole("link", { name: "Kinases from the tube" }));
     await waitFor(() => {
       expect(router.state.location.search).toEqual({
         type: "iki/protein.Protein",
-        q: "downstream:DNR-000001 components.part:PRT-000001 components.role:cargo",
+        q: "downstream:TUB-000001 components.part:PRT-000001 components.role:cargo",
         filters: [{ field: "name", op: "contains", value: "kinase" }],
       });
     });

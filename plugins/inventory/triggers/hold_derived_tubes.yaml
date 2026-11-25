@@ -1,0 +1,11 @@
+apiVersion: iki/v1
+kind: Trigger
+name: hold_derived_tubes
+label: Hold portions of withdrawn stock
+on: entity.updated
+type: Tube
+fields: [on_hold]
+run: hold_withdrawn
+input: source
+related:
+  tubes: { direction: downstream, edges: [aliquot, transfer] }

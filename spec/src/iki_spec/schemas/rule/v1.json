@@ -37,6 +37,18 @@
           "description": "CEL: the check applies only to records it's true of.",
           "$ref": "#/$defs/expression"
         },
+        "recheck_before_signing": {
+          "description": "Check this rule again on each signed state transition, including records saved under an earlier rule.",
+          "type": "boolean"
+        },
+        "reference_revisions": {
+          "description": "Read these references at their recorded revisions when evaluating this check. Each value names an integer field on this record.",
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 10,
+          "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+          "additionalProperties": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+        },
         "fields": {
           "description": "The fields a failure points at, in forms and the API's errors. Without it, the fields its check reads.",
           "type": "array",

@@ -14,6 +14,8 @@ change. Where it is is shown only as far as the reader can read.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -396,19 +398,57 @@ class Planned:
         return EventKind.MOVED if self.to is not None else EventKind.REMOVED
 
 
+def identify(planned: Sequence[Planned]) -> str:
+    """Names what a plan does: each record, where it is and where it goes, to the position.
+    Two plans with the same moves have the same name; a different well, source, container
+    or order gives another. What's wrong with it, and its proofs, aren't part of it: they're
+    checked again when it's made."""
+    steps = [
+        [
+            str(p.record.pk),
+            str(p.was.container_id) if p.was is not None and p.was.container_id else None,
+            p.was.row if p.was is not None else None,
+            p.was.column if p.was is not None else None,
+            str(p.to.pk) if p.to is not None else None,
+            p.row,
+            p.column,
+            p.kind,
+        ]
+        for p in planned
+    ]
+    return hashlib.sha256(json.dumps(steps, separators=(",", ":")).encode()).hexdigest()
+
+
+class PlanChanged(Exception):  # noqa: N818 - what happened, as the API says it
+    """What the moves would do isn't the plan reviewed (ADR 0207): another placement, or
+    a move of one of the records, came first. Nothing was moved; ``planned`` is what they
+    would do now, to review instead."""
+
+    def __init__(self, planned: list[Planned]) -> None:
+        super().__init__(
+            "Where they go changed since you checked. Review where they go now, then move "
+            "them again."
+        )
+        self.planned = planned
+
+
 def plan(
     user: User,
     wanted: Sequence[Wanted],
     *,
     confirmations: Mapping[Any, str | Confirmation] | None = None,
     receiving: bool = False,
+    taken_into_custody: frozenset[UUID] = frozenset(),
 ) -> list[Planned]:
     """What each move would do, and each problem with it, changing nothing. ``receiving``
-    takes custody from wherever a record was recorded, as a receipt does."""
+    takes custody from wherever a record was recorded. A receipt preview supplies the
+    records it will have taken out of their prior locations before putting any away."""
     if len(wanted) > MAX_MOVES:
         raise Wrong({"items": [f"has more than {MAX_MOVES} moves."]})
     records = [w.record.pk for w in wanted]
-    places = {p.pk: p for p in Place.objects.filter(pk__in=records)}
+    places = {
+        p.pk: p for p in Place.objects.filter(pk__in=records) if p.pk not in taken_into_custody
+    }
     targets = {w.to.pk: w.to for w in wanted if w.to is not None}
     sources = {p.container_id for p in places.values() if p.container_id is not None}
     kept = shapes([*targets, *sources])
@@ -421,7 +461,7 @@ def plan(
     # Who's in each target now, and stays: they aren't moving in this plan.
     staying: dict[Any, set[tuple[int, int]]] = {pk: set() for pk in targets}
     for p in Place.objects.filter(container__in=list(targets), row__isnull=False):
-        if p.pk not in moving:
+        if p.pk not in moving and p.pk not in taken_into_custody:
             staying[p.container_id].add((p.row, p.column))  # type: ignore[arg-type]
     claimed: dict[Any, set[tuple[int, int]]] = {pk: set() for pk in targets}
     out: list[Planned] = []
@@ -621,8 +661,13 @@ def move(
     receiving: bool = False,
     operation: Any = None,  # noqa: ANN401 - a UUID
     handed_over_by: str = "",
+    reviewed: str | None = None,
+    require_position_review: bool = False,
 ) -> list[Event]:
-    """Puts each record where it's wanted, all of them or none, as one operation."""
+    """Puts each record where it's wanted, all of them or none, as one operation.
+    ``reviewed`` names the plan a preview showed (:func:`identify`): if the moves would
+    now do anything else, as when another placement took a well it showed, raises
+    :class:`PlanChanged` and moves nothing (ADR 0207)."""
     if not reason.strip():
         raise Wrong({"reason": ["is required: say why they're moved."]})
     if not wanted:
@@ -633,6 +678,12 @@ def move(
             if is_container(to.type):
                 ensure_container(to)
         planned = plan(user, wanted, confirmations=confirmations, receiving=receiving)
+        needs_review = require_position_review and any(
+            item.position is None and step.position is not None
+            for item, step in zip(wanted, planned, strict=True)
+        )
+        if (reviewed is not None or needs_review) and identify(planned) != reviewed:
+            raise PlanChanged(planned)
         wrong = problems_of(planned)
         if wrong:
             raise Wrong(wrong)

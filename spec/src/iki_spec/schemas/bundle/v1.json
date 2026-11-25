@@ -1288,6 +1288,24 @@
               "usage": {
                 "description": "The usage the answer reported, by the names the plugin declares, such as `gpu_seconds`.",
                 "type": "object"
+              },
+              "cost": {
+                "description": "The price recorded for the call at its source deployment, as provenance.",
+                "type": "object",
+                "required": ["amount", "currency"],
+                "additionalProperties": false,
+                "properties": {
+                  "amount": {
+                    "description": "The price, as a decimal string.",
+                    "type": "string",
+                    "pattern": "^-?[0-9]{1,8}(\\.[0-9]{1,6})?$"
+                  },
+                  "currency": {
+                    "description": "Its ISO 4217 currency code, such as `USD`.",
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  }
+                }
               }
             }
           }
@@ -1328,6 +1346,12 @@
             "type": "object",
             "required": ["entity", "field", "index", "input", "position", "revision"],
             "properties": {
+              "covered_materials": {
+                "description": "Direct input records covered by this included service request at launch.",
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "type": "string", "format": "uuid" }
+              },
               "input": {
                 "description": "The input whose entity's reference named it.",
                 "type": "string",

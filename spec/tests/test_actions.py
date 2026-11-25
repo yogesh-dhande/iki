@@ -843,7 +843,7 @@ def test_a_setting_can_give_a_host(tmp_path: Path) -> None:
     plugin = PLUGIN + (
         "settings:\n"
         "  lims_host: { type: string, format: hostname, default: lims.example.org }\n"
-        "  lims_url: { type: string, format: uri }\n"
+        "  lims_url: { type: string, format: uri, required: false }\n"
     )
     reaching = action(network='["{settings.lims_host}", api.example.org]')
     result = make(tmp_path, reaching, files={"plugin.yaml": plugin})
@@ -868,7 +868,7 @@ def test_a_setting_can_give_a_host(tmp_path: Path) -> None:
 def test_an_action_can_need_a_setting_a_deployment_may_leave_unset(tmp_path: Path) -> None:
     plugin = PLUGIN + (
         "settings:\n"
-        "  ncbi_email: { type: string, format: email }\n"
+        "  ncbi_email: { type: string, format: email, required: false }\n"
         "  batch_size: { type: int, min: 1, default: 100 }\n"
         "  lab: { type: string, required: true }\n"
     )
@@ -897,6 +897,7 @@ def test_a_deployment_is_told_which_actions_its_settings_leave_unable_to_run(
     plugin = PLUGIN + (
         "settings:\n"
         "  ncbi_email:\n"
+        "    required: false\n"
         "    type: string\n"
         "    format: email\n"
         "    description: The address NCBI asks automated clients to give.\n"
@@ -1058,7 +1059,9 @@ def test_a_setup_build_cant_call_an_outside_api(tmp_path: Path) -> None:
         "`fold.example.com` is FoldCloud's host, an outside API, and setup builds can't call "
         "outside APIs"
     )
-    by_setting = PLUGIN + "settings:\n  fold_host: { type: string, format: hostname }\n"
+    by_setting = (
+        PLUGIN + "settings:\n  fold_host: { type: string, format: hostname, required: false }\n"
+    )
     by_setting += API.replace("host: fold.example.com", "host: '{settings.fold_host}'")
     setting = fine.replace("weights.example.org", "'{settings.fold_host}'")
     found = make(

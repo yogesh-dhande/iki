@@ -1,7 +1,7 @@
 """The real plugins' flows that the web app's flow diagram tests read
 (web/app/src/flow-fixtures.json) are what Iki serves for them (ADR 0198).
 
-The diagram's tests draw example_lims' analysis results, samples and requests, lots and
+The diagram's tests draw QC deliverables, samples and requests, lots and
 plate assays' results, so their states, roles, signatures, guards and transitions are the
 plugins' own, not a hand-copied likeness. When a plugin changes them, regenerate the file:
 
@@ -20,7 +20,9 @@ FIXTURES = ROOT / "web" / "app" / "src" / "flow-fixtures.json"
 
 #: The plugins, and the types of each that the tests draw.
 DRAWN = {
-    "example_lims": ("AnalysisResult", "Sample", "AnalysisRequest"),
+    "lab_roles": (),
+    "requests": ("QCDeliverable", "Request"),
+    "samples": ("Sample",),
     "lots": ("Lot",),
     "plate_assays": ("ResearchAssayResult", "QCAssayResult"),
 }

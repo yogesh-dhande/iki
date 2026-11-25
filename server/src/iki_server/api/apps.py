@@ -156,7 +156,7 @@ def put_dashboard(request: HttpRequest, project_id: UUID, payload: DashboardIn) 
     everyone who can read it. An app about an entity can't be one: it's a tab on their
     pages instead. This is recorded."""
     me = caller(request)
-    found = project(me, project_id, Action.PROJECT_MANAGE)
+    found = project(me, project_id, Action.DASHBOARD_MANAGE)
     dashboards.choose(found, payload.app, by=me)
     return _dashboard_out(me, found)
 
@@ -169,7 +169,7 @@ def put_dashboard(request: HttpRequest, project_id: UUID, payload: DashboardIn) 
 def delete_dashboard(request: HttpRequest, project_id: UUID) -> Status[None]:
     """The project's page opens without an app. The app itself stays. This is recorded."""
     me = caller(request)
-    dashboards.clear(project(me, project_id, Action.PROJECT_MANAGE), by=me)
+    dashboards.clear(project(me, project_id, Action.DASHBOARD_MANAGE), by=me)
     return Status(204, None)
 
 
@@ -181,7 +181,7 @@ def delete_dashboard(request: HttpRequest, project_id: UUID) -> Status[None]:
 def dashboard_choices(request: HttpRequest, project_id: UUID) -> list[dict[str, Any]]:
     """The project's apps you can read that aren't archived or about an entity, by name."""
     me = caller(request)
-    found = project(me, project_id, Action.PROJECT_MANAGE)
+    found = project(me, project_id, Action.DASHBOARD_CHOICES)
     return [_app_out(app) for app in dashboards.choices(me, found)]
 
 
@@ -231,7 +231,7 @@ def create_app_draft(request: HttpRequest, payload: AppDraftIn) -> Status[dict[s
     you can open it, for a day; nothing is recorded. Open it at
     ``/projects/{slug}/apps/drafts/{id}``."""
     me = caller(request)
-    found = project(me, payload.project, Action.PROJECT_EDIT)
+    found = project(me, payload.project, Action.APP_EDIT)
     problems = app_specs.check(me, payload.spec)
     if problems:
         raise Problem(

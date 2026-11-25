@@ -449,7 +449,9 @@ export interface paths {
         };
         /**
          * Deployment-supplied environment images
-         * @description List the image pins configured in compute.yaml for this deployment.
+         * @description Each installed environment that needs an image from this deployment, and the binding
+         *     in compute.yaml its plugin's installed version matches; and the bindings that none
+         *     matches, so stale pins show. Pull Secrets are named; their values stay in the cluster.
          */
         get: operations["iki_server_api_compute_list_image_bindings"];
         put?: never;
@@ -1013,13 +1015,13 @@ export interface paths {
          *     A state field (ADR 0125) is searched as an enum of its states, by name.
          *     ``upstream`` and ``downstream`` (ADR 0123) take ``of``: what an entity (by ID or
          *     HRID) was derived from, or what was derived from it, through references and runs, as
-         *     ``{"field": "downstream", "op": "of", "value": "DNR-000001"}``, or with a ``depth``
-         *     and ``edges``: ``{"entity": "DNR-000001", "depth": 5, "edges": ["reference"]}``; and
+         *     ``{"field": "downstream", "op": "of", "value": "TUB-000001"}``, or with a ``depth``
+         *     and ``edges``: ``{"entity": "TUB-000001", "depth": 5, "edges": ["reference"]}``; and
          *     ``is_set``, whether anything you can read is that way.
          *     ``held`` and ``breaks`` (ADR 0127) find what plugins' rules caught: records a rule holds
          *     for review now, and records that break a rule they were saved before (one its plugin
          *     added or changed since, or one a bundle brought). They take a rule's name with ``eq``,
-         *     ``ne`` and ``in``, as ``{"field": "held", "op": "eq", "value": "purity_in_specification"}``,
+         *     ``ne`` and ``in``, as ``{"field": "held", "op": "eq", "value": "mass_within_tolerance"}``,
          *     and ``is_set``, held or breaking any rule. Each result's ``holds`` and ``breaches``
          *     say which, and why.
          *     A search may run for 15 seconds: conditions on indexed fields keep it fast.
@@ -1045,7 +1047,8 @@ export interface paths {
          *     (ADR 0175). Values are as the grid shows them, as you can read them: a reference by
          *     its HRID, a person by name, a state by its label; numbers in full, a quantity's unit
          *     in its column's heading, times in ISO 8601 (UTC). Each row ends with when the record
-         *     last changed, its revision and its UUID.
+         *     last changed, its revision and its UUID: each page is read at one moment, so a row's
+         *     values are those of that revision, whatever's edited while it's read.
          *
          *     It's written a page at a time as it's read, so a large result starts at once. Each
          *     page may run for 15 seconds; one that runs out ends the file with a row saying so. No
@@ -1660,7 +1663,9 @@ export interface paths {
          *     them: one made through a project you can't read says what it set, not who, how or when.
          *
          *     Anyone who can read the record may download it, and each download is in the audit
-         *     log (``entity.trail_exported``) before its first row is sent. No cell starts as a
+         *     log (``entity.trail_exported``) before its first row is sent, with the record's
+         *     ``revision`` and its entry's ``entry_revision``: the file holds those and the ones
+         *     before them, and nothing made after. No cell starts as a
          *     formula would (OWASP's CSV injection guidance): one that would starts with a quote.
          */
         get: operations["iki_server_api_trails_trail_csv"];
@@ -3434,6 +3439,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/receipts/{receipt_id}/put-away/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review a receipt's put-away positions */
+        post: operations["iki_server_api_storage_preview_receipt_placement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/receipts/{receipt_id}/scan": {
         parameters: {
             query?: never;
@@ -4453,8 +4475,12 @@ export interface paths {
         put?: never;
         /**
          * Apply a starter to a project
-         * @description Create the examples and grant the chosen roles. Reapplying the same setup is idempotent.
-         *     Changing the flow selects the result type for future fits. Existing results keep their flow.
+         * @description Apply the plan a preview returned: create the examples and grant the chosen roles.
+         *     If what applying does changed since the preview, as when another Admin removed a grant or
+         *     applied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,
+         *     what applying would do now, for review (ADR 0207). Reapplying a setup that's in place
+         *     changes nothing. Changing the flow selects the result type for future fits. Existing
+         *     results keep their flow.
          */
         post: operations["iki_server_api_starters_apply_starter"];
         delete?: never;
@@ -4668,7 +4694,9 @@ export interface paths {
          * @description Puts each record in its container, at its position or the next free one, or takes it
          *     out of storage, as one change with one reason. Any move refused refuses them all (422),
          *     saying which and why. ``preview`` answers the plan, with each problem, and changes
-         *     nothing. Needs Editor in the project of each container a record goes into or leaves.
+         *     nothing; with its ``plan``, the moves are made only as it showed them (ADR 0207), or
+         *     refused with 409 ``moves_plan_changed`` and what they'd do now. Needs Editor in the
+         *     project of each container a record goes into or leaves.
          */
         post: operations["iki_server_api_storage_move"];
         delete?: never;
@@ -5808,7 +5836,7 @@ export interface components {
             attempt: number;
             /**
              * Cost
-             * @description At this deployment's price; null without one.
+             * @description At the deployment where the call ran; null without a recorded price.
              */
             cost: number | null;
             /** Currency */
@@ -6148,7 +6176,7 @@ export interface components {
             instructions: string;
             /**
              * Role
-             * @description The role an approver needs: a project role (viewer, editor, runner or admin, or above), or a lab role by name, such as iki/example_lims.qa (ADR 0116).
+             * @description The role an approver needs: a project role (viewer, editor, runner or admin, or above), or a lab role by name, such as iki/lab_roles.qa (ADR 0116).
              */
             role: string;
         };
@@ -7110,6 +7138,11 @@ export interface components {
              */
             missing_rest?: boolean;
             /**
+             * Plan
+             * @description The put-away preview hash. Required when choosing the next free position.
+             */
+            plan?: string | null;
+            /**
              * Plan Revision
              * @description The receipt revision you reviewed.
              */
@@ -7634,6 +7667,11 @@ export interface components {
              * @description Who its assignment fields counting in its state name that can't be named there any more (ADR 0122): for those who can read its project, who reassign it.
              */
             needs_reassigning?: components["schemas"]["ReassignOut"][];
+            /**
+             * Needs Recalculation
+             * @description Actions whose referenced inputs changed since this record was calculated.
+             */
+            needs_recalculation?: string[];
             /** @description The project that owns it, and decides its changes. Null if you can't see it. */
             owner_project: components["schemas"]["ProjectRef"] | null;
             /**
@@ -7866,6 +7904,14 @@ export interface components {
              * @description Its value in the reproduction's.
              */
             reproduced: unknown;
+        };
+        /** DisableIn */
+        DisableIn: {
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
         };
         /** DraftEntityOut */
         DraftEntityOut: {
@@ -8223,6 +8269,11 @@ export interface components {
              * @description Who its assignment fields counting in its state name that can't be named there any more (ADR 0122): for those who can read its project, who reassign it.
              */
             needs_reassigning?: components["schemas"]["ReassignOut"][];
+            /**
+             * Needs Recalculation
+             * @description Actions whose referenced inputs changed since this record was calculated.
+             */
+            needs_recalculation?: string[];
             /** @description The project that owns it, and decides its changes. Null if you can't see it. */
             owner_project: components["schemas"]["ProjectRef"] | null;
             /**
@@ -8548,6 +8599,27 @@ export interface components {
             by_id: string;
             /** Reason */
             reason: string;
+        };
+        /** EnvironmentImageOut */
+        EnvironmentImageOut: {
+            /** @description The binding the installed version matches. Without one, the environment's container and VM runs are unavailable. */
+            binding: components["schemas"]["ImageBindingOut"] | null;
+            /**
+             * Environment
+             * @description The qualified plugin environment.
+             */
+            environment: string;
+            /**
+             * Installed Version
+             * @description The installed plugin version.
+             */
+            installed_version: string;
+            /** Label */
+            label: string;
+            /** Plugin */
+            plugin: string;
+            /** Plugin Title */
+            plugin_title: string;
         };
         /** EnvironmentVolumesOut */
         EnvironmentVolumesOut: {
@@ -9321,6 +9393,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            editor?: components["schemas"]["PersonRef"] | null;
             /** @description Whose change fired it; null on a schedule. */
             entity: components["schemas"]["FiredEntityOut"] | null;
             error: components["schemas"]["FiringErrorOut"] | null;
@@ -10098,25 +10171,10 @@ export interface components {
         /** ImageBindingOut */
         ImageBindingOut: {
             /**
-             * Active
-             * @description Whether this binding applies to the installed environment.
-             */
-            active: boolean;
-            /**
-             * Environment
-             * @description The qualified plugin environment.
-             */
-            environment: string;
-            /**
              * Image
              * @description The deployment-supplied image pinned by digest.
              */
             image: string;
-            /**
-             * Installed Version
-             * @description The installed plugin version, if any.
-             */
-            installed_version: string | null;
             /**
              * Plugin Version
              * @description The plugin release range the image applies to.
@@ -10127,6 +10185,19 @@ export interface components {
              * @description The name of a Kubernetes pull Secret, if set.
              */
             pull_secret: string | null;
+        };
+        /** ImageBindingsOut */
+        ImageBindingsOut: {
+            /**
+             * Environments
+             * @description Each installed environment that needs a deployment-supplied image.
+             */
+            environments: components["schemas"]["EnvironmentImageOut"][];
+            /**
+             * Unused
+             * @description Bindings in compute.yaml that no installed environment uses.
+             */
+            unused: components["schemas"]["UnusedImageBindingOut"][];
         };
         /** ImportCounts */
         ImportCounts: {
@@ -10792,7 +10863,7 @@ export interface components {
             label: string;
             /**
              * Role
-             * @description The lab role, by name, such as iki/example_lims.qa.
+             * @description The lab role, by name, such as iki/lab_roles.qa.
              */
             role: string;
         };
@@ -10807,7 +10878,7 @@ export interface components {
             label: string;
             /**
              * Name
-             * @description Its name, such as iki/example_lims.qa.
+             * @description Its name, such as iki/lab_roles.qa.
              */
             name: string;
             /**
@@ -10849,7 +10920,7 @@ export interface components {
         LabRolesIn: {
             /**
              * Roles
-             * @description Every lab role the grant should carry, by name (such as iki/example_lims.qa): those it has and aren't listed are taken away.
+             * @description Every lab role the grant should carry, by name (such as iki/lab_roles.qa): those it has and aren't listed are taken away.
              */
             roles: string[];
         };
@@ -11339,6 +11410,11 @@ export interface components {
              * @description Who its assignment fields counting in its state name that can't be named there any more (ADR 0122): for those who can read its project, who reassign it.
              */
             needs_reassigning?: components["schemas"]["ReassignOut"][];
+            /**
+             * Needs Recalculation
+             * @description Actions whose referenced inputs changed since this record was calculated.
+             */
+            needs_recalculation?: string[];
             /** @description The project that owns it, and decides its changes. Null if you can't see it. */
             owner_project: components["schemas"]["ProjectRef"] | null;
             /**
@@ -11491,6 +11567,11 @@ export interface components {
             /** Items */
             items: components["schemas"]["MoveItemIn"][];
             /**
+             * Plan
+             * @description The `plan` a preview of these moves returned: what was reviewed. They're made only if they'd still do exactly that, each record from where it was shown and to the position shown; otherwise nothing moves (409 `moves_plan_changed`, with `moves`, what they'd do now). Without it, a null position is the next free one when it's made.
+             */
+            plan?: string | null;
+            /**
              * Preview
              * @description Say what each move would do, changing nothing.
              * @default false
@@ -11517,6 +11598,11 @@ export interface components {
              * @description The moves' operation, once they're made.
              */
             operation: string | null;
+            /**
+             * Plan
+             * @description A preview's: identifies what it shows, to send with the moves. Null once they're made.
+             */
+            plan: string | null;
         };
         /**
          * MySigningOut
@@ -11638,7 +11724,7 @@ export interface components {
             id: string;
             /**
              * Kind
-             * @description What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/example_lims.Sample.in_review.
+             * @description What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.Sample.in_review.
              */
             kind: string;
             /**
@@ -13178,7 +13264,7 @@ export interface components {
             id: string;
             /**
              * My Lab Roles
-             * @description The lab roles you hold here (ADR 0116), from your own grant or your teams', by name, such as iki/example_lims.qa: what /lab-roles describes.
+             * @description The lab roles you hold here (ADR 0116), from your own grant or your teams', by name, such as iki/lab_roles.qa: what /lab-roles describes.
              */
             my_lab_roles: string[];
             /**
@@ -13348,6 +13434,12 @@ export interface components {
             };
             /** Plugin */
             plugin: string;
+            /**
+             * Recheck
+             * @description Recheck an edited record on the editor’s authority.
+             * @default false
+             */
+            recheck: boolean;
             /**
              * Related
              * @description Other inputs it gives the entities related to the one that fired it (ADR 0123), by input: each, every one of the input's type in the project that way of it. All of them or none: past the most an input takes, it fails.
@@ -13719,6 +13811,16 @@ export interface components {
              * @enum {string}
              */
             status: "open" | "completed" | "cancelled";
+        };
+        /** ReceiptPlacementIn */
+        ReceiptPlacementIn: {
+            /**
+             * Plan Revision
+             * @description The receipt revision you reviewed.
+             */
+            plan_revision: number;
+            /** Put Away */
+            put_away?: components["schemas"]["PutAwayIn"][];
         };
         /** ReceiptScanIn */
         ReceiptScanIn: {
@@ -15823,7 +15925,7 @@ export interface components {
             collection?: string | null;
             /**
              * Columns
-             * @description The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). The grid's, without them.
+             * @description The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). Defaults to the grid columns. Every row ends with `updated_at`, `revision` and `id`.
              */
             columns?: string[];
             /**
@@ -17502,6 +17604,43 @@ export interface components {
              */
             state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
         };
+        /** StarterApplyIn */
+        StarterApplyIn: {
+            /**
+             * Flow
+             * @enum {string}
+             */
+            flow: "research" | "regulated_qc";
+            /**
+             * Plan
+             * @description The `plan` its preview returned: what you reviewed. If what applying does has changed since, nothing is applied (409 `starter_plan_changed`, with the `plan` it would apply now).
+             */
+            plan: string;
+            /**
+             * Project
+             * Format: uuid
+             * @description The assay service project. Requires its Admin role.
+             */
+            project: string;
+            /**
+             * Requester Project
+             * Format: uuid
+             * @description A different project in which the caller can create the example request.
+             */
+            requester_project: string;
+            /**
+             * Role Assignments
+             * @description Each qualified lab role and the service project membership IDs receiving it.
+             */
+            role_assignments: {
+                [key: string]: string[];
+            };
+            /**
+             * Version
+             * @description Installed starter version shown at setup.
+             */
+            version: string;
+        };
         /** StarterFlowOut */
         StarterFlowOut: {
             /**
@@ -17623,6 +17762,11 @@ export interface components {
             grants_to_add: {
                 [key: string]: string[];
             };
+            /**
+             * Plan
+             * @description Identifies this plan: what the setup was, and every change applying makes. Send it to apply what was reviewed.
+             */
+            plan: string;
             /**
              * Project
              * Format: uuid
@@ -18142,8 +18286,9 @@ export interface components {
         };
         /** TriggerFiredOut */
         TriggerFiredOut: {
+            editor?: components["schemas"]["PersonRef"] | null;
             /** @description The Admin who turned the trigger on: on whose authority it ran. On a schedule, requested_by is the service account it runs as. */
-            enabled_by: components["schemas"]["PersonRef"];
+            enabled_by: components["schemas"]["PersonRef"] | null;
             /**
              * Entity
              * @description The entity whose change fired it; null on a schedule.
@@ -18225,6 +18370,12 @@ export interface components {
             };
             /** Plugin */
             plugin: string;
+            /**
+             * Recheck
+             * @description Recheck an edited record on the editor’s authority.
+             * @default false
+             */
+            recheck: boolean;
             /**
              * Related
              * @description Other inputs it gives the entities related to the one that fired it (ADR 0123), by input: each, every one of the input's type in the project that way of it. All of them or none: past the most an input takes, it fails.
@@ -18467,6 +18618,40 @@ export interface components {
              * @description As people write it.
              */
             symbol: string;
+        };
+        /** UnusedImageBindingOut */
+        UnusedImageBindingOut: {
+            /**
+             * Environment
+             * @description The qualified plugin environment it names.
+             */
+            environment: string;
+            /**
+             * Image
+             * @description The deployment-supplied image pinned by digest.
+             */
+            image: string;
+            /**
+             * Installed Version
+             * @description The installed version of the environment's plugin, if it's installed.
+             */
+            installed_version: string | null;
+            /**
+             * Plugin Version
+             * @description The plugin release range the image applies to.
+             */
+            plugin_version: string;
+            /**
+             * Pull Secret
+             * @description The name of a Kubernetes pull Secret, if set.
+             */
+            pull_secret: string | null;
+            /**
+             * Reason
+             * @description Why no run uses it: the installed release is outside its range; no installed plugin has the environment; the environment doesn't ask for an image; or another binding matches the same release too.
+             * @enum {string}
+             */
+            reason: "other_release" | "not_installed" | "not_requested" | "overlapping";
         };
         /** UpdatesOut */
         UpdatesOut: {
@@ -20318,7 +20503,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ImageBindingOut"][];
+                    "application/json": components["schemas"]["ImageBindingsOut"];
                 };
             };
         };
@@ -21082,7 +21267,7 @@ export interface operations {
                 /** @description A field to sort by. */
                 sort?: string | null;
                 descending?: boolean;
-                /** @description The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). The grid's, without them. */
+                /** @description The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). Defaults to the grid columns. Every row ends with `updated_at`, `revision` and `id`. */
                 columns?: string[];
             };
             header?: never;
@@ -24147,7 +24332,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DisableIn"] | null;
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -24445,6 +24634,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_preview_receipt_placement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReceiptPlacementIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovesOut"];
                 };
             };
         };
@@ -25916,7 +26131,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["StarterSetupIn"];
+                "application/json": components["schemas"]["StarterApplyIn"];
             };
         };
         responses: {

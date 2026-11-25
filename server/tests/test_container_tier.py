@@ -302,30 +302,81 @@ def test_a_required_customer_image_without_a_matching_binding_refuses_to_queue(
     assert not ActionRun.objects.exists()
 
 
-def test_compute_admin_can_list_customer_image_bindings(
+def test_compute_admin_sees_each_environment_needing_an_image_and_the_unused_pins(
     world: World, customer_environment: None
 ) -> None:
+    """Each environment that asks for an image, with the binding its installed release
+    matches; and the bindings none matches, each saying why, so stale pins show."""
+    admin = api_as(world, "compute_admin")
+    version = registry.plugins()["acme/prediction"].version
+    release = version.split("-")[0].split("+")[0]
+    response = admin.get("/compute/image-bindings")
+    assert response.status_code == 200, response.content
+    assert response.json() == {
+        "environments": [
+            {
+                "environment": CUSTOMER_ENVIRONMENT,
+                "label": "Colabfold",
+                "plugin": "acme/prediction",
+                "plugin_title": "Acme/prediction",
+                "installed_version": version,
+                "binding": None,
+            }
+        ],
+        "unused": [],
+    }
+
     bind_customer_image(CUSTOMER_IMAGE, pull_secret="licensed-registry")
 
-    def dormant(compute: dict[str, Any]) -> None:
-        compute["image_bindings"].append(
-            {**compute["image_bindings"][0], "plugin_version": ">=999", "pull_secret": None}
-        )
+    def stale(compute: dict[str, Any]) -> None:
+        current = compute["image_bindings"][0]
+        compute["image_bindings"] += [
+            {**current, "plugin_version": ">=999", "pull_secret": None},
+            {**current, "environment": "acme/prediction.alphafold-gpu"},
+            {**current, "environment": "acme/retired.tools"},
+        ]
 
-    rewrite_compute(dormant)
-    version = registry.plugins()["acme/prediction"].version
-    response = api_as(world, "compute_admin").get("/compute/image-bindings")
+    rewrite_compute(stale)
+    response = admin.get("/compute/image-bindings")
     assert response.status_code == 200, response.content
-    active, inactive = response.json()
-    assert active == {
-        "environment": CUSTOMER_ENVIRONMENT,
-        "plugin_version": f"=={version.split('-')[0].split('+')[0]}",
-        "image": CUSTOMER_IMAGE,
-        "pull_secret": "licensed-registry",
-        "installed_version": version,
-        "active": True,
-    }
-    assert inactive["active"] is False and inactive["plugin_version"] == ">=999"
+    found = response.json()
+    assert found["environments"] == [
+        {
+            "environment": CUSTOMER_ENVIRONMENT,
+            "label": "Colabfold",
+            "plugin": "acme/prediction",
+            "plugin_title": "Acme/prediction",
+            "installed_version": version,
+            "binding": {
+                "plugin_version": f"=={release}",
+                "image": CUSTOMER_IMAGE,
+                "pull_secret": "licensed-registry",
+            },
+        }
+    ]
+    assert [
+        (u["environment"], u["plugin_version"], u["installed_version"], u["reason"])
+        for u in found["unused"]
+    ] == [
+        ("acme/prediction.alphafold-gpu", f"=={release}", version, "not_requested"),
+        (CUSTOMER_ENVIRONMENT, ">=999", version, "other_release"),
+        ("acme/retired.tools", f"=={release}", None, "not_installed"),
+    ]
+    assert found["unused"][1]["image"] == CUSTOMER_IMAGE
+    assert found["unused"][1]["pull_secret"] is None
+
+    # Two bindings for one release: neither applies, and both say why.
+    rewrite_compute(
+        lambda compute: compute["image_bindings"].append(
+            {**compute["image_bindings"][0], "image": NEW_CUSTOMER_IMAGE}
+        )
+    )
+    found = admin.get("/compute/image-bindings").json()
+    assert found["environments"][0]["binding"] is None
+    assert [u["image"] for u in found["unused"] if u["reason"] == "overlapping"] == [
+        CUSTOMER_IMAGE,
+        NEW_CUSTOMER_IMAGE,
+    ]
     problem(api_as(world, "runner").get("/compute/image-bindings"), 403, "forbidden")
 
 

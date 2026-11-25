@@ -22,7 +22,7 @@ from iki_server.files.models import File
 
 
 class Alignment(Entity):
-    """Alignment (iki/core.Alignment), schema version 2. Sequences aligned, as aligned FASTA, with the ones in Iki linked."""
+    """Alignment (iki/core.Alignment), schema version 4. Sequences aligned, as aligned FASTA, with the ones in Iki linked."""
 
     IKI_TYPE = 'iki/core.Alignment'
 
@@ -37,6 +37,7 @@ class Alignment(Entity):
     name = models.CharField(max_length=200, db_index=True)
     description = models.TextField(null=True)
     reference = models.ForeignKey(Entity, models.PROTECT, related_name='+', null=True)
+    sample = models.ForeignKey(Entity, models.PROTECT, related_name='+', null=True)
     aligned = models.ForeignKey(File, models.PROTECT, related_name='+')
     verdict = models.TextField(null=True)
     method = models.CharField(max_length=500, null=True)
@@ -98,6 +99,7 @@ class Alignment_History(models.Model):
     name = models.TextField(null=True)
     description = models.TextField(null=True)
     reference = models.UUIDField(db_column='reference_id', null=True)
+    sample = models.UUIDField(db_column='sample_id', null=True)
     members = ArrayField(models.UUIDField(), null=True)
     aligned = models.UUIDField(db_column='aligned_id', null=True)
     verdict = models.TextField(null=True)

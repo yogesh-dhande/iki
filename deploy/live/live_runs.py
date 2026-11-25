@@ -39,6 +39,7 @@ RECORD = REPO / "deploy" / "live-runs.json"
 #: Not deploy/live-runs.json: recording a run changes only that.
 SHARED = (
     # The chart, the images it builds and their Dockerfiles, and the harness itself.
+    ".dockerignore",
     "deploy/helm/",
     "deploy/live/iki_live.py",
     "deploy/plugins.Dockerfile",
@@ -49,15 +50,19 @@ SHARED = (
     "server/iki_wasm.arm64.cwasm.sha256",
     "worker/Dockerfile",
     "scripts/build-dna-annotation-wasm.sh",
+    "scripts/build-oligo-checks-wasm.sh",
     "scripts/build-oligo-wasm.sh",
+    "scripts/build-plasmid-tools-wasm.sh",
     "scripts/build-server-aot.sh",
     "scripts/verify-server-aot.py",
     "scripts/verify-server-wasm.sh",
     "plugins/plasmid/data/dna-annotation.wasm.sha256",
+    "plugins/plasmid/data/plasmid-tools.wasm.sha256",
     # What those images are built from besides the code below: the locked dependencies
     # (the server's Python and its transport to the cloud's APIs; the worker's Rust) and
     # the worker's toolchain and manifest, which `cargo build --locked` reads.
     "uv.lock",
+    "worker/.cargo/",
     "worker/Cargo.lock",
     "worker/Cargo.toml",
     "worker/rust-toolchain.toml",
@@ -70,10 +75,8 @@ SHARED = (
     # run's action (iki_live.ACTION) runs their script on the cloud's nodes.
     "plugins/dna/",
     "plugins/protein/",
-    # The worker, which runs it there, reaching the server and storage over the cloud's
-    # network; its machines, on the VM tier, on either cloud.
-    "worker/crates/iki-protocol/",
-    "worker/crates/iki-worker/",
+    # The crates copied into the worker and server Wasm builds.
+    "worker/crates/",
     # The server's code the checks reach that's the cloud's to decide: the database's
     # connection over verified TLS, storage (whichever cloud's backend it hands to), its
     # check of the bucket, readiness, and the setup wizard.

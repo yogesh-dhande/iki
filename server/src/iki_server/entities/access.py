@@ -205,7 +205,9 @@ def shareable_into(user: Any, project: Project) -> QuerySet[Entity]:  # noqa: AN
     """The entities the user can read that `project` may use (ADR 0067): its own, those
     already in it, and those whose project allows sharing and is in its registry (ADR
     0115), which the user reads other than through a request, and which aren't results
-    awaiting release (ADR 0132). Others behave, for it, as if the user couldn't read them."""
+    awaiting release (ADR 0132). A work item is usable only in its service project."""
+    from iki_server.entities import requests
+
     here = ProjectLink.objects.filter(entity=OuterRef("pk"), project=project)
     leaving = Q(
         Exists(_their_own_way(user)),
@@ -215,12 +217,17 @@ def shareable_into(user: Any, project: Project) -> QuerySet[Entity]:  # noqa: AN
     held_back = unreleased()
     if held_back is not None:
         leaving &= ~held_back
-    return visible(user).filter(leaving | Q(owner_project=project) | Exists(here))
+    shared = (leaving | Exists(here)) & ~Q(type__in=requests.work_item_types())
+    return visible(user).filter(Q(owner_project=project) | shared)
 
 
 def why_held(user: Any, entity: Entity, project: Project) -> str:  # noqa: ANN401
     """Why ``project`` may not use an entity the user reads, though they read it: one of
-    ``unreleased``, ``registry``, ``request`` or ``unshared``."""
+    ``work_item``, ``unreleased``, ``registry``, ``request`` or ``unshared``."""
+    from iki_server.entities import requests
+
+    if entity.owner_project_id != project.pk and requests.work_item_spec(entity.type):
+        return "work_item"
     held_back = unreleased()
     if held_back is not None and Entity.objects.filter(held_back, pk=entity.pk).exists():
         return "unreleased"
@@ -301,6 +308,8 @@ def _held_entity(user: Any, pk: Any, project: Project) -> str | None:  # noqa: A
     owner = entity.owner_project
     name = owner.name if owner is not None else "another project"
     match why_held(user, entity, project):
+        case "work_item":
+            return f"refers to {entity.hrid}, a work item that stays in {name}."
         case "unreleased":
             return (
                 f"refers to {entity.hrid}, a request's result its service hasn't released: "
@@ -384,6 +393,16 @@ def can_read(user: Any, entity: Entity) -> bool:  # noqa: ANN401
     return visible(user).filter(pk=entity.pk).exists()
 
 
+def edit_action(type_name: str, *, by_run: bool = False) -> Action:
+    """The permission for authoring this type, including a subtype of App or View."""
+    own = registry.types().get(type_name)
+    if own and any(
+        t.qualified_name in {"iki/core.App", VIEW} for t in (own, *registry.ancestors(own))
+    ):
+        return Action.RUN_EDIT_APP if by_run else Action.APP_EDIT
+    return Action.PROJECT_EDIT
+
+
 def can_edit(user: Any, entity: Entity, *, acting_in: Project | None = None) -> bool:  # noqa: ANN401
     """Whether the user may change a record: Editor in its project. Nobody edits a registry
     entry so: its facts are its registrars' (ADR 0115). A request sent to a service (ADR
@@ -396,4 +415,4 @@ def can_edit(user: Any, entity: Entity, *, acting_in: Project | None = None) -> 
     if requests.spec_of(entity.type) is not None:
         return bool(requests.sides(user, entity, requests.of(entity), acting_in=acting_in))
     owner = Project.objects.select_related("team").get(pk=entity.owner_project_id)
-    return permissions.can(user, Action.PROJECT_EDIT, owner)
+    return permissions.can(user, edit_action(entity.type, by_run=acting_in is not None), owner)

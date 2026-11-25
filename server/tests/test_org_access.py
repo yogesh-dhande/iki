@@ -226,6 +226,7 @@ CASES: list[Case] = [
     ),
     ("people", "GET", lambda w: ("/admin/people/", {}), row(FORBIDDEN, org_admin=OK)),
     ("audit_log", "GET", lambda w: ("/admin/audit/", {}), row(FORBIDDEN, auditor=OK)),
+    ("export", "GET", lambda w: ("/admin/audit/export.csv", {}), row(FORBIDDEN, auditor=OK)),
     ("plugins", "GET", lambda w: ("/admin/plugins/", {}), row(FORBIDDEN, org_admin=OK)),
     ("plugin", "GET", lambda w: ("/admin/plugins/acme/dna/", {}), row(FORBIDDEN, org_admin=OK)),
     (

@@ -52,6 +52,7 @@ from iki_server.api.schemas import (
     agent_out,
 )
 from iki_server.audit import log as audit
+from iki_server.core.snapshots import snapshot
 from iki_server.entities import (
     access,
     assignments,
@@ -83,7 +84,7 @@ from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
 from iki_server.notifications import declared
 from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
-from iki_server.runs.models import EntityMaking, ExternalOrigin, MadeBy, RunEffect
+from iki_server.runs.models import EntityMaking, ExternalOrigin, MadeBy, Recalculation, RunEffect
 from iki_server.runs.services import visible_runs
 from iki_server.signatures import changes as sig_changes
 from iki_server.signatures import models as signing_models
@@ -954,6 +955,10 @@ class AmountOut(Schema):
 
 
 class EntityOut(Schema):
+    needs_recalculation: list[str] = Field(
+        default_factory=list,
+        description="Actions whose referenced inputs changed since this record was calculated.",
+    )
     id: UUID
     hrid: str
     title: str = Field(description="What it's called: its type's display title, or its HRID.")
@@ -1775,6 +1780,13 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     # alongside an older version, which the review or signature then refuses.
     entries = _entries_of(user, entities)
     held, breaches = _holds_of(user, entities, entries)
+    recalculations: dict[UUID, list[str]] = defaultdict(list)
+    for entity_id, action in (
+        Recalculation.objects.filter(entity__in=entities)
+        .order_by("action")
+        .values_list("entity_id", "action")
+    ):
+        recalculations[entity_id].append(action)
     values = services.current_values_of(entities)
     projects = {
         p.pk: p
@@ -1782,7 +1794,13 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
             pk__in={e.owner_project_id for e in entities}
         )
     }
-    editable = {p.pk for p in projects.values() if permissions.can(user, Action.PROJECT_EDIT, p)}
+    edit_actions = {name: access.edit_action(name) for name in {e.type for e in entities}}
+    editable = {
+        (p.pk, action)
+        for action in set(edit_actions.values())
+        for p in projects.values()
+        if permissions.can(user, action, p)
+    }
     asked = requests.summaries(user, entities)
     refs, files = _referenced(user, entities, values)
     frozen = {t for t in {e.type for e in entities} if services.frozen(shape(t)) is not None}
@@ -1807,7 +1825,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
         editable_record = (
             bool(asked[entity.pk]["yours"])
             if entity.pk in asked
-            else entity.owner_project_id in editable
+            else (entity.owner_project_id, edit_actions[entity.type]) in editable
         ) and entity.type not in frozen
         edit_amount = (
             editable_record and entity.archived_at is None and amounts.spec(entity.type) is not None
@@ -1850,6 +1868,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 if entity.owner_project_id in readers
                 else [],
                 "entry": entries.get(entity.entry_id) if entity.entry_id is not None else None,
+                "needs_recalculation": recalculations.get(entity.pk, []),
                 "holds": held.get(entity.pk, []),
                 "breaches": breaches.get(entity.pk, []),
                 "request": asked.get(entity.pk),
@@ -2391,13 +2410,13 @@ def search_entities(request: HttpRequest, payload: SearchIn) -> dict[str, Any]:
     A state field (ADR 0125) is searched as an enum of its states, by name.
     ``upstream`` and ``downstream`` (ADR 0123) take ``of``: what an entity (by ID or
     HRID) was derived from, or what was derived from it, through references and runs, as
-    ``{"field": "downstream", "op": "of", "value": "DNR-000001"}``, or with a ``depth``
-    and ``edges``: ``{"entity": "DNR-000001", "depth": 5, "edges": ["reference"]}``; and
+    ``{"field": "downstream", "op": "of", "value": "TUB-000001"}``, or with a ``depth``
+    and ``edges``: ``{"entity": "TUB-000001", "depth": 5, "edges": ["reference"]}``; and
     ``is_set``, whether anything you can read is that way.
     ``held`` and ``breaks`` (ADR 0127) find what plugins' rules caught: records a rule holds
     for review now, and records that break a rule they were saved before (one its plugin
     added or changed since, or one a bundle brought). They take a rule's name with ``eq``,
-    ``ne`` and ``in``, as ``{"field": "held", "op": "eq", "value": "purity_in_specification"}``,
+    ``ne`` and ``in``, as ``{"field": "held", "op": "eq", "value": "mass_within_tolerance"}``,
     and ``is_set``, held or breaking any rule. Each result's ``holds`` and ``breaches``
     say which, and why.
     A search may run for 15 seconds: conditions on indexed fields keep it fast.
@@ -2457,7 +2476,8 @@ class SearchCsvParams(Schema):
         max_length=200,
         description="The columns, in order, by name: the type's fields, and `hrid`, `type`, "
         "`title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` "
-        "and `sent_to`). The grid's, without them.",
+        "and `sent_to`). Defaults to the grid columns. Every row ends with "
+        "`updated_at`, `revision` and `id`.",
     )
 
 
@@ -2471,7 +2491,8 @@ def search_csv(request: HttpRequest, params: Query[SearchCsvParams]) -> Streamin
     (ADR 0175). Values are as the grid shows them, as you can read them: a reference by
     its HRID, a person by name, a state by its label; numbers in full, a quantity's unit
     in its column's heading, times in ISO 8601 (UTC). Each row ends with when the record
-    last changed, its revision and its UUID.
+    last changed, its revision and its UUID: each page is read at one moment, so a row's
+    values are those of that revision, whatever's edited while it's read.
 
     It's written a page at a time as it's read, so a large result starts at once. Each
     page may run for 15 seconds; one that runs out ends the file with a row saying so. No
@@ -2495,7 +2516,9 @@ def search_csv(request: HttpRequest, params: Query[SearchCsvParams]) -> Streamin
     )
     entity_type = registry.types().get(params.type) if params.type else None
     typed = entity_type if entity_type is not None and params.type != "iki/core.Entity" else None
-    with _searching(parameters=True):
+    # Each page is read in one snapshot (ADR 0207): a row's values are those of the revision
+    # and time it ends with, whatever's committed while the page is read.
+    with snapshot(), _searching(parameters=True):
         found = search.queryset(me, wanted)
         try:
             table = search_exports.columns(
@@ -2516,17 +2539,7 @@ def search_csv(request: HttpRequest, params: Query[SearchCsvParams]) -> Streamin
             data={
                 "format": "csv",
                 "file": name,
-                "search": {
-                    "type": wanted.type,
-                    "exact_type": wanted.exact_type,
-                    "project": str(wanted.project) if wanted.project else None,
-                    "archived": wanted.archived,
-                    "q": wanted.q,
-                    "collection": wanted.collection,
-                    "where": where,
-                    "sort": wanted.sort,
-                    "descending": wanted.descending,
-                },
+                "search": {**params.model_dump(mode="json", exclude={"columns"}), "where": where},
                 "columns": [c.key for c in table],
             },
         )
@@ -2537,7 +2550,7 @@ def search_csv(request: HttpRequest, params: Query[SearchCsvParams]) -> Streamin
         yield "".join(csvs.lines([c.cell(r) for c in table] for r in first))
         while cursor is not None:
             try:
-                with search.time_limit():
+                with snapshot(), search.time_limit():
                     more, cursor = search.page(found, wanted, cursor, EXPORT_PAGE)
                     got = _table_rows(me, more)
             except search.TooSlow as error:
@@ -2857,7 +2870,7 @@ def create_entity(request: HttpRequest, payload: EntityIn, response: HttpRespons
     record of it already, that's returned as it is (200, ``reused``). Values of the entry's
     that it has already are kept; a fact given with another value is refused."""
     me = caller(request)
-    target = project(me, payload.project, Action.PROJECT_EDIT)
+    target = project(me, payload.project, access.edit_action(payload.type))
     try:
         saved = services.create(
             me,
@@ -2913,10 +2926,10 @@ def patch_entity(
     me = caller(request)
     entity = _find(me, ref)
     owner = services.owner_of(entity)
-    if payload.archived is not None or not requests.can_change(me, entity):
+    if payload.archived is not None or not access.can_edit(me, entity):
         # A request's service changes only its own fields (ADR 0132): archiving is the
         # asking project's.
-        require(me, Action.PROJECT_EDIT, owner)
+        require(me, access.edit_action(entity.type), owner)
     expected = _expected(if_match)
     try:
         with transaction.atomic():
@@ -3746,7 +3759,7 @@ def link_entity(request: HttpRequest, ref: str, project_id: UUID) -> Any:  # noq
     You need to be able to read the entity, and to be an Editor in the project."""
     me = caller(request)
     entity = _find(me, ref)
-    target = project(me, project_id, Action.PROJECT_EDIT)
+    target = project(me, project_id, access.edit_action(entity.type))
     created = services.link(me, entity, target)
     link = ProjectLink.objects.select_related("project", "linked_by").get(
         entity=entity, project=target
@@ -3766,11 +3779,9 @@ def unlink_entity(request: HttpRequest, ref: str, project_id: UUID) -> Status[No
     entity = _find(me, ref)
     target = project(me, project_id)
     owner = services.owner_of(entity)
-    if not (
-        permissions.can(me, Action.PROJECT_EDIT, target)
-        or permissions.can(me, Action.PROJECT_EDIT, owner)
-    ):
-        require(me, Action.PROJECT_EDIT, target)
+    action = access.edit_action(entity.type)
+    if not (permissions.can(me, action, target) or permissions.can(me, action, owner)):
+        require(me, action, target)
     if not services.unlink(me, entity, target):
         raise Problem(404, f"{entity.hrid} isn’t in that project.")
     return Status(204, None)

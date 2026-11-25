@@ -9,7 +9,7 @@ kind: EntityType
 name: WholePlasmidAlignment
 label: Whole-plasmid alignment
 label_plural: Whole-plasmid alignments
-schema_version: 2
+schema_version: 5
 extends: iki/core.Alignment
 hrid: { prefix: WPA }
 description: >-
@@ -52,12 +52,6 @@ fields:
     immutable: true
     description: The reads aligned, where they were the prep's reads.
   read_set_revision: { type: int, min: 1, computed: true, immutable: true }
-  sample:
-    type: ref
-    to: iki/core.Entity
-    label: Sample
-    immutable: true
-    description: What the reads' library was made from, such as the plasmid prep.
   platform:
     type: enum
     values: [nanopore, pacbio_hifi]
@@ -79,12 +73,14 @@ fields:
   agreement:
     type: enum
     values: [matches, differs, incomplete]
-    required: true
+    computed: true
     immutable: true
     indexed: true
     description: >-
-      Matches where the consensus calls every base of the plasmid and none differs; differs
-      where any does; incomplete where none differs but some bases weren't called.
+      Matches where the consensus calls every base of the plasmid, none differs and every
+      base of the consensus is placed on the plasmid once; differs where any differs, or
+      some of the consensus isn't placed once; incomplete where none differs but some bases
+      weren't called.
   reference_length: { type: int, min: 1, computed: true, immutable: true, label: Plasmid length }
   topology:
     type: enum
@@ -127,6 +123,7 @@ fields:
       additionalProperties: false
       required: [bin_size, mean, min]
       properties:
+        low_count: { type: integer, minimum: 0 }
         bin_size: { type: integer, minimum: 1 }
         mean: { type: array, maxItems: 400, items: { type: number, minimum: 0 } }
         min: { type: array, maxItems: 400, items: { type: integer, minimum: 0 } }
@@ -146,6 +143,35 @@ fields:
         properties:
           start: { type: integer, minimum: 1 }
           end: { type: integer, minimum: 1, description: Before start, it wraps the origin. }
+  consensus_length:
+    type: int
+    min: 0
+    computed: true
+    immutable: true
+    label: Consensus length
+    description: The bases of the consensus compared, as it was called or given.
+  unplaced:
+    type: json
+    computed: true
+    immutable: true
+    label: Consensus not placed once
+    description: >-
+      Stretches of the consensus (numbered along it, on the plasmid's strand) that aren't
+      placed on the plasmid once: bases that align nowhere on it, such as more sequence than
+      the plasmid has, and bases placed where earlier ones already were, such as a second
+      lap of the circle.
+    schema:
+      type: array
+      maxItems: 200
+      items:
+        type: object
+        additionalProperties: false
+        required: [start, end, bases, why]
+        properties:
+          start: { type: integer, minimum: 1 }
+          end: { type: integer, minimum: 1 }
+          bases: { type: integer, minimum: 1 }
+          why: { enum: [unaligned, repeated] }
   differences:
     type: json
     computed: true
@@ -153,7 +179,8 @@ fields:
     description: >-
       Each difference of the consensus from the plasmid's sequence, by its HGVS name, with
       the bases it replaces and has, the features it lies in, the longest run of one base it
-      touches, and for reads, those that agree with it on each strand.
+      touches, and for reads, the reads across it and those that have its whole allele, each
+      read once, on each strand.
     schema:
       type: array
       maxItems: 500
@@ -164,7 +191,9 @@ fields:
           [hgvs, kind, start, end, reference, observed, length_change, homopolymer, features]
         properties:
           hgvs: { type: string, minLength: 3, maxLength: 1000 }
-          kind: { enum: [substitution, deletion, insertion, deletion_insertion] }
+          kind:
+            enum: [substitution, deletion, insertion, duplication, inversion, deletion_insertion]
+            description: As its HGVS name says.
           start: { type: integer, minimum: 1 }
           end: { type: integer, minimum: 1 }
           reference: { type: string, maxLength: 200 }
@@ -197,7 +226,22 @@ fields:
           name: { type: string, minLength: 1, maxLength: 200 }
           start: { type: integer, minimum: 1 }
           end: { type: integer, minimum: 1, description: Before start, it wraps the origin. }
-          strand: { enum: [forward, reverse] }
+          strand:
+            enum: [forward, reverse, mixed, none]
+            description: Mixed when its parts lie on both strands; none when it has no strand.
+          parts:
+            type: array
+            minItems: 1
+            maxItems: 1000
+            description: >-
+              A join's or an order's parts, which alone hold its bases: not the gaps between.
+            items:
+              type: object
+              additionalProperties: false
+              required: [start, end]
+              properties:
+                start: { type: integer, minimum: 1 }
+                end: { type: integer, minimum: 1 }
   consensus:
     type: file
     label: Consensus FASTA
@@ -207,13 +251,30 @@ fields:
     max_size: 50MiB
     description: The consensus in the plasmid's frame, from its first base.
 rules:
+  action_evidence:
+    label: The comparison recorded its inputs and evidence
+    check: >-
+      record.plasmid_record_id != null && record.plasmid_revision != null && record.reference_length != null &&
+      record.consensus != null && record.called_percent != null &&
+      record.agreement != null && record.verdict == record.agreement
+    message: Record a whole-plasmid comparison with its reference revision, consensus, coverage and matching verdict.
+    fields:
+      [
+        plasmid_record_id,
+        plasmid_revision,
+        reference_length,
+        consensus,
+        called_percent,
+        verdict,
+        agreement,
+      ]
   reads_or_consensus:
     label: The result says what it compared
     check: >-
-      (record.source == "reads" && record.read_set != null && record.consensus_given == null) ||
-      (record.source == "consensus" && record.consensus_given != null && record.read_set == null)
+      (record.source == "reads" && record.read_set != null && record.read_set_revision != null && record.consensus_given == null) ||
+      (record.source == "consensus" && record.consensus_given != null && record.read_set == null && record.read_set_revision == null)
     message: A result from reads names its read set; one from a consensus keeps the file.
-    fields: [source, read_set, consensus_given]
+    fields: [source, read_set, read_set_revision, consensus_given]
   reference_is_the_plasmids:
     label: The reference is the plasmid's sequence
     check: record.reference != null && record.reference.id == record.plasmid.sequence

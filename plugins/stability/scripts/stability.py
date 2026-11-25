@@ -66,7 +66,7 @@ def schedule(run: dict[str, Any]) -> dict[str, Any]:
     pulls = []
     for (condition, month), assignment in sorted(assignments.items()):
         tube = tubes.get(assignment["tube"])
-        if tube is None or tube["values"].get("lot") != values["lot"]:
+        if tube is None or tube["values"].get("contents") != values["lot"]:
             raise ValueError(f"The tube for {condition}, month {month} must hold the study lot.")
         previous = tube_conditions.setdefault(tube["id"], condition)
         if previous != condition:

@@ -35,13 +35,13 @@ const READ_ONLY = project({
 });
 
 const PLATE = "iki/plate_assays.";
-const COORDINATOR = "iki/example_lims.coordinator";
+const COORDINATOR = "iki/lab_roles.coordinator";
 const [ANALYST, REVIEWER, QA] = [`${PLATE}analyst`, `${PLATE}reviewer`, `${PLATE}qa`];
 
 function starter(more: Partial<Schemas["StarterOut"]> = {}): Schemas["StarterOut"] {
   return {
     id: "dose-response",
-    version: "1.0.0",
+    version: "1.2.0",
     label: "Dose-response plate assay",
     description:
       "Receive an example request, map a reader file to wells, fit a curve and return the signed result to the requester.",
@@ -278,7 +278,7 @@ describe("a project's starters", () => {
     await user.click(within(qa).getByRole("checkbox", { name: "Dorothy Hodgkin" }));
     const plan = {
       starter: "dose-response",
-      version: "1.0.0",
+      version: "1.2.0",
       project: SERVICE.id,
       requester_project: ASKER.id,
       flow: "regulated_qc",
@@ -288,6 +288,7 @@ describe("a project's starters", () => {
       grants_to_add: { [ANALYST]: ["m2"], [REVIEWER]: ["m3"], [QA]: ["m4"] },
       examples_to_create: ["request", "protein", "sample", "tube", "reader_file", "plate"],
       examples: {},
+      plan: "a1".repeat(32),
     };
     answer("POST /api/v1/starters/dose-response/preview", plan);
     await user.click(within(card).getByRole("button", { name: "Preview" }));
@@ -295,7 +296,7 @@ describe("a project's starters", () => {
     expect(calls("POST", "/api/v1/starters/dose-response/preview")[0]?.body).toEqual({
       project: SERVICE.id,
       requester_project: ASKER.id,
-      version: "1.0.0",
+      version: "1.2.0",
       flow: "regulated_qc",
       role_assignments: {
         [COORDINATOR]: ["m1"],
@@ -322,14 +323,86 @@ describe("a project's starters", () => {
     expect(
       await screen.findByText("Applied Dose-response plate assay with the Regulated QC flow."),
     ).toBeInTheDocument();
-    expect(calls("POST", "/api/v1/starters/dose-response/apply")[0]?.body).toEqual(
-      calls("POST", "/api/v1/starters/dose-response/preview")[0]?.body,
+    // It applies the plan previewed, as Iki identified it.
+    expect(calls("POST", "/api/v1/starters/dose-response/apply")[0]?.body).toEqual({
+      ...(calls("POST", "/api/v1/starters/dose-response/preview")[0]?.body as object),
+      plan: plan.plan,
+    });
+  });
+
+  it("applies nothing that changed since its preview, and shows what applying does now", async () => {
+    onStarters(
+      starter({ applied: { version: "1.2.0", flow: "regulated_qc", requester_project: ASKER.id } }),
     );
+    const { user } = await renderApp("/projects/assay-core/settings/starters/");
+    const card = await setupCard();
+    await user.click(within(card).getByRole("radio", { name: /^Research/ }));
+    const analysts = within(card).getByRole("group", { name: "Assay analyst" });
+    await user.click(within(analysts).getByRole("checkbox", { name: "Dorothy Hodgkin" }));
+    const reviewers = within(card).getByRole("group", { name: "Assay reviewer" });
+    await user.click(within(reviewers).getByRole("checkbox", { name: "Carl Woese" }));
+    const reviewed = {
+      starter: "dose-response",
+      version: "1.2.0",
+      project: SERVICE.id,
+      requester_project: ASKER.id,
+      flow: "research" as const,
+      result_type: `${PLATE}RequestedResearchAssayResult`,
+      changed: true,
+      role_assignments: {},
+      grants_to_add: {},
+      examples_to_create: [],
+      examples: { request: "e1" },
+      plan: "b2".repeat(32),
+    };
+    answer("POST /api/v1/starters/dose-response/preview", reviewed);
+    await user.click(within(card).getByRole("button", { name: "Preview" }));
+    const shown = await within(card).findByRole("status", { name: "What applying will do" });
+    expect(
+      within(shown)
+        .getAllByRole("listitem")
+        .map((i) => i.textContent),
+    ).toEqual(["New results follow the Research flow."]);
+    // Meanwhile another Admin revoked Carl Woese's reviewer grant: the switch now adds it back.
+    const now = { ...reviewed, grants_to_add: { [REVIEWER]: ["m3"] }, plan: "c3".repeat(32) };
+    answer(
+      "POST /api/v1/starters/dose-response/apply",
+      problem(
+        409,
+        "starter_plan_changed",
+        "What applying does changed since it was previewed.",
+        undefined,
+        { plan: now },
+      ),
+    );
+    await user.click(within(card).getByRole("button", { name: "Apply" }));
+    const note = await within(card).findByRole("alert");
+    expect(note).toHaveTextContent("What applying does changed while you were looking at it.");
+    expect(note).toHaveTextContent("Applying now also: Carl Woese becomes Assay reviewer.");
+    expect(note).toHaveTextContent("If it’s still what you want, apply it.");
+    const again = within(card).getByRole("status", { name: "What applying will do" });
+    expect(
+      within(again)
+        .getAllByRole("listitem")
+        .map((i) => i.textContent),
+    ).toEqual(["New results follow the Research flow.", "Carl Woese becomes Assay reviewer."]);
+    expect(screen.queryByText(/^Applied Dose-response/)).not.toBeInTheDocument();
+    // Applying again applies what's shown now.
+    answer("POST /api/v1/starters/dose-response/apply", now);
+    await user.click(within(card).getByRole("button", { name: "Apply" }));
+    expect(
+      await screen.findByText("Applied Dose-response plate assay with the Research flow."),
+    ).toBeInTheDocument();
+    const sent = calls("POST", "/api/v1/starters/dose-response/apply").map(
+      (c) => (c.body as { plan: string }).plan,
+    );
+    expect(sent).toEqual([reviewed.plan, now.plan]);
+    expect(within(card).queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("asks again after any change to what was previewed, and shows what Iki refuses", async () => {
     onStarters(
-      starter({ applied: { version: "1.0.0", flow: "research", requester_project: ASKER.id } }),
+      starter({ applied: { version: "1.2.0", flow: "research", requester_project: ASKER.id } }),
     );
     const { user } = await renderApp("/projects/assay-core/settings/starters/");
     const card = await setupCard();
@@ -353,7 +426,7 @@ describe("a project's starters", () => {
     await user.click(within(qa).getByRole("checkbox", { name: "Barbara McClintock" }));
     answer("POST /api/v1/starters/dose-response/preview", {
       starter: "dose-response",
-      version: "1.0.0",
+      version: "1.2.0",
       project: SERVICE.id,
       requester_project: ASKER.id,
       flow: "regulated_qc",
@@ -363,6 +436,7 @@ describe("a project's starters", () => {
       grants_to_add: { [QA]: ["m2"] },
       examples_to_create: [],
       examples: { request: "e1" },
+      plan: "d4".repeat(32),
     });
     await user.click(within(card).getByRole("button", { name: "Preview" }));
     const preview = await within(card).findByRole("status", { name: "What applying will do" });
@@ -392,11 +466,11 @@ describe("a project's starters", () => {
 
   it("says who can switch a flow first set up with a project this Admin can't edit", async () => {
     onStarters(
-      starter({ applied: { version: "1.0.0", flow: "regulated_qc", requester_project: null } }),
+      starter({ applied: { version: "1.2.0", flow: "regulated_qc", requester_project: null } }),
     );
     await renderApp("/projects/assay-core/settings/starters/");
     const card = await setupCard();
-    expect(within(card).getByText("Applied: Regulated QC, version 1.0.0")).toBeInTheDocument();
+    expect(within(card).getByText("Applied: Regulated QC, version 1.2.0")).toBeInTheDocument();
     expect(
       within(card).getByText(/Only someone who can edit that project can apply it again/),
     ).toBeInTheDocument();
@@ -413,7 +487,7 @@ describe("a project's starters", () => {
       can: { ...SERVICE.can, manage: false, edit: false },
     };
     onStarters(
-      starter({ applied: { version: "1.0.0", flow: "research", requester_project: null } }),
+      starter({ applied: { version: "1.2.0", flow: "research", requester_project: null } }),
       member,
     );
     await renderApp("/projects/assay-core/settings/starters/");
@@ -431,7 +505,7 @@ describe("a project's starters", () => {
 
   it("is linked from the project's settings, with what's applied", async () => {
     onStarters(
-      starter({ applied: { version: "1.0.0", flow: "regulated_qc", requester_project: ASKER.id } }),
+      starter({ applied: { version: "1.2.0", flow: "regulated_qc", requester_project: ASKER.id } }),
     );
     const { user } = await renderApp("/projects/assay-core/settings/");
     const list = await screen.findByRole("list", { name: "Starters" });

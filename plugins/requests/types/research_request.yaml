@@ -1,0 +1,7 @@
+apiVersion: iki/v1
+kind: EntityType
+name: ResearchRequest
+label: Research request
+extends: Request
+schema_version: 1
+hrid: { prefix: RCR }

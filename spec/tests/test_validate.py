@@ -1568,7 +1568,7 @@ def test_plugins_round_trip_through_json() -> None:
 def test_settings_rules(tmp_path: Path) -> None:
     plugin = PLUGIN + textwrap.dedent("""\
         settings:
-          api_key: { type: string }
+          api_key: { type: string, required: false }
           region: { type: enum, values: [eu, us], required: true, default: eu }
           batch: { type: int, min: 1, default: 0 }
     """)
@@ -1624,12 +1624,12 @@ def test_settings_values() -> None:
 def test_settings_values_of_every_type(tmp_path: Path) -> None:
     plugin = PLUGIN + textwrap.dedent("""\
         settings:
-          s: { type: string }
-          i: { type: int }
-          f: { type: float }
-          b: { type: bool }
-          e: { type: enum, values: [x, y] }
-          l: { type: list, items: { type: int }, max_items: 2 }
+          s: { type: string, required: false }
+          i: { type: int, required: false }
+          f: { type: float, required: false }
+          b: { type: bool, required: false }
+          e: { type: enum, values: [x, y], required: false }
+          l: { type: list, items: { type: int }, max_items: 2, required: false }
     """)
     result = make(tmp_path, "", plugin)
     assert result.plugin is not None
@@ -2455,13 +2455,22 @@ def test_on_edit_cannot_change_or_release_a_result(tmp_path: Path) -> None:
 
 
 def test_a_request_type_names_its_services_fields_and_what_it_sends(tmp_path: Path) -> None:
-    result = make(tmp_path, requests(), ROLES)
+    result = make(
+        tmp_path,
+        requests(
+            REQUEST.replace(
+                "  sends:", "  completed: { field: status, state: delivered }\n  sends:"
+            )
+        ),
+        ROLES,
+    )
     assert result.problems == []
     assert result.plugin is not None
     request = result.plugin.types["acme/lab.AssayRequest"].request
     assert request is not None
     assert request.service_fields == ("status", "priority", "scheduled_on", "technician")
     assert request.sends == ("samples",)
+    assert (request.completed_field, request.completed_state) == ("status", "delivered")
     found = result.plugin.types["acme/lab.AssayResult"].result
     assert found is not None
     assert (found.of, found.released_field, found.released_states) == (
@@ -2470,6 +2479,53 @@ def test_a_request_type_names_its_services_fields_and_what_it_sends(tmp_path: Pa
         ("released",),
     )
     assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+
+
+WORK_ITEM = """\
+apiVersion: iki/v1
+kind: EntityType
+name: WorkItem
+schema_version: 1
+hrid: { prefix: WRK }
+work_item: { of: request }
+fields:
+  request: { type: ref, to: AssayRequest, required: true, immutable: true }
+"""
+
+
+def test_work_items_round_trip_without_a_release_policy(tmp_path: Path) -> None:
+    result = make(tmp_path, requests() | {"types/work_item.yaml": WORK_ITEM}, ROLES)
+    assert result.problems == []
+    assert result.plugin is not None
+    found = result.plugin.types["acme/lab.WorkItem"]
+    assert found.work_item is not None and found.work_item.of == "request"
+    assert found.result is None
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+
+
+@pytest.mark.parametrize(
+    ("body", "code"),
+    [
+        (
+            WORK_ITEM.replace(REQUEST_REF, "to: Sample, required: true, immutable: true"),
+            "work-item-of-not-a-request",
+        ),
+        (WORK_ITEM.replace(REQUEST_REF, "to: AssayRequest"), "work-item-of-changes"),
+        (
+            WORK_ITEM.replace(
+                "work_item: { of: request }", "extends: AssayResult\nwork_item: { of: request }"
+            ).replace(
+                f"fields:\n  request: {{ type: ref, {REQUEST_REF} }}\n",
+                "",
+            ),
+            "work-item-conflict",
+        ),
+    ],
+)
+def test_work_items_require_one_request_and_cannot_be_results(
+    tmp_path: Path, body: str, code: str
+) -> None:
+    assert only(make(tmp_path, requests() | {"types/work_item.yaml": body}, ROLES), code)
 
 
 @pytest.mark.parametrize(
@@ -2683,6 +2739,20 @@ notifications:
             RESULT.replace(REQUEST_REF, "to: Sample, required: true, immutable: true"),
             "result-of-not-a-request",
             "must refer to a request type",
+        ),
+        (
+            REQUEST.replace(
+                "  sends:", "  completed: { field: status, state: submitted }\n  sends:"
+            ),
+            RESULT,
+            "request-completion-state",
+            "non-initial state",
+        ),
+        (
+            REQUEST.replace("  sends:", "  completed: { field: title, state: absent }\n  sends:"),
+            RESULT,
+            "request-completion-state",
+            "service writes",
         ),
         (
             REQUEST,
@@ -3228,3 +3298,55 @@ def test_a_type_says_what_it_holds_its_grid_its_barcode_and_what_needs_a_scan(
         ("items: { type: ref, to: Tube } }", "items: { type: ref, to: Shipment } }")
     ) == ["request-receives"]
     assert problems(("by: [qa]", "by: [porter]")) == ["unknown-role"]
+
+
+def test_a_setting_declares_its_required_or_default_policy(tmp_path: Path) -> None:
+    setting = PLUGIN + "settings:\n  endpoint: { type: string }\n"
+    assert "required" in only(make(tmp_path, {}, setting), "setting-policy")
+    explicit = setting.replace("type: string", "type: string, required: false")
+    assert make(tmp_path, {}, explicit).ok
+    default = setting.replace("type: string", "type: string, default: example")
+    assert make(tmp_path, {}, default).ok
+
+
+def test_invalid_types_do_not_cascade_into_missing_type_errors(tmp_path: Path) -> None:
+    root = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Parent
+schema_version: 1
+hrid: { prefix: PAR }
+fields:
+  label: { type: not_a_field_type }
+"""
+    child = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Child
+schema_version: 1
+hrid: { prefix: CHD }
+extends: Parent
+"""
+    reader = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Reader
+schema_version: 1
+hrid: { prefix: RDR }
+fields:
+  parent: { type: ref, to: Parent }
+  child: { type: ref, to: Child }
+  unknown: { type: ref, to: Misspelled }
+"""
+    result = make(
+        tmp_path,
+        {
+            "types/parent.yaml": root,
+            "types/child.yaml": child,
+            "types/reader.yaml": reader,
+        },
+    )
+    assert [(p.code, p.path) for p in result.problems] == [
+        ("schema", ("fields", "label", "type")),
+        ("unknown-type", ("fields", "unknown", "to")),
+    ]

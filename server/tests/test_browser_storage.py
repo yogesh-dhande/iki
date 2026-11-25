@@ -1,18 +1,19 @@
 # ruff: noqa: F811 - test_browser's fixtures, imported by name, are parameters here.
 """Storage (ADR 0180) in real browsers: from a freezer to a box's map and round it by
-keyboard; a bulk move; a keyboard-mode scanner's code found wherever focus is; receiving a
-request's tubes with one of each outcome; labels' print preview and ZPL; and reconciling a
-box by scan. Correcting what someone recorded at either asks why, keeps both in the history,
-and shows what changed when someone else changed it first; first observations stay one step,
-and two people scanning one receipt are both recorded. A label two readable tubes share asks
-which, with each one's project and position; one a concealed tube shares is refused in the
-same words whatever's behind it; a typed Iki ID, a draw and a move confirm a tube by its own
-identity; the scanner's exact text is kept in the receipt's history; and a label's vendor
-barcode is an opt-in extra the server checks. A count's unregistered label seen in another
-slot asks whether it's another tube or that one moved, and a move names its line and asks
-why. Completing a receipt waits for the box its tubes go in, puts each where it was shown,
-and keeps one in custody only when that's chosen for it, which Storage then lists as
-awaiting put-away. Each passes axe in both themes and fits a phone and a tablet either way up."""
+keyboard; a bulk move, to the wells it showed or none; a keyboard-mode scanner's code found
+wherever focus is; receiving a request's tubes with one of each outcome; labels' print
+preview and ZPL; and reconciling a box by scan. Correcting what someone recorded at either
+asks why, keeps both in the history, and shows what changed when someone else changed it
+first; first observations stay one step, and two people scanning one receipt are both
+recorded. A label two readable tubes share asks which, with each one's project and position;
+one a concealed tube shares is refused in the same words whatever's behind it; a typed Iki
+ID, a draw and a move confirm a tube by its own identity; the scanner's exact text is kept
+in the receipt's history; and a label's vendor barcode is an opt-in extra the server checks.
+A count's unregistered label seen in another slot asks whether it's another tube or that one
+moved, and a move names its line and asks why. Completing a receipt waits for the box its
+tubes go in, puts each where it was shown, and keeps one in custody only when that's chosen
+for it, which Storage then lists as awaiting put-away. Each passes axe in both themes and
+fits a phone and a tablet either way up."""
 
 import json
 import re
@@ -193,6 +194,50 @@ def test_from_a_freezer_to_a_box_by_keyboard_and_a_bulk_move(
         )
     ).to_be_visible()
     fits(page)
+    page.context.close()
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_move_puts_tubes_in_the_wells_it_showed_or_moves_none(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    """Moving commits the plan shown (ADR 0207). Here, between checking where two tubes go
+    and moving them, another bench puts a tube in the first well shown: nothing moves, the
+    dialog says where each would go now and shows it, and moving them again puts them
+    there. On a phone, in both schemes."""
+    kept = a_freezer(world)
+    tubes, retains, spare = kept["tubes"], kept["retains"]["hrid"], kept["spare"]["hrid"]
+    page = open_as("admin", f"/storage/{retains}/", color_scheme)
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.get_by_role("button", name="Select several").click()
+    grid = page.get_by_role("grid", name="Kinase retains’s positions")
+    grid.get_by_role("gridcell", name=re.compile(r"^A1, ")).click()
+    grid.get_by_role("gridcell", name=re.compile(r"^A2, ")).click()
+    page.get_by_role("region", name="Selected").get_by_role("button", name="Move…").click()
+    dialog = page.get_by_role("dialog", name="Move 2 records")
+    dialog.get_by_role("textbox", name="Container").fill(spare)
+    dialog.get_by_role("textbox", name="Reason").fill("Consolidating retains")
+    dialog.get_by_role("button", name="Check where they go").click()
+    plan = dialog.get_by_role("table", name="What moving them does")
+    expect(plan.get_by_role("row").nth(1)).to_contain_text(f"{spare}, A1")
+    expect(plan.get_by_role("row").nth(2)).to_contain_text(f"{spare}, A2")
+
+    put(world, (tubes[2], kept["spare"], "A1"))  # at another bench
+    dialog.get_by_role("button", name="Move all 2").click()
+    note = dialog.get_by_role("alert").filter(has_text="Where they go changed")
+    expect(note).to_contain_text(f"{tubes[0]['hrid']}: goes to {spare}, A2, not {spare}, A1.")
+    expect(note).to_contain_text(f"{tubes[1]['hrid']}: goes to {spare}, A3, not {spare}, A2.")
+    expect(plan.get_by_role("row").nth(1)).to_contain_text(f"{spare}, A2")
+    expect(plan.get_by_role("row").nth(2)).to_contain_text(f"{spare}, A3")
+    assert where(tubes[0]) == (retains, 1, 1) and where(tubes[1]) == (retains, 1, 2)
+    expected_refusals(page, "409 (Conflict)")
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    checked(page)
+
+    dialog.get_by_role("button", name="Move all 2").click()
+    dialog.wait_for(state="hidden")
+    assert where(tubes[0]) == (spare, 1, 2) and where(tubes[1]) == (spare, 1, 3)
+    assert where(tubes[2]) == (spare, 1, 1)
     page.context.close()
 
 
@@ -1739,24 +1784,24 @@ def test_a_well_taken_meanwhile_is_refused_on_its_tube_and_read_again(
         },
     )
     assert status == 200, body
-    with page.expect_response(f"**{path}/complete") as answered:
+    sent_completions = completions(page, path)
+    with page.expect_response(f"**{path}/put-away/preview") as preview:
         complete.click()
-    assert answered.value.status == 422
+    assert preview.value.status == 200
 
-    # Refused on that tube, which is open again; A1 is read again as taken.
+    # The newly available well is shown before anything is sent for completion.
     refusal = page.get_by_role("region", name="Complete", exact=True).get_by_role("alert")
-    expect(refusal).to_contain_text(f"{tubes[1]['hrid']}: {incoming['hrid']} has something at A1")
+    expect(refusal).to_contain_text(f"{tubes[1]['hrid']}: Previously A1, now A2")
     expect(plan).to_have_accessible_name(f"{incoming['hrid']} Incoming · 3 free")
-    expect(choices[1]).to_have_value("")
-    expect(choices[1]).to_have_attribute("aria-invalid", "true")
-    expect(choices[1]).to_have_accessible_description(re.compile("has something at A1"))
+    expect(choices[1]).to_have_value("A2")
+    assert sent_completions == []
     for choice in choices:
         expect(choice.get_by_role("option", name=re.compile(r", A1$"))).to_have_count(0)
     taken = page.get_by_role("grid").get_by_role("gridcell", name=re.compile(r"^A1, "))
     expect(taken).to_have_accessible_name(re.compile(f"^A1, {theirs['hrid']}"))
     expect(choices[0]).to_have_value("B2")
     expect(choices[2]).to_have_value("keep")
-    expect(complete).to_be_disabled()
+    expect(complete).to_be_enabled()
     # Nothing was completed, placed or taken into custody.
     now = held_by(page, path)
     assert now["receipt"]["status"] == "open"
@@ -1766,16 +1811,20 @@ def test_a_well_taken_meanwhile_is_refused_on_its_tube_and_read_again(
     assert {o["position"]: o["ref"]["hrid"] for o in box.json()["contents"] if o["ref"]} == {
         "A1": theirs["hrid"]
     }
-    # Chromium and WebKit log the refusal as a failed load: that, and nothing else.
-    expected_refusals(page, "422")
     checked(page)
 
-    # Another well for it, and it completes as shown.
-    choices[1].select_option("B1")
-    expect(complete).to_be_enabled()
-    with page.expect_response(f"**{path}/complete") as answered:
+    # A second press accepts the new position along with the original manual decisions.
+    with (
+        page.expect_response(f"**{path}/put-away/preview") as reviewed,
+        page.expect_response(f"**{path}/complete") as answered,
+    ):
         complete.click()
     assert answered.value.status == 200
+    assert len(sent_completions) == 1
+    approved = reviewed.value.json()["plan"]
+    submission = sent_completions[0].post_data_json
+    assert isinstance(submission, dict)
+    assert approved and submission["plan"] == approved
     page.get_by_role("heading", level=2, name="Received").wait_for()
     done = held_by(page, path)
     lines = {line["code"]: line for line in done["receipt"]["lines"]}
@@ -1785,7 +1834,7 @@ def test_a_well_taken_meanwhile_is_refused_on_its_tube_and_read_again(
     )
     assert (lines["RC001"]["put_away"]["hrid"], lines["RC001"]["put_away"]["position"]) == (
         incoming["hrid"],
-        "B1",
+        "A2",
     )
     assert (lines["RC002"]["put_away"], lines["RC002"]["received_unplaced"]) == (None, True)
     assert [x["id"] for x in done["waiting"]] == [str(tubes[2]["id"])]

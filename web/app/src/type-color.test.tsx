@@ -22,18 +22,18 @@ describe("a type's color", () => {
     // The dev deployment's types: many share a prefix, which plain FNV-1a crowds together.
     const types = [
       "iki/core.Alignment",
-      "iki/example_lims.AnalysisRequest",
-      "iki/example_lims.AnalysisResult",
+      "iki/requests.PlainRequest",
+      "iki/requests.QCDeliverable",
       "iki/antibody.Antibody",
       "iki/core.App",
       "iki/plasmid.Assembly",
-      "iki/example_lims.Booking",
+      "iki/equipment.Booking",
       "iki/core.Collection",
       "iki/small_molecule.Compound",
       "iki/small_molecule.CompoundBatch",
       "iki/dna.DNASequence",
       "iki/lots.GenericLot",
-      "iki/example_lims.Instrument",
+      "iki/equipment.Instrument",
       "iki/oligo.Monomer",
       "iki/oligo.Oligonucleotide",
       "iki/lots.OligoLot",
@@ -44,7 +44,7 @@ describe("a type's color", () => {
       "iki/lots.ProteinLot",
       "iki/protein.ProteinStructure",
       "acme/example.Sample",
-      "iki/example_lims.Sample",
+      "iki/samples.Sample",
     ];
     const counts = new Map<number, number>();
     for (const t of types) counts.set(typeSwatch(t), (counts.get(typeSwatch(t)) ?? 0) + 1);

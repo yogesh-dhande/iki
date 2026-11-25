@@ -53,9 +53,12 @@ versions. Retries keep the pin, warm machines serve compatible pins, and
 deterministic reuse accounts for the digest. Exact reproduction requires
 the deployment to still authorize the same image.
 
-Compute admins can read the configured pins and installed-version
-matches at `GET /api/v1/compute/image-bindings`. The admin Compute page
-can show these bindings alongside Volumes from step 36. The API provides
+Compute admins can read, at `GET /api/v1/compute/image-bindings`, each
+installed environment that requires a customer image with the binding its
+installed version matches, if any, and the bindings that match no installed
+version, with the reason. The admin Compute page shows them under Images,
+beside Volumes from step 36. It is read-only, because the bindings change
+only in `compute.yaml`. The API provides
 Secret names to Compute admins. Registry credential values stay in the
 deployment's secret store.
 

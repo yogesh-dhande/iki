@@ -31,13 +31,13 @@ from ninja import Field, HeaderEx, P, Query, Router, Schema
 from ninja.responses import Status
 
 from iki_server.accounts.models import User
-from iki_server.api.common import caller, project
+from iki_server.api.common import caller, project, require
 from iki_server.api.entities import _expected
 from iki_server.api.files import _storage
 from iki_server.api.pagination import PageParams, page, page_by
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, PersonRef
-from iki_server.entities import registry
+from iki_server.entities import access, registry
 from iki_server.entities.values import Invalid, shape
 from iki_server.org.permissions import Action, can
 from iki_server.org.services import Refused
@@ -366,8 +366,7 @@ def _writable(me: User, import_id: UUID) -> SpreadsheetImport:
     found = _find(me, import_id)
     if found.requested_by_id != me.pk:
         raise Problem(403, "It's someone else's import.")
-    if not can(me, Action.PROJECT_EDIT, found.project):
-        raise Problem(403, f"You can't add records to {found.project.name}.")
+    require(me, access.edit_action(found.type), found.project)
     return found
 
 
@@ -494,7 +493,9 @@ def _out(me: User, imported: SpreadsheetImport) -> dict[str, Any]:
         shown_mapping = pinned["template"] if pinned is not None else None
     else:
         shown_mapping = imported.mapping_source
-    mine = imported.requested_by_id == me.pk and can(me, Action.PROJECT_EDIT, imported.project)
+    mine = imported.requested_by_id == me.pk and can(
+        me, access.edit_action(imported.type), imported.project
+    )
     run = imported.run
     run_out = None
     if run is not None:
@@ -588,7 +589,7 @@ def start_import(
     """Starts importing a workbook the project has (an XLSX workbook, or a CSV file) as
     records of a type. Iki reads it, then suggests how its columns map. Needs an Editor."""
     me = caller(request)
-    target = project(me, project_id, Action.PROJECT_EDIT)
+    target = project(me, project_id, access.edit_action(payload.type))
     _storage()
     made = _call(lambda: services.start(me, target, payload.file, payload.type))
     return Status(201, _one(me, _find(me, made.pk), response))
@@ -833,7 +834,7 @@ def delete_mapping(request: HttpRequest, mapping_id: UUID) -> Status[None]:
     saved = SavedMapping.objects.select_related("project").filter(pk=mapping_id).first()
     if saved is None or not can(me, Action.PROJECT_READ, saved.project):
         raise Problem(404, "No such saved mapping.")
-    project(me, saved.project_id, Action.PROJECT_EDIT)
+    project(me, saved.project_id, access.edit_action(saved.type))
     try:
         _call(lambda: services.delete_mapping(me, saved))
     except SavedMapping.DoesNotExist:

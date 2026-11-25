@@ -789,13 +789,14 @@ def test_a_check_that_cant_reach_a_result_clears_the_old_one(tmp_path: Path) -> 
         plan("gateway_lr", sequence(1, puc, name="pUC19"), [], product=sequence(3, puc)),
     )
     assert checked, log
+    assert checked["updates"]["assembly"][0].get("require_unchanged") is True
     assert checked["updates"]["assembly"][0]["values"] == {
         "matches_product": None,
         "simulated_length": None,
         "simulated_topology": None,
         "junctions": None,
     }
-    assert checked["messages"][0]["level"] == "error"
+    assert checked["messages"][0]["level"] == "warning"
     assert "recorded, not worked out" in checked["messages"][0]["text"]
 
 

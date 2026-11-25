@@ -2,14 +2,14 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/equipment
-version: 0.1.0
+version: 0.2.0
 title: Equipment service
 description: Schedule calibration and maintenance, pin calibration evidence at use, and trace results after failed checks.
 license: Apache-2.0
 iki: ">=0.1"
 dependencies:
-  iki/example_lims:
-    types: { Instrument: ">=1", AnalysisResult: ">=3" }
+  iki/requests: { types: { QCDeliverable: ">=1" } }
+  iki/lab_roles: {}
 settings:
   review_flow:
     type: enum

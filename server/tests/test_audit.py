@@ -1,5 +1,6 @@
 """The audit log: what is recorded, that it can't be changed, and the app's database role."""
 
+import csv
 import os
 import re
 from collections.abc import Callable, Iterator
@@ -319,6 +320,64 @@ def created_in_the_evening(world: World) -> AuditEvent:
         target_label="Compute Capacity Study",
         project=world.project,
     )
+
+
+def test_an_auditor_can_export_the_filtered_log(world: World) -> None:
+    path = "/admin/audit/export.csv"
+    args = {
+        "actor": "admin@example.com",
+        "record_type": "project",
+        "since": "2026-11-21",
+        "until": "2026-11-21",
+        "tz": "UTC",
+    }
+    event = created_in_the_evening(world)
+    for actor, kind, when in [
+        ("other@example.com", "project", event.occurred_at),
+        (event.actor_label, "team", event.occurred_at),
+        (event.actor_label, "project", event.occurred_at.replace(day=20)),
+    ]:
+        AuditEvent.objects.create(
+            action="project.created",
+            actor_label=actor,
+            target_type=kind,
+            target_label="admin@example.com",
+            occurred_at=when,
+            via="web",
+        )
+    assert world.browser("org_admin").get(path, args).status_code == 403
+    auditor = world.browser("auditor")
+    assert auditor.get(path, {**args, "since": "invalid"}).status_code == 400
+    assert not AuditEvent.objects.filter(action="audit.exported").exists()
+    response = auditor.get(path, args)
+    assert response.status_code == 200 and response["Cache-Control"] == "no-store"
+    rows = list(csv.DictReader(StringIO(response.getvalue().decode())))
+    assert [row["Event ID"] for row in rows] == [str(event.pk)]
+    exported = AuditEvent.objects.get(action="audit.exported")
+    assert exported.actor == world.users["auditor"]
+    assert exported.data["filters"] == args
+    assert path in auditor.get("/admin/audit/").content.decode()
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    saved = entities.create(
+        world.users["editor"],
+        "acme/protein.Protein",
+        world.project,
+        {"name": "For inspection", "sequence": "MKV"},
+    )
+    record = Entity.objects.get(pk=saved.entity.pk)
+    target = audit.record(
+        "entity.linked", actor=world.users["editor"], target=record, project=world.project
+    )
+    result = auditor.get(path, {"record_type": record.type, "actor": world.users["editor"].email})
+    rows = list(csv.DictReader(StringIO(result.getvalue().decode())))
+    assert str(target.pk) in {r["Event ID"] for r in rows}
+    assert all(r["Target ID"] == str(record.pk) for r in rows)
+    every = auditor.get(path)
+    export_event = AuditEvent.objects.filter(action="audit.exported").latest("occurred_at")
+    ids = {r["Event ID"] for r in csv.DictReader(StringIO(every.getvalue().decode()))}
+    assert str(export_event.pk) not in ids and str(exported.pk) in ids
 
 
 def found_on(auditor: Browser, day: str, **extra: str) -> bool:

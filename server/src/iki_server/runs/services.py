@@ -600,6 +600,7 @@ def _made(
     reuse_results: bool,
     pins: list[included.Pin],
 ) -> _Made:
+    pins = included.with_coverage(action, entities, pins, project.pk)
     sha = plugin_sha(action.plugin)
     bound = catalog.customer_image_for(action)
     image = bound.image if bound else ""

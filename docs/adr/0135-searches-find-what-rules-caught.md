@@ -17,7 +17,7 @@ qualifiers that name a value (`is:locked`, `label:bug`).
 
 Iki's searches are JSON conditions on fields (ADR 0037). Every entity has some built-in
 ones (`hrid`, `made`, `assigned`, `upstream`), which the web app's search box also reads
-as words (`assigned:me`, `needs:reassigning`, `downstream:DNR-000001`).
+as words (`assigned:me`, `needs:reassigning`, `downstream:TUB-000001`).
 
 ## Decision
 

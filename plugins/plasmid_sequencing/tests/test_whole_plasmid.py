@@ -69,11 +69,14 @@ def test_public_puc19_reads_show_their_multiple_cloning_site_insert(
     assert found["reads_total"] == 41
     assert found["reads_aligned"] == 37  # four short reads align nowhere
     assert (found["reference_length"], found["topology"]) == (2686, "circular")
-    assert found["mean_depth"] == 55.0
-    assert found["least_depth"] == 46
+    # Depth counts reads, each once: 36 of the 41 are longer than pUC19 and pass some of it
+    # twice, but no base can have more reads than the 37 that aligned.
+    assert found["mean_depth"] == 35.9
+    assert found["least_depth"] == 33
     assert found["low_coverage"] == []
-    # One base, in a run of six Cs, has no majority: it's left uncalled, as N.
-    assert found["called_percent"] == 99.96
+    assert (found["consensus_length"], found["unplaced"]) == (2686 + 84 - 6 - 2, [])
+    # Three bases in runs of one base have no majority of reads: they're left uncalled, N.
+    assert found["called_percent"] == 99.89
     assert found["polishing_rounds"] == 2
     named = [
         (d["hgvs"][:22], d["kind"], d["features"], d["homopolymer"]) for d in found["differences"]
@@ -84,19 +87,23 @@ def test_public_puc19_reads_show_their_multiple_cloning_site_insert(
         ("o.413_418del", "deletion", [], 4),
         ("o.419_420insACTGGCGGAT", "insertion", [], 1),
         ("o.423T>A", "substitution", [], 1),
-        # Single-base deletions in runs of six and seven: nanopore's systematic error, which
-        # a reviewer weighs by their support and the run they're in.
+        # Single-base deletions in runs of six and seven, where nanopore reads' errors fall
+        # most (Delahaye & Nicolas 2021). These reads alone can't say whether the prep has
+        # them: they're candidates for a reviewer, who weighs their support and the run.
         ("o.887del", "deletion", ["ori (rep_origin)"], 6),
         ("o.1446del", "deletion", ["ori (rep_origin)"], 7),
-        ("o.2043del", "deletion", ["AmpR (CDS)"], 6),
     ]
     deletion, insertion, substitution = found["differences"][:3]
     assert insertion["length_change"] == 84
     assert len(insertion["observed"]) == 84
-    assert (deletion["depth"], deletion["support"], deletion["fraction"]) == (54, 54, 1.0)
-    assert (substitution["forward"], substitution["reverse"]) == (32, 22)
+    assert (deletion["depth"], deletion["support"], deletion["fraction"]) == (35, 35, 1.0)
+    # The 84 inserted bases: every read across them has the whole insertion.
+    assert (insertion["depth"], insertion["support"]) == (34, 34)
+    assert (substitution["forward"], substitution["reverse"]) == (20, 14)
     homopolymer_deletions = found["differences"][3:]
-    assert [d["fraction"] for d in homopolymer_deletions] == [0.836, 0.714, 0.673]
+    assert [d["fraction"] for d in homopolymer_deletions] == [0.778, 0.703]
+    for each in found["differences"]:
+        assert each["support"] <= each["depth"] <= found["reads_aligned"]
     assert found["read_set"] == replay.READ_SET_ID
     assert found["read_set_revision"] == 2
     assert found["sample"] == replay.SAMPLE_ID
@@ -125,13 +132,18 @@ def test_reads_files_say_what_the_record_says(
     assert len(reference_row) == len(consensus_row) == 2686 + 84
     assert reference_row.replace("-", "") == replay.puc19()
     consensus = "".join((out_dir / "consensus.fasta").read_text(encoding="utf-8").splitlines()[1:])
-    assert len(consensus) == 2686 + 84 - 6 - 3
+    assert len(consensus) == 2686 + 84 - 6 - 2 == found["consensus_length"]
     assert consensus == consensus_row.replace("-", "")
     with (out_dir / "coverage.tsv").open(encoding="utf-8") as handle:
         coverage = list(csv.DictReader(handle, delimiter="\t"))
     assert len(coverage) == 2686
     assert min(int(row["depth"]) for row in coverage) == found["least_depth"]
-    assert [row["position"] for row in coverage if row["consensus"] == "N"] == ["1134"]
+    assert [row["position"] for row in coverage if row["consensus"] == "N"] == [
+        "1134",
+        "2043",
+        "2602",
+    ]
+    assert max(int(row["depth"]) for row in coverage) <= found["reads_aligned"]
     with (out_dir / "differences.tsv").open(encoding="utf-8") as handle:
         listed = list(csv.DictReader(handle, delimiter="\t"))
     assert [row["hgvs"] for row in listed] == [d["hgvs"] for d in found["differences"]]
@@ -141,11 +153,11 @@ def test_reads_files_say_what_the_record_says(
     assert coverage_bins["bin_size"] == 8  # 2,686 bases in at most 360 bins
     assert len(coverage_bins["mean"]) == len(coverage_bins["min"]) == 336
     assert output["metrics"] == {
-        "differences": 6,
-        "called_percent": 99.96,
+        "differences": 5,
+        "called_percent": 99.89,
         "reads": 41,
         "aligned": 37,
-        "mean_depth": 55.0,
+        "mean_depth": 35.9,
     }
 
 
@@ -218,6 +230,36 @@ def test_a_linear_consensus_that_stops_short_is_incomplete(
     assert found["called_percent"] == 98.14
 
 
+def test_a_consensus_with_the_plasmid_twice_over_doesnt_match(
+    results: dict[str, tuple[dict[str, Any], Path]],
+) -> None:
+    found = values(results, "two-laps")
+    # Every base of the plasmid is in it, unchanged; but its second lap is placed where the
+    # first already was, so it isn't one copy of the plasmid.
+    assert (found["agreement"], found["differences"], found["called_percent"]) == (
+        "differs",
+        [],
+        100.0,
+    )
+    assert found["consensus_length"] == 2 * 2686
+    assert found["unplaced"] == [{"start": 2687, "end": 5372, "bases": 2686, "why": "repeated"}]
+    assert "2,686 (2,687–5,372) repeat bases already placed on DNA-000099" in found["description"]
+    _, out_dir = results["two-laps"]
+    consensus = "".join((out_dir / "consensus.fasta").read_text(encoding="utf-8").splitlines()[1:])
+    assert consensus == replay.puc19() * 2  # kept as it was, not cut to one lap
+
+
+def test_a_consensus_longer_than_the_plasmid_doesnt_match(
+    results: dict[str, tuple[dict[str, Any], Path]],
+) -> None:
+    found = values(results, "linear-longer")
+    assert (found["agreement"], found["differences"]) == ("differs", [])
+    assert found["unplaced"] == [{"start": 2687, "end": 3136, "bases": 450, "why": "unaligned"}]
+    _, out_dir = results["linear-longer"]
+    consensus = "".join((out_dir / "consensus.fasta").read_text(encoding="utf-8").splitlines()[1:])
+    assert consensus == replay.puc19() + replay.unrelated(450)
+
+
 def test_a_consensus_file_must_hold_one_sequence(script: ModuleType, tmp_path: Path) -> None:
     two = tmp_path / "two.fasta"
     two.write_text(">a\nACGT\n>b\nACGT\n", encoding="utf-8")
@@ -255,12 +297,58 @@ def test_hgvs_names(
     assert script.named(reference, change, circular, "X") == name
 
 
+@pytest.mark.parametrize(
+    ("reference", "start", "stop", "bases", "name", "kind"),
+    [
+        ("ACGTTT", 1, 3, "CG", "g.2_3inv", "inversion"),
+        ("CATGG", 3, 3, "AT", "g.2_3dup", "duplication"),
+        ("ACGTTT", 1, 3, "TT", "g.2_3delinsTT", "deletion_insertion"),
+        ("CAAAG", 1, 2, "", "g.4del", "deletion"),
+        ("CATGG", 3, 3, "CC", "g.3_4insCC", "insertion"),
+        ("ACGTACGT", 2, 3, "T", "g.3G>T", "substitution"),
+    ],
+)
+def test_a_changes_kind_is_what_its_name_says(
+    script: ModuleType, reference: str, start: int, stop: int, bases: str, name: str, kind: str
+) -> None:
+    named = script.named(reference, script.Change(start, stop, bases, 0, len(bases)), False, "X")
+    assert (named, script.kind_of(named)) == (name, kind)
+
+
 def test_a_long_insertion_is_named_by_where_it_is_in_the_consensus(script: ModuleType) -> None:
     change = script.Change(3, 3, "G" * 150, 3, 153)
     assert (
         script.named("ACGTACGT", change, False, "PLS-1_consensus")
         == "g.3_4ins[PLS-1_consensus:g.4_153]"
     )
+
+
+def test_a_change_in_a_joins_gap_isnt_in_the_feature(script: ModuleType) -> None:
+    # A CDS join(1..3,10..12): its bases are 1-3 and 10-12, not the 4-9 between.
+    sequence = {
+        "features": [
+            {
+                "type": "CDS",
+                "name": "split",
+                "start": 1,
+                "end": 12,
+                "strand": "mixed",
+                "parts": [
+                    {"start": 1, "end": 3, "strand": "forward"},
+                    {"start": 10, "end": 12, "strand": "reverse"},
+                ],
+            },
+            {"type": "misc_feature", "name": "unstranded", "start": 20, "end": 30},
+        ]
+    }
+    split, unstranded = script.features_of(sequence, {})
+    assert split["parts"] == [{"start": 1, "end": 3}, {"start": 10, "end": 12}]
+    # Its strand as the sequence has it: mixed, and none where there's none.
+    assert (split["strand"], unstranded["strand"]) == ("mixed", "none")
+    assert script.falls_in([split], 6, 6, 40) == []
+    assert script.falls_in([split], 1, 2, 40) == ["split (CDS)"]
+    assert script.falls_in([split], 10, 11, 40) == ["split (CDS)"]
+    assert script.falls_in([split], 2, 9, 40) == []  # from a part into the gap
 
 
 @pytest.mark.parametrize(
@@ -317,6 +405,91 @@ def test_an_insertion_is_called_only_by_most_reads_across_it(script: ModuleType)
     assert script.insert_call(pileup, 4, 6) is None  # under the minimum depth
 
 
+def test_a_tied_insertion_is_n_whatever_the_reads_order(script: ModuleType) -> None:
+    # Before a G, so neither inserted base moves 3'.
+    target = "ACGTGCGT"
+
+    def read(name: str, inserted: str) -> Any:
+        events = [script.Event(4, 4, inserted, 4, 4 + len(inserted))] if inserted else []
+        return script.Hit(name, 0, 8, 0, 8 + len(inserted), True, 8, events)
+
+    reads = [read(f"a{i}", "A") for i in range(3)] + [read(f"t{i}", "T") for i in range(3)]
+    reads += [read(f"n{i}", "") for i in range(4)]
+    for order in (reads, reads[::-1]):
+        pileup = script.Pileup.of(len(target), target)
+        for hit in order:
+            pileup.add(hit, target)
+        call = script.insert_call(pileup, 4, 2)
+        # Six of ten insert one base: there is an insertion, but which base is a tie.
+        assert call is not None
+        assert (call.allele, call.depth, call.support) == ("N", 10, 6)
+
+
+def test_a_read_that_passes_a_base_twice_is_one_read(script: ModuleType) -> None:
+    # One read, eight bases long, round a four-base circle twice (on the doubled target).
+    target = "ACGT" * 2
+    pileup = script.Pileup.of(4, target)
+    pileup.add(script.Hit("r", 0, 8, 0, 8, True, 8, []), target)
+    assert [pileup.depth(k) for k in range(4)] == [1, 1, 1, 1]
+    assert script.base_call(pileup, 0, 2).allele == "N"  # one read isn't two
+    assert script.base_call(pileup, 0, 1).allele == "A"
+
+
+def test_a_reads_passes_that_disagree_vote_for_neither(script: ModuleType) -> None:
+    target = "ACGT" * 2
+    pileup = script.Pileup.of(4, target)
+    # Two passes of one read over base 2: one reads G, one has T there.
+    pileup.add_read(
+        [
+            script.Hit("r", 0, 4, 0, 4, True, 4, []),
+            script.Hit("r", 4, 8, 4, 8, True, 4, [script.Event(6, 7, "T", 6, 7)]),
+        ],
+        target,
+    )
+    assert script.alleles(pileup.calls[2]) == {script.UNSURE: 1}
+    assert script.base_call(pileup, 2, 1).allele == "N"
+
+
+def test_a_change_of_two_bases_is_supported_by_reads_with_both(script: ModuleType) -> None:
+    # The consensus has TG where the reference has GA. Four reads have TA, four GG, two TG:
+    # six reads have each new base, but only two have both.
+    consensus = "AAAACCTGCCAAAA"
+
+    def read(name: str, events: list[Any]) -> Any:
+        return script.Hit(name, 0, 14, 0, 14, True, 14, events)
+
+    pileup = script.Pileup.of(len(consensus), consensus)
+    for i in range(4):
+        pileup.add(read(f"ta{i}", [script.Event(7, 8, "A", 7, 8)]), consensus)
+        pileup.add(read(f"gg{i}", [script.Event(6, 7, "G", 6, 7)]), consensus)
+    for i in range(2):
+        pileup.add(read(f"tg{i}", []), consensus)
+    call = script.support_of(pileup, 6, 8, "GA", "TG")
+    assert (call.depth, call.support) == (10, 2)
+    # Reads with the reference's GA are across it, and against it.
+    for i in range(3):
+        pileup.add(
+            read(f"ga{i}", [script.Event(6, 7, "G", 6, 7), script.Event(7, 8, "A", 7, 8)]),
+            consensus,
+        )
+    call = script.support_of(pileup, 6, 8, "GA", "TG")
+    assert (call.depth, call.support) == (13, 2)
+
+
+def test_wrapped_fastq_records_are_counted_once_each(script: ModuleType, tmp_path: Path) -> None:
+    # Two records, their bases and qualities each on two lines, in 12 lines; a quality
+    # line may start with @, as Phred 31 does.
+    wrapped = tmp_path / "wrapped.fastq"
+    wrapped.write_text(
+        "@r1\nACGT\nACGT\n+\n@III\nIIII\n@r2\nGGCC\nAA\n+\nIIII\nII\n", encoding="utf-8"
+    )
+    assert script.count_reads([wrapped]) == 2
+    plain = tmp_path / "plain.fastq.gz"
+    with gzip.open(plain, "wt", encoding="utf-8") as handle:
+        handle.write("@a\nACGT\n+\nIIII\n@b\nAC\n+\nII\n")
+    assert script.count_reads([wrapped, plain]) == 4
+
+
 def test_a_base_without_a_majority_or_enough_reads_is_n(script: ModuleType) -> None:
     pileup = script.Pileup.of(1)
     pileup.calls[0].update({("A", True): 2, ("C", True): 2})
@@ -362,3 +535,22 @@ def test_a_homopolymer_is_the_run_a_change_touches(script: ModuleType) -> None:
     assert script.homopolymer("GCAAAAAAG", script.Change(7, 8, "", 0, 0), False) == 6
     # Round the origin: AA at the end and AAA at the start are one run of five.
     assert script.homopolymer("AAACGTAA", script.Change(0, 1, "", 0, 0), True) == 5
+
+
+def test_all_uncovered_intervals_are_counted_when_coordinates_are_capped(
+    script: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reference = "A" * 403
+    consensus = "NA" * 201 + "N"
+    path = tmp_path / "input.fasta"
+    path.write_text(f">example\n{consensus}\n")
+    comparison = script.Comparison(list(consensus), [""] * len(reference), [], consensus)
+    monkeypatch.setattr(script, "compare", lambda *_args: comparison)
+    output = replay.run(script, replay.consensus_run(path, reference, "linear"), tmp_path / "out")
+    result = output["creates"][0]["values"]
+    assert len(result["low_coverage"]) == 200
+    assert result["coverage"]["low_count"] == 202
+    assert any(
+        "40 of 202" in item["text"] and "coverage.tsv" in item["text"]
+        for item in output["messages"]
+    )

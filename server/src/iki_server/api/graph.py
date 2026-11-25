@@ -30,6 +30,7 @@ from iki_server.api.entities import RefOut, RunRefOut, _find, _lookup
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import ProjectRef
+from iki_server.audit import log
 from iki_server.entities import access, registry, search
 from iki_server.entities.models import Entity
 from iki_server.graph import queries
@@ -343,8 +344,7 @@ _VERBS = {
 
 
 def _path_text(root: dict[str, Any], path: list[dict[str, Any]], direction: str) -> str:
-    """A path as a line people read: ``SAM-000002 (donor) DNR-000001``, nearest the root
-    first, each step saying why."""
+    """Render each step from the root, e.g. ``SAM-000002 → [reference: source] TUB-000001``."""
     parts = [root["hrid"]]
     for step in path:
         why = step["field"] or step["kind"]
@@ -395,7 +395,24 @@ def _csv(request: HttpRequest, ref: str, params: WalkParams, direction: str) -> 
             note = f"{hidden} more lead to entities you can't read: ask someone who can."
             yield ["", note, "", "", "", "", "", ""]
 
-    return csvs.streamed(request, csvs.chunks(table()), f"{top['hrid']}-{direction}.csv")
+    filename = f"{top['hrid']}-{direction}.csv"
+    log.record(
+        "lineage.exported",
+        actor=me,
+        target=root,
+        project=root.owner_project,
+        data={
+            "file": filename,
+            "direction": direction,
+            "rows": len(items),
+            "depth": q.depth,
+            "type": list(q.types),
+            "edges": list(q.kinds),
+            "archived": q.archived,
+            "project": str(params.project) if params.project else None,
+        },
+    )
+    return csvs.streamed(request, csvs.chunks(table()), filename)
 
 
 _CSV = {"responses": {200: {"description": "As CSV", "content": {"text/csv": {}}}}}

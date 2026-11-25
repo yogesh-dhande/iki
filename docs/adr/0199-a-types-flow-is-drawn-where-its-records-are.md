@@ -61,7 +61,7 @@ until the package foundations are merged.
 
 ## Consequences
 
-- A flow can't contradict its plugin. The web app's tests draw the real example_lims, lots
+- A flow can't contradict its plugin. The web app's tests draw the real requests, samples, lots
   and plate assays types from `flow-fixtures.json`, and a server test checks that file
   against what the flow endpoint serves for those plugins.
 - A starter's setup screen (ADR 0198) draws each review flow it offers with the same

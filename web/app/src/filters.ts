@@ -498,7 +498,7 @@ export function toFilter(
 /** What the search box's words say of people (ADR 0122), as conditions: `assigned:me`,
  * `assigned:none`, `assigned:@ana@example.com`, `needs:reassigning`, and a field naming
  * people, such as `reviewer:me` or `reviewer:@ana@example.com`; of lineage (ADR 0123):
- * `downstream:DNR-000001` (what was derived from it) and `upstream:RES-000004` (what it
+ * `downstream:TUB-000001` (what was derived from it) and `upstream:RES-000004` (what it
  * was derived from); and of what rules caught (ADR 0135): `is:held` and `is:breaking`, by
  * any rule, and `held:purity_in_specification` and `breaks:expires_after_made`, by one.
  * The rest is text. */

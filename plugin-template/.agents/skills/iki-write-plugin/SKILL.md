@@ -42,5 +42,5 @@ Follow the [Plate assays walkthrough](https://github.com/yogesh-dhande/iki/blob/
 Read the [setup setting](https://github.com/yogesh-dhande/iki/blob/main/plugins/plate_assays/plugin.yaml) and compare the [Research result](https://github.com/yogesh-dhande/iki/blob/main/plugins/plate_assays/types/research_assay_result.yaml) with the [Regulated QC result](https://github.com/yogesh-dhande/iki/blob/main/plugins/plate_assays/types/qc_assay_result.yaml). The latter checks author, submitter, reviewer and intervening edits as appropriate for each signature. Run validation from the Iki repository root to see the complete model, including its dependency on analysis requests.
 
 ```sh
-iki plugin validate plugins/plate_assays --with plugins/example_lims
+iki plugin validate plugins/plate_assays --with plugins/inventory --with plugins/lab_roles --with plugins/requests
 ```

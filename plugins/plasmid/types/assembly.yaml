@@ -15,7 +15,7 @@ kind: EntityType
 name: Assembly
 label: Assembly
 label_plural: Assemblies
-schema_version: 4
+schema_version: 5
 description: >-
   A cloning plan: a backbone, the inserts going into it, and how they're joined
   (restriction-ligation with its enzymes, Golden Gate, Gibson, Gateway LR or BP, TOPO), or
@@ -85,6 +85,12 @@ fields:
       and the parts, and is never stated: a digest leaves a linear molecule; the
       assemblies make the circle their parts close, and the linear molecule they make
       when no arrangement closes (ADR 0168).
+  verification_note:
+    type: text
+    computed: true
+    label: Verification status
+    max_length: 10000
+    description: Why the current plan still needs re-verification.
   matches_product:
     type: bool
     computed: true

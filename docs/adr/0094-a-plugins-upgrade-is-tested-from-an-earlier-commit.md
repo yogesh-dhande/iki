@@ -35,11 +35,25 @@ server given by `--database` (or `$IKI_TEST_DATABASE_URL`), it then:
 
 The database is dropped at the end, passed or not.
 
-**Its samples are the earlier commit's own.** They are the input
+When the earlier commit contains Iki's source and generated core app,
+the earlier build uses those core manifests, models and migrations.
+This lets the probe test a plugin whose field has moved into a core type
+since the earlier commit. Builds from standalone plugin repositories use
+the core bundled with the installed Iki CLI.
+
+**By default its samples come from the earlier commit.** They are the input
 entities of the action tests in `tests/` at that commit (ADR 0093),
 which its authors wrote to be valid then. Nobody keeps a second set of
 data in step with the first. A value that names a file is left out of
 its sample.
+
+A plugin whose action fixtures include partial worker snapshots can mark
+complete fixtures with `upgrade: true`. The probe uses the earlier commit's
+marked fixtures when available. For an earlier commit without such fixtures,
+the current plugin can supply them. Their inputs must be valid against
+the earlier build. Included records are created first, and the root inputs
+hold the stored references to them. The probe compares those root samples
+and their history through the same upgrade and rollback.
 
 **What fails it.** A migration that fails, a sample that's gone or
 changed revision, a revision of its history that can't be read, or a

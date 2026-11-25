@@ -493,6 +493,7 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
     return {
       done: !body.preview,
       operation: body.preview ? null : "00000000-0000-7000-8000-000000000099",
+      plan: body.preview ? "e5".repeat(32) : null,
       items: [first, second].map((o, i) => ({
         record: {
           id: o.id ?? "",
@@ -676,6 +677,73 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
       },
       preview: false,
     });
+  });
+
+  it("moves nothing the preview didn't show, and shows where they'd go now", async () => {
+    const { user, dialog } = await openMove();
+    await user.click(
+      within(dialog).getByRole("button", { name: "Type its printed Iki ID instead" }),
+    );
+    const typed = within(dialog).getByRole("textbox", { name: "Iki ID" });
+    const list = within(dialog).getByRole("list", { name: "Confirmed" });
+    for (const hrid of ["TUBE-000011", "TUBE-000012"]) {
+      await user.type(typed, `${hrid}{Enter}`);
+      await waitFor(() => {
+        expect(list).toHaveTextContent(`${hrid} confirmed`);
+      });
+    }
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "Consolidating");
+    await user.click(within(dialog).getByRole("button", { name: "Check where they go" }));
+    const table = await within(dialog).findByRole("table", { name: "What moving them does" });
+    expect(
+      within(table)
+        .getAllByRole("row")
+        .map((r) => r.textContent),
+    ).toEqual([
+      "RecordFromToProblems",
+      "TUBE-000011A place you can’t open, A1BOX-000015, A1None",
+      "TUBE-000012A place you can’t open, A2BOX-000015, A2None",
+    ]);
+    // Meanwhile another bench puts a tube in BOX-000015's A1: the first would now go to A3.
+    const shown = (calls("POST", "/api/v1/storage/moves").at(-1)?.body ?? {}) as Sent["body"];
+    const now = plan({ body: shown } as Sent);
+    const [mine, theirs] = now.items;
+    const moved = {
+      ...now,
+      plan: "f6".repeat(32),
+      items: [{ ...mine, to: mine?.to ? { ...mine.to, position: "A3" } : null }, theirs],
+    };
+    answer("POST /api/v1/storage/moves", (call: Sent) =>
+      (call.body as { plan?: string }).plan === moved.plan
+        ? plan(call)
+        : problem(
+            409,
+            "moves_plan_changed",
+            "Where they go changed since you checked.",
+            undefined,
+            {
+              moves: moved,
+            },
+          ),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Move all 2" }));
+    const note = await within(dialog).findByRole("alert");
+    expect(note).toHaveTextContent("Where they go changed while you were looking at it.");
+    expect(note).toHaveTextContent("TUBE-000011: goes to BOX-000015, A3, not BOX-000015, A1.");
+    expect(note).not.toHaveTextContent("TUBE-000012");
+    expect(note).toHaveTextContent("If it’s still what you want, move them.");
+    expect(within(table).getAllByRole("row")[1]).toHaveTextContent("BOX-000015, A3");
+    expect(screen.getByRole("dialog", { name: "Move 2 records" })).toBeInTheDocument();
+    // Moving them again makes what's shown now.
+    await user.click(within(dialog).getByRole("button", { name: "Move all 2" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    const sent = calls("POST", "/api/v1/storage/moves")
+      .map((c) => c.body as { preview: boolean; plan?: string })
+      .filter((b) => !b.preview)
+      .map((b) => b.plan);
+    expect(sent).toEqual(["e5".repeat(32), moved.plan]);
   });
 
   it("takes back a tick when a check-in finds its label now shared", async () => {

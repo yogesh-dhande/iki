@@ -424,10 +424,13 @@ export function eventItems(
 export function StaleNote({
   changes,
   what = "This",
+  again = "If your change still applies, save it again.",
 }: {
   changes: readonly StaleItem[];
   /** What changed, in a sentence: “RC001”, “The checklist”. */
   what?: string;
+  /** What to do next, as a sentence. */
+  again?: string;
 }) {
   return (
     <div className="alert alert-warning" role="alert">
@@ -445,7 +448,7 @@ export function StaleNote({
           ))}
         </ul>
       ) : null}
-      <p>If your change still applies, save it again.</p>
+      <p>{again}</p>
     </div>
   );
 }

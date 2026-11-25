@@ -448,6 +448,14 @@ class MovesIn(Schema):
         "HRID. Scan a unique label or a record UUID link, or explicitly enter its printed HRID.",
     )
     preview: bool = Field(False, description="Say what each move would do, changing nothing.")
+    plan: str | None = Field(
+        None,
+        pattern="^[0-9a-f]{64}$",
+        description="The `plan` a preview of these moves returned: what was reviewed. They're "
+        "made only if they'd still do exactly that, each record from where it was shown and to "
+        "the position shown; otherwise nothing moves (409 `moves_plan_changed`, with `moves`, "
+        "what they'd do now). Without it, a null position is the next free one when it's made.",
+    )
 
 
 class PlannedOut(Schema):
@@ -462,6 +470,10 @@ class MovesOut(Schema):
     items: list[PlannedOut]
     done: bool = Field(description="Every move was made. False for a preview.")
     operation: UUID | None = Field(description="The moves' operation, once they're made.")
+    plan: str | None = Field(
+        description="A preview's: identifies what it shows, to send with the moves. Null once "
+        "they're made."
+    )
 
 
 def _records(me: User, refs: Sequence[str]) -> list[Entity]:
@@ -544,15 +556,25 @@ def move(request: HttpRequest, payload: MovesIn) -> dict[str, Any]:
     """Puts each record in its container, at its position or the next free one, or takes it
     out of storage, as one change with one reason. Any move refused refuses them all (422),
     saying which and why. ``preview`` answers the plan, with each problem, and changes
-    nothing. Needs Editor in the project of each container a record goes into or leaves."""
+    nothing; with its ``plan``, the moves are made only as it showed them (ADR 0207), or
+    refused with 409 ``moves_plan_changed`` and what they'd do now. Needs Editor in the
+    project of each container a record goes into or leaves."""
     me = caller(request)
     wanted = _wanted(me, payload.items)
     confirmations = _confirmations(wanted, payload.confirmations)
     if payload.preview:
-        planned = storage.plan(me, wanted, confirmations=confirmations)
-        return {"items": _planned_out(me, planned), "done": False, "operation": None}
+        return _previewed(me, storage.plan(me, wanted, confirmations=confirmations))
     try:
-        events = storage.move(me, wanted, reason=payload.reason, confirmations=confirmations)
+        events = storage.move(
+            me, wanted, reason=payload.reason, confirmations=confirmations, reviewed=payload.plan
+        )
+    except storage.PlanChanged as changed:
+        raise Problem(
+            409,
+            str(changed),
+            code="moves_plan_changed",
+            extensions={"moves": _previewed(me, changed.planned)},
+        ) from None
     except Invalid as error:
         raise _invalid(error) from None
     ends = {x for e in events for x in (e.entity_id, e.from_container_id, e.to_container_id) if x}
@@ -572,7 +594,16 @@ def move(request: HttpRequest, payload: MovesIn) -> dict[str, Any]:
                 "problems": [],
             }
         )
-    return {"items": items, "done": True, "operation": events[0].operation}
+    return {"items": items, "done": True, "operation": events[0].operation, "plan": None}
+
+
+def _previewed(me: User, planned: Sequence[storage.Planned]) -> dict[str, Any]:
+    return {
+        "items": _planned_out(me, planned),
+        "done": False,
+        "operation": None,
+        "plan": storage.identify(planned),
+    }
 
 
 class CheckOutIn(Schema):
@@ -1277,10 +1308,18 @@ class PutAwayIn(Schema):
     position: str | None = Field(None, max_length=8, description="Null: its next free one.")
 
 
-class CompleteReceiptIn(ReviewedReceiptIn):
+class ReceiptPlacementIn(ReviewedReceiptIn):
     model_config = ConfigDict(extra="forbid")
 
     put_away: list[PutAwayIn] = Field(default_factory=list, max_length=storage.MAX_MOVES)
+
+
+class CompleteReceiptIn(ReceiptPlacementIn):
+    plan: str | None = Field(
+        None,
+        pattern="^[0-9a-f]{64}$",
+        description="The put-away preview hash. Required when choosing the next free position.",
+    )
     keep_in_custody: list[UUID] = Field(
         default_factory=list,
         description="IDs of received lines the receiver will hold without a storage location.",
@@ -1289,6 +1328,34 @@ class CompleteReceiptIn(ReviewedReceiptIn):
         default_factory=bool,
         description="Mark every unchecked expected line missing. Defaults to false.",
     )
+
+
+def _put_away(me: User, payload: ReceiptPlacementIn) -> list[receipts.PutAway]:
+    boxes = scan_identity.ScanIndex(me, (p.to for p in payload.put_away))
+    return [
+        receipts.PutAway(
+            p.line, _destination(boxes, p.to, mode=p.to_mode, choice=p.to_choice), p.position
+        )
+        for p in payload.put_away
+    ]
+
+
+@router.post(
+    "/receipts/{receipt_id}/put-away/preview",
+    response=MovesOut,
+    summary="Review a receipt's put-away positions",
+)
+def preview_receipt_placement(
+    request: HttpRequest, receipt_id: UUID, payload: ReceiptPlacementIn
+) -> dict[str, Any]:
+    me = caller(request)
+    receipt = _receipt(me, receipt_id)
+    planned = _receiving(
+        lambda: receipts.preview_put_away(
+            me, receipt, _put_away(me, payload), plan_revision=payload.plan_revision
+        )
+    )
+    return _previewed(me, planned)
 
 
 @router.post("/receipts/{receipt_id}/complete", response=ReceiptOut, summary="Complete a receipt")
@@ -1300,23 +1367,26 @@ def complete_receipt(
     me = caller(request)
     receipt = _receipt(me, receipt_id)
     with transaction.atomic():
-        boxes = scan_identity.ScanIndex(me, (p.to for p in payload.put_away))
-        put = [
-            receipts.PutAway(
-                p.line, _destination(boxes, p.to, mode=p.to_mode, choice=p.to_choice), p.position
+        put = _put_away(me, payload)
+        try:
+            changed = _receiving(
+                lambda: receipts.complete(
+                    me,
+                    receipt,
+                    put,
+                    plan_revision=payload.plan_revision,
+                    keep_in_custody=payload.keep_in_custody,
+                    missing_rest=payload.missing_rest,
+                    plan=payload.plan,
+                )
             )
-            for p in payload.put_away
-        ]
-        changed = _receiving(
-            lambda: receipts.complete(
-                me,
-                receipt,
-                put,
-                plan_revision=payload.plan_revision,
-                keep_in_custody=payload.keep_in_custody,
-                missing_rest=payload.missing_rest,
-            )
-        )
+        except storage.PlanChanged as changed_plan:
+            raise Problem(
+                409,
+                "Review the current put-away positions before completing this receipt.",
+                code="moves_plan_changed",
+                extensions={"moves": _previewed(me, changed_plan.planned)},
+            ) from None
         return _receipt_out(me, changed, locked=True)
 
 

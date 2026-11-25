@@ -96,7 +96,7 @@ def test_warnings_pass_unless_strict(tmp_path: Path, capsys: pytest.CaptureFixtu
     plugin.mkdir()
     (plugin / "plugin.yaml").write_text(
         "apiVersion: iki/v1\nkind: Plugin\nname: acme/lab\nversion: 1.0.0\n"
-        "settings:\n  api_key: { type: string }\n"
+        "settings:\n  api_key: { type: string, required: false }\n"
     )
     assert main(["plugin", "validate", str(plugin)]) == 0
     out = capsys.readouterr().out

@@ -13,6 +13,7 @@ homepage: https://ikisci.org/plugins/dna
 settings:
   ncbi_email:
     type: string
+    required: false
     format: email
     description: >-
       The address NCBI asks automated clients to give, so it can contact the

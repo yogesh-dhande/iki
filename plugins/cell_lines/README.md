@@ -6,6 +6,8 @@ line. A line can have several suppliers or several catalogue numbers. For exampl
 WI-38 is `CVCL_0579`, sold by ATCC as `CCL-75`. The accession field links to
 the catalogue. [Cellosaurus](https://www.cellosaurus.org/CVCL_0579) · [ATCC](https://www.atcc.org/products/ccl-75)
 
+A banked CellVial is an inventory Tube. Set its bank and contents to the same CellBank record and scan the vial when drawing material.
+
 ## From a catalogue to a sample
 
 1. Create a **Parental cell line**, or run **Register a parental line from

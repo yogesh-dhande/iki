@@ -6,6 +6,8 @@
   [0132](0132-a-request-is-owned-by-the-project-that-asks-and-served-by-another.md),
   [0142](0142-a-request-tells-its-service-and-the-project-that-asked.md)
 
+Updated by [ADR 0211](0211-lots-inventory-samples-and-requests.md). The concrete deliverables now belong to `iki/requests`. A PlainDeliverable explicitly delivers a PlainRequest. Research and QC returns require signatures.
+
 ## Context
 
 ADR 0132 makes a request's results the service's until it releases them.
