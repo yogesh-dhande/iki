@@ -67,6 +67,9 @@ def check_seed(atlas: Project) -> None:
     require("iki/requests.QCDeliverable", 2, signature="released", returned_from="Analytical Core")
     require("iki/lots.PlasmidVerification", signature="signed_off")
 
+    # The plasmid scenario banks its transformed strain as a physical isolate stock.
+    require("iki/lots.GlycerolStock")
+
     # The original product scenarios still execute, including the protein operations
     # that followed the fake hosted prediction. Several produce a shared core type, so
     # check their successful runs rather than count generic alignments and structures.

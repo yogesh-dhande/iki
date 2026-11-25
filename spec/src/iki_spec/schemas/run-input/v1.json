@@ -370,7 +370,7 @@
         "hrid": { "type": "string" },
         "material_field": {
           "type": "string",
-          "description": "The field in values that names the material, when the type or an ancestor declares amount.material."
+          "description": "The type’s declared or inherited amount.material. For id, read this record’s top-level id. For a reference field, read that field from values."
         },
         "entry_id": {
           "type": "string",

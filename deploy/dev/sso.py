@@ -1336,15 +1336,28 @@ def strain_stocks(
     again = created(alice, project, "iki/strains.TransformedStrain", identity)
     if not again["reused"] or again["id"] != strain["id"]:
         fail(f"Registering {strain['hrid']}'s base and plasmid again created another strain")
+    transformation = created(
+        alice, project, "iki/experiments.Experiment", {"title": "Synthetic transformation"}
+    )
+    isolate = created(
+        alice,
+        project,
+        "iki/lots.StrainIsolate",
+        {
+            "strain": entry_of(strain),
+            "isolate_label": "Synthetic clone A",
+            "transformation": transformation["id"],
+        },
+    )
     barcode = f"SYNTHETIC-{secrets.token_hex(4)}"
     stock = created(
         alice,
         project,
-        "iki/strains.GlycerolStock",
-        {"strain": entry_of(strain), "barcode": barcode},
+        "iki/lots.GlycerolStock",
+        {"isolate": isolate["id"], "contents": isolate["id"], "barcode": barcode},
         {"value": 100, "unit": "uL"},
     )
-    box = created(alice, project, "iki/strains.StrainBox", {"name": "Synthetic glycerol stocks"})
+    box = created(alice, project, "iki/inventory.Box", {"name": "Synthetic glycerol stocks"})
     moved(alice, [(stock, box, "A1")], "Synthetic inventory example")
     location = api_call(alice, "GET", f"/entities/{stock['id']}/location").json()
     if [(step["hrid"], step["position"]) for step in location["path"]] != [(box["hrid"], "A1")]:
@@ -1358,6 +1371,7 @@ def strain_stocks(
             "bases": "".join(secrets.choice("ACGT") for _ in range(32)),
         },
     )
+    give_lab_roles(alice, project, "iki/lots.qa")
     drawn = api_call(
         alice,
         "POST",
@@ -1365,7 +1379,8 @@ def strain_stocks(
         {
             "amount": {"value": 10, "unit": "uL"},
             "used_in": read["id"],
-            "reason": "Synthetic sequencing example",
+            "reason": "Synthetic isolate check",
+            "purpose": "qa_sampling",
             "confirm": barcode,
         },
     )
@@ -1378,13 +1393,23 @@ def strain_stocks(
         or movement["confirmed"] != barcode
     ):
         fail(f"{stock['hrid']}'s ledger recorded an unexpected draw {drawn.json()}")
-    ancestry = api_call(alice, "GET", f"/entities/{read['id']}/graph?up=4&down=0")
+    ancestry = api_call(alice, "GET", f"/entities/{read['id']}/graph?up=5&down=0")
     if ancestry.status_code != 200:
         fail(f"Graph for {read['hrid']} gave HTTP {ancestry.status_code}: {ancestry.text[:500]}")
     graph = ancestry.json()
     ancestors = {entity["id"] for entity in graph["entities"]}
-    if not {stock["id"], strain["id"], base["id"], plasmid["id"]} <= ancestors:
-        fail(f"{read['hrid']}'s lineage is missing its stock, strain, base or plasmid")
+    if (
+        not {
+            stock["id"],
+            isolate["id"],
+            transformation["id"],
+            strain["id"],
+            base["id"],
+            plasmid["id"],
+        }
+        <= ancestors
+    ):
+        fail(f"{read['hrid']}'s lineage is missing its stock, isolate or strain ancestry")
     ok(f"{read['hrid']} traces to {strain['hrid']} through the draw from {stock['hrid']} at A1")
 
 

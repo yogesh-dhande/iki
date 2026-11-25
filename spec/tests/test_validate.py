@@ -3078,6 +3078,32 @@ def test_a_type_can_have_an_amount_with_its_aliquots(tmp_path: Path) -> None:
         "parent: { type: ref, to: Assay }",
         "parent: { type: ref, to: Assay, required: true, immutable: true }",
     )
+    self_material = ("unit: uL\n  label", "unit: uL\n  material: id\n  label")
+    assert problems(self_material, of_its_parent, fixed) == []
+    parent = TYPE.replace("hrid: { prefix: ASY }", "abstract: true")
+    isolate = TUBE.replace(*self_material).replace(*of_its_parent).replace(*fixed)
+    registered_subtype = """---
+apiVersion: iki/v1
+kind: EntityType
+name: StockDesign
+extends: Assay
+schema_version: 1
+hrid: { prefix: STD }
+identity: [code]
+fields:
+  code: { type: string, required: true, immutable: true }
+"""
+    result = make(tmp_path, parent + isolate + registered_subtype, ROLES)
+    assert codes(result) == ["amount-on-identity"]
+    assert problems(self_material) == ["amount-aliquots"]
+    assert problems(
+        self_material,
+        ("amount: { unit: uL }\n", "amount: { unit: uL, material: sibling }\n"),
+        ("  parent: {", "  sibling: { type: ref, to: Aliquot, immutable: true }\n  parent: {"),
+    ) == ["amount-aliquots"]
+    # A new aliquot cannot inherit a source material by setting its own intrinsic ID.
+    self_aliquot = ("amount: { unit: uL }\n", "amount: { unit: uL, material: id }\n")
+    assert problems(self_aliquot) == ["amount-aliquots", "amount-aliquots"]
     assert problems(of_its_parent, fixed) == []
     assert problems(of_its_parent) == ["amount-material"]
     assert problems(of_its_parent, fixed, ("material: parent", "material: nothing")) == [

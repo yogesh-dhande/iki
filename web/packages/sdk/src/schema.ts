@@ -18551,7 +18551,7 @@ export interface components {
             label: string;
             /**
              * Material
-             * @description Its reference naming what its amount is of, such as a lot's molecule: a transfer into one of its records takes only that entity's, and its aliquots are of it too.
+             * @description The reference field that identifies the material, or id if the record itself is the material. Transfers and aliquots retain that material identity.
              */
             material: string | null;
             /**
