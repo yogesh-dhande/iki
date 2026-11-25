@@ -17,7 +17,16 @@ import {
   withTypes,
 } from "./entity-fixtures";
 import { ACTION, AGENT, approval, attempt, run, RUN_ID } from "./run-fixtures";
-import { answer, calls, FakeEventSource, ME, page, problem, signedIn } from "./test-server";
+import {
+  answer,
+  calls,
+  CLEAN_SCAN,
+  FakeEventSource,
+  ME,
+  page,
+  problem,
+  signedIn,
+} from "./test-server";
 
 const EVENTS = "/api/v1/runs/RUN-000001/events";
 
@@ -57,6 +66,7 @@ function artifact(overrides: Partial<Schemas["RunArtifactOut"]> = {}): Schemas["
     size: 2048,
     sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
     state: "kept",
+    scan: CLEAN_SCAN,
     created_at: "2026-03-14T09:01:00Z",
     expires_at: "2026-06-12T09:01:00Z",
     deleted_at: null,

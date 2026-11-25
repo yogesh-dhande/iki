@@ -59,7 +59,7 @@ import { optionLabel } from "./filters";
 import { describeHelm, isProblem, useHelmReading } from "./helm";
 import { useMedia } from "./media";
 import { nameableQuery } from "./people";
-import { upload, uploadError, type Progress } from "./uploads";
+import { progressLabel, upload, uploadError, type Progress } from "./uploads";
 import { Button } from "./ui";
 
 export interface InputProps {
@@ -1087,17 +1087,13 @@ function FileInput({
         <div className="upload">
           {/* Screen readers hear each step, not every percent. */}
           <p className="visually-hidden" role="status">
-            {progress.phase === "hashing"
-              ? `Reading ${picked.title}`
-              : progress.phase === "sending"
-                ? `Uploading ${picked.title}`
-                : `Checking ${picked.title}`}
+            {progressLabel(progress, picked.title)}
           </p>
           <p aria-hidden="true">
             <UploadStatus name={picked.title} progress={progress} />
           </p>
-          {progress.phase === "checking" ? (
-            <progress aria-label={`Checking ${picked.title}`} />
+          {progress.phase === "checking" || progress.phase === "scanning" ? (
+            <progress aria-label={progressLabel(progress, picked.title)} />
           ) : (
             <progress
               aria-label={`${progress.phase === "hashing" ? "Reading" : "Uploading"} ${picked.title}`}
@@ -1105,7 +1101,7 @@ function FileInput({
               value={progress.done}
             />
           )}
-          {progress.phase !== "checking" ? (
+          {progress.phase !== "checking" && progress.phase !== "scanning" ? (
             <Button
               variant="quiet"
               label={`Cancel uploading ${picked.title}`}

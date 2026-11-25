@@ -10,6 +10,7 @@ import { answer, ME, signedIn } from "./test-server";
 
 const NONE = ME.can;
 const EVERYTHING = {
+  manage_quarantine: false,
   manage_org: true,
   read_audit: true,
   create_projects: true,

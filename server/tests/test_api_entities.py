@@ -492,9 +492,11 @@ def test_changes_reach_webhooks_without_their_values(world: World, other: Projec
 
 
 def test_file_fields_take_a_file_the_caller_can_read(world: World) -> None:
-    from iki_server.files.models import Blob, File
+    from scan_fixtures import clean_blob
 
-    blob = Blob.objects.create(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
+    from iki_server.files.models import File
+
+    blob = clean_blob(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
     pdb = File.objects.create(
         blob=blob, name="1abc.pdb", media_type="chemical/x-pdb", project=world.project
     )
@@ -569,12 +571,14 @@ def test_a_display_unit_thats_no_scale_is_shown_in_the_fields_own(world: World) 
 
 
 def test_entities_name_what_their_values_refer_to(world: World, other: Project) -> None:
-    from iki_server.files.models import Blob, File
+    from scan_fixtures import clean_blob
+
+    from iki_server.files.models import File
 
     api = api_as(world)
     protein = create(api, world.project, {"sequence": "MKV"}, "acme/protein.Protein").json()
     hidden = create(api, other, {"sequence": "MKW"}, "acme/protein.Protein").json()
-    blob = Blob.objects.create(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
+    blob = clean_blob(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
     pdb = File.objects.create(
         blob=blob, name="1abc.pdb", media_type="chemical/x-pdb", project=world.project
     )

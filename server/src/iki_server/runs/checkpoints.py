@@ -31,6 +31,7 @@ from django.utils import timezone
 from iki_server.files import services as files
 from iki_server.files import storage
 from iki_server.files.models import Upload, UploadKind, UploadState
+from iki_server.files.scan_state import require_usable, usable_upload_ids
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
@@ -74,7 +75,7 @@ def current(run: ActionRun) -> RunCheckpoint | None:
     """The checkpoint a new attempt resumes from: the newest one whose bytes were checked."""
     return (
         _kept(run)
-        .filter(upload__state=UploadState.READY)
+        .filter(upload__state=UploadState.READY, upload_id__in=usable_upload_ids())
         .select_related("job", "upload")
         .order_by("-created_at", "-id")
         .first()
@@ -85,7 +86,10 @@ def ready_to_resume() -> Q:
     """For leasing: a later attempt waits while one of its run's checkpoints is checked, so
     it resumes from the newest."""
     checking = RunCheckpoint.objects.filter(
-        run=OuterRef("run"), deleted_at__isnull=True, upload__state=UploadState.CHECKING
+        Q(upload__state__in=(UploadState.CHECKING, UploadState.SCANNING))
+        | Q(upload__state=UploadState.READY, upload__scan_result__isnull=True),
+        run=OuterRef("run"),
+        deleted_at__isnull=True,
     )
     return Q(attempt=1) | ~Q(Exists(checking))
 
@@ -190,6 +194,7 @@ def download(
         found = _checkpoint(job, checkpoint_id)
         if found.job.attempt >= job.attempt:
             raise LookupError("Only a later attempt resumes from a checkpoint.")
+    require_usable(found.upload)
     key = storage.checkpoint_key(found.upload_id)
     url = storage.download_url(storage.uri(key), "", found.upload.name, MEDIA_TYPE, workers=True)
     return found, url
@@ -204,6 +209,7 @@ def restored(worker: Worker, job_id: uuid.UUID, token: uuid.UUID, checkpoint_id:
         found = _checkpoint(job, checkpoint_id)
         if found.job.attempt >= job.attempt:
             raise LookupError("Only a later attempt resumes from a checkpoint.")
+        require_usable(found.upload)
         if job.resumed_from_id not in (None, found.pk):
             raise Refused("This attempt already resumed from another checkpoint.")
         job.resumed_from = found
@@ -243,6 +249,7 @@ def delete_stale(limit: int = 10 * _BATCH) -> int:
         run=OuterRef("run"),
         deleted_at__isnull=True,
         upload__state=UploadState.READY,
+        upload_id__in=usable_upload_ids(),
         created_at__gt=OuterRef("created_at"),
     )
     while deleted < limit:
@@ -267,7 +274,11 @@ def delete_stale(limit: int = 10 * _BATCH) -> int:
 def _delete(checkpoints: list[RunCheckpoint]) -> None:
     now = timezone.now()
     for checkpoint in checkpoints:
-        if checkpoint.upload.state in (UploadState.PENDING, UploadState.CHECKING):
+        if checkpoint.upload.state in (
+            UploadState.PENDING,
+            UploadState.CHECKING,
+            UploadState.SCANNING,
+        ):
             files.cancel(checkpoint.upload)
         storage.delete_for_good(storage.checkpoint_key(checkpoint.upload_id))
         checkpoint.deleted_at = now

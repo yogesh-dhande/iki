@@ -1998,6 +1998,12 @@ function RunArtifacts({ runRef, artifacts }: { runRef: string; artifacts: Artifa
                   <div className="muted">
                     SHA-256 <code title={artifact.sha256}>{artifact.sha256.slice(0, 12)}…</code>
                   </div>
+                  {artifact.scan?.usable && artifact.scan.state === "not_scanned" ? (
+                    <div className="muted">Not scanned: too large</div>
+                  ) : null}
+                  {artifact.scan?.released ? (
+                    <div className="muted">Released from quarantine</div>
+                  ) : null}
                 </td>
                 {several ? <td>{artifact.attempt}</td> : null}
                 <td>{formatSize(artifact.size)}</td>
@@ -2022,6 +2028,9 @@ function ArtifactKept({ artifact }: { artifact: Artifact }) {
       </span>
     );
   }
+  if (artifact.state === "scanning") return <span className="muted">Scanning…</span>;
+  if (artifact.state === "quarantined") return <>Quarantined</>;
+  if (artifact.state === "not_scanned") return <>Not scanned</>;
   if (artifact.state === "uploading") return <span className="muted">Uploading…</span>;
   if (artifact.state === "failed") return <span className="muted">Didn’t finish uploading</span>;
   // The organization may keep it longer, as a legal hold does (ADR 0092).

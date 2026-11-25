@@ -159,6 +159,11 @@ k8s_yaml(helm(
     values=chart_values,
 ))
 
+k8s_resource(
+    'iki-clamd',
+    objects=['iki-clamd:configmap', 'iki-clamd:networkpolicy', 'iki-clamd:serviceaccount'],
+    labels=['deps'],
+)
 k8s_resource('iki-migrate', resource_deps=['iki-db'], labels=['iki'])
 k8s_resource(
     'iki-web',

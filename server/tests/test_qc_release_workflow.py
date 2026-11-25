@@ -16,6 +16,7 @@ from django.db import transaction
 from django.utils import timezone
 from first_party_dependencies import PLUGINS, ROOT, build_order
 from org_world import build_world
+from scan_fixtures import clean_blob
 from test_api_entities import patch
 from test_plate_review import _read_evidence, _requests
 from test_plugin_migrations import database, django, iki, migrate, sync
@@ -24,7 +25,7 @@ from test_signatures import begin, ready, signed
 from iki_server.entities import services, states
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
 from iki_server.org.models import LabRoleGrant
 from iki_server.org.services import Refused
 from iki_server.runs import catalog, queue, results
@@ -266,9 +267,7 @@ def exercise_qc() -> None:
         b"Synthetic investigation evidence linking the first result to the wrong specimen."
     )
     digest = hashlib.sha256(evidence_data).hexdigest()
-    blob = Blob.objects.create(
-        sha256=digest, size=len(evidence_data), storage_uri=f"s3://iki/{digest}"
-    )
+    blob = clean_blob(sha256=digest, size=len(evidence_data), storage_uri=f"s3://iki/{digest}")
     attachment = File.objects.create(
         blob=blob, project=project, name="Synthetic investigation.txt", media_type="text/plain"
     )

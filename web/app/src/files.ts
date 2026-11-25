@@ -132,6 +132,7 @@ export function fileQuery(id: string) {
       unwrap(
         await iki.GET("/api/v1/files/{file_id}", { params: { path: { file_id: id } }, signal }),
       ),
+    refetchInterval: (query) => (query.state.data?.scan.state === "pending" ? 2000 : false),
   });
 }
 

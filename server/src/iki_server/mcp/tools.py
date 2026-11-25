@@ -438,7 +438,8 @@ def build() -> MCPServer:
         about itself: its facts (instrument, serial, operator, software, protocol, each with
         where in the file it's stated) and a SAM or BAM file's read groups. The records page
         gives the revisions that held it. The runs page lists the runs that read or made it.
-        Each has its own next_cursor. Use get_file_download_link when you need the bytes."""
+        Each has its own next_cursor. file.scan gives the malware scan status. When
+        file.scan.usable is true, get_file_download_link can issue a link to the bytes."""
         where = path("/files/{id}", id=str(file_id))
         file = await call("GET", where)
         records = await call(
@@ -451,7 +452,8 @@ def build() -> MCPServer:
     async def get_file_download_link(file_id: FileId) -> CallToolResult:
         """Get a signed URL for the file's bytes, its expiry (five minutes) and the SHA-256
         to check after download. Anyone holding the URL can read the bytes until it expires.
-        Use it without sending an Iki token. Issuing the link is audited."""
+        Use it without sending an Iki token. A held file returns its scan problem. Issuing
+        a link is audited."""
         return answer(await call("GET", path("/files/{id}/content-url", id=str(file_id))))
 
     @server.tool(annotations=READ, title="List entity types")

@@ -83,7 +83,7 @@ import {
   TextField,
   useMessages,
 } from "../ui";
-import { upload, uploadError, type Progress } from "../uploads";
+import { progressLabel, upload, uploadError, type Progress } from "../uploads";
 import { useProject } from "./project-overview";
 
 /** The types a sheet's rows can become: those whose records can be made. */
@@ -256,13 +256,13 @@ export function ChooseWorkbook({
       {file && progress ? (
         <div className="upload">
           <p className="visually-hidden" role="status">
-            {progress.phase === "checking" ? `Checking ${file.name}` : `Uploading ${file.name}`}
+            {progressLabel(progress, file.name)}
           </p>
           <p aria-hidden="true">
             <UploadStatus name={file.name} progress={progress} />
           </p>
-          {progress.phase === "checking" ? (
-            <progress aria-label={`Checking ${file.name}`} />
+          {progress.phase === "checking" || progress.phase === "scanning" ? (
+            <progress aria-label={progressLabel(progress, file.name)} />
           ) : (
             <>
               <progress

@@ -19,6 +19,7 @@ from django.db import connection, transaction
 from django.utils import timezone
 from first_party_dependencies import PLUGINS, build_order
 from org_world import World, build_world
+from scan_fixtures import clean_blob
 from test_api_entities import api_as
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import ready, signed
@@ -28,7 +29,7 @@ from iki_server.amounts import stock_alerts
 from iki_server.amounts.models import Amount, Movement
 from iki_server.entities import services
 from iki_server.entities.models import Entity
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
 from iki_server.notifications.models import Notification
 from iki_server.org.models import LabRoleGrant
 from iki_server.runs import catalog, queue, results
@@ -156,7 +157,7 @@ def exercise() -> None:
         )
 
     east, west = location("East shelf"), location("West shelf")
-    blob = Blob.objects.create(
+    blob = clean_blob(
         sha256=hashlib.sha256(b"synthetic").hexdigest(),
         size=9,
         storage_uri="s3://test/stock-certificate",

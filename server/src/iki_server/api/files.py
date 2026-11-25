@@ -7,12 +7,14 @@ To add a file:
 2. ``PUT`` each part's bytes to its URL. Parts can go in parallel, and in
    any order. URLs last an hour: ``POST /uploads/{id}/parts`` gives new ones.
 3. ``POST /uploads/{id}/complete``. Iki checks the bytes against the SHA-256
-   (state ``checking``), then the upload is ``ready``, with its ``file``.
+   (state ``checking``) and scans them for malware (``scanning``). A completed
+   upload is ``ready``, with its ``file``. Its ``scan.usable`` says whether
+   it can be downloaded or attached to a record.
    ``upload.finished`` arrives on ``/events`` when it's done.
 
 Or, for a file already in an approved bucket, ``POST /registrations`` with
-its ``s3://`` URI: Iki pins its current version and reads it to learn its
-SHA-256, then the registration is ``ready``, with its ``file``.
+its ``s3://`` URI: Iki pins its current version, reads it to learn its
+SHA-256 and scans it. The registration then has its ``file`` and scan.
 ``registration.finished`` arrives on ``/events``.
 """
 
@@ -26,17 +28,17 @@ from django.utils import timezone
 from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
-from iki_server.api.common import caller, project
+from iki_server.api.common import caller, project, require
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.runs import RunStatusName
-from iki_server.api.schemas import AgentOut, Page, ProjectRef, UserOut, agent_out
+from iki_server.api.schemas import AgentOut, FileScanOut, Page, ProjectRef, UserOut, agent_out
 from iki_server.audit import log as audit
 from iki_server.entities import access, registry
 from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity
 from iki_server.entities.values import shape, to_json
-from iki_server.files import acquired, listing, services, storage
+from iki_server.files import acquired, listing, scan_state, services, storage
 from iki_server.files import metadata as stated
 from iki_server.files.models import (
     File,
@@ -46,6 +48,7 @@ from iki_server.files.models import (
     UploadKind,
     UploadState,
 )
+from iki_server.files.scan_state import require_usable
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
@@ -79,7 +82,8 @@ class StatedOut(Schema):
 
 class FileFactsOut(Schema):
     """What the file says about where its data came from (ADR 0224), read when it was
-    added. Each is null when the file doesn't say, or doesn't say clearly."""
+    added once its scan let it be used: a held file's bytes aren't parsed. Each is null when
+    the file doesn't say, or doesn't say clearly."""
 
     instrument: StatedOut | None = Field(
         description="The instrument's model, such as Aurora or Orbitrap Eclipse."
@@ -98,6 +102,21 @@ class FileFactsOut(Schema):
     )
 
 
+class HeldScanOut(Schema):
+    id: UUID = Field(description="The decision ID for releasing a confirmed false positive.")
+    sha256: str
+    size: int = Field(description="Bytes.")
+    state: Literal["infected", "not_scanned"]
+    scanner: str
+    signature_version: str
+    scanned_at: datetime
+    reason: str = Field(description="What was found or why an inspection could not finish.")
+
+
+class ReleaseQuarantineIn(Schema):
+    reason: str = Field(min_length=1, max_length=2000, description="Why the finding is false.")
+
+
 class FileOut(Schema):
     id: UUID
     name: str
@@ -111,6 +130,7 @@ class FileOut(Schema):
     )
     created_at: datetime
     external: bool = Field(description="Registered where it already was, rather than uploaded.")
+    scan: FileScanOut = Field(description="The deployment's malware scan of the file's bytes.")
     acquired: AcquiredOut | None = Field(
         description="When its data was acquired (ADR 0177): as its format records it, or as "
         "whoever added it said. Null if neither says: never when it was added."
@@ -261,7 +281,7 @@ class UploadStatusOut(Schema):
     """Your job status when the file is outside your current access."""
 
     id: UUID
-    state: Literal["pending", "checking", "ready", "failed", "cancelled", "expired"]
+    state: Literal["pending", "checking", "scanning", "ready", "failed", "cancelled", "expired"]
     created_at: datetime
     expires_at: datetime = Field(description="Unfinished then, it's cancelled.")
     file: FileOut | None = Field(description="The file it became, once ready and readable.")
@@ -334,7 +354,7 @@ class RegistrationStatusOut(Schema):
     """Your job status when the file is outside your current access."""
 
     id: UUID
-    state: Literal["checking", "ready", "failed"]
+    state: Literal["checking", "scanning", "ready", "failed"]
     created_at: datetime
     file: FileOut | None = Field(description="The file it became, once ready and readable.")
     error: str = Field(description="Why it failed, if you can still read the details.")
@@ -416,6 +436,7 @@ def _storage() -> None:
 
 
 def _file_out(user: User, files: list[File]) -> list[dict[str, Any]]:
+    scans = scan_state.statuses_for_blobs({f.blob_id for f in files})
     projects = {
         p.pk: p
         for p in permissions.visible_projects(user).filter(pk__in={f.project_id for f in files})
@@ -432,6 +453,7 @@ def _file_out(user: User, files: list[File]) -> list[dict[str, Any]]:
             "agent": agent_out(f.agent),
             "created_at": f.created_at,
             "external": f.blob.registered_external,
+            "scan": scans[f.blob_id],
             "acquired": _acquired_out(f),
             "facts": {key: f.facts.get(key) for key in stated.FACTS},
         }
@@ -537,12 +559,54 @@ def _file(user: User, file_id: UUID) -> File:
     return found
 
 
+# --- Quarantine ----------------------------------------------------------------------------------
+
+
+@router.get("/quarantine", response=Page[HeldScanOut], summary="List held file scan decisions")
+def list_quarantine(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
+    """For Quarantine Admins. Newest first, across the deployment. Each entry identifies the
+    held bytes and the finding. A source can have several project files that share its scan."""
+    require(caller(request), Action.QUARANTINE_MANAGE)
+    result = page(scan_state.held(), params, newest_first=True)
+    rows = []
+    for decision in result["items"]:
+        source = decision.blob if decision.blob_id is not None else decision.upload
+        rows.append(
+            {
+                "id": decision.pk,
+                "sha256": source.sha256,
+                "size": source.size,
+                "state": decision.state,
+                "scanner": decision.scanner,
+                "signature_version": decision.signature_version,
+                "scanned_at": decision.scanned_at,
+                "reason": decision.reason,
+            }
+        )
+    return {"items": rows, "next_cursor": result["next_cursor"]}
+
+
+@router.post(
+    "/quarantine/{decision_id}/release",
+    response=FileScanOut,
+    summary="Release an infected file after reviewing its finding",
+)
+def release_quarantine(
+    request: HttpRequest, decision_id: UUID, payload: ReleaseQuarantineIn
+) -> scan_state.ScanStatus:
+    """For Quarantine Admins. The given reason and the reviewer are recorded in the audit log.
+    All files covered by this decision become usable and keep their original finding."""
+    me = caller(request)
+    require(me, Action.QUARANTINE_MANAGE)
+    return scan_state.release(decision_id, actor=me, reason=payload.reason)
+
+
 # --- Uploads -------------------------------------------------------------------------------------
 
 
 @router.post("/uploads", response={201: StartedOut}, summary="Start adding a file")
 def start_upload(request: HttpRequest, payload: UploadIn) -> Status[dict[str, Any]]:
-    """Answers with the parts to send. An empty file needs none, and is ready at once."""
+    """Answers with the parts to send. An empty file needs none."""
     me = caller(request)
     target = project(me, payload.project, Action.PROJECT_EDIT)
     _storage()
@@ -599,13 +663,13 @@ def sign_parts(request: HttpRequest, upload_id: UUID, payload: PartsIn) -> list[
 )
 def complete_upload(request: HttpRequest, upload_id: UUID) -> Status[dict[str, Any]]:
     """Once every part has arrived. Iki then checks the bytes (202), and the upload becomes
-    ready, or fails if they don't match its SHA-256. Finishing it again changes nothing."""
+    ready after its malware scan, or fails if its bytes don't match the SHA-256.
+    Finishing it again returns its current state."""
     me = caller(request)
     _storage()
     upload = services.complete(_upload(me, upload_id))
-    return Status(
-        202 if upload.state == UploadState.CHECKING else 200, _job_statuses(me, [upload])[0]
-    )
+    waiting = upload.state in (UploadState.CHECKING, UploadState.SCANNING)
+    return Status(202 if waiting else 200, _job_statuses(me, [upload])[0])
 
 
 @router.delete("/uploads/{upload_id}", response={204: None}, summary="Cancel an upload")
@@ -636,8 +700,8 @@ def registration_locations(request: HttpRequest) -> dict[str, Any]:
 )
 def register_file(request: HttpRequest, payload: RegistrationIn) -> Status[dict[str, Any]]:
     """Pins one version of an object in an approved, versioned bucket. Iki reads it to learn
-    its SHA-256 (202), then it's ready. An object version registered before is ready at once
-    (201)."""
+    its SHA-256 and scan it (202). A version with a completed registration can be reused
+    immediately (201). Its file says whether it is usable."""
     me = caller(request)
     target = project(me, payload.project, Action.PROJECT_EDIT)
     _storage()
@@ -980,6 +1044,7 @@ class ContentUrlOut(Schema):
 
 def _download_link(me: User, file_id: UUID) -> ContentUrlOut:
     found = _file(me, file_id)
+    require_usable(found.blob)
     _storage()
     blob = found.blob
     expires_at = timezone.now().replace(microsecond=0) + timedelta(

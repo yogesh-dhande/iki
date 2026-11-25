@@ -17,7 +17,7 @@ from iki_server.org.models import (
 )
 
 ProjectRoleName = Literal["viewer", "editor", "runner", "admin"]
-OrgRoleName = Literal["org_admin", "compute_admin", "auditor"]
+OrgRoleName = Literal["org_admin", "compute_admin", "auditor", "quarantine_admin"]
 KindName = Literal["person", "service"]
 
 
@@ -97,6 +97,17 @@ def agent_out(agent: Any, label: str = "") -> dict[str, Any] | None:  # noqa: AN
     }
 
 
+class FileScanOut(Schema):
+    state: Literal["pending", "clean", "infected", "not_scanned"]
+    usable: bool = Field(description="Whether the scan decision allows this file to be used.")
+    decision_id: UUID | None = Field(description="The immutable scan decision, once recorded.")
+    scanner: str = Field(description="Scanner identity, when known.")
+    signature_version: str = Field(description="Signatures used by the scanner, when available.")
+    scanned_at: datetime | None = Field(description="When the decision was recorded.")
+    reason: str = Field(description="The finding or reason the file could not be scanned.")
+    released: bool = Field(description="A Quarantine Admin released this infected decision.")
+
+
 class MeCan(Schema):
     manage_org: bool = Field(description="People, teams, sign-in and apps settings.")
     read_audit: bool
@@ -104,6 +115,9 @@ class MeCan(Schema):
     manage_webhooks: bool = Field(description="The organization's webhooks.")
     read_costs: bool = Field(description="What runs cost, across the organization.")
     manage_compute: bool = Field(description="Workers, quotas and budgets.")
+    manage_quarantine: bool = Field(
+        description="Review held file scans and release false positives."
+    )
 
 
 class OrgRolesIn(Schema):

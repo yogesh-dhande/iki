@@ -61,6 +61,7 @@ EXPECTED: dict[str, tuple[set[Action], set[Action], set[Action]]] = {
     ),
     "compute_admin": ({A.COMPUTE_MANAGE, A.COSTS_READ}, set(), set()),
     "auditor": ({A.AUDIT_READ, A.COSTS_READ}, set(), set()),
+    "quarantine_admin": ({A.QUARANTINE_MANAGE}, set(), set()),
     "viewer": (set(), set(), VIEWER),
     "editor": (set(), set(), EDITOR),
     "runner": (set(), set(), RUNNER),

@@ -24,6 +24,7 @@ function today(): string {
 
 /** How far an upload has got, as one line. */
 export function UploadStatus({ name, progress }: { name: string; progress: Progress }) {
+  if (progress.phase === "scanning") return <>Scanning {name} for malware…</>;
   if (progress.phase === "checking") return <>Iki is checking {name}’s bytes…</>;
   const percent = progress.total ? Math.floor((progress.done / progress.total) * 100) : 100;
   return (
