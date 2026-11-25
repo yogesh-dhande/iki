@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from iki_server.entities import registry
 from iki_server.entities.values import shape
 from iki_spec.model import FORMATS, Field
 
@@ -131,7 +132,7 @@ def _value(f: Field) -> dict[str, Any]:
     if kind == "file":
         out = {"type": "string", "format": "uuid", "x-iki-file": True}
         if f.media_types:
-            out["x-iki-media-types"] = list(f.media_types)
+            out["x-iki-media-types"] = list(registry.file_formats().expand(f.media_types))
         if f.max_size is not None:
             out["x-iki-max-size"] = f.max_size
         return out

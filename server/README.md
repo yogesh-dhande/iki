@@ -144,15 +144,16 @@ file ID both return 404.
 - `find_files` returns `items`, `next_cursor`, `total`, `more_than_total`
   and `formats`. Use `project` (a project UUID) to search its Files tab,
   or omit it to search all files you can read. `q` matches part of the name
-  in any case. `format` takes a list of exact media types or families such
-  as `image/*`. `acquired_from` and `acquired_to` are inclusive ISO dates.
+  in any case. `format` takes a list of installed format IDs such as `iki/core.csv`,
+  media types or families such as `image/*`. `acquired_from` and `acquired_to`
+  are inclusive ISO dates.
   `sample` and `run` take IDs or HRIDs. When choosing a file for a field
-  or action parameter, `accepts` limits the media types and `max_size`
+  or action parameter, `accepts` takes the same format selectors and `max_size`
   limits bytes. Sort by `newest` (default), `oldest`, `name`, `name_desc`,
   `acquired` (latest first) or `acquired_oldest`. Unknown acquisition dates
   sort last. Pass `next_cursor` as `cursor` with the same filters and sort.
-  The total stops at 1,000. Each `formats` entry gives a media type and its
-  count with all filters except `format` applied.
+  The total stops at 1,000. Each `formats` entry gives its format ID when declared,
+  label, media type and count with all filters except `format` applied. Aliases count together.
 - `get_file(file_id)` returns `file` with its byte size, SHA-256,
   acquisition and origin. A registration's origin includes its URI and
   pinned object version. `records` lists revision spans and the fields

@@ -639,7 +639,9 @@ def _file(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
         raise ValueError(refs.why_held_file(target) or "refers to no file you can read.")
     media_type, size = found
     if f.media_types and not media_type_allowed(media_type, f.media_types):
-        raise ValueError(f"must be {_either(f.media_types)}, and this file is {media_type}.")
+        formats = registry.file_formats().formats
+        labels = tuple(formats[t].label if t in formats else t for t in f.media_types)
+        raise ValueError(f"must be {_either(labels)}, and this file is {media_type}.")
     if f.max_size is not None and size > f.max_size:
         raise ValueError(
             f"can be at most {human_size(f.max_size)}, and this file is {human_size(size)}."
@@ -648,9 +650,9 @@ def _file(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
 
 
 def media_type_allowed(media_type: str, allowed: Iterable[str]) -> bool:
-    """Whether ``media_type`` is one of ``allowed``, where ``image/*`` allows any image."""
+    """Whether a file matches an accepted format ID, media type or wildcard family."""
     kind = media_type.split("/", 1)[0]
-    return any(a == media_type or a == f"{kind}/*" for a in allowed)
+    return any(a == media_type or a == f"{kind}/*" for a in registry.file_formats().expand(allowed))
 
 
 def _either(choices: tuple[str, ...]) -> str:

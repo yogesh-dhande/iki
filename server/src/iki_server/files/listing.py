@@ -70,7 +70,7 @@ class CursorError(ValueError):
 @dataclass(frozen=True)
 class Filters:
     q: str = ""
-    #: Media types, each exact or a family such as ``image/*``.
+    #: Format IDs, media types or families such as ``image/*``.
     formats: tuple[str, ...] = ()
     acquired_from: dt.date | None = None
     acquired_to: dt.date | None = None
@@ -171,10 +171,11 @@ def filtered(user: User, files: QuerySet[File], filters: Filters) -> QuerySet[Fi
 
 
 def _formats(formats: Iterable[str]) -> Q:
-    """Of these media types: each exact, or ``kind/*`` for any of the kind's."""
-    exact = [f for f in formats if not f.endswith("/*")]
+    """Filter using stored media types, including historical aliases of each format."""
+    expanded = registry.file_formats().expand(formats)
+    exact = [f for f in expanded if not f.endswith("/*")]
     q = Q(media_type__in=exact) if exact else Q(pk__in=[])
-    for family in (f for f in formats if f.endswith("/*")):
+    for family in (f for f in expanded if f.endswith("/*")):
         q |= Q(media_type__startswith=family[:-1])
     return q
 
@@ -311,11 +312,15 @@ def formats(user: Any, project: Project | None, filters: Filters) -> list[tuple[
     """The media types of the files that match (other than by format), with how many of
     each, the most common first."""
     counts: dict[str, int] = {}
+    catalog = registry.file_formats()
     unformatted = named(replace(filters, formats=()))
     for files in branches(user, project):
         rows = filtered(user, files, unformatted).values("media_type").annotate(n=Count("pk"))
         for row in rows:
-            counts[row["media_type"]] = counts.get(row["media_type"], 0) + row["n"]
+            media_type = row["media_type"]
+            declaration = catalog.by_media_type(media_type)
+            canonical = declaration.canonical if declaration else media_type
+            counts[canonical] = counts.get(canonical, 0) + row["n"]
     return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
 
 

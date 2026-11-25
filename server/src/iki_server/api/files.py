@@ -32,7 +32,7 @@ from iki_server.api.problems import Problem
 from iki_server.api.runs import RunStatusName
 from iki_server.api.schemas import AgentOut, Page, ProjectRef, UserOut, agent_out
 from iki_server.audit import log as audit
-from iki_server.entities import access
+from iki_server.entities import access, registry
 from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity
 from iki_server.entities.values import shape, to_json
@@ -166,8 +166,27 @@ class UsingRunOut(Schema):
 
 
 class FormatOut(Schema):
+    id: str | None = Field(description="The declared format ID, when installed.")
+    label: str
     media_type: str
     count: int
+
+
+class FileSignatureOut(Schema):
+    offset: int
+    hex: str
+
+
+class InstalledFormatOut(Schema):
+    id: str
+    label: str
+    canonical: str
+    media_types: list[str] = Field(description="The canonical media type followed by its aliases.")
+    extensions: list[str]
+    signatures: list[FileSignatureOut]
+    reader: str | None
+    viewer: str | None
+    parsers: list[str] = Field(description="Installed actions whose file inputs accept the format.")
 
 
 class FileCountOut(Schema):
@@ -287,7 +306,7 @@ class FileFilters(PageParams):
     format: list[str] = Field(
         default_factory=list,
         max_length=50,
-        description="Media types, such as application/x-abi, or image/* for any image.",
+        description="Format IDs, media types such as application/x-abi, or image/* for any image.",
     )
     acquired_from: date | None = Field(None, description="Acquired on this day or later.")
     acquired_to: date | None = Field(None, description="Acquired on this day or earlier.")
@@ -638,14 +657,16 @@ def _media_types(given: list[str], parameter: str) -> list[str]:
     out = []
     for each in given:
         text = each.strip().lower()
-        if text.endswith("/*") and services.MEDIA_KIND.fullmatch(text[:-2]):
+        if text in registry.file_formats().formats or (
+            text.endswith("/*") and services.MEDIA_KIND.fullmatch(text[:-2])
+        ):
             out.append(text)
             continue
         try:
             out.append(services.clean_media_type(text))
         except Refused:
             raise _unknown(
-                parameter, f"{each!r} isn't a media type, nor a family such as image/*."
+                parameter, "Give an installed format ID, media type or family such as image/*."
             ) from None
     return out
 
@@ -709,11 +730,44 @@ def count_files(request: HttpRequest, params: Query[FacetParams]) -> dict[str, A
 
 @router.get("/files/formats", response=list[FormatOut], summary="The formats of files")
 def file_formats(request: HttpRequest, params: Query[FacetParams]) -> list[dict[str, Any]]:
-    """The media types of the files ``GET /files`` would list, whatever its ``format``,
-    with how many of each: what its Format filter offers."""
+    """Format labels and counts for readable files matching the other filters. Aliases
+    count together. A file of an undeclared type keeps its media type as its label."""
     me = caller(request)
     found = listing.formats(me, _scope(me, params.project), _filters(me, params))
-    return [{"media_type": m, "count": n} for m, n in found]
+    catalog = registry.file_formats()
+    out = []
+    for media_type, count in found:
+        fmt = catalog.by_media_type(media_type)
+        out.append(
+            {
+                "id": fmt.id if fmt else None,
+                "label": fmt.label if fmt else media_type,
+                "media_type": media_type,
+                "count": count,
+            }
+        )
+    return out
+
+
+@router.get("/formats", response=list[InstalledFormatOut], summary="The installed file formats")
+def installed_formats(request: HttpRequest) -> list[dict[str, Any]]:
+    """Core and plugin formats, in recognition order for shared filename extensions."""
+    caller(request)
+    catalog = registry.file_formats()
+    return [
+        {
+            "id": fmt.id,
+            "label": fmt.label,
+            "canonical": fmt.canonical,
+            "media_types": fmt.media_types,
+            "extensions": fmt.extensions,
+            "signatures": fmt.signatures,
+            "reader": fmt.reader,
+            "viewer": fmt.viewer,
+            "parsers": catalog.parsers(fmt.id),
+        }
+        for fmt in catalog.formats.values()
+    ]
 
 
 def _run_ref(run: Any) -> dict[str, Any]:  # noqa: ANN401 - an ActionRun

@@ -354,7 +354,7 @@ def build() -> MCPServer:
             list[str] | None,
             Field(
                 max_length=50,
-                description="Any of these media types or families, such as text/csv or image/*.",
+                description="Format IDs, media types or families, such as iki/core.csv or image/*.",
             ),
         ] = None,
         acquired_from: Annotated[
@@ -378,7 +378,7 @@ def build() -> MCPServer:
             list[str] | None,
             Field(
                 max_length=50,
-                description="Media types or families a file field or action parameter takes.",
+                description="Format IDs, media types or families a field or parameter takes.",
             ),
         ] = None,
         max_size: Annotated[int | None, Field(ge=0, description="Maximum size in bytes.")] = None,
@@ -394,8 +394,9 @@ def build() -> MCPServer:
     ) -> CallToolResult:
         """Find files as in Iki's Files list. Each item has the file's ID and counts of the
         records and runs you can read that use it. Pass next_cursor to continue. The total
-        stops at 1,000, with more_than_total true when more match. The formats list counts each
-        media type matching the other filters. Use get_file for the file's origin and uses."""
+        stops at 1,000, with more_than_total true when more match. Each formats entry gives
+        the format ID if declared, its label, media type and count under the other filters.
+        A format's aliases count together. Use get_file for the file's origin and uses."""
         filters: Query = {
             "project": str(project) if project else None,
             "q": q,

@@ -19,7 +19,8 @@ from iki_spec import action_tests, outputs, schemas
 from iki_spec.action_tests import ActionTest
 from iki_spec.builtin import core_plugin
 from iki_spec.first_party_dependencies import build_order
-from iki_spec.model import Action, EntityType, Extension, Plugin
+from iki_spec.formats import FormatRegistry
+from iki_spec.model import Action, EntityType, Plugin
 from iki_spec.yamlsource import read_documents
 
 #: How much of a failing command's log is shown.
@@ -139,10 +140,12 @@ def run_test(args: argparse.Namespace, out: TextIO | None = None) -> int:
         return 1
     plugin = result.plugin
     assert plugin is not None  # noqa: S101 - _load returns loaded plugins
-    found = _types(dependencies, err)
-    if found is None:
+    dependencies_loaded = _fixture_plugins(dependencies, err)
+    if dependencies_loaded is None:
         return 1
-    types, extensions = found
+    types = {name: t for dep in dependencies_loaded for name, t in dep.types.items()}
+    extensions = [ext for dep in dependencies_loaded for ext in dep.extensions]
+    formats = FormatRegistry([*dependencies_loaded, plugin])
     installed = outputs.SpecTypes(
         {**types, **{t.qualified_name: t for t in plugin.types.values()}},
         [*extensions, *plugin.extensions],
@@ -169,7 +172,7 @@ def run_test(args: argparse.Namespace, out: TextIO | None = None) -> int:
                 except ValueError as error:
                     err.write(f"error: {error}\n")
                     return 1
-            failed = not _action_tests(tests, plugin, types, installed, code, worker, out)
+            failed = not _action_tests(tests, plugin, types, installed, formats, code, worker, out)
     elif not args.upgrade_from:
         matching = f" matching {args.select}" if args.select else ""
         out.write(
@@ -200,6 +203,7 @@ def _action_tests(
     plugin: Plugin,
     types: dict[str, EntityType],
     installed: outputs.Types,
+    formats: FormatRegistry,
     directory: Path,
     worker: Path,
     out: TextIO,
@@ -211,7 +215,9 @@ def _action_tests(
     failed = 0
     settings = _defaults(plugin)
     for test in tests:
-        took, problems, log = _run_one(test, plugin, types, installed, directory, settings, worker)
+        took, problems, log = _run_one(
+            test, plugin, types, installed, formats, directory, settings, worker
+        )
         mark = "ok    " if not problems else "FAILED"
         out.write(f"  {mark}  {test.name}  ({took:.1f}s)\n")
         if problems:
@@ -227,25 +233,19 @@ def _action_tests(
     return not failed
 
 
-def _types(
-    dependencies: Sequence[Path], err: TextIO
-) -> tuple[dict[str, EntityType], list[Extension]] | None:
-    """Every type the plugin can see, its dependencies' and the core plugin's, and their
-    extensions."""
+def _fixture_plugins(dependencies: Sequence[Path], err: TextIO) -> list[Plugin] | None:
+    """The core plugin and the dependencies visible to the local action."""
     from iki_cli.plugin import _load
 
-    core = core_plugin()
-    found = {t.qualified_name: t for t in core.types.values()}
-    extensions = list(core.extensions)
+    found = [core_plugin()]
     for dependency in dependencies:
         others = [d for d in dependencies if d != dependency]
         result = _load(dependency, others, err)
         if result is None:
             return None
         assert result.plugin is not None  # noqa: S101 - _load returns loaded plugins
-        found.update({t.qualified_name: t for t in result.plugin.types.values()})
-        extensions.extend(result.plugin.extensions)
-    return found, extensions
+        found.append(result.plugin)
+    return found
 
 
 def _worker(given: Path | None, err: TextIO) -> Path | None:
@@ -270,6 +270,7 @@ def _run_one(
     plugin: Plugin,
     types: dict[str, EntityType],
     installed: outputs.Types,
+    formats: FormatRegistry,
     directory: Path,
     settings: dict[str, Any],
     worker: Path,
@@ -285,7 +286,12 @@ def _run_one(
         return time.monotonic() - started, [f"Couldn't create the test directory: {error}."], []
     with scratch as tmp:
         work = Path(tmp)
-        given = action_tests.run_input(test, plugin, types, directory, settings, work)
+        try:
+            given = action_tests.run_input(
+                test, plugin, types, directory, settings, work, formats=formats
+            )
+        except (OSError, ValueError) as error:
+            return time.monotonic() - started, [str(error)], []
         (work / "input.json").write_text(json.dumps(given, indent=2), "utf-8")
         done = subprocess.run(  # noqa: S603 - the iki-worker binary, on our own input
             [

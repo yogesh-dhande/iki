@@ -29,7 +29,8 @@ suffix, and case in a filename is immaterial.
 
 File fields and file parameters accept qualified format IDs alongside exact
 media types and media type families. The actions associated with a format
-are derived from file input parameters. Existing record viewers continue to
+are derived from file input parameters and constrained file fields on the
+types of input records. Existing record viewers continue to
 obtain fields and record context from `display.viewers`. The format identifies
 the file decoder where that viewer needs one.
 

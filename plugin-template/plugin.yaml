@@ -14,6 +14,14 @@ description: A starting point for a lab's own entity types.
 license: Apache-2.0
 # The Iki releases it works with. A deployment on any other release refuses it.
 iki: ">=0.1"
+# A rack scanner's export. The header is the ASCII word TUBESCAN and a tab.
+# File fields and action file parameters can accept it by its full format ID.
+formats:
+  tube-scan:
+    label: Tube scanner export
+    media_types: [application/x-acme-tube-scan]
+    extensions: [.tubescan]
+    signatures: [{ hex: "545542455343414e09" }]
 # The plugins whose types this one uses, with the schema versions it works with.
 dependencies:
   iki/dna:

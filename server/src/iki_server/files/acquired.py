@@ -42,9 +42,8 @@ import datetime as dt
 import re
 import struct
 import zlib
-from collections.abc import Callable
-from dataclasses import dataclass
-from pathlib import PurePosixPath
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from typing import Protocol
 
 
@@ -57,7 +56,7 @@ class Acquired:
     #: ISO 8601 as the file gives it, no more precise than it is: ``2026-03-14``,
     #: ``2026-03-14T09:21:07``, ``2026-03-14T09:21:07.25`` or ``2026-03-14T09:21:07+01:00``.
     at: str
-    #: The reader's key in :data:`SOURCES`.
+    #: The source of the date, as named in :data:`SOURCES`.
     source: str
 
 
@@ -88,7 +87,7 @@ class BytesSource:
         return self._data[offset : offset + length]
 
 
-#: Each reader's key, and what it reads, as people would say it.
+#: Where the date came from, as shown alongside the acquisition date.
 SOURCES: dict[str, str] = {
     "abif": "the ABIF trace’s run start (RUND and RUNT)",
     "fcs": "the FCS file’s acquisition start ($BEGINDATETIME, or $DATE and $BTIM)",
@@ -724,57 +723,57 @@ def _sam(file: _File) -> Acquired:
     return min(dates, key=lambda date: _HAS_OFFSET.sub("", date.at))
 
 
-# Which reader reads a file.
+@dataclass(frozen=True)
+class FileMetadata:
+    """Metadata read from the file itself. A reader can return attributes even without a date."""
 
-_Reader = Callable[[_File], Acquired]
+    acquired: Acquired | None = None
+    attributes: Mapping[str, object] = field(default_factory=dict)
 
-_BY_EXTENSION: dict[str, _Reader] = {
-    ".ab1": _abif,
-    ".abi": _abif,
-    ".fsa": _abif,
-    ".fcs": _fcs,
-    ".lmd": _fcs,
-    ".mzml": _mzml,
-    ".jdx": _jcamp,
-    ".dx": _jcamp,
-    ".jcamp": _jcamp,
-    ".tif": _image,
-    ".tiff": _image,
-    ".jpg": _image,
-    ".jpeg": _image,
-    ".sam": _sam,
-    ".bam": _sam,
-}
 
-_BY_MEDIA_TYPE: dict[str, _Reader] = {
-    "application/x-abi": _abif,
-    "application/vnd.isac.fcs": _fcs,
-    "application/x-mzml": _mzml,
-    "chemical/x-jcamp-dx": _jcamp,
-    "image/tiff": _image,
-    "image/jpeg": _image,
-    "text/x-sam": _sam,
-    "application/x-bam": _sam,
+Reader = Callable[[_File], FileMetadata]
+
+
+def _date_reader(read_date: Callable[[_File], Acquired]) -> Reader:
+    def read_file(file: _File) -> FileMetadata:
+        return FileMetadata(acquired=read_date(file))
+
+    return read_file
+
+
+# Trusted implementations named by format declarations. File extensions and media types
+# belong to those declarations. A reader never imports or executes code from a plugin.
+READERS: dict[str, Reader] = {
+    "abif": _date_reader(_abif),
+    "fcs": _date_reader(_fcs),
+    "mzml": _date_reader(_mzml),
+    "jcamp-dx": _date_reader(_jcamp),
+    "image": _date_reader(_image),
+    "sam": _date_reader(_sam),
 }
 
 
-def read(name: str, media_type: str, source: Readable) -> Acquired | None:
-    """When the file's data was acquired, as the file says, or None.
-
-    Picks a reader by the file's extension (case-insensitive), else by its media type.
-    Never raises for what's in the file: a malformed or truncated file is None. An error
-    reading ``source`` itself is raised as it was."""
-    reader = _BY_EXTENSION.get(PurePosixPath(name).suffix.lower())
-    if reader is None:
-        reader = _BY_MEDIA_TYPE.get(media_type.split(";", 1)[0].strip().lower())
-    if reader is None:
-        return None
-    file = _File(source)
+def read_metadata(reader: str | None, source: Readable) -> FileMetadata:
+    """Use the format's registered reader. Malformed bytes yield unknown metadata.
+    A storage error propagates so reading the object can be retried."""
+    if not reader or not source.size:
+        return FileMetadata()
+    read_file = READERS[reader]
     try:
-        return reader(file)
+        return read_file(_File(source))
     except _SourceError as failure:
         raise failure.error from None
     except Exception:
         # Whatever the bytes are, they don't clearly say: struct, zlib, value and index
         # errors on a malformed file all mean the same.
-        return None
+        return FileMetadata()
+
+
+def read(name: str, media_type: str, source: Readable) -> Acquired | None:
+    """Read the date for an existing file, by its original name or stored media type."""
+    from iki_server.entities import registry
+
+    formats = registry.file_formats()
+    named = next((fmt for fmt in formats.by_extension(name) if fmt.reader), None)
+    fmt = named or formats.by_media_type(media_type)
+    return read_metadata(fmt.reader if fmt else None, source).acquired

@@ -1629,7 +1629,7 @@ class Files(_Part):
     ) -> Results[FileRowOut]:
         """Files you can read, a page at a time. ``q`` matches part of the name in any case.
 
-        Filter by ``project``, ``format`` (a media type, family or sequence of either),
+        Filter by ``project``, ``format`` (a format ID, media type, family or sequence of these),
         inclusive days ``acquired_from`` and ``acquired_to``, ``sample`` or ``run`` (ID or
         HRID). ``accepts`` and ``max_size`` narrow results to what a file field takes.
         Sorting by acquisition places unknown dates last.
@@ -1694,8 +1694,9 @@ class Files(_Part):
 
         Iki pins ``version``, or the object's current version if omitted, and reads that
         version to compute its SHA-256. The location must keep immutable object versions.
-        The name and media type default to the object's own. ``acquired`` supplies a date
-        when the format lacks one. ``timeout`` limits the wait for verification in seconds.
+        The name defaults to the object's own. Iki checks its media type against the
+        installed format declarations. ``acquired`` supplies a date when the format lacks
+        one. ``timeout`` limits the wait for verification in seconds.
         """
         from iki._uploads import wait_for_file
 
@@ -1743,7 +1744,8 @@ class Files(_Part):
 
         A stream is read from its current position, which is restored if it can seek.
         Give an unnamed stream a ``name``.
-        The media type defaults to a guess from the filename, then application/octet-stream.
+        By default Iki recognizes the format from the bytes and filename using the
+        deployment's registered formats. Pass a media type to declare it explicitly.
         ``acquired`` is when its data was acquired, a date or datetime, or ISO 8601 text such
         as ``"2026-03-14"`` or ``"2026-03-14T09:21"``, for a file whose format doesn't record
         it: where it does, the file's own wins (ADR 0177). Without either, it's unknown.

@@ -60,7 +60,9 @@ function answerUpload(name: string) {
 function answerFiles(items: Row[]) {
   answer("GET /api/v1/files", page(items));
   answer("GET /api/v1/files/count", { total: items.length, more_than_total: false });
-  answer("GET /api/v1/files/formats", [{ media_type: "chemical/x-pdb", count: items.length }]);
+  answer("GET /api/v1/files/formats", [
+    { id: "iki/core.pdb", label: "PDB", media_type: "chemical/x-pdb", count: items.length },
+  ]);
 }
 
 describe("the file picker", () => {
@@ -282,7 +284,7 @@ describe("a project's Files", () => {
     ]);
     const dialog = await screen.findByRole("dialog", { name: "Upload files to Kinase Atlas" });
     expect(
-      within(dialog).getByText(/AB1, FCS, mzML, JCAMP-DX, EXIF images, OME-TIFF, SAM and BAM/),
+      within(dialog).getByText(/Formats Iki checks include .*ABI trace.*FCS.*mzML/),
     ).toBeInTheDocument();
     const day = within(dialog).getByLabelText(/When their data was acquired/);
     // Not a day to come.

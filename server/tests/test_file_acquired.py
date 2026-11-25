@@ -1131,6 +1131,21 @@ def fixtures() -> dict[str, tuple[str, bytes]]:
     }
 
 
+def test_registered_readers_can_return_structured_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    from iki_server.entities import registry
+
+    assert {fmt.reader for fmt in registry.file_formats().formats.values() if fmt.reader} == set(
+        acquired.READERS
+    )
+    data = BytesSource(realistic_ab1())
+    measured = acquired.read_metadata("abif", data)
+    assert measured.acquired is not None and measured.acquired.source == "abif"
+    monkeypatch.setitem(
+        acquired.READERS, "abif", lambda _: acquired.FileMetadata(attributes={"instrument": "A1"})
+    )
+    assert acquired.read_metadata("abif", data).attributes == {"instrument": "A1"}
+
+
 def test_every_source_is_named_for_people() -> None:
     found = [read(name, data) for name, data in fixtures().values()]
     assert {each.source for each in found if each is not None} == set(acquired.SOURCES)

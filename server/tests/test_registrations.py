@@ -102,6 +102,33 @@ def test_a_version_can_be_named_and_registering_it_again_is_immediate(
     assert Blob.objects.filter(storage_uri=uri).count() == 1
 
 
+def test_every_registration_checks_the_declared_type_against_its_pinned_bytes(
+    world: World, lab: dict[str, Any]
+) -> None:
+    from test_file_acquired import realistic_ab1
+
+    api = api_as(world)
+    uri, version = put(lab, "instrument", realistic_ab1())
+    bad = register(api, world, uri, media_type="text/csv").json()
+    run_tasks()
+    rejected = api.get(f"/registrations/{bad['id']}").json()
+    assert rejected["state"] == "failed" and rejected["file"] is None
+    assert "application/x-abi" in rejected["error"]
+    assert not Blob.objects.filter(storage_uri=uri).exists()
+
+    good = register(api, world, uri, version=version, media_type="application/octet-stream").json()
+    run_tasks()
+    done = api.get(f"/registrations/{good['id']}").json()
+    assert done["media_type"] == done["file"]["media_type"] == "application/x-abi"
+    assert done["file"]["acquired"]["source"] == "abif"
+
+    # The stored hash can be reused, but a second registration's claimed type is new.
+    conflict = register(api, world, uri, version=version, media_type="image/jpeg")
+    error = problem(conflict, 422, "validation_failed")["errors"][0]
+    assert error["pointer"] == "#/media_type" and "application/x-abi" in error["detail"]
+    assert Blob.objects.get(storage_uri=uri).files.count() == 1
+
+
 def test_only_approved_versioned_objects_can_be_registered(
     world: World, lab: dict[str, Any]
 ) -> None:

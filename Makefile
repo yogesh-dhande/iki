@@ -115,9 +115,10 @@ check-python: test-browsers test-wasm ## Ruff, mypy (strict), workspace imports 
 	  uv run --locked python scripts/ci/check_plugin_examples.py
 
 .PHONY: core
-core: ## Regenerate the core plugin's app in the server, and make its migrations
+core: ## Regenerate the core plugin's app and migrations and the file format reference
 	uv run python scripts/build_core.py
 	cd server && uv run python -m iki_server.plugins.makemigrations iki__core
+	uv run python scripts/build_format_reference.py
 
 .PHONY: client
 client: ## Regenerate the API clients (TypeScript, and the Python SDK's types) from the OpenAPI document

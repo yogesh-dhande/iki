@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from iki_spec import API_VERSION, naming, schemas
+from iki_spec.formats import FormatRegistry
 from iki_spec.model import Action, EntityType, Field, Input, Plugin, amount_of, included_reference
 from iki_spec.problems import Path as DocPath
 from iki_spec.problems import Problem, Severity
@@ -428,6 +429,8 @@ def run_input(
     directory: Path,
     settings: Mapping[str, Any],
     relative_to: Path,
+    *,
+    formats: FormatRegistry | None = None,
 ) -> dict[str, Any]:
     """The run input the server would give the test's command (``run-input/v1``), without a
     lease. Files are given by path, relative to ``relative_to``, where input.json goes, as
@@ -515,16 +518,48 @@ def run_input(
         "params": _with_ids(test.params, file_ids),
         "settings": {**settings, **test.settings},
         "inputs": inputs,
-        "files": {
-            file_ids[key]: {
-                "path": Path(_relative(directory / path, relative_to)).as_posix(),
-            }
-            for key, path in test.files.items()
-        },
+        "files": _fixture_files(test, file_ids, directory, relative_to, formats),
         # Entities for an input that takes one: a batchable action's runs packed into one
         # job, as the server packs them, one run each.
         **({"pack": pack} if pack else {}),
     }
+
+
+def _fixture_files(
+    test: ActionTest,
+    file_ids: Mapping[str, str],
+    directory: Path,
+    relative_to: Path,
+    formats: FormatRegistry | None,
+) -> dict[str, dict[str, str]]:
+    files = {
+        file_ids[key]: {"path": Path(_relative(directory / path, relative_to)).as_posix()}
+        for key, path in test.files.items()
+    }
+    if not formats or not files:
+        return files
+    allowed: dict[str, set[str]] = {}
+    for param, value in test.params.items():
+        field = test.action.params[param]
+        for _, key in _file_names(value, ()):
+            allowed.setdefault(key, set()).update(
+                formats.expand((field.items or field).media_types)
+            )
+    for key, path in test.files.items():
+        with (directory / path).open("rb") as stream:
+            identified = formats.by_signature(stream.read(formats.signature_bytes))
+        if identified is None:
+            # A fixture may deliberately be malformed to test its parser's error path.
+            # File params disambiguate shared extensions such as protein vs nucleotide FASTA.
+            candidates = formats.by_extension(path)
+            accepted = allowed.get(key, set())
+            identified = next(
+                (fmt for fmt in candidates if fmt.canonical in accepted),
+                candidates[0] if candidates else None,
+            )
+        if identified:
+            files[file_ids[key]]["media_type"] = identified.canonical
+    return files
 
 
 def _relative(path: Path, start: Path) -> str:

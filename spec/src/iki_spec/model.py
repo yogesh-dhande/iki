@@ -31,6 +31,8 @@ __all__ = [
     "Environment",
     "Extension",
     "Field",
+    "FileFormat",
+    "FileSignature",
     "Guard",
     "Input",
     "LabRole",
@@ -1553,6 +1555,48 @@ class Component:
 
 
 @dataclass(frozen=True)
+class FileSignature:
+    """An exact byte sequence at a fixed offset from the start of the file."""
+
+    hex: str
+    offset: int = 0
+
+
+@dataclass(frozen=True)
+class FileFormat:
+    """One plugin's declaration, qualified by its owner (ADR 0213)."""
+
+    id: str
+    label: str
+    media_types: tuple[str, ...]
+    extensions: tuple[str, ...]
+    signatures: tuple[FileSignature, ...] = ()
+    reader: str | None = None
+    viewer: str | None = None
+
+    # Keep the default for shared extensions even when a compiled JSON object's keys
+    # are sorted for hashing or stored in a database.
+    order: int = 0
+
+    @property
+    def canonical(self) -> str:
+        return self.media_types[0]
+
+    @classmethod
+    def read(cls, id: str, data: dict[str, Any], order: int) -> FileFormat:
+        return cls(
+            id=id,
+            order=order,
+            label=data["label"],
+            media_types=tuple(data["media_types"]),
+            extensions=tuple(data["extensions"]),
+            signatures=tuple(FileSignature(**s) for s in data.get("signatures", ())),
+            reader=data.get("reader"),
+            viewer=data.get("viewer"),
+        )
+
+
+@dataclass(frozen=True)
 class Plugin:
     name: str
     version: str
@@ -1576,6 +1620,8 @@ class Plugin:
     roles: dict[str, LabRole] = field(default_factory=dict)
     #: Installed project starter recipes and their versions (ADR 0198).
     starters: dict[str, str] = field(default_factory=dict)
+    #: File formats this plugin owns, by qualified ID, in declaration order.
+    formats: dict[str, FileFormat] = field(default_factory=dict)
     #: The outside APIs its actions call, by name (ADR 0130).
     apis: dict[str, OutsideApi] = field(default_factory=dict)
 
@@ -1681,6 +1727,8 @@ _DATACLASSES = (
     ReportExport,
     Extension,
     Plugin,
+    FileFormat,
+    FileSignature,
     Action,
     Metric,
     Software,
@@ -1727,6 +1775,7 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
                 and isinstance(value, EntityType)
                 and value.draw_target is None
             )
+            and not (isinstance(value, Plugin) and f.name == "formats" and not value.formats)
             and not (
                 f.name == "reason_on_clear"
                 and isinstance(value, Field)
@@ -1859,6 +1908,13 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
             },
             # ...or components.
             "components": {k: _component(v) for k, v in (data.get("components") or {}).items()},
+            # ...or format declarations.
+            "formats": {
+                k: FileFormat.read(v["id"], v, v["order"])
+                for k, v in sorted(
+                    data.get("formats", {}).items(), key=lambda item: (item[1]["order"], item[0])
+                )
+            },
             # ...or lab roles.
             "roles": {k: LabRole(**v) for k, v in (data.get("roles") or {}).items()},
             # ...or outside APIs.

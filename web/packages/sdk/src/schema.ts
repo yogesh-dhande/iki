@@ -2090,8 +2090,8 @@ export interface paths {
         };
         /**
          * The formats of files
-         * @description The media types of the files ``GET /files`` would list, whatever its ``format``,
-         *     with how many of each: what its Format filter offers.
+         * @description Format labels and counts for readable files matching the other filters. Aliases
+         *     count together. A file of an undeclared type keeps its media type as its label.
          */
         get: operations["iki_server_api_files_file_formats"];
         put?: never;
@@ -2200,6 +2200,26 @@ export interface paths {
          *     newest first.
          */
         get: operations["iki_server_api_files_file_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/formats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The installed file formats
+         * @description Core and plugin formats, in recognition order for shared filename extensions.
+         */
+        get: operations["iki_server_api_files_installed_formats"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9173,7 +9193,7 @@ export interface components {
             cursor?: string | null;
             /**
              * Format
-             * @description Media types, such as application/x-abi, or image/* for any image.
+             * @description Format IDs, media types such as application/x-abi, or image/* for any image.
              */
             format?: string[];
             /**
@@ -9361,6 +9381,13 @@ export interface components {
             size: number;
             used_by: components["schemas"]["UsedByCountOut"];
         };
+        /** FileSignatureOut */
+        FileSignatureOut: {
+            /** Hex */
+            hex: string;
+            /** Offset */
+            offset: number;
+        };
         /** FiredEntityOut */
         FiredEntityOut: {
             /** Hrid */
@@ -9490,6 +9517,13 @@ export interface components {
         FormatOut: {
             /** Count */
             count: number;
+            /**
+             * Id
+             * @description The declared format ID, when installed.
+             */
+            id: string | null;
+            /** Label */
+            label: string;
             /** Media Type */
             media_type: string;
         };
@@ -10739,6 +10773,33 @@ export interface components {
             optional: boolean;
             /** Type */
             type: string;
+        };
+        /** InstalledFormatOut */
+        InstalledFormatOut: {
+            /** Canonical */
+            canonical: string;
+            /** Extensions */
+            extensions: string[];
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Media Types
+             * @description The canonical media type followed by its aliases.
+             */
+            media_types: string[];
+            /**
+             * Parsers
+             * @description Installed actions whose file inputs accept the format.
+             */
+            parsers: string[];
+            /** Reader */
+            reader: string | null;
+            /** Signatures */
+            signatures: components["schemas"]["FileSignatureOut"][];
+            /** Viewer */
+            viewer: string | null;
         };
         /** IntakeIn */
         IntakeIn: {
@@ -18101,7 +18162,7 @@ export interface components {
             label: string;
             /**
              * Structure
-             * @description The file field holding the structure: mmCIF (chemical/x-mmcif) or PDB (chemical/x-pdb).
+             * @description The file field holding coordinates in a format that declares the structure-mmcif or structure-pdb viewer.
              */
             structure: string;
             /**
@@ -22675,7 +22736,7 @@ export interface operations {
                 project?: string | null;
                 /** @description Part of its name, in any case. */
                 q?: string;
-                /** @description Media types, such as application/x-abi, or image/* for any image. */
+                /** @description Format IDs, media types such as application/x-abi, or image/* for any image. */
                 format?: string[];
                 /** @description Acquired on this day or later. */
                 acquired_from?: string | null;
@@ -22883,6 +22944,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_UsingRunOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_installed_formats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstalledFormatOut"][];
                 };
             };
         };

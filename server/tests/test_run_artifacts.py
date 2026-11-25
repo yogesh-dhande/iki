@@ -55,7 +55,7 @@ def keep(pod: WorkerClient, job: dict[str, Any], path: str, data: bytes = ALIGNM
         job,
         "artifacts",
         path=path,
-        media_type="text/plain",
+        media_type="application/octet-stream",
         size=len(data),
         sha256=hashlib.sha256(data).hexdigest(),
     )
@@ -106,6 +106,7 @@ def test_a_run_keeps_its_artifacts_for_its_readers(world: World) -> None:
         (1, "alignment.fasta", "kept"),
         (1, "alignment.txt", "kept"),
     ]
+    assert items[0]["media_type"] == "chemical/seq-na-fasta"
     text = items[1]
     assert text["name"] == "alignment.txt" and text["media_type"] == "text/plain"
     assert text["size"] == len(ALIGNMENT)

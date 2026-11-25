@@ -694,6 +694,8 @@ class _Rules:
                 hint="Declare it under `secrets:`; admins map it to the secret manager.",
             )
         self.s.options(param, source, path)
+        if param.items and param.items.media_types:
+            self.s.file_choices(param.items, source, (*path, "items"))
         if param.type == "quantity":
             self.s.quantity(param, source, path)
         if param.has_default:

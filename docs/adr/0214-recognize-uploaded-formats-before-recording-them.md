@@ -15,17 +15,19 @@ Linguist uses filename and content evidence when identifying languages.
 
 ## Decision
 
-At verification, Iki reads a bounded prefix of the bytes. A matching
-declared signature identifies the format. In the absence of a match Iki uses
-the longest matching suffix, with the caller's specific type available for
-ambiguous names such as `.fa`. An unsupported file can still be kept with its
-declared media type, or as `application/octet-stream`. A specific claimed
-type that contradicts the bytes fails verification before the file is
-recorded. Recognition identifies a format. Each parser still validates the
-contents it consumes.
+At verification, Iki reads only as far as the last declared signature in the
+first 4,096 bytes. The longest matching byte pattern identifies the format.
+Equally long matches for different formats fail verification. In the absence
+of a match, Iki uses the longest matching suffix, with the caller's specific
+type available for ambiguous names such as `.fa`. A format with mandatory
+magic must match one of its patterns. A specific claimed media type that
+contradicts a byte match also fails verification before the file is recorded.
+An unknown format can still be stored with its stated media type, a standard
+type inferred from its name, or `application/octet-stream`. Each parser
+validates the contents it consumes.
 
 Core uses established scientific media types and registered types where
-available. The canonical choices that reconcile existing callers are:
+available. Four choices affect existing callers.
 
 - A `.mol` file is `chemical/x-mdl-molfile`. An `.sdf` file is
   `chemical/x-mdl-sdfile` and can hold multiple records and their properties.
@@ -34,7 +36,8 @@ available. The canonical choices that reconcile existing callers are:
 - A `.fna` file is `chemical/seq-na-fasta` and a `.faa` file is
   `chemical/seq-aa-fasta`. A `.fasta` or `.fa` can hold either. Its input
   field can select protein FASTA, with nucleotide FASTA the default. The
-  worker's former `text/x-fasta` carries no alphabet information.
+  worker's former `text/x-fasta` carries no alphabet information. The Files
+  filter offers these older files as “FASTA (unspecified alphabet)”.
   [Wolfram's FASTA formats](https://reference.wolfram.com/language/ref/format/FASTA.html.en)
 - MOL2 and HDF5 use `application/vnd.sybyl.mol2` and
   `application/vnd.hdfgroup.hdf5`. Their previous `chemical/x-mol2` and

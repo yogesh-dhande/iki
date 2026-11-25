@@ -7,8 +7,11 @@ yours.
 
 What's here:
 
-- `plugin.yaml`: the plugin, `acme/example`, its version, the plugins it
-  depends on (here, Iki's `iki/dna`), and its settings.
+- `plugin.yaml` declares the plugin, its dependencies and settings, and a tube
+  scanner's export format. Its header lets Iki recognize a scan even when the
+  filename has lost its extension. To accept it in a file field or action file
+  parameter, set `media_types: [acme/example.tube-scan]`. If you rename the
+  plugin, use the new plugin name in that ID.
 - `types/sample.yaml`: an entity type, `acme/example.Sample`, with references to
   its own type and to `iki/dna.DNASequence`.
 - `types/dna_sequence.yaml`: an extension adding two fields to

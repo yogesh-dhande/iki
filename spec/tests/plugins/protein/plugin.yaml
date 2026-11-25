@@ -2,6 +2,14 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/protein
 version: 3.0.0
+formats:
+  model-pdb:
+    label: Model coordinates
+    media_types: [chemical/x-acme-model, chemical/x-acme-coordinates]
+    extensions: [.model.pdb]
+    # PDB coordinates with the lab's model provenance remark at the start.
+    signatures: [{ offset: 0, hex: "52454d41524b20373030204d4f44454c20" }]
+    viewer: structure-pdb
 dependencies:
   acme/dna:
     types:

@@ -12,7 +12,7 @@ import { formatSize } from "./entities";
 import { FileTable } from "./file-table";
 import { UploadStep } from "./file-upload";
 import { NO_FILTER, type FileFilter, type FileRow, type Takes } from "./files";
-import { media } from "./media";
+import { useMedia, type MediaFormats } from "./media";
 import { Button } from "./ui";
 
 export interface FilePickerProps {
@@ -36,7 +36,7 @@ export interface FilePickerProps {
 }
 
 /** What a field takes, as a sentence: "It takes PDF files, up to 10.0 MiB." */
-export function takesText(takes: Takes): string {
+export function takesText(takes: Takes, media: MediaFormats): string {
   const rules = [
     takes.accepts.length ? `${media.either(takes.accepts)} files` : "",
     takes.maxSize != null ? `up to ${formatSize(takes.maxSize)}` : "",
@@ -81,7 +81,8 @@ function PickerBody({
   const [pending, setPending] = useState<File[] | null>(null);
   const held = new Set(already);
   const input = useRef<HTMLInputElement>(null);
-  const rules = takesText(takes);
+  const media = useMedia();
+  const rules = takesText(takes, media);
   const choose = (files: FileRow[]) => {
     onChoose(files);
     onClose();

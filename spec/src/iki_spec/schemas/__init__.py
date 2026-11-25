@@ -388,7 +388,10 @@ def _bad_value(where: str, value: Any, pattern: str) -> str:  # noqa: ANN401 - m
         elif pattern.startswith("^(0|[1-9]"):
             explanation = "Versions are semantic versions, such as `1.4.0`."
         elif "media_types" in where:
-            explanation = "Media types look like `application/json` or `image/*`."
+            explanation = (
+                "Media types look like `application/json` or `image/*`. "
+                "Fields can also name a format such as `iki/core.csv`."
+            )
         else:
             explanation = "It doesn't have the expected form."
     return f"`{where}` can't be {_show(value)}. {explanation}"
