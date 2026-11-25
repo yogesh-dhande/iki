@@ -65,6 +65,7 @@ REACHABLE = {
     ("GET", "/entity-types"),
     ("GET", "/entity-types/{name}"),
     ("GET", "/entity-types/{name}/flow"),
+    ("GET", "/entity-types/{name}/import-template.csv"),
     ("GET", "/formats"),
     ("GET", "/starters"),
     ("GET", "/actions"),

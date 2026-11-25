@@ -972,6 +972,18 @@ def spreadsheet_import(suffix: str = "", body: Any = None, *, if_match: bool = F
     return build
 
 
+def sheet_edit(w: World) -> tuple[str, Any]:
+    """A record's name changed in its project's sheet, from the revision read."""
+    record = _entity(w)
+    return f"/projects/{w.project.pk}/sheet-edits", {
+        "type": "acme/dna.DNASequence",
+        "reason": "Named after its insert",
+        "rows": [
+            {"key": "a", "entity": str(record.pk), "revision": 1, "values": {"name": "pUC19-ins"}}
+        ],
+    }
+
+
 def spreadsheet_mapping(w: World) -> tuple[str, Any]:
     from iki_server.spreadsheets.models import SavedMapping
 
@@ -2124,6 +2136,20 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         visible(200, org_admin=403),
     ),
     ("DELETE", "/spreadsheet-mappings/{mapping_id}", spreadsheet_mapping, editors(204)),
+    # A type's records edited as a sheet (ADR 0228): an Editor's, as each record's edit is.
+    (
+        "POST",
+        "/projects/{project_id}/sheet-edits/check",
+        project("/sheet-edits/check", {"type": "acme/dna.DNASequence", "rows": []}),
+        {**editors(200), "org_admin": 403},
+    ),
+    ("POST", "/projects/{project_id}/sheet-edits", sheet_edit, {**editors(200), "org_admin": 403}),
+    (
+        "GET",
+        "/entity-types/{name}/import-template.csv",
+        fixed("/entity-types/acme/dna.DNASequence/import-template.csv"),
+        row(200),
+    ),
     # Stock, reorder lines and lot locations all require a project reader (ADR 0190).
     ("GET", "/projects/{project_id}/stock", project("/stock"), visible(200, org_admin=403)),
     (
