@@ -1147,6 +1147,44 @@ def test_runs_come_with_what_they_made_and_read(world: World, tmp_path: Path) ->
     assert run_services._next_hrid() > "RUN-009001"
 
 
+@pytest.mark.parametrize("location", ["previous_output", "imported_trigger"])
+def test_export_checks_the_dependencies_of_immutable_run_data(
+    world: World, tmp_path: Path, location: str
+) -> None:
+    admin = world.users["admin"]
+    other = Project.objects.create(team=world.team, name="Reference collection")
+    grant = ProjectMembership.objects.create(project=other, user=admin, role=ProjectRole.EDITOR)
+    source = services.create(admin, "acme/protein.Protein", other, {"sequence": "MKSOURCE"}).entity
+    assert isinstance(source, Entity)
+    read = protein(world, "MKREADIN")
+    made = protein(world, "MKMADEBY")
+    if location == "previous_output":
+        previous = {"creates": [{"type": made.type, "values": {"source": str(source.pk)}}]}
+        ran(world, made, read, parked=previous)
+    else:
+        run = ran(world, made, read)
+        run.via = "trigger"
+        run.reason = f"Triggered by {source.hrid}"
+        run.imported = {"inputs": [{"entity": str(source.pk)}]}
+        run.save(update_fields=["via", "reason", "imported"])
+    path = tmp_path / "results.tar.gz"
+    complete = export.write(
+        world.project, [made], path, by=admin, reason="Review", selection=made.hrid
+    )
+    assert source.pk in complete.references
+    grant.delete()
+    with pytest.raises(export.ExportError, match="read"):
+        export.write(
+            world.project,
+            [made],
+            tmp_path / "new.tar.gz",
+            by=admin,
+            reason="Review",
+            selection=made.hrid,
+        )
+    assert not (tmp_path / "new.tar.gz").exists()
+
+
 def test_a_run_that_parked_brings_each_attempts_output(world: World, tmp_path: Path) -> None:
     """A run that parked on an outside API's job and resumed (ADR 0130): each attempt's
     output comes as its command sent it, and the run's is still its last attempt's."""

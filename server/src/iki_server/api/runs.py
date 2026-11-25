@@ -24,6 +24,7 @@ from iki_server.api.problems import Problem
 from iki_server.api.schemas import AgentOut, Page, PersonRef, agent_out
 from iki_server.audit.models import Via
 from iki_server.entities import access, registry, schema
+from iki_server.entities.models import Entity, ProjectLink
 from iki_server.entities.values import Invalid
 from iki_server.files import storage
 from iki_server.files.models import UploadState
@@ -34,6 +35,7 @@ from iki_server.runs import (
     costs,
     input_files,
     launches,
+    output_refs,
     outside,
     provisioner,
     quotas,
@@ -395,9 +397,9 @@ class CancelIn(Schema):
 
 class RunInputOut(Schema):
     name: str
-    entity: UUID = Field(alias="entity_id")
-    hrid: str = Field(alias="entity.hrid")
-    revision: int = Field(description="The revision the run read.")
+    entity: UUID | None = Field(description="The record ID when you can read it.")
+    hrid: str | None
+    revision: int | None = Field(description="The revision read, shown with its record.")
 
 
 class RunInclusionOut(Schema):
@@ -405,9 +407,9 @@ class RunInclusionOut(Schema):
     position: int = Field(description="That entity's place among the input's, from 0.")
     field: str = Field(description="The reference.")
     index: int = Field(description="Its place in the reference, from 0: a list's can be more.")
-    entity: UUID = Field(alias="entity_id")
-    hrid: str = Field(alias="entity.hrid")
-    revision: int = Field(description="The revision the run read.")
+    entity: UUID | None = Field(description="The record ID when you can read it.")
+    hrid: str | None
+    revision: int | None = Field(description="The revision read, shown with its record.")
 
 
 class RunFileOut(Schema):
@@ -553,9 +555,13 @@ class WorkflowStepRefOut(Schema):
 
 
 class TriggerFiredOut(TriggerRefOut):
-    event: Literal["entity.created", "entity.updated", "schedule"]
-    entity: UUID | None = Field(description="The entity whose change fired it; null on a schedule.")
-    revision: int | None = Field(description="The revision the change made; null on a schedule.")
+    event: Literal[
+        "entity.created", "entity.registered", "entity.state_changed", "entity.updated", "schedule"
+    ]
+    entity: UUID | None = Field(description="The visible entity whose change fired it.")
+    revision: int | None = Field(
+        description="The revision of the visible entity whose change fired it."
+    )
     scheduled_for: datetime | None = Field(description="On a schedule: the time it was for.")
     since: datetime | None = Field(
         description="On a schedule: the time the last run that succeeded was for, which its "
@@ -652,8 +658,8 @@ class ImportedApprovalOut(Schema):
 class ImportedInputOut(Schema):
     name: str
     position: int
-    entity: UUID = Field(description="Its ID there: it isn't here.")
-    revision: int
+    entity: UUID | None = Field(description="Its source ID, subject to read access here.")
+    revision: int | None
 
 
 class ImportedInclusionOut(Schema):
@@ -661,8 +667,8 @@ class ImportedInclusionOut(Schema):
     position: int
     field: str
     index: int
-    entity: UUID = Field(description="Its ID there: it isn't here.")
-    revision: int
+    entity: UUID | None = Field(description="Its source ID, subject to read access here.")
+    revision: int | None
 
 
 class RunImportedOut(Schema):
@@ -916,21 +922,27 @@ _CALL_FIELDS = (
 )
 
 
+def pin_out(entity: Entity, revision: int, readable: set[UUID]) -> dict[str, Any]:
+    """The pinned record and revision, named according to the reader's current access."""
+    if entity.pk in readable:
+        return {"entity": entity.pk, "hrid": entity.hrid, "revision": revision}
+    return {"entity": None, "hrid": None, "revision": None}
+
+
+def pin_access(
+    me: User, ids: set[UUID], projects: set[UUID]
+) -> tuple[set[UUID], set[tuple[UUID, UUID]]]:
+    """Readable pins (including tombstones), and the live ones available in each project."""
+    readable = set(access.traced(me).filter(pk__in=ids).values_list("pk", flat=True))
+    available = set(
+        ProjectLink.objects.filter(
+            entity_id__in=readable, entity__purged_at__isnull=True, project_id__in=projects
+        ).values_list("entity_id", "project_id")
+    )
+    return readable, available
+
+
 def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
-    inputs: dict[Any, list[RunInput]] = {}
-    for row in (
-        RunInput.objects.filter(run__in=runs)
-        .select_related("entity")
-        .order_by("run_id", "name", "position")
-    ):
-        inputs.setdefault(row.run_id, []).append(row)
-    included: dict[Any, list[RunInclusion]] = {}
-    for inclusion in (
-        RunInclusion.objects.filter(run__in=runs)
-        .select_related("entity")
-        .order_by("run_id", "input", "position", "field", "index")
-    ):
-        included.setdefault(inclusion.run_id, []).append(inclusion)
     attempts = {
         row["run"]: row["count"]
         for row in Job.objects.filter(run__in=runs).values("run").annotate(count=Count("id"))
@@ -954,6 +966,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
                 continue
             listed.append({**_effect_out(effect), "id": effect.pk})
     counts = _effect_counts(runs)
+    comparisons = output_refs.comparisons(me, runs)
     # A run that reused another's results shows that run's metrics and messages.
     sources = {r.pk: r.reused_from_id or r.pk for r in runs}
     documents = {
@@ -966,10 +979,73 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         r.pk: r
         for r in services.visible_runs(me).filter(pk__in=linked).select_related("project__team")
     }
+    originals_and_runs = [*runs, *refs.values()]
+    projects_by_run = {r.pk: r.project_id for r in originals_and_runs}
+    direct = list(
+        RunInput.objects.filter(run__in=projects_by_run)
+        .select_related("entity")
+        .order_by("run_id", "name", "position")
+    )
+    nested = list(
+        RunInclusion.objects.filter(run__in=projects_by_run)
+        .select_related("entity")
+        .order_by("run_id", "input", "position", "field", "index")
+    )
+    firings = list(
+        TriggerFiring.objects.filter(
+            run__in=[r for r in runs if r.via == Via.TRIGGER]
+        ).select_related("trigger__enabled_by", "editor")
+    )
+    pin_ids = {row.entity_id for row in direct} | {i.entity_id for i in nested}
+    visible_pins, available = pin_access(
+        me, pin_ids | {f.entity_id for f in firings if f.entity_id}, set(projects_by_run.values())
+    )
+    visible_ids = {str(pk) for pk in visible_pins}
+    missing_direct = {r.pk for r in originals_and_runs if r.imported and r.imported.get("inputs")}
+    unavailable = missing_direct | {
+        r.pk for r in originals_and_runs if r.imported and r.imported.get("included")
+    }
+    inputs: dict[UUID, list[dict[str, Any]]] = {}
+    included: dict[UUID, list[dict[str, Any]]] = {}
+    for row in direct:
+        inputs.setdefault(row.run_id, []).append(
+            {"name": row.name, **pin_out(row.entity, row.revision, visible_pins)}
+        )
+        if (row.entity_id, projects_by_run[row.run_id]) not in available:
+            missing_direct.add(row.run_id)
+            unavailable.add(row.run_id)
+    for inclusion in nested:
+        included.setdefault(inclusion.run_id, []).append(
+            {
+                "input": inclusion.input,
+                "position": inclusion.position,
+                "field": inclusion.field,
+                "index": inclusion.index,
+                **pin_out(inclusion.entity, inclusion.revision, visible_pins),
+            }
+        )
+        if (inclusion.entity_id, projects_by_run[inclusion.run_id]) not in available:
+            unavailable.add(inclusion.run_id)
+    # The archive can identify inputs on its source deployment. Once an entity with the
+    # same ID exists here, its current read access governs that identity on the run page.
+    elsewhere = {
+        pin["entity"]
+        for r in runs
+        if r.imported
+        for key in ("inputs", "included")
+        for pin in r.imported.get(key) or []
+    }
+    hidden_imported = (
+        set(
+            Entity.objects.filter(pk__in=elsewhere)
+            .exclude(pk__in=access.traced(me))
+            .values_list("pk", flat=True)
+        )
+        if elsewhere
+        else set()
+    )
     pins = {
-        build
-        for r in [*runs, *refs.values()]
-        if r.volumes and (build := setups.build_id(r.volumes))
+        build for r in originals_and_runs if r.volumes and (build := setups.build_id(r.volumes))
     }
     available_builds = {
         str(pk)
@@ -1031,17 +1107,28 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         f.run_id: {
             **trigger_ref(f.trigger),
             "event": f.event,
-            "entity": f.entity_id,
-            "revision": f.revision,
+            "entity": f.entity_id if f.entity_id in visible_pins else None,
+            "revision": f.revision if f.entity_id in visible_pins else None,
             "scheduled_for": f.scheduled_for,
             "since": f.since,
             "enabled_by": f.trigger.enabled_by,
             "editor": f.editor,
         }
-        for f in TriggerFiring.objects.filter(
-            run__in=[r for r in runs if r.via == Via.TRIGGER]
-        ).select_related("trigger__enabled_by", "editor")
+        for f in firings
     }
+    private_firings = {f.run_id for f in firings if f.entity_id and f.entity_id not in visible_pins}
+    # An imported trigger keeps its generated reason from the source deployment.
+    # Its named subject can be one of the source inputs now held privately here.
+    private_firings.update(
+        r.pk
+        for r in runs
+        if r.via == Via.TRIGGER
+        and r.imported
+        and (
+            any(pin["entity"] is None for pin in inputs.get(r.pk, []))
+            or any(UUID(p["entity"]) in hidden_imported for p in r.imported.get("inputs") or [])
+        )
+    )
     projects.update({r.project_id: r.project for r in refs.values()})
     consents = {
         c.pk: {
@@ -1066,7 +1153,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         }
     may_cancel = {
         (pid, tier): permissions.can(me, TIER_PERMISSIONS[tier], projects[pid])
-        for pid, tier in {(r.project_id, r.tier) for r in [*runs, *refs.values()]}
+        for pid, tier in {(r.project_id, r.tier) for r in originals_and_runs}
     }
     return [
         {
@@ -1084,6 +1171,9 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             if run.workflow_id
             else None,
             "trigger": fired.get(run.pk),
+            "reason": "Triggered by a change to an entity you can’t read."
+            if run.pk in private_firings
+            else run.reason,
             "network": run.spec.get("network") or [],
             "inputs": inputs.get(run.pk, []),
             "included": included.get(run.pk, []),
@@ -1100,7 +1190,13 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "effects_next_cursor": more.get(run.pk),
             "effect_counts": counts[run.pk],
             "metrics": outputs.get(run.pk, {}).get("metrics") or {},
-            "messages": outputs.get(run.pk, {}).get("messages") or [],
+            "messages": [
+                {
+                    **m,
+                    "entity": m["entity"] if str(m.get("entity")).lower() in visible_ids else None,
+                }
+                for m in outputs.get(run.pk, {}).get("messages") or []
+            ],
             "waiting": (
                 holds[run.tier].why(run.project)
                 or (missing.get(_qualified_environment(run)) if run.volumes is None else None)
@@ -1117,7 +1213,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "reused": run.reused_from_id is not None,
             "reused_from": _ref_out(refs.get(run.reused_from_id)),
             "reproduces": _ref_out(refs.get(run.reproduces_id)),
-            "reproduction": run.reproduction,
+            "reproduction": comparisons.get(run.pk),
             "cost": costs.of_run(run),
             "apis": [
                 {
@@ -1130,13 +1226,15 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             ],
             "consent": consents.get(run.consent_id) if run.consent_id else None,
             "park": parks.get(run.pk),
-            "imported": _imported(me, run, projects[run.project_id]),
+            "imported": _imported(me, run, hidden_imported),
             "can": {
                 "cancel": not run.finished
                 and run.cancel_requested_at is None
                 and may_cancel[(run.project_id, run.tier)],
-                "reproduce": _may_reproduce(run, refs, here, may_cancel, available_builds),
-                "run_again": run.reused_from_id is not None
+                "reproduce": (run.reused_from_id or run.reproduces_id or run.pk) not in unavailable
+                and _may_reproduce(run, refs, here, may_cancel, available_builds),
+                "run_again": run.pk not in missing_direct
+                and run.reused_from_id is not None
                 and catalog.action(run.action) is not None
                 and may_cancel[(run.project_id, run.tier)],
             },
@@ -1145,26 +1243,33 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
     ]
 
 
-def _imported(me: User, run: ActionRun, project: Any) -> dict[str, Any] | None:  # noqa: ANN401 - a Project
+def _imported(me: User, run: ActionRun, hidden: set[UUID]) -> dict[str, Any] | None:
     found = run.imported
     if not found:
         return None
     linked = found.get("linked") or {}
+
+    def pins(key: str) -> list[dict[str, Any]]:
+        return [
+            {**p, "entity": None, "revision": None} if UUID(p["entity"]) in hidden else p
+            for p in found.get(key) or []
+        ]
+
     return {
         "deployment": found["from"],
         "hrid": found["hrid"],
         "bundle_import": (
             found["import"]
-            if permissions.can(me, permissions.Action.PROJECT_IMPORT, project)
+            if permissions.can(me, permissions.Action.PROJECT_IMPORT, run.project)
             else None
         ),
         "approval": found.get("approval"),
         "batch": (linked.get("batch") or {}).get("hrid"),
         "workflow": (linked.get("workflow") or {}).get("hrid"),
-        "inputs_elsewhere": found.get("inputs") or [],
-        "included_elsewhere": found.get("included") or [],
+        "inputs_elsewhere": pins("inputs"),
+        "included_elsewhere": pins("included"),
         "workers": found.get("workers") or {},
-        "project_slug": project.slug,
+        "project_slug": run.project.slug,
     }
 
 
@@ -1220,7 +1325,6 @@ _RUN_FIELDS = (
     "plugin_sha",
     "via",
     "client",
-    "reason",
     "tier",
     "environment",
     "labels",

@@ -165,9 +165,20 @@ def write_export(export_id: str) -> str:
     made.sha256 = written.sha256
     made.size = written.size
     made.counts = written.counts
+    made.references = sorted(written.references)
     made.finished_at = now
     made.expires_at = now + KEPT
-    made.save(update_fields=["state", "sha256", "size", "counts", "finished_at", "expires_at"])
+    made.save(
+        update_fields=[
+            "state",
+            "sha256",
+            "size",
+            "counts",
+            "references",
+            "finished_at",
+            "expires_at",
+        ]
+    )
     return made.state
 
 
@@ -191,6 +202,10 @@ def download_url(by: User, made: BundleExport) -> str:
             if made.state == ExportState.EXPIRED
             else "It isn't ready yet."
         )
+    if made.references is None:
+        raise Refused("Make a fresh export to check read access to its complete history.")
+    if not access.all_references_readable(by, made.references):
+        raise Refused("This bundle refers to a record you can't read.")
     audit.record(
         "bundle.downloaded",
         actor=by,

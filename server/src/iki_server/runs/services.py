@@ -522,6 +522,7 @@ def _queue(
         volumes=made.volumes,
         seed=copy_of.seed if copy_of and copy_of.seed is not None else _seed(),
         reuse_key="" if copy_of else made.key,
+        reference_mask=made.reference_mask,
         reproduces=copy_of,
         timeout=copy_of.timeout if copy_of else action.timeout,
         max_attempts=copy_of.max_attempts if copy_of else 1 + action.retry_max,
@@ -548,13 +549,13 @@ def _queue(
                 position=index,
                 entity=entity,
                 revision=entity.revision,
-                entry_revision=entity_services.entry_revision(entity),
+                entry_revision=made.entry_revisions[entity.pk],
             )
             for name, chosen in entities.items()
             for index, entity in enumerate(chosen)
         )
         included.record(run, made.pins)
-    input_files.record_given(run)
+    input_files.record_given(run, included.manifest(run))
     Job.objects.create(
         run=run,
         project=project,
@@ -600,6 +601,8 @@ class _Made:
     #: What its inputs' references name, which it reads too (ADR 0105).
     pins: list[included.Pin]
     volumes: dict[str, Any] | None
+    entry_revisions: dict[UUID, int | None]
+    reference_mask: list[str]
     image: str = ""
     image_pull_secret: str = ""
 
@@ -620,6 +623,10 @@ def _made(
     sha = plugin_sha(action.plugin)
     bound = catalog.customer_image_for(action)
     image = bound.image if bound else ""
+    entry_revisions = {
+        e.pk: entity_services.entry_revision(e) for group in entities.values() for e in group
+    }
+    mask = included.reference_mask(project, entities, entry_revisions, pins)
     key = reuse.key(
         action,
         sha,
@@ -627,12 +634,16 @@ def _made(
         values,
         settings,
         pins,
+        entry_revisions=entry_revisions,
+        reference_mask=mask,
         volumes=volumes,
         image_digest=launches.image_digest(image),
     )
     original = reuse.find(user, key, project) if reuse_results and volumes is not None else None
     pull_secret = (bound.pull_secret or "") if bound else ""
-    return _Made(sha, settings, key, original, pins, volumes, image, pull_secret)
+    return _Made(
+        sha, settings, key, original, pins, volumes, entry_revisions, mask, image, pull_secret
+    )
 
 
 def pin_waiting(run: ActionRun, action: Action) -> bool:
@@ -694,6 +705,7 @@ def _reuse(
         batch=batch,
         step=step,
         pins=made.pins,
+        entry_revisions=made.entry_revisions,
     )
 
 
@@ -716,6 +728,9 @@ def reproduce(
     if action is None:
         raise Refused(f"{original.action} isn't installed now, so it can't run here.")
     may_launch(user, action, original.project)
+    imported = original.imported or {}
+    if imported.get("inputs") or imported.get("included"):
+        raise included.Unavailable()
     why = reuse.blocked(
         original, plugin_sha(action.plugin), registry.plugins()[action.plugin].version
     )
@@ -790,6 +805,8 @@ def reproduce(
                 None,
                 [],
                 original.volumes,
+                {},
+                original.reference_mask,
                 image,
                 (bound.pull_secret or "") if bound else "",
             ),

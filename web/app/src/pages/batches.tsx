@@ -278,7 +278,7 @@ export function BatchPage() {
                 <li className="row" key={run.id}>
                   <div className="row-main">
                     <Link className="row-title" to="/runs/$ref/" params={{ ref: run.hrid }}>
-                      {input ? `On ${input.hrid}` : run.hrid}
+                      {input ? `On ${input.hrid ?? "an entity you can’t read"}` : run.hrid}
                     </Link>
                     <span className="row-meta">
                       {run.hrid}

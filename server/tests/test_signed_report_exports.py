@@ -12,6 +12,9 @@ from test_signatures import past_the_triggers, ready, signed
 from test_states import roles
 
 from iki_server.audit.models import AuditEvent
+from iki_server.entities import services
+from iki_server.entities.models import Entity
+from iki_server.org.models import Project, ProjectRole
 from iki_server.signatures import proof, signing_keys
 from iki_server.signatures.models import Signature
 
@@ -54,9 +57,25 @@ def exercise_exports() -> None:
     reader = Api(lab.browser("viewer"))
     shown = reader.get(f"/entity-types/{TYPE}").json()
     assert shown["exports"][0]["issued"] == ["issued"]
+    elsewhere = Project.objects.create(team=lab.team, name="Source reports")
+    elsewhere.memberships.create(user=lab.users["editor"], role=ProjectRole.EDITOR)
+    grant = elsewhere.memberships.create(user=lab.users["viewer"], role=ProjectRole.VIEWER)
+    source = services.create(
+        lab.users["editor"], TYPE, elsewhere, {"report": {"title": "Source report"}}
+    ).entity
+    assert isinstance(source, Entity)
+    drafts = Project.objects.create(team=lab.team, name="Draft sources")
+    drafts.memberships.create(user=lab.users["editor"], role=ProjectRole.EDITOR)
+    draft_source = services.create(
+        lab.users["editor"], TYPE, drafts, {"report": {"title": "Draft source"}}
+    ).entity
     made = editor.post(
         "/entities",
-        {"type": TYPE, "project": str(lab.project.pk), "values": {"report": {"value": 1}}},
+        {
+            "type": TYPE,
+            "project": str(lab.project.pk),
+            "values": {"report": {"value": 1}, "source": str(draft_source.pk)},
+        },
     )
     assert made.status_code == 201, made.content
     report = made.json()
@@ -77,7 +96,12 @@ def exercise_exports() -> None:
         f"/entities/{ref}",
         {
             "values": {
-                "report": {"title": "Final report", "value": 2, "note": "<script>alert(1)</script>"}
+                "report": {
+                    "title": "Final report",
+                    "value": 2,
+                    "note": "<script>alert(1)</script>",
+                },
+                "source": str(source.pk),
             },
             "reason": "Correct a transcription error",
         },
@@ -91,6 +115,7 @@ def exercise_exports() -> None:
 
     response = reader.get(export, format="signed-report-json")
     assert response.status_code == 200, response.content
+    assert str(draft_source.pk).encode() not in response.content
     packet = response.json()
     assert packet["format"] == "iki/signed-report/v1"
     assert packet["record"]["hrid"] == report["hrid"]
@@ -136,6 +161,13 @@ def exercise_exports() -> None:
     }
     assert all(e.actor == lab.users["viewer"] for e in events)
     problem(Api(lab.browser("outsider")).get(export, format="signed-report-json"), 404, "not_found")
+
+    grant.delete()
+    for fmt in ("signed-report-json", "signed-report-html"):
+        body = problem(reader.get(export, format=fmt), 404, "report_not_issued")
+        assert str(source.pk) not in str(body) and source.hrid not in str(body)
+    assert events.count() == 3
+    elsewhere.memberships.create(user=lab.users["viewer"], role=ProjectRole.VIEWER)
 
     assert issued.signature_id is not None
     with past_the_triggers():

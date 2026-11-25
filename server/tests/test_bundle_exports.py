@@ -11,14 +11,17 @@ from api_client import Api, problem
 from django.core.management import call_command
 from django.utils import timezone
 from org_world import World, build_world
+from test_file_fields import add_file
 from test_oauth import bearer, signed_in_token
 
 from iki_server.audit.models import AuditEvent
 from iki_server.bundles import exports, reading
 from iki_server.bundles.models import BundleExport
 from iki_server.entities import services
+from iki_server.entities.models import Entity
 from iki_server.files import storage
 from iki_server.org import holds
+from iki_server.org.models import Project, ProjectRole
 from iki_server.tasks.runner import Runner
 
 pytestmark = pytest.mark.django_db
@@ -93,6 +96,62 @@ def test_an_admin_exports_a_collection_and_downloads_it(world: World, tmp_path: 
     assert written.data["sha256"] == ready["sha256"]
     downloaded = AuditEvent.objects.get(action="bundle.downloaded")
     assert downloaded.data == {"export": started["id"], "sha256": ready["sha256"]}
+
+
+def test_each_download_checks_the_records_in_the_retained_archive(world: World) -> None:
+    admin = world.users["admin"]
+    other = Project.objects.create(team=world.team, name="Private reagents")
+    membership = other.memberships.create(user=admin, role=ProjectRole.ADMIN)
+    private = services.create(admin, "acme/protein.Lot", other, {"label": "Reagent"}).entity
+    assert isinstance(private, Entity)
+    picked = made(world, {"sequence": "MAAA", "source": str(private.pk)})
+    services.update(admin, picked, {"source": None}, expected_revision=1)
+    world.project.memberships.create(user=world.users["outsider"], role=ProjectRole.ADMIN)
+    started = exports.start(admin, world.project, entities=[picked.hrid], reason="Archive")
+    run_tasks()
+    path = f"/bundles/{started.pk}/content"
+    owner = Api(world.browser("admin"))
+    assert owner.get(path).status_code == 302
+    denied = problem(Api(world.browser("outsider")).get(path), 409, "refused")
+    assert str(private.pk) not in str(denied) and private.hrid not in str(denied)
+    membership.delete()
+    problem(owner.get(path), 409, "refused")
+    assert AuditEvent.objects.filter(action="bundle.downloaded", target_id=started.pk).count() == 1
+    other.memberships.create(user=admin, role=ProjectRole.VIEWER)
+    assert owner.get(path).status_code == 302
+    BundleExport.objects.filter(pk=started.pk).update(references=None)
+    assert "fresh export" in problem(owner.get(path), 409, "refused")["detail"]
+
+
+def test_export_selection_names_a_view_for_readers_of_its_targets(world: World) -> None:
+    admin = world.users["admin"]
+    other = Project.objects.create(team=world.team, name="Targets")
+    other.memberships.create(user=admin, role=ProjectRole.ADMIN)
+    world.project.memberships.create(user=world.users["outsider"], role=ProjectRole.ADMIN)
+    target = services.create(
+        admin, "acme/protein.ProteinStructure", other, {"structure": add_file(other).pk}
+    ).entity
+    view = made(
+        world,
+        {
+            "name": "Structure",
+            "targets": [str(target.pk)],
+            "target_revisions": [1],
+            "viewers": ["structure"],
+            "state": {"version": 1},
+        },
+        "iki/core.View",
+    )
+    started = exports.start(admin, world.project, entities=[view.hrid], reason="Keep the view")
+    path = f"/bundles/{started.pk}"
+    assert Api(world.browser("admin")).get(path).json()["selection"] == view.hrid
+    reader = Api(world.browser("outsider"))
+    for detail in (reader.get(path), reader.get(f"/projects/{world.project.pk}/bundles")):
+        assert detail.status_code == 200
+        assert (
+            view.hrid not in detail.content.decode() and str(view.pk) not in detail.content.decode()
+        )
+    assert reader.get(path).json()["selection"] == "Selected records"
 
 
 def test_a_dynamic_collection_takes_what_its_search_finds_now(world: World) -> None:

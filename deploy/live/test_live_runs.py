@@ -89,6 +89,37 @@ def test_a_change_to_what_the_backend_run_runs_makes_every_cloud_due(repo: Path)
         assert all(v.due and path in (v.paths or []) for v in live_runs.due("HEAD", repo, record))
 
 
+def test_documentation_under_watched_paths_does_not_make_clouds_due(repo: Path) -> None:
+    tested = commit(
+        repo,
+        {
+            "deploy/aws/modules/network/main.tf": "old network",
+            "deploy/gcp/README.md": "old docs",
+        },
+        "tested",
+    )
+    record = repo / "runs.json"
+    for cloud in live_runs.CLOUDS:
+        live_runs.append(entry(cloud, tested), record)
+    commit(
+        repo,
+        {
+            "deploy/aws/modules/network/README.md": "docs for this module",
+            "deploy/gcp/README.md": "updated docs",
+            "deploy/helm/iki/docs/examples/values.yaml": "documented example",
+            "plugins/dna/docs/diagram.svg": "<svg/>",
+        },
+        "docs only",
+    )
+    assert all(not v.due and v.paths == [] for v in live_runs.due("HEAD", repo, record))
+
+    git(repo, "mv", "deploy/aws/modules/network/main.tf", "deploy/helm/iki/docs/example.tf")
+    commit(repo, {}, "remove an active module file by moving it into docs")
+    verdicts = {v.cloud: v for v in live_runs.due("HEAD", repo, record)}
+    assert verdicts["aws"].paths == ["deploy/aws/modules/network/main.tf"]
+    assert not verdicts["gcp"].due
+
+
 @pytest.mark.parametrize(
     "path",
     [

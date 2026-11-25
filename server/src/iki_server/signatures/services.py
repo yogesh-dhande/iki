@@ -24,6 +24,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
+from uuid import UUID
 
 from allauth.socialaccount.models import SocialAccount
 from django.core.exceptions import PermissionDenied
@@ -38,7 +39,7 @@ from iki_server.bundles import keys
 from iki_server.core.ids import uuid7
 from iki_server.entities import requests, states
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
-from iki_server.entities.values import Invalid, shape
+from iki_server.entities.values import Invalid, exact_reference_ids, shape
 from iki_server.org import lab_roles, permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
@@ -936,6 +937,36 @@ def content_of(
         files={str(k): v for k, v in files.items()},
         entry_fields=entry_fields,
     )
+
+
+def signed_entry(signature: Signature, document: Mapping[str, Any]) -> UUID | None:
+    """The local identity of the registry entry named by an exact signature document."""
+    entry = (document.get("record") or {}).get("entry")
+    if not entry:
+        return None
+    if signature.bundle_import_id is None:
+        return UUID(entry["id"])
+    # The signed entry ID is a source-deployment alias. The local record at the
+    # signed revision identifies the entry it corresponds to.
+    from iki_server.entities.services import entry_at
+
+    here = entry_at(signature.entity, signature.revision, signature.entry_revision)
+    if here is None:
+        raise proof.Unexplained("The signed entry needs verified reference history.")
+    return UUID(str(here[0]))
+
+
+def signed_references(signature: Signature) -> set[UUID]:
+    """Local identities named by a proof, following its signed field and ID mappings."""
+    entity = signature.entity
+    try:
+        content = proof.migrated(json.loads(signature.content), since(signature, entity))
+        refs = exact_reference_ids(shape(entity.type).fields(removed=True), content["values"])
+        if entry := signed_entry(signature, parsed(signature)):
+            refs.add(entry)
+        return refs
+    except (ValueError, TypeError, KeyError) as error:
+        raise proof.Unexplained("The proof needs verified reference history.") from error
 
 
 def canonical_content(entity: Entity, revision: int, entry_revision: int | None) -> str:

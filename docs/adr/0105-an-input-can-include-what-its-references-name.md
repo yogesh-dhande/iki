@@ -69,6 +69,15 @@ They're read as the inputs are:
 - **Bundles.** A run's inclusions go with it (`included` on its line), and
   ones that don't come are kept on its record, as its inputs are.
 
+Each attempt, including a retry, receives the pinned direct and included
+records while they remain readable in the run's project. The same check
+covers every reference identifier in their values that the project could
+read at launch. The input keeps its `unreadable` positions across retries
+and reproductions, including after import. These positions count in the
+reuse key. A record that has moved to a
+new registry entry still supplies the old entry identity and facts at its
+pin. Reproduction applies these checks to the original revisions.
+
 Only the input's own references are included, not what those name in turn:
 one level is what the actions that need this need, and following references
 further would make a run read an unbounded graph.

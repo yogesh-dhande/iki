@@ -293,6 +293,7 @@ def _tell_holders(user: User, entry: Entity, replacement: Entity, reason: str) -
             path=f"/entities/{record.pk}",
             project=project,
             actor=user,
+            about=[record],
         )
 
 

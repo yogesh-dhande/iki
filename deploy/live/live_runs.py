@@ -231,14 +231,26 @@ def clean_head(repo: Path = REPO) -> str | None:
 
 
 def changed(tested: str, ref: str, cloud: str, repo: Path = REPO) -> list[str] | None:
-    """The relevant paths that differ between tested and ref, or None if tested isn't a
-    commit this repository has (a run of a commit since rebased away)."""
+    """The relevant paths that differ between tested and ref, excluding documentation.
+    Return None if tested isn't a commit this repository has."""
     if git("cat-file", "-e", f"{tested}^{{commit}}", repo=repo).returncode != 0:
         return None
-    diff = git("diff", "--name-only", tested, ref, "--", *RELEVANT[cloud], repo=repo)
+    diff = git(
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "-z",
+        tested,
+        ref,
+        "--",
+        *RELEVANT[cloud],
+        ":(exclude,glob)**/*.md",
+        ":(exclude,glob)**/docs/**",
+        repo=repo,
+    )
     if diff.returncode != 0:
         raise RuntimeError(f"git diff {tested} {ref}: {diff.stderr.strip()}")
-    return [line for line in diff.stdout.splitlines() if line]
+    return [path for path in diff.stdout.split("\0") if path]
 
 
 def is_ancestor(commit: str, ref: str, repo: Path = REPO) -> bool:

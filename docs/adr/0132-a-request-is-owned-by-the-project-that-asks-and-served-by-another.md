@@ -116,7 +116,9 @@ release them.
 request and what it sent; the asking project reads its own records and the
 results released to it. This is fuzzed both ways, as ADR 0101 fuzzes
 authorization: of every record either project holds, each side's people
-read, list and search exactly those.
+read, list and search exactly those. Record and revision values show a
+reference as an ID when the reader can identify its target. Other references
+are shown as `unreadable`, including individual items in lists and rows.
 
 **The queue is the requests sent to a project.** They're linked into it,
 so they're in its grid and search, and a built-in `sent_to` condition

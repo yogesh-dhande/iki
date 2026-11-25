@@ -1099,7 +1099,7 @@ class CreatedOut(TypedDict):
     title: str
     type: str
     updated_at: str
-    #: Its fields' values, as its type's schema says.
+    #: Its fields' values, as its type's schema says. A reference to an entity you can't read is the string `unreadable` instead of an ID.
     values: dict[str, Any]
 
 
@@ -1377,7 +1377,7 @@ class EntityOut(TypedDict):
     title: str
     type: str
     updated_at: str
-    #: Its fields' values, as its type's schema says.
+    #: Its fields' values, as its type's schema says. A reference to an entity you can't read is the string `unreadable` instead of an ID.
     values: dict[str, Any]
 
 
@@ -1466,7 +1466,7 @@ class EntryOut(TypedDict):
     revision: int
     superseded: EntrySupersededOut | None
     type: str
-    #: Its identity, derived values and facts: every holding project's.
+    #: Its identity, derived values and facts: every holding project's. References to entities you can't read are shown as `unreadable`.
     values: dict[str, Any]
 
 
@@ -1893,7 +1893,7 @@ class FiringErrorOut(TypedDict):
 class FiringOut(TypedDict):
     created_at: str
     editor: NotRequired[PersonRef | None]
-    #: Whose change fired it; null on a schedule.
+    #: The visible entity whose change fired it.
     entity: FiredEntityOut | None
     error: FiringErrorOut | None
     event: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'schedule']
@@ -1902,7 +1902,7 @@ class FiringOut(TypedDict):
     label: str
     #: For a trigger that gives inputs related entities (ADR 0123): how many each was given, by input, once found.
     related: dict[str, int] | None
-    #: The revision the change made; null on a schedule.
+    #: The revision of the visible entity whose change fired it.
     revision: int | None
     run: FiredRunOut | None
     #: On a schedule: the time it was for.
@@ -2487,21 +2487,21 @@ class ImportedApprovalOut(TypedDict):
 
 
 class ImportedInclusionOut(TypedDict):
-    #: Its ID there: it isn't here.
-    entity: str
+    #: Its source ID, subject to read access here.
+    entity: str | None
     field: str
     index: int
     input: str
     position: int
-    revision: int
+    revision: int | None
 
 
 class ImportedInputOut(TypedDict):
-    #: Its ID there: it isn't here.
-    entity: str
+    #: Its source ID, subject to read access here.
+    entity: str | None
     name: str
     position: int
-    revision: int
+    revision: int | None
 
 
 class InboxFilters(TypedDict):
@@ -2871,7 +2871,7 @@ class MovedOut(TypedDict):
     title: str
     type: str
     updated_at: str
-    #: Its fields' values, as its type's schema says.
+    #: Its fields' values, as its type's schema says. A reference to an entity you can't read is the string `unreadable` instead of an ID.
     values: dict[str, Any]
 
 
@@ -2884,8 +2884,8 @@ class MovementOut(TypedDict):
     client: str
     #: The code scanned to confirm it, if one was.
     confirmed: NotRequired[str]
-    #: The other record, if there is one.
-    counterpart: str | None
+    #: The other record's ID, or `unreadable` if you can't read it.
+    counterpart: str | Literal['unreadable'] | None
     created_at: str
     #: What was asked for, in the unit it was asked in.
     given: GivenOut | None
@@ -2898,10 +2898,10 @@ class MovementOut(TypedDict):
     purpose: DrawPurpose | None
     reason: str
     #: Where a container's material came from, as its type's `follows` says: its lot (ADR 0180).
-    source: NotRequired[str | None]
+    source: NotRequired[str | Literal['unreadable'] | None]
     unit: str
-    #: What a draw went into, such as an analysis or an experiment.
-    used_in: NotRequired[str | None]
+    #: What a draw went into. An unreadable record is shown as `unreadable`.
+    used_in: NotRequired[str | Literal['unreadable'] | None]
     user: UserOut | None
     via: str
 
@@ -4372,7 +4372,7 @@ class RevisionDetailOut(TypedDict):
     #: The agent that made it, acting for user, if one did (ADR 0072).
     agent: AgentOut | None
     changed_fields: list[str]
-    #: What this revision changed.
+    #: What this revision changed, as you can read it.
     changes: dict[str, ChangeOut]
     #: The OAuth app it came through, such as an AI agent's MCP client, if any.
     client: str
@@ -4400,7 +4400,7 @@ class RevisionDetailOut(TypedDict):
     submitted: NotRequired[dict[str, Any] | None]
     #: Who, or for a run, who launched it.
     user: UserOut | None
-    #: Every field's value as it was at this revision.
+    #: Every field's value as it was at this revision. References to entities you can't read are shown as `unreadable`.
     values: dict[str, Any]
     #: How: web, api, mcp, run, …
     via: str
@@ -4709,26 +4709,28 @@ class RunIn(TypedDict):
 
 
 class RunInclusionOut(TypedDict):
-    entity: str
+    #: The record ID when you can read it.
+    entity: str | None
     #: The reference.
     field: str
-    hrid: str
+    hrid: str | None
     #: Its place in the reference, from 0: a list's can be more.
     index: int
     #: The input whose entity's reference named it.
     input: str
     #: That entity's place among the input's, from 0.
     position: int
-    #: The revision the run read.
-    revision: int
+    #: The revision read, shown with its record.
+    revision: int | None
 
 
 class RunInputOut(TypedDict):
-    entity: str
-    hrid: str
+    #: The record ID when you can read it.
+    entity: str | None
+    hrid: str | None
     name: str
-    #: The revision the run read.
-    revision: int
+    #: The revision read, shown with its record.
+    revision: int | None
 
 
 class RunOut(TypedDict):
@@ -5461,8 +5463,8 @@ class SignatureOut(TypedDict):
     change: SignedChangeOut
     #: The deployment it was signed on.
     deployment: str
-    #: What was signed, exactly: canonical JSON (RFC 8785), format iki/signature/v1.
-    document: str
+    #: The exact canonical JSON (iki/signature/v1) when the reader can identify the entry it names.
+    document: str | None
     #: For a record of a registry entry: the entry's revision it signs.
     entry_revision: int | None
     hrid: str
@@ -6132,14 +6134,14 @@ class TriggerFiredOut(TypedDict):
     editor: NotRequired[PersonRef | None]
     #: The Admin who turned the trigger on: on whose authority it ran. On a schedule, requested_by is the service account it runs as.
     enabled_by: PersonRef | None
-    #: The entity whose change fired it; null on a schedule.
+    #: The visible entity whose change fired it.
     entity: str | None
-    event: Literal['entity.created', 'entity.updated', 'schedule']
+    event: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'schedule']
     #: Its label, or its name once it's no longer installed.
     label: str
     #: The trigger's qualified name, such as `protein.weigh_new`.
     name: str
-    #: The revision the change made; null on a schedule.
+    #: The revision of the visible entity whose change fired it.
     revision: int | None
     #: On a schedule: the time it was for.
     scheduled_for: str | None
@@ -6725,11 +6727,12 @@ class WorkflowErrorOut(TypedDict):
 
 
 class WorkflowInputOut(TypedDict):
-    entity: str
-    hrid: str
+    #: The record ID when you can read it.
+    entity: str | None
+    hrid: str | None
     name: str
-    #: Its revision when the workflow started.
-    revision: int
+    #: The starting revision, shown with its record.
+    revision: int | None
 
 
 class WorkflowOut(TypedDict):

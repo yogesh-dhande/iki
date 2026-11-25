@@ -4336,6 +4336,24 @@ def test_a_record_s_state_fields_are_set_by_their_lab_roles(open_as: Any, world:
     page.context.close()
 
 
+def test_request_page_indicates_a_sample_the_service_cannot_read(
+    open_as: Any, world: World
+) -> None:
+    from test_requests import build_lab, request_with_private_sample
+
+    made, _, private = request_with_private_sample(build_lab(world))
+    page: Page = open_as("tech", f"/entities/{made['hrid']}/")
+    expect(page.get_by_text("An entity you can’t read", exact=True).first).to_be_visible()
+    assert private["id"] not in page.content() and private["hrid"] not in page.content()
+    assert_clean(page)
+    page.context.close()
+
+    page = open_as("editor", f"/entities/{made['hrid']}/")
+    expect(page.get_by_role("link", name=private["hrid"]).first).to_be_visible()
+    assert_clean(page)
+    page.context.close()
+
+
 def test_a_core_takes_requests_a_project_sends_one_and_the_core_works_it(
     open_as: Any, world: World
 ) -> None:

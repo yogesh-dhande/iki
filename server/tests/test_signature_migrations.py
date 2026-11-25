@@ -71,6 +71,7 @@ fields:
   code: { type: string, required: true, immutable: true, max_length: 20 }
   cas: { type: string, registry: fact, pattern: "^[1-9][0-9]{1,6}-[0-9]{2}-[0-9]$" }
   note: { type: string, max_length: 100 }
+  reference: { type: ref, to: Reagent, registry: fact }
 """
     + SIGNED
 )
@@ -565,14 +566,50 @@ wrong = entities.create(
 right = entities.create(
     analyst, "acme/lab.Reagent", project, {"code": "NACL-01", "cas": "7647-14-5"}
 ).entity
-sign(analyst, wrong)
 wrong_entry = Entity.objects.get(pk=wrong.entry_id)
+reference = entities.create(analyst, "acme/lab.Reagent", project, {"code": "REF-01"}).entity
+entries.curate(curator, wrong_entry, {"reference": str(reference.entry_id)},
+               expected_revision=wrong_entry.revision, reason="Reference standard")
+sign(analyst, wrong)
+wrong_entry.refresh_from_db()
+entries.curate(curator, wrong_entry, {"reference": None},
+               expected_revision=wrong_entry.revision, reason="Retire the reference standard")
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from iki_server.bundles import export
 from iki_server.signatures.models import Signature
+exporter = person("exporter")
+screens.memberships.create(user=exporter, role=ProjectRole.ADMIN)
+with TemporaryDirectory() as tmp:
+    path = Path(tmp) / "archive.tar.gz"
+    def write():
+        return export.write(screens, [wrong], path, by=User.objects.get(pk=exporter.pk),
+                            reason="Keep the signed history", selection=wrong.hrid)
+    try:
+        write()
+    except export.ExportError as exc:
+        assert str(exc) == "This bundle refers to a record you can't read."
+    else:
+        raise AssertionError("Export requires access to the signed reference standard")
+    assert not path.exists()
+    project.memberships.create(user=exporter, role=ProjectRole.VIEWER)
+    assert reference.entry_id in write().references
+
 before = {c.name: c.ok for c in signatures.verify(Signature.objects.get(entity_id=wrong.pk))}
 # A registrar supersedes the mistyped entry; Screens moves its record onto the right one.
 entries.supersede(curator, wrong_entry, Entity.objects.get(pk=right.entry_id), reason="Typo")
 entries.move(analyst, Entity.objects.get(pk=wrong.pk), reason="Superseded")
 moved = Entity.objects.get(pk=wrong.pk)
+from api_client import Api
+from browser import Browser
+browser = Browser()
+browser.force_login(analyst)
+api = Api(browser)
+shown = api.get(f"/entities/{moved.pk}/signatures", verify=True)
+assert shown.status_code == 200, shown.content
+[item] = shown.json()["items"]
+assert item["verification"]["valid"] and item["document"] is None
+assert str(wrong_entry.pk).encode() not in shown.content
 result = {
     "before": before,
     "moved_to": [str(moved.entry_id), str(right.entry_id)],
@@ -593,7 +630,7 @@ result = {
     tamper(
         database,
         "UPDATE acme__lab_reagent__entry__history h SET cas = '7758-02-3' FROM iki_entity e "
-        "WHERE e.id = h.entity_id AND e.hrid = %s AND h.revision = 1",
+        "WHERE e.id = h.entity_id AND e.hrid = %s AND h.revision = 2",
         result["old_entry"],
     )
     assert verified(out, database) == {

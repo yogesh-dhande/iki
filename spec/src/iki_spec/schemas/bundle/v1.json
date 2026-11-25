@@ -754,6 +754,12 @@
           "description": "The action as it was when it ran.",
           "type": "object"
         },
+        "reference_mask": {
+          "description": "Typed positions shown as unreadable in its pinned worker input.",
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
         "requested_by": {
           "anyOf": [
             {

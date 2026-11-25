@@ -22,6 +22,7 @@ from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.runs import Tier
 from iki_server.api.schemas import Page, PersonRef
+from iki_server.entities import access
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
@@ -348,8 +349,10 @@ class FiringOut(Schema):
     trigger: str = Field(description="The trigger's qualified name.")
     label: str
     event: Event
-    entity: FiredEntityOut | None = Field(description="Whose change fired it; null on a schedule.")
-    revision: int | None = Field(description="The revision the change made; null on a schedule.")
+    entity: FiredEntityOut | None = Field(description="The visible entity whose change fired it.")
+    revision: int | None = Field(
+        description="The revision of the visible entity whose change fired it."
+    )
     scheduled_for: datetime | None = Field(description="On a schedule: the time it was for.")
     since: datetime | None = Field(
         description="On a schedule: the time the last run that succeeded was for, which its "
@@ -397,4 +400,18 @@ def trigger_firings(
     rows = triggers.firings(found)
     if trigger is not None:
         rows = rows.filter(trigger__trigger=trigger)
-    return page(rows, params, newest_first=True)
+    result = page(rows, params, newest_first=True)
+    firings = result["items"]
+    readable = set(
+        access.traced(me).filter(pk__in=[f.entity_id for f in firings]).values_list("pk", flat=True)
+    )
+    for firing in firings:
+        if firing.entity_id and firing.entity_id not in readable:
+            firing.entity = None
+            firing.revision = None
+            if firing.error:
+                firing.error = {
+                    **firing.error,
+                    "message": "The trigger concerned an entity you can’t read.",
+                }
+    return result

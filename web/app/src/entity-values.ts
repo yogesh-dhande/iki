@@ -149,7 +149,8 @@ export function toDraft(
     case "ref": {
       const id = value as string;
       const found = entity.refs[id];
-      return { id, hrid: found?.hrid ?? id, title: found?.title ?? "An entity you can’t read" };
+      const title = found?.title ?? "An entity you can’t read";
+      return { id, hrid: found?.hrid ?? title, title };
     }
     case "file": {
       const id = value as string;

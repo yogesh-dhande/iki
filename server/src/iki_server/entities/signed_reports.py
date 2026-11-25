@@ -7,6 +7,8 @@ from html import escape
 from typing import Any
 from uuid import UUID
 
+from iki_server.accounts.models import User
+from iki_server.entities import access
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.services import values_at
 from iki_server.signatures import proof, services, signing_keys
@@ -20,7 +22,7 @@ class Unissued(ValueError):  # noqa: N818 - this revision has no issuable report
     """An unsigned report or an invalid issuance, with the reason."""
 
 
-def snapshot(entity: Entity, number: int, export: ReportExport) -> dict[str, Any]:
+def snapshot(user: User, entity: Entity, number: int, export: ReportExport) -> dict[str, Any]:
     """Read the report, and verify every carried signature of the continuous signed cycle."""
     values = values_at(entity, number)
     revisions = iter(
@@ -49,6 +51,7 @@ def snapshot(entity: Entity, number: int, export: ReportExport) -> dict[str, Any
     trusted = signing_keys.trusted()
     report = values[export.report]
     cycle = []
+    references: set[UUID] = set()
     for step in carried:
         evidence = [
             _check(signatures, pk, index, step, report, export, trusted)
@@ -59,7 +62,14 @@ def snapshot(entity: Entity, number: int, export: ReportExport) -> dict[str, Any
             if approvals or step == issuance:
                 raise Unissued("A reversal cannot attest to issuance of this report.")
             break
+        try:
+            for pk in step.signatures:
+                references.update(services.signed_references(signatures[pk]))
+        except proof.Unexplained as error:
+            raise Unissued("The report needs verified reference history.") from error
         cycle.append(approvals)
+    if not access.all_references_readable(user, references):
+        raise Unissued("The signed report refers to a record you can't read.")
     return {
         "format": FORMAT,
         "record": {

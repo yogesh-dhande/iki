@@ -23,6 +23,7 @@ from iki_server.bundles.models import (
     ImportPerson,
     ImportState,
 )
+from iki_server.entities import access
 from iki_server.files import services as files
 from iki_server.org.permissions import Action, can
 from iki_server.org.services import Refused
@@ -74,6 +75,20 @@ class ExportOut(Schema):
         description="When its archive is deleted. Exports from a project under a legal hold "
         "are kept until the hold is released."
     )
+
+    @staticmethod
+    def resolve_selection(made: BundleExport, context: dict[str, Any]) -> str:
+        if access.all_references_readable(caller(context["request"]), made.picked):
+            return made.selection
+        return "Selected records"
+
+    @staticmethod
+    def resolve_error(made: BundleExport, context: dict[str, Any]) -> str:
+        if made.error and not access.all_references_readable(
+            caller(context["request"]), made.picked
+        ):
+            return "The selected records could not be exported."
+        return made.error
 
     @staticmethod
     def resolve_counts(made: BundleExport) -> dict[str, int] | None:

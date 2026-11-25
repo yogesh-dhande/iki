@@ -567,6 +567,8 @@ class ActionRun(models.Model):
     #: identical run can reuse them (ADR 0057). While volumes are pending this holds the
     #: hash of the other launch inputs, completed when the build is pinned.
     reuse_key = models.CharField(max_length=64, blank=True, default="")
+    #: Typed positions shown as unreadable in the pinned worker document (ADR 0105).
+    reference_mask = models.JSONField(default=list, blank=True)
     #: The identical run whose results it reused instead of running.
     reused_from = models.ForeignKey(
         "self",

@@ -17,7 +17,7 @@ from test_signatures import begin, evidence, past_the_triggers, ready, signed
 
 from iki_server.accounts.models import User
 from iki_server.audit.models import AuditEvent
-from iki_server.entities import access, requests, states
+from iki_server.entities import access, requests, services, states
 from iki_server.entities.models import Entity, ProjectLink, Request
 from iki_server.entities.values import shape
 from iki_server.files.models import Blob, File
@@ -64,7 +64,10 @@ def _member(project: Project, user: User, role: ProjectRole, *lab_roles: str) ->
 
 @pytest.fixture
 def lab() -> Lab:
-    world = build_world()
+    return build_lab(build_world())
+
+
+def build_lab(world: World) -> Lab:
     core = Project.objects.create(team=world.team, name="Protein Core", description="Assays")
     for name, role, held in (
         ("tech", ProjectRole.EDITOR, (ANALYST,)),
@@ -636,7 +639,9 @@ def test_the_database_holds_each_side_to_its_own_columns(lab: Lab) -> None:
     made = sent(lab, sample(lab, "S-1"))
     by_name = {g.table: g for g in requests.guarded_tables()}
     main = next(g for g in by_name.values() if "core_notes" in g.service_columns)
-    samples = next(g for g in by_name.values() if g.whole == requests.ASKER)
+    form = shape(ASK)
+    samples = by_name[form.part_of("samples").list_model("samples")._meta.db_table]
+    assert samples.whole == requests.ASKER
     update = f'UPDATE "{main.table}" SET {{}} = %s WHERE entity_id = %s'  # noqa: S608
     with pytest.raises(DatabaseError, match="the service writes its fields"):
         raw(update.format("core_notes"), ["Sneaky", made["id"]])
@@ -655,6 +660,115 @@ def test_the_database_holds_each_side_to_its_own_columns(lab: Lab) -> None:
 
 
 # --- What it sends ------------------------------------------------------------------------------
+
+
+def request_with_private_sample(
+    lab: Lab,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    editor = lab.users["editor"]
+    project = lab.world.project
+    shared = services.create(editor, SAMPLE, project, {"label": "Sample for the service"}).entity
+    private = services.create(
+        editor, SAMPLE, project, {"label": "Sample the asking project keeps"}
+    ).entity
+    requests.set_intake(
+        lab.core, types=[ASK], from_registry=True, sources=[], by=lab.users["core_admin"]
+    )
+    made = services.create(
+        editor,
+        ASK,
+        project,
+        {
+            "title": "Purity of the kinases",
+            "samples": [str(shared.pk)],
+            "private_sample": str(private.pk),
+            "comparison_samples": [str(shared.pk), str(private.pk)],
+            "sample_notes": [{"sample": str(private.pk), "note": "Comparison"}],
+        },
+    ).entity
+    assert isinstance(made, Entity)
+    assert isinstance(shared, Entity)
+    assert isinstance(private, Entity)
+    requests.submit(editor, made, lab.core, expected_revision=made.revision, reason="Q4 batch")
+    return (
+        {"id": str(made.pk), "hrid": made.hrid},
+        {"id": str(shared.pk), "hrid": shared.hrid},
+        {"id": str(private.pk), "hrid": private.hrid},
+    )
+
+
+def test_stored_field_spellings_require_known_reference_types(lab: Lab) -> None:
+    from iki_server.api.entities import _submissions
+    from iki_server.entities.models import Revision
+    from iki_server.runs import output_refs
+
+    made, shared, private = request_with_private_sample(lab)
+    revision = Revision.objects.get(entity=made["id"], number=1)
+    revision.submitted = {
+        "former_field": private["id"],
+        "sample_notes": [{"former_cell": private["id"], "sample": shared["id"], "note": "Retest"}],
+    }
+    shown = _submissions(lab.world.users["editor"], [revision])[revision.pk]
+    assert shown == {
+        "former_field": "unreadable",
+        "sample_notes": [{"former_cell": "unreadable", "sample": shared["id"], "note": "Retest"}],
+    }
+    for name, value in revision.submitted.items():
+        with pytest.raises(output_refs.Unavailable):
+            output_refs.dependencies({"creates": [{"type": ASK, "values": {name: value}}]})
+
+
+@pytest.mark.parametrize("surface", ["detail", "list", "search", "history"])
+def test_a_request_indicates_a_reference_the_service_cannot_read(lab: Lab, surface: str) -> None:
+    made, shared, private = request_with_private_sample(lab)
+
+    def read(api: Api) -> dict[str, Any]:
+        path = f"/entities/{made['id']}"
+        result: dict[str, Any]
+        if surface == "history":
+            result = api.get(f"{path}/revisions/1").json()
+        elif surface == "search":
+            result = api.post("/entities/search", {"type": ASK}).json()["items"][0]
+        elif surface == "list":
+            result = api.get(f"/entities?type={ASK}").json()["items"][0]
+        else:
+            result = api.get(path).json()
+        return result
+
+    service = lab.api("tech")
+    problem(service.get(f"/entities/{private['id']}"), 404, "not_found")
+    shown = read(service)
+    assert shown["values"]["private_sample"] == "unreadable"
+    assert shown["values"]["comparison_samples"] == [shared["id"], "unreadable"]
+    assert shown["values"]["sample_notes"] == [{"sample": "unreadable", "note": "Comparison"}]
+    assert set(shown["refs"]) == {shared["id"]}
+    assert private["id"] not in json.dumps(shown) and private["hrid"] not in json.dumps(shown)
+    if surface == "history":
+        assert shown["changes"]["private_sample"] == {"before": None, "after": "unreadable"}
+    own = read(lab.api("editor"))
+    assert own["values"]["private_sample"] == private["id"]
+    assert own["refs"][private["id"]]["hrid"] == private["hrid"]
+
+
+@pytest.mark.parametrize("trail", [False, True])
+def test_request_csv_names_only_samples_the_reader_can_read(lab: Lab, trail: bool) -> None:
+    made, shared, private = request_with_private_sample(lab)
+    path = (
+        f"/entities/{made['id']}/revisions.csv"
+        if trail
+        else f"/entities/search.csv?type={ASK}&columns=private_sample&columns=comparison_samples"
+    )
+    for who, readable in [("tech", False), ("editor", True)]:
+        response = lab.api(who).get(path)
+        assert response.status_code == 200
+        csv = response.getvalue().decode()
+        if readable:
+            assert private["hrid"] in csv
+        else:
+            assert "An entity you can’t read" in csv
+            assert private["hrid"] not in csv
+        assert shared["hrid"] in csv
+        assert private["id"] not in csv
 
 
 def test_what_a_request_names_later_goes_too_and_stays_while_named(lab: Lab) -> None:

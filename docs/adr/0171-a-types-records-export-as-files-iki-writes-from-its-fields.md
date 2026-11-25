@@ -154,8 +154,10 @@ public key and compares the signed content hash and report field.
 [Electronic signatures](0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md)
 
 Before writing a file, Iki checks the issuance and each carried signature
-in its review cycle. It compares the report at the requested revision to
-the content that was signed and refuses the export if the evidence differs.
+in its review cycle. The reader needs access to the records and registry
+entries named in the exact proofs carried by either format. Iki compares
+the report at the requested revision to the content that was signed and
+refuses the export if the evidence differs.
 An unsigned return for correction starts a new cycle. The export and its
 digest go in the same audit log used for sequence exports. The report is
 written without a generation timestamp, so a copy of the issued revision

@@ -958,6 +958,7 @@ class _Writer:
             plugin_version=line["plugin_version"],
             plugin_sha=line["plugin_sha"],
             spec=line["spec"],
+            reference_mask=line.get("reference_mask", []),
             project=self.made.project,
             requested_by=self._requester(line),
             via=line["via"],

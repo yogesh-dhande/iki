@@ -102,7 +102,10 @@ that the record's history, recomputed now, is still that content; and that
 the revision that set the state names it. A value changed in SQL, a
 signature moved to another record, a document edited, a signature deleted
 (the revision that set the state still names it) each fail a named check.
-`GET /signatures/{id}/verification` answers with each check.
+`GET /signatures/{id}/verification` answers with each check. The
+manifestation and verification are available to the record's readers.
+The exact signed document accompanies them when the reader can identify
+the entry the record held at signing.
 
 **Bundles carry signatures, and verify offline.** A bundle has
 `signatures.ndjson`, with each signature's document, signature and content,

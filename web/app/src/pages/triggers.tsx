@@ -459,10 +459,12 @@ function Firings({ project, triggers }: { project: Project; triggers: ProjectTri
                       </Link>{" "}
                       {f.event === "entity.created" ? "was created" : "changed"}
                     </>
-                  ) : (
+                  ) : f.event === "schedule" ? (
                     <>
                       Scheduled for <RelativeTime value={f.scheduled_for ?? f.created_at} />
                     </>
+                  ) : (
+                    "An entity you can’t read changed"
                   )}
                 </span>
                 <span className="row-meta">

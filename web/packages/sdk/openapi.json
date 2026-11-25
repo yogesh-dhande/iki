@@ -4525,7 +4525,7 @@
           },
           "values": {
             "additionalProperties": true,
-            "description": "Its fields' values, as its type's schema says.",
+            "description": "Its fields' values, as its type's schema says. A reference to an entity you can't read is the string `unreadable` instead of an ID.",
             "title": "Values",
             "type": "object"
           }
@@ -5795,7 +5795,7 @@
           },
           "values": {
             "additionalProperties": true,
-            "description": "Its fields' values, as its type's schema says.",
+            "description": "Its fields' values, as its type's schema says. A reference to an entity you can't read is the string `unreadable` instead of an ID.",
             "title": "Values",
             "type": "object"
           }
@@ -6257,7 +6257,7 @@
           },
           "values": {
             "additionalProperties": true,
-            "description": "Its identity, derived values and facts: every holding project's.",
+            "description": "Its identity, derived values and facts: every holding project's. References to entities you can't read are shown as `unreadable`.",
             "title": "Values",
             "type": "object"
           }
@@ -8304,7 +8304,7 @@
                 "type": "null"
               }
             ],
-            "description": "Whose change fired it; null on a schedule."
+            "description": "The visible entity whose change fired it."
           },
           "error": {
             "anyOf": [
@@ -8372,7 +8372,7 @@
                 "type": "null"
               }
             ],
-            "description": "The revision the change made; null on a schedule.",
+            "description": "The revision of the visible entity whose change fired it.",
             "title": "Revision"
           },
           "run": {
@@ -10831,10 +10831,17 @@
       "ImportedInclusionOut": {
         "properties": {
           "entity": {
-            "description": "Its ID there: it isn't here.",
-            "format": "uuid",
-            "title": "Entity",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its source ID, subject to read access here.",
+            "title": "Entity"
           },
           "field": {
             "title": "Field",
@@ -10853,8 +10860,15 @@
             "type": "integer"
           },
           "revision": {
-            "title": "Revision",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
           }
         },
         "required": [
@@ -10871,10 +10885,17 @@
       "ImportedInputOut": {
         "properties": {
           "entity": {
-            "description": "Its ID there: it isn't here.",
-            "format": "uuid",
-            "title": "Entity",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its source ID, subject to read access here.",
+            "title": "Entity"
           },
           "name": {
             "title": "Name",
@@ -10885,8 +10906,15 @@
             "type": "integer"
           },
           "revision": {
-            "title": "Revision",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
           }
         },
         "required": [
@@ -12467,7 +12495,7 @@
           },
           "values": {
             "additionalProperties": true,
-            "description": "Its fields' values, as its type's schema says.",
+            "description": "Its fields' values, as its type's schema says. A reference to an entity you can't read is the string `unreadable` instead of an ID.",
             "title": "Values",
             "type": "object"
           }
@@ -12536,10 +12564,14 @@
                 "type": "string"
               },
               {
+                "const": "unreadable",
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
-            "description": "The other record, if there is one.",
+            "description": "The other record's ID, or `unreadable` if you can't read it.",
             "title": "Counterpart"
           },
           "created_at": {
@@ -12605,6 +12637,10 @@
                 "type": "string"
               },
               {
+                "const": "unreadable",
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -12622,10 +12658,14 @@
                 "type": "string"
               },
               {
+                "const": "unreadable",
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
-            "description": "What a draw went into, such as an analysis or an experiment.",
+            "description": "What a draw went into. An unreadable record is shown as `unreadable`.",
             "title": "Used In"
           },
           "user": {
@@ -19797,7 +19837,7 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/ChangeOut"
             },
-            "description": "What this revision changed.",
+            "description": "What this revision changed, as you can read it.",
             "title": "Changes",
             "type": "object"
           },
@@ -19932,7 +19972,7 @@
           },
           "values": {
             "additionalProperties": true,
-            "description": "Every field's value as it was at this revision.",
+            "description": "Every field's value as it was at this revision. References to entities you can't read are shown as `unreadable`.",
             "title": "Values",
             "type": "object"
           },
@@ -21358,9 +21398,17 @@
       "RunInclusionOut": {
         "properties": {
           "entity": {
-            "format": "uuid",
-            "title": "Entity",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record ID when you can read it.",
+            "title": "Entity"
           },
           "field": {
             "description": "The reference.",
@@ -21368,8 +21416,15 @@
             "type": "string"
           },
           "hrid": {
-            "title": "Hrid",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hrid"
           },
           "index": {
             "description": "Its place in the reference, from 0: a list's can be more.",
@@ -21387,9 +21442,16 @@
             "type": "integer"
           },
           "revision": {
-            "description": "The revision the run read.",
-            "title": "Revision",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The revision read, shown with its record.",
+            "title": "Revision"
           }
         },
         "required": [
@@ -21407,22 +21469,44 @@
       "RunInputOut": {
         "properties": {
           "entity": {
-            "format": "uuid",
-            "title": "Entity",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record ID when you can read it.",
+            "title": "Entity"
           },
           "hrid": {
-            "title": "Hrid",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hrid"
           },
           "name": {
             "title": "Name",
             "type": "string"
           },
           "revision": {
-            "description": "The revision the run read.",
-            "title": "Revision",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The revision read, shown with its record.",
+            "title": "Revision"
           }
         },
         "required": [
@@ -25027,9 +25111,16 @@
             "type": "string"
           },
           "document": {
-            "description": "What was signed, exactly: canonical JSON (RFC 8785), format iki/signature/v1.",
-            "title": "Document",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The exact canonical JSON (iki/signature/v1) when the reader can identify the entry it names.",
+            "title": "Document"
           },
           "entry_revision": {
             "anyOf": [
@@ -28002,12 +28093,14 @@
                 "type": "null"
               }
             ],
-            "description": "The entity whose change fired it; null on a schedule.",
+            "description": "The visible entity whose change fired it.",
             "title": "Entity"
           },
           "event": {
             "enum": [
               "entity.created",
+              "entity.registered",
+              "entity.state_changed",
               "entity.updated",
               "schedule"
             ],
@@ -28033,7 +28126,7 @@
                 "type": "null"
               }
             ],
-            "description": "The revision the change made; null on a schedule.",
+            "description": "The revision of the visible entity whose change fired it.",
             "title": "Revision"
           },
           "scheduled_for": {
@@ -30758,22 +30851,44 @@
       "WorkflowInputOut": {
         "properties": {
           "entity": {
-            "format": "uuid",
-            "title": "Entity",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record ID when you can read it.",
+            "title": "Entity"
           },
           "hrid": {
-            "title": "Hrid",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hrid"
           },
           "name": {
             "title": "Name",
             "type": "string"
           },
           "revision": {
-            "description": "Its revision when the workflow started.",
-            "title": "Revision",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The starting revision, shown with its record.",
+            "title": "Revision"
           }
         },
         "required": [

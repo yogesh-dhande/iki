@@ -394,7 +394,7 @@
         },
         "values": {
           "type": "object",
-          "description": "Field values as the REST API shows them: references and files as IDs."
+          "description": "Field values at the pinned revision. Files and readable references carry IDs. A reference outside the project’s read access at launch carries the string `unreadable` on every attempt."
         },
         "covered_materials": {
           "description": "Direct input records covered by this included service request at launch.",

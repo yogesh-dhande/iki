@@ -138,7 +138,8 @@ _register(
         "Someone draws from a record's amount, transfers some of it, splits it into "
         "aliquots or adjusts it (ADR 0139): `kind`, its `change` and `balance` in `unit`, "
         "what was asked for (`given`), the draw's `purpose`, and the other record "
-        "(`counterpart`), if any.",
+        "(`counterpart`), if any. A counterpart outside the project is `unreadable` "
+        "in a project webhook.",
         project=True,
         org=True,
     ),
@@ -539,6 +540,16 @@ def project_movement(data: dict[str, Any], project: Project) -> dict[str, Any]:
         **data,
         **{key: None for key, end in endpoints.items() if end["container"] not in readable},
     }
+
+
+def project_amount_movement(data: dict[str, Any], project: Project) -> dict[str, Any]:
+    from iki_server.entities import access
+    from iki_server.entities.values import UNREADABLE_REFERENCE
+
+    other = data.get("counterpart")
+    if other is not None and not access.in_project(project).filter(hrid=other).exists():
+        return {**data, "counterpart": UNREADABLE_REFERENCE}
+    return data
 
 
 def _receipt(event: AuditEvent, target: models.Model | None) -> tuple[str, dict[str, Any]] | None:

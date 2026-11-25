@@ -462,7 +462,9 @@ def bundle_export(suffix: str = "") -> Build:
         made = exports.start(
             w.users["admin"], w.project, reason="For production", entities=[_entity(w).hrid]
         )
-        BundleExport.objects.filter(pk=made.pk).update(state="ready", sha256="0" * 64, size=1)
+        BundleExport.objects.filter(pk=made.pk).update(
+            state="ready", sha256="0" * 64, size=1, references=made.picked
+        )
         return f"/bundles/{made.pk}{suffix}", None
 
     return build

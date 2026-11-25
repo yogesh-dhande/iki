@@ -34,7 +34,7 @@ pub struct RunInputEntity {
     pub schema_version: i64,
     /// The revision the run reads.
     pub revision: i64,
-    /// Field values as the REST API shows them: references and files as IDs.
+    /// Field values at the pinned revision. Files and readable references carry IDs. A reference outside the project’s read access at launch carries the string `unreadable` on every attempt.
     pub values: serde_json::Map<String, serde_json::Value>,
     /// Direct input records covered by this included service request at launch.
     #[serde(default, skip_serializing_if = "Option::is_none")]

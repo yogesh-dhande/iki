@@ -1021,6 +1021,25 @@ async def test_agents_send_requests_to_services(world: World) -> None:
     assert "(409" in again
 
 
+async def test_agent_reads_request_references_with_its_persons_access(world: World) -> None:
+    from test_requests import build_lab, request_with_private_sample
+
+    made, shared, private = await sync_to_async(
+        lambda: request_with_private_sample(build_lab(world))
+    )()
+    reader = await token_for(world, "tech")
+    current = data(await tool(reader, "get_entity", ref=made["hrid"]))
+    history = data(await tool(reader, "get_entity_revision", ref=made["hrid"], number=1))
+    for result, values in [(current, current["entity"]["values"]), (history, history["values"])]:
+        assert values["private_sample"] == "unreadable"
+        assert values["comparison_samples"] == [shared["id"], "unreadable"]
+        assert private["id"] not in json.dumps(result) and private["hrid"] not in json.dumps(result)
+    requester = await token_for(world, "editor")
+    readable = data(await tool(requester, "get_entity", ref=made["hrid"]))["entity"]
+    assert readable["values"]["private_sample"] == private["id"]
+    assert readable["refs"][private["id"]]["hrid"] == private["hrid"]
+
+
 async def test_agents_read_their_persons_work_and_name_people(world: World) -> None:
     """ADR 0122: my_work is the person's own, read-only; records name people by email
     address or ID, and their state fields say whose work they are."""

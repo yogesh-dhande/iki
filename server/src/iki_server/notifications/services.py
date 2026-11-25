@@ -283,7 +283,12 @@ def inbox(user: User) -> QuerySet[Notification]:
     """
     from iki_server.entities import access
 
-    mine = Notification.objects.filter(recipient=user)
+    # A supersession names the entry to move to, including on notifications kept
+    # before the holding record was recorded as their subject (ADR 0115).
+    mine = Notification.objects.filter(recipient=user).filter(
+        ~Q(kind=kinds.ENTRY_SUPERSEDED.key)
+        | Q(project__in=access.readable_projects(user).values("pk"))
+    )
     limits = permissions.token_limits(user)
     readable = Q(entity__isnull=True) | Q(entity__in=access.visible(user).values("pk"))
     if limits is not None:

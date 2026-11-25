@@ -28,6 +28,8 @@ from iki_server.api.runs import (
     ParamOut,
     invalid_problem,
     outside_problem,
+    pin_access,
+    pin_out,
 )
 from iki_server.api.schemas import AgentOut, Page, PersonRef, agent_out
 from iki_server.entities import schema
@@ -243,9 +245,9 @@ class WorkflowRunIn(Schema):
 
 class WorkflowInputOut(Schema):
     name: str
-    entity: UUID = Field(alias="entity_id")
-    hrid: str = Field(alias="entity.hrid")
-    revision: int = Field(description="Its revision when the workflow started.")
+    entity: UUID | None = Field(description="The record ID when you can read it.")
+    hrid: str | None
+    revision: int | None = Field(description="The starting revision, shown with its record.")
 
 
 class StepErrorOut(Schema):
@@ -416,8 +418,17 @@ def _runs_out(me: User, found: list[WorkflowRun]) -> list[dict[str, Any]]:
         )
         made["statuses"][row["status"]] = row["count"]
     inputs: dict[Any, list[Any]] = {}
-    for each in workflows.inputs_of(found):
-        inputs.setdefault(each.workflow_id, []).append(each)
+    pins = workflows.inputs_of(found)
+    projects_by_run = {run.pk: run.project_id for run in found}
+    readable, available = pin_access(me, {p.entity_id for p in pins}, set(projects_by_run.values()))
+    unavailable = set()
+    private_inputs = {p.workflow_id for p in pins if p.entity_id not in readable}
+    for each in pins:
+        inputs.setdefault(each.workflow_id, []).append(
+            {"name": each.name, **pin_out(each.entity, each.revision, readable)}
+        )
+        if (each.entity_id, projects_by_run[each.workflow_id]) not in available:
+            unavailable.add(each.workflow_id)
     reruns: dict[Any, list[dict[str, Any]]] = {}
     later = WorkflowRun.objects.filter(rerun_of__in=found).order_by("id")
     for again in later.values("id", "hrid", "rerun_of"):
@@ -429,6 +440,16 @@ def _runs_out(me: User, found: list[WorkflowRun]) -> list[dict[str, Any]]:
     out = []
     for run in found:
         spec = workflows.spec_of(run)
+        # A stored launch diagnostic can identify a pinned workflow input. Keep the
+        # outcome and its step visible to everyone who can read the workflow project.
+        private_steps = {
+            s.step
+            for s in steps.get(run.pk, [])
+            if run.pk in private_inputs and s.error and s.error.get("code") == "launch_failed"
+        }
+        error = run.error
+        if error and error.get("step") in private_steps:
+            error = {**error, "message": f"Step `{error['step']}` could not start."}
         out.append(
             {
                 **{f: getattr(run, f) for f in _FIELDS},
@@ -437,13 +458,19 @@ def _runs_out(me: User, found: list[WorkflowRun]) -> list[dict[str, Any]]:
                 "requested_by": run.requested_by,
                 "agent": agent_out(run.agent, run.client),
                 "inputs": inputs.get(run.pk, []),
+                "error": error,
                 "steps": [
                     {
                         **_step_out(spec, s.step),
                         "state": s.state,
                         "started_at": s.started_at,
                         "finished_at": s.finished_at,
-                        "error": s.error,
+                        "error": {
+                            "code": "launch_failed",
+                            "message": "The step could not start with its inputs.",
+                        }
+                        if s.step in private_steps
+                        else s.error,
                         "approval_requested_at": s.approval_requested_at,
                         "approval_expires_at": s.approval_expires_at,
                         "decision": _decision(s),
@@ -460,7 +487,7 @@ def _runs_out(me: User, found: list[WorkflowRun]) -> list[dict[str, Any]]:
                 "reruns": reruns.get(run.pk, []),
                 "can": {
                     "cancel": not run.finished and workflows.may_cancel(me, run),
-                    "rerun": workflows.may_rerun(me, run),
+                    "rerun": run.pk not in unavailable and workflows.may_rerun(me, run),
                 },
             }
         )
@@ -495,7 +522,6 @@ _FIELDS = (
     "created_at",
     "finished_at",
     "cancel_requested_at",
-    "error",
 )
 
 

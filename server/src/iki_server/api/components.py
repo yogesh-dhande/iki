@@ -15,14 +15,14 @@ from ninja import Field, Router, Schema
 from pydantic import ConfigDict
 
 from iki_server.api.common import caller, project, require_scope
-from iki_server.api.entities import Condition, RefOut, SortIn, _ids_in, _searching
+from iki_server.api.entities import Condition, RefOut, SortIn, _searching
 from iki_server.api.entities import _out as entities_out
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import ProjectRef
 from iki_server.components import places
 from iki_server.components.installed import components
 from iki_server.entities import search
-from iki_server.entities.values import shape
+from iki_server.entities.values import ids_in, shape
 from iki_server.org.permissions import Action
 from iki_spec.model import Component
 
@@ -264,7 +264,7 @@ def _projected(component: Component, full: dict[str, Any]) -> dict[str, Any]:
         if name in fields and name in full["values"]
     }
     # Values in the full API response already hold JSON (string) IDs.
-    ids = _ids_in({n: fields[n] for n in values}, values)
+    ids = ids_in({n: fields[n] for n in values}, values)
     return {
         "id": full["id"],
         "hrid": full["hrid"],

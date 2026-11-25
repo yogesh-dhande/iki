@@ -296,7 +296,10 @@ def rerun(
     may_start(user, of, project)
     steps = actions(of)
     given: dict[str, list[UUID]] = {}
-    for each in WorkflowInput.objects.filter(workflow=original).order_by("name", "position"):
+    pins = WorkflowInput.objects.filter(workflow=original)
+    if pins.exclude(entity__in=access.visible(user)).exists():
+        raise PermissionDenied
+    for each in pins.order_by("name", "position"):
         given.setdefault(each.name, []).append(each.entity_id)
     errors: dict[str, list[str]] = {}
     entities = services.check_inputs(
@@ -669,6 +672,9 @@ def _launch(
         if action is None:
             raise Refused(f"`{spec.plugin}.{declared.action}` is no longer installed.")
         inputs = _inputs(run, spec, declared.inputs, action, runs)
+        named = {pk for group in inputs.values() for pk in group}
+        if access.project_reference_ids(run.project, named) != named:
+            raise included.Unavailable()
         params = _params(run, declared.params)
         with audit.using(_context(run)):
             if declared.each is None:

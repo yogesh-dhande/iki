@@ -35,7 +35,6 @@ from iki_server.api.entities import (
     _etag,
     _expected,
     _find,
-    _ids_in,
     _invalid,
     _lookup,
     _one,
@@ -49,7 +48,7 @@ from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, ProjectRef, RegistryRef, TeamRef, UserOut
 from iki_server.entities import access, entries, services
 from iki_server.entities.models import Entity, Revision
-from iki_server.entities.values import Invalid, shape, to_json
+from iki_server.entities.values import Invalid, ids_in, shape, to_json
 from iki_server.org import permissions, registries
 from iki_server.org.models import Project, Registrar, Registry, Team
 from iki_server.org.permissions import Action
@@ -341,7 +340,8 @@ class EntryOut(Schema):
     revision: int = Field(description="Its latest revision. Send it back as If-Match.")
     created_at: datetime
     values: dict[str, Any] = Field(
-        description="Its identity, derived values and facts: every holding project's."
+        description="Its identity, derived values and facts: every holding project's. "
+        "References to entities you can't read are shown as `unreadable`."
     )
     refs: dict[str, RefOut]
     files: dict[str, FileRef]
@@ -382,12 +382,9 @@ def _entry(user: User, ref: str) -> tuple[Entity, bool]:
     return found, curates
 
 
-def _entry_out(user: User, entry: Entity, curates: bool) -> dict[str, Any]:
-    form = shape(entry.type)
-    fields = form.entry_fields()
-    values = services.current_values(services.specific(entry))
-    shown = {n: to_json(fields[n], v) for n, v in values.items() if n in fields}
-    wanted = _ids_in(fields, {n: v for n, v in values.items() if n in fields})
+def _entry_references(
+    user: User, entry: Entity, curates: bool, wanted: dict[str, set[Any]]
+) -> tuple[dict[Any, dict[str, Any]], dict[Any, dict[str, Any]]]:
     refs, files = _lookup(user, wanted)
     if curates:
         # A registrar reads the entries the registry's facts name.
@@ -400,6 +397,16 @@ def _entry_out(user: User, entry: Entity, curates: bool) -> dict[str, Any]:
                 "archived": False,
                 "purged": other.purged_at is not None,
             }
+    return refs, files
+
+
+def _entry_out(user: User, entry: Entity, curates: bool) -> dict[str, Any]:
+    form = shape(entry.type)
+    fields = form.entry_fields()
+    values = {
+        n: v for n, v in services.current_values(services.specific(entry)).items() if n in fields
+    }
+    refs, files = _entry_references(user, entry, curates, ids_in(fields, values))
     superseded = None
     found = entries.supersession(entry)
     if found is not None:
@@ -435,7 +442,7 @@ def _entry_out(user: User, entry: Entity, curates: bool) -> dict[str, Any]:
         "registry": entry.registry,
         "revision": entry.revision,
         "created_at": entry.created_at,
-        "values": shown,
+        "values": {n: to_json(fields[n], v, readable_refs=refs) for n, v in values.items()},
         "refs": {str(i): r for i, r in refs.items()},
         "files": {str(i): f for i, f in files.items()},
         "superseded": superseded,
@@ -592,13 +599,13 @@ def get_entry_revision(request: HttpRequest, ref: str, number: int) -> dict[str,
     fields = shape(entry.type).entry_fields(removed=True)
     values = services.revision_values(entry, number, fields)
     changes = {n: c for n, c in services.changes(entry, revision).items() if n in fields}
-    wanted = _ids_in(fields, values)
+    wanted = ids_in(fields, values)
     for name, (before, after) in changes.items():
-        for kind, ids in _ids_in(fields, {name: before}).items():
+        for kind, ids in ids_in(fields, {name: before}).items():
             wanted[kind] |= ids
-        for kind, ids in _ids_in(fields, {name: after}).items():
+        for kind, ids in ids_in(fields, {name: after}).items():
             wanted[kind] |= ids
-    refs, files = _lookup(me, wanted)
+    refs, files = _entry_references(me, entry, curates, wanted)
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
     told = (
         {**_revision(revision, _runs_of(me, [revision])), "entry": True}
@@ -607,9 +614,12 @@ def get_entry_revision(request: HttpRequest, ref: str, number: int) -> dict[str,
     )
     return {
         **told,
-        "values": {n: to_json(fields[n], v) for n, v in values.items()},
+        "values": {n: to_json(fields[n], v, readable_refs=refs) for n, v in values.items()},
         "changes": {
-            name: {"before": to_json(fields[name], before), "after": to_json(fields[name], after)}
+            name: {
+                "before": to_json(fields[name], before, readable_refs=refs),
+                "after": to_json(fields[name], after, readable_refs=refs),
+            }
             for name, (before, after) in changes.items()
         },
         "refs": {str(i): r for i, r in refs.items()},

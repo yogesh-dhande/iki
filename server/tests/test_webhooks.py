@@ -422,6 +422,27 @@ def test_only_chosen_events_are_sent(world: World) -> None:
     assert [d.event for d in deliveries(hook)] == ["project.archived"]
 
 
+def test_a_service_webhook_for_a_request_has_no_field_values(world: World) -> None:
+    from test_requests import build_lab, request_with_private_sample
+
+    lab = build_lab(world)
+    hook, _ = services.create(
+        project=lab.core,
+        url="https://hooks.example.com/requests",
+        description="Incoming requests",
+        chosen=["request.received"],
+        by=lab.users["core_admin"],
+    )
+    made, shared, private = request_with_private_sample(lab)
+    (delivery,) = deliveries(hook)
+    assert delivery.event == "request.received"
+    data = delivery.payload["data"]
+    assert data["entity"]["id"] == made["id"]
+    assert data["sent"] == [{"id": shared["id"]}]
+    assert "values" not in data and "values" not in data["entity"]
+    assert private["id"] not in json.dumps(data) and private["hrid"] not in json.dumps(data)
+
+
 def test_membership_changes_say_who_and_which_role(world: World) -> None:
     hook = make(
         world,

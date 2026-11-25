@@ -4,25 +4,26 @@ An action's input can ``include`` reference fields of its type, such as a struct
 ``chains``, or a list of rows' references, such as a complex's ``components.part`` (ADR
 0161). When a run is launched, each input entity's references
 are pinned, as its inputs are: the entity each names, at the revision it has then. The run
-reads them at those revisions, under each input entity's ``included``, whatever changes
-after. A run reads only what its launcher can read and what's in its project, so the
-references' entities must be both: ones from other projects are added to it as its
-inputs are, when the launch asks.
+reads them at those revisions under each input entity's ``included``. Its launcher
+authorizes the inputs and each lease checks that the run's project can still read the
+complete input document.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 from uuid import UUID
 
 from iki_server.accounts.models import User
 from iki_server.entities import access, registry
 from iki_server.entities.models import Entity
-from iki_server.entities.values import shape, to_json
-from iki_server.runs.models import ActionRun, RunInclusion
+from iki_server.entities.values import UNREADABLE_REFERENCE, reference_positions, shape, to_json
+from iki_server.org.models import Project
+from iki_server.org.services import Refused
+from iki_server.runs.models import ActionRun, RunInclusion, RunInput
 from iki_spec.model import Action, amount_of, included_reference
 
 
@@ -226,54 +227,139 @@ def keyed(pins: Iterable[Pin]) -> list[list[Any]]:
     )
 
 
-def document(
-    entity: Entity, revision: int, entry_revision: int | None, files: set[UUID]
-) -> dict[str, Any]:
-    """Serialize a direct or included input at its pins, also collecting its files."""
+def _included_path(pin: Pin | RunInclusion) -> str:
+    return f"/{pin.input}/{pin.position}/included/{pin.field}/{pin.index}"
+
+
+def _value_path(prefix: str, at: tuple[str | int, ...]) -> str:
+    return f"{prefix}/values/{'/'.join(map(str, at))}"
+
+
+def reference_mask(
+    project: Project,
+    entities: Mapping[str, Sequence[Entity]],
+    entry_revisions: Mapping[UUID, int | None],
+    pins: Sequence[Pin],
+) -> list[str]:
+    """Pin the positions shown as unreadable in the command's input document."""
+    from iki_server.entities.services import values_and_entry_at
+
+    slots: dict[str, UUID] = {}
+    entries: set[UUID] = set()
+
+    def collect(entity: Entity, revision: int, entry_revision: int | None, prefix: str) -> None:
+        values, entry = values_and_entry_at(entity, revision, entry_revision)
+        fields = shape(entity.type).fields()
+        slots.update(
+            (_value_path(prefix, at), pk) for at, pk in reference_positions(fields, values)
+        )
+        if entry is not None:
+            entries.add(entry[0])
+
+    for name, group in entities.items():
+        for index, given in enumerate(group):
+            collect(given, given.revision, entry_revisions[given.pk], f"/{name}/{index}")
+    for pin in pins:
+        collect(pin.entity, pin.revision, pin.entry_revision, _included_path(pin))
+    readable = entries | access.project_reference_ids(project, set(slots.values()) - entries)
+    return sorted(path for path, pk in slots.items() if pk not in readable)
+
+
+class Unavailable(Refused):
+    """The project's readers must be able to receive the complete pinned document."""
+
+    def __init__(self) -> None:
+        super().__init__("The run needs every pinned input, reference and file in its project.")
+
+
+@dataclass
+class Manifest:
+    """The command's exact input records and files at the run's pins."""
+
+    inputs: dict[str, list[dict[str, Any]]]
+    input_files: set[UUID] = field(default_factory=set)
+    param_files: set[UUID] = field(default_factory=set)
+
+
+def manifest(run: ActionRun) -> Manifest:
+    """Read and authorize the same pinned documents for launch, reuse and each lease."""
     from iki_server.entities.services import values_and_entry_at
     from iki_server.runs import input_files
 
-    values, entry = values_and_entry_at(entity, revision, entry_revision)
-    fields = shape(entity.type).fields()
-    visible_values = {n: to_json(fields[n], v) for n, v in values.items() if n in fields}
-    for name in visible_values:
-        files.update(input_files.file_ids(fields[name], values[name]))
-    row = {
-        "id": str(entity.pk),
-        "hrid": entity.hrid,
-        "type": entity.type,
-        "schema_version": registry.types()[entity.type].schema_version,
-        "revision": revision,
-        "values": visible_values,
-    }
-    amount = amount_of(entity.type, registry.types())
-    if amount is not None and amount.material is not None:
-        row["material_field"] = amount.material
-    if entity.entry_id is not None and entry is not None:
-        entry_id, _ = entry
-        row["entry_id"] = str(entry_id)
-        if entry_revision is not None:
-            row["entry_revision"] = entry_revision
-        if entity.entry_id != entry_id:
-            row["hrid"] = Entity.objects.values_list("hrid", flat=True).get(pk=entry_id)
-    return row
-
-
-def documents(
-    runs: Sequence[ActionRun],
-) -> tuple[dict[tuple[UUID, str, int], dict[str, list[dict[str, Any]]]], set[UUID]]:
-    """For a job's runs: each input entity's ``included``, by (run, input, position), as the
-    run input has it, and the files their values hold."""
-    out: dict[tuple[UUID, str, int], dict[str, list[dict[str, Any]]]] = defaultdict(dict)
-    files: set[UUID] = set()
-    rows = (
-        RunInclusion.objects.filter(run__in=[r.pk for r in runs])
-        .select_related("entity")
-        .order_by("run_id", "input", "position", "field", "index")
+    imported = run.imported or {}
+    if imported.get("inputs") or imported.get("included"):
+        raise Unavailable()
+    result = Manifest(
+        {name: [] for name in run.spec["inputs"]}, param_files=input_files.of_params(run)
     )
-    for row in rows:
-        item = document(row.entity, row.revision, row.entry_revision, files)
-        if row.covered_materials is not None:
-            item["covered_materials"] = row.covered_materials
-        out[(row.run_id, row.input, row.position)].setdefault(row.field, []).append(item)
-    return out, files
+    references: set[UUID] = set()
+    entries: set[UUID] = set()
+    records: set[UUID] = set()
+    mask = set(run.reference_mask)
+
+    def document(row: RunInput | RunInclusion, prefix: str) -> dict[str, Any]:
+        entity = row.entity
+        if entity.purged_at is not None:
+            raise Unavailable()
+        records.add(entity.pk)
+        values, entry = values_and_entry_at(entity, row.revision, row.entry_revision)
+        fields = shape(entity.type).fields()
+        shown = {n: to_json(fields[n], v) for n, v in values.items() if n in fields}
+        for at, pk in reference_positions(fields, values):
+            path = _value_path(prefix, at)
+            if path in mask:
+                containing: Any = shown
+                for key in at[:-1]:
+                    containing = containing[key]
+                containing[at[-1]] = UNREADABLE_REFERENCE
+                mask.remove(path)
+            else:
+                references.add(pk)
+        for name in shown:
+            result.input_files.update(input_files.file_ids(fields[name], values[name]))
+        item = {
+            "id": str(entity.pk),
+            "hrid": entity.hrid,
+            "type": entity.type,
+            "schema_version": registry.types()[entity.type].schema_version,
+            "revision": row.revision,
+            "values": shown,
+        }
+        amount = amount_of(entity.type, registry.types())
+        if amount is not None and amount.material is not None:
+            item["material_field"] = amount.material
+        if entity.entry_id is not None and entry is not None:
+            entry_id, _ = entry
+            entries.add(entry_id)
+            item["entry_id"] = str(entry_id)
+            if row.entry_revision is not None:
+                item["entry_revision"] = row.entry_revision
+            if entity.entry_id != entry_id:
+                item["hrid"] = Entity.objects.values_list("hrid", flat=True).get(pk=entry_id)
+        return item
+
+    nested: dict[tuple[str, int], dict[str, list[dict[str, Any]]]] = defaultdict(dict)
+    for pin in run.inclusions.select_related("entity").order_by(
+        "input", "position", "field", "index"
+    ):
+        item = document(pin, _included_path(pin))
+        if pin.covered_materials is not None:
+            references.update(UUID(pk) for pk in pin.covered_materials)
+            item["covered_materials"] = pin.covered_materials
+        nested[(pin.input, pin.position)].setdefault(pin.field, []).append(item)
+    for given in run.inputs.select_related("entity").order_by("name", "position"):
+        item = document(given, f"/{given.name}/{given.position}")
+        if includes := run.spec["inputs"].get(given.name, {}).get("include"):
+            pinned = nested[(given.name, given.position)]
+            item["included"] = {name: pinned.get(name, []) for name in includes}
+        result.inputs.setdefault(given.name, []).append(item)
+
+    # The record's pinned revision authorizes its historical registry identity after a move.
+    named = records | (references - entries)
+    if mask or access.project_reference_ids(run.project, named) != named:
+        raise Unavailable()
+    if result.param_files and access.project_files(run.project).filter(
+        pk__in=result.param_files
+    ).count() != len(result.param_files):
+        raise Unavailable()
+    return result

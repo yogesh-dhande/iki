@@ -7725,7 +7725,7 @@ export interface components {
             updated_at: string;
             /**
              * Values
-             * @description Its fields' values, as its type's schema says.
+             * @description Its fields' values, as its type's schema says. A reference to an entity you can't read is the string `unreadable` instead of an ID.
              */
             values: {
                 [key: string]: unknown;
@@ -8322,7 +8322,7 @@ export interface components {
             updated_at: string;
             /**
              * Values
-             * @description Its fields' values, as its type's schema says.
+             * @description Its fields' values, as its type's schema says. A reference to an entity you can't read is the string `unreadable` instead of an ID.
              */
             values: {
                 [key: string]: unknown;
@@ -8517,7 +8517,7 @@ export interface components {
             type: string;
             /**
              * Values
-             * @description Its identity, derived values and facts: every holding project's.
+             * @description Its identity, derived values and facts: every holding project's. References to entities you can't read are shown as `unreadable`.
              */
             values: {
                 [key: string]: unknown;
@@ -9400,7 +9400,7 @@ export interface components {
              */
             created_at: string;
             editor?: components["schemas"]["PersonRef"] | null;
-            /** @description Whose change fired it; null on a schedule. */
+            /** @description The visible entity whose change fired it. */
             entity: components["schemas"]["FiredEntityOut"] | null;
             error: components["schemas"]["FiringErrorOut"] | null;
             /**
@@ -9426,7 +9426,7 @@ export interface components {
             } | null;
             /**
              * Revision
-             * @description The revision the change made; null on a schedule.
+             * @description The revision of the visible entity whose change fired it.
              */
             revision: number | null;
             run: components["schemas"]["FiredRunOut"] | null;
@@ -10673,10 +10673,9 @@ export interface components {
         ImportedInclusionOut: {
             /**
              * Entity
-             * Format: uuid
-             * @description Its ID there: it isn't here.
+             * @description Its source ID, subject to read access here.
              */
-            entity: string;
+            entity: string | null;
             /** Field */
             field: string;
             /** Index */
@@ -10686,22 +10685,21 @@ export interface components {
             /** Position */
             position: number;
             /** Revision */
-            revision: number;
+            revision: number | null;
         };
         /** ImportedInputOut */
         ImportedInputOut: {
             /**
              * Entity
-             * Format: uuid
-             * @description Its ID there: it isn't here.
+             * @description Its source ID, subject to read access here.
              */
-            entity: string;
+            entity: string | null;
             /** Name */
             name: string;
             /** Position */
             position: number;
             /** Revision */
-            revision: number;
+            revision: number | null;
         };
         /** InboxFilters */
         InboxFilters: {
@@ -11468,7 +11466,7 @@ export interface components {
             updated_at: string;
             /**
              * Values
-             * @description Its fields' values, as its type's schema says.
+             * @description Its fields' values, as its type's schema says. A reference to an entity you can't read is the string `unreadable` instead of an ID.
              */
             values: {
                 [key: string]: unknown;
@@ -11497,9 +11495,9 @@ export interface components {
             confirmed: string;
             /**
              * Counterpart
-             * @description The other record, if there is one.
+             * @description The other record's ID, or `unreadable` if you can't read it.
              */
-            counterpart: string | null;
+            counterpart: string | "unreadable" | null;
             /**
              * Created At
              * Format: date-time
@@ -11532,14 +11530,14 @@ export interface components {
              * Source
              * @description Where a container's material came from, as its type's `follows` says: its lot (ADR 0180).
              */
-            source?: string | null;
+            source?: string | "unreadable" | null;
             /** Unit */
             unit: string;
             /**
              * Used In
-             * @description What a draw went into, such as an analysis or an experiment.
+             * @description What a draw went into. An unreadable record is shown as `unreadable`.
              */
-            used_in?: string | null;
+            used_in?: string | "unreadable" | null;
             user: components["schemas"]["UserOut"] | null;
             /** Via */
             via: string;
@@ -14517,7 +14515,7 @@ export interface components {
             changed_fields: string[];
             /**
              * Changes
-             * @description What this revision changed.
+             * @description What this revision changed, as you can read it.
              */
             changes: {
                 [key: string]: components["schemas"]["ChangeOut"];
@@ -14591,7 +14589,7 @@ export interface components {
             user: components["schemas"]["UserOut"] | null;
             /**
              * Values
-             * @description Every field's value as it was at this revision.
+             * @description Every field's value as it was at this revision. References to entities you can't read are shown as `unreadable`.
              */
             values: {
                 [key: string]: unknown;
@@ -15268,16 +15266,16 @@ export interface components {
         RunInclusionOut: {
             /**
              * Entity
-             * Format: uuid
+             * @description The record ID when you can read it.
              */
-            entity: string;
+            entity: string | null;
             /**
              * Field
              * @description The reference.
              */
             field: string;
             /** Hrid */
-            hrid: string;
+            hrid: string | null;
             /**
              * Index
              * @description Its place in the reference, from 0: a list's can be more.
@@ -15295,26 +15293,26 @@ export interface components {
             position: number;
             /**
              * Revision
-             * @description The revision the run read.
+             * @description The revision read, shown with its record.
              */
-            revision: number;
+            revision: number | null;
         };
         /** RunInputOut */
         RunInputOut: {
             /**
              * Entity
-             * Format: uuid
+             * @description The record ID when you can read it.
              */
-            entity: string;
+            entity: string | null;
             /** Hrid */
-            hrid: string;
+            hrid: string | null;
             /** Name */
             name: string;
             /**
              * Revision
-             * @description The revision the run read.
+             * @description The revision read, shown with its record.
              */
-            revision: number;
+            revision: number | null;
         };
         /** RunOut */
         RunOut: {
@@ -16839,9 +16837,9 @@ export interface components {
             deployment: string;
             /**
              * Document
-             * @description What was signed, exactly: canonical JSON (RFC 8785), format iki/signature/v1.
+             * @description The exact canonical JSON (iki/signature/v1) when the reader can identify the entry it names.
              */
-            document: string;
+            document: string | null;
             /**
              * Entry Revision
              * @description For a record of a registry entry: the entry's revision it signs.
@@ -18297,14 +18295,14 @@ export interface components {
             enabled_by: components["schemas"]["PersonRef"] | null;
             /**
              * Entity
-             * @description The entity whose change fired it; null on a schedule.
+             * @description The visible entity whose change fired it.
              */
             entity: string | null;
             /**
              * Event
              * @enum {string}
              */
-            event: "entity.created" | "entity.updated" | "schedule";
+            event: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "schedule";
             /**
              * Label
              * @description Its label, or its name once it's no longer installed.
@@ -18317,7 +18315,7 @@ export interface components {
             name: string;
             /**
              * Revision
-             * @description The revision the change made; null on a schedule.
+             * @description The revision of the visible entity whose change fired it.
              */
             revision: number | null;
             /**
@@ -19609,18 +19607,18 @@ export interface components {
         WorkflowInputOut: {
             /**
              * Entity
-             * Format: uuid
+             * @description The record ID when you can read it.
              */
-            entity: string;
+            entity: string | null;
             /** Hrid */
-            hrid: string;
+            hrid: string | null;
             /** Name */
             name: string;
             /**
              * Revision
-             * @description Its revision when the workflow started.
+             * @description The starting revision, shown with its record.
              */
-            revision: number;
+            revision: number | null;
         };
         /** WorkflowOut */
         WorkflowOut: {

@@ -213,8 +213,12 @@ in the same registry. A supersession can't be undone.
 
 **Holders are told, and move their records themselves.** Each holding
 project's Admins, and whoever added its record, get a notification, and
-the project's webhooks hear `entry.superseded`. The record shows what
-replaced it. An Editor in the project moves the record with
+the project's webhooks hear `entry.superseded`. The record, notification and
+webhook identify the replacement by its registry HRID. The record and
+webhook also carry its entry UUID. The replacement's facts and project
+records follow their own read permissions. Each notification is visible and
+eligible for email while its recipient can read the holding project. An
+Editor moves the record with
 `POST /entities/{id}/move`: the record (its data, history and runs) now
 holds the replacement, and the project's own records that refer to the old
 entry refer to the new one, each as a revision giving the reason. That's a

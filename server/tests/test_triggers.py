@@ -18,6 +18,7 @@ from iki_server.accounts import service_accounts
 from iki_server.accounts.models import User
 from iki_server.audit.models import AuditEvent, Via
 from iki_server.entities import search
+from iki_server.entities.models import ProjectLink
 from iki_server.graph import queries
 from iki_server.notifications.models import Notification
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
@@ -234,6 +235,24 @@ def test_a_new_entity_fires_a_run_as_the_admin(world: World) -> None:
     # A person's own runs say nothing of triggers.
     own = launch(api_as(world, "editor"), world.project, {"protein": kit["id"]})
     assert own.json()["trigger"] is None
+
+
+def test_trigger_history_names_the_firing_record_according_to_current_access(world: World) -> None:
+    on(world)
+    entity = protein(api_as(world, "editor"), world.project, "kit")
+    run_tasks()
+    run = ActionRun.objects.get()
+    # Simulate a firing whose record is now private to its own readers.
+    ProjectLink.objects.filter(project=world.project, entity_id=entity["id"]).delete()
+    result = api_as(world, "viewer").get(f"/runs/{run.hrid}")
+    assert result.status_code == 200, result.content
+    assert (
+        entity["hrid"].encode() not in result.content
+        and entity["id"].encode() not in result.content
+    )
+    assert result.json()["trigger"]["event"] == "entity.created"
+    (firing,) = firings(world)
+    assert firing["entity"] is None and firing["revision"] is None
 
 
 # --- Related entities (ADR 0123) ----------------------------------------------------------------

@@ -340,6 +340,32 @@ def test_a_reproduction_says_where_its_results_differ(world: World) -> None:
     )
 
 
+def test_a_comparison_shows_record_values_to_their_current_readers(world: World) -> None:
+    from test_run_projects import elsewhere
+
+    editor = api_as(world, "editor")
+    other = protein(editor, elsewhere(world), "src")
+    first, _ = ran_import(world, stored(world))
+    again = reproduce(world, first).json()
+    worker_ = pod(world, name="comparison")
+    job = worker_.lease().json()
+    creates = [
+        {**c, "origin": origin(first["params"]["file"], c["values"]["name"])} for c in KINASES
+    ]
+    creates[0]["values"] = {**creates[0]["values"], "source": other["id"]}
+    assert (
+        done(worker_, job, output(creates=creates, metrics={"records": 3}))["run_status"]
+        == "succeeded"
+    )
+    path = "#/creates/0/values/source"
+    for who, expected in [("editor", other["id"]), ("viewer", "unreadable")]:
+        differences = {
+            d["pointer"]: d for d in seen(world, again, who)["reproduction"]["differences"]
+        }
+        assert differences[path]["reproduced"] == expected
+        assert differences["#/metrics/records"]["reproduced"] == 3
+
+
 def test_a_reused_run_is_reproduced_as_the_run_it_reused(world: World) -> None:
     file_id = stored(world)
     first, _ = ran_import(world, file_id)

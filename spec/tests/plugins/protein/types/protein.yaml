@@ -39,6 +39,7 @@ fields:
     indexed: true
     unique: true
   hazard: { type: enum, registry: fact, values: [none, bsl1, bsl2, bsl3] }
+  related_entry: { type: ref, to: Protein, registry: fact }
   # A fixed fact (ADR 0142): given when the entry is registered, never changed.
   standard:
     type: string
