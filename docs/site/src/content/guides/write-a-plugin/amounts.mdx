@@ -70,13 +70,28 @@ fields:
 - Each aliquot depends on what it was split from, and a record transferred into depends on what
   was moved into it. A draw with `used_in` links the receiving record to the stock it used.
   Lineage walks can follow or filter these edges as `aliquot`, `transfer` or `used`.
-- [`material`](/reference/plugin-spec/entity-type/#amount.material) names an immutable reference
-  of the type to what its amount is of, such as a lot's catalogue item (`amount-material`). An
-  empty container can leave it unset and name its contents when it's first filled, but a record
-  with a positive amount must name its material. A transfer into one of its records takes only material of that entity, from
-  a record whose type says so too (a reference to a registry entry and one to a project's record of
-  it are the same entity), and its aliquots are of it too, whatever they're given. Pooling different
-  materials makes a mixture: a record of its own.
+- [`material`](/reference/plugin-spec/entity-type/#amount.material) says what the ledger measures
+  (`amount-material`). For material a container holds, such as a tube's `contents`, or a lot of a
+  registered molecule, it names an immutable reference field of the type. `material: id` says the
+  record is the material itself. Such a type declares `aliquots` of a type whose ledger names a
+  reference field as its material. The Lots plugin's strain isolates do this: two isolates of the
+  same registered strain are different materials, and splitting an isolate into glycerol stocks
+  fills each stock's `contents` with the isolate's ID:
+
+  ```yaml
+  name: StrainIsolate
+  amount:
+    unit: uL
+    label: Unvialed volume
+    material: id
+    aliquots: { type: GlycerolStock, of: isolate }
+  ```
+
+- A record with a positive amount must have its material identified. An empty container can leave
+  it unset and name its contents when it's first filled.
+- A transfer into a record takes only the material its ledger measures. For registry material, a
+  reference to a registry entry and one to a project's record of that entry match. Pooling
+  different materials makes a mixture: a record of its own.
 - A transfer into a record a state locks, such as a released lot, takes only material from a
   record in that same state, so nothing that wasn't released becomes part of what was.
 - [`follows`](/reference/plugin-spec/entity-type/#amount.follows) names references whose records'

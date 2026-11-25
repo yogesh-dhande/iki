@@ -30,8 +30,8 @@ names its tab. The validator checks that each field exists and is what its viewe
 | Viewer      | What it shows, from which fields                                                                                                                                                                                                                                                                                                                                                         |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sequence`  | The residues of a [`sequence`](/reference/plugin-spec/entity-type/#display.viewers.sequence) field, in rows of 60 in groups of 10, with its [`features`](/reference/plugin-spec/entity-type/#display.viewers.features) as bars under the residues they cover and in a table, and [`tracks`](/reference/plugin-spec/entity-type/#display.viewers.tracks) of one number per residue under them |
-| `structure` | The file in a [`structure`](/reference/plugin-spec/entity-type/#display.viewers.structure) field, in Mol\*, in a sandboxed frame with no network                                                                                                                                                                                                                                       |
-| `alignment` | The aligned FASTA file in an [`alignment`](/reference/plugin-spec/entity-type/#display.viewers.alignment) field, read in a Web Worker, with the [`rows`](/reference/plugin-spec/entity-type/#display.viewers.rows) linked to the records they are and the [`reference`](/reference/plugin-spec/entity-type/#display.viewers.reference) pinned at the top                                      |
+| `structure` | The file in a [`structure`](/reference/plugin-spec/entity-type/#display.viewers.structure) field, whose formats use the `structure-pdb` or `structure-mmcif` viewer, in Mol\*, in a sandboxed frame with no network |
+| `alignment` | The aligned file in an [`alignment`](/reference/plugin-spec/entity-type/#display.viewers.alignment) field, whose formats use the `alignment` viewer, FASTA and plain text among them, read in a Web Worker, with the [`rows`](/reference/plugin-spec/entity-type/#display.viewers.rows) linked to the records they are and the [`reference`](/reference/plugin-spec/entity-type/#display.viewers.reference) pinned at the top                                      |
 
 - A sequence is shown as it's stored, so an RNA's U stays U, with its length in bp for DNA, nt for
   RNA and residues for a protein. A feature whose end comes before its start wraps the origin of
@@ -39,6 +39,7 @@ names its tab. The validator checks that each field exists and is what its viewe
   `maximum`, if it gives them.
 - The alignment viewer draws what's in view, with a consensus and how much each column agrees,
   and its rows can be picked to run an action on.
+- Which file formats each viewer reads is in [File formats](/reference/file-formats/).
 - A viewer's tab lists the views it's in, and saves what it shows as an `iki/core.View`, on the
   revision it shows, with other records beside it if wanted.
 

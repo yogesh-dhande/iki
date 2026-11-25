@@ -71,6 +71,20 @@ Helm values, and `iki deploy build --mirror`. A plugin from a mirror must be at 
 lockfile pins, with a tree Iki's repository has had, as the `iki` CLI's
 `first_party_trees.json` lists them.
 
+### Examples and fixtures are for tests
+
+`iki deploy build` checks where every active and detached plugin comes from. It refuses one pinned
+to these directories of Iki's repository, or of a mirror the deployment names, even at a full
+commit (`test-only-source`):
+
+- `examples/plugins/` and `plugin-template/`
+- `spec/tests/`, `server/tests/` and `deploy/dev/fixtures/`
+- `deploy/live/plugins/live_check/`
+
+Deploy a lab's adaptation of one of them from the lab's own repository, under its own name. To
+build them as they are, in CI or a live check, pass `--test-only`. A `local:` directory also needs
+`--allow-local`.
+
 ## Say which machines run actions
 
 `compute.yaml` holds compute templates, the machines a deployment runs actions on, and bindings,

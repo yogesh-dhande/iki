@@ -93,6 +93,11 @@ A file holds as many tests as you like, each its own YAML document after `---`.
   created in the earlier build. The upgrade test prefers the marked tests of the earlier commit,
   and a plugin can mark tests of its own for earlier commits whose tests give only part of a
   record ([Upgrade a plugin without losing history](/guides/upgrade-a-plugin/)).
+- On a marked test, [`after`](/reference/plugin-spec/action-test/#after) gives the values each of
+  its records must hold once the upgrade has migrated them. `after: { sample: [{ notes: S1 }] }`
+  checks the first and only record of the `sample` input. Give one map of fields for each record
+  of each input it names. Values are compared exactly
+  ([Fill in values for existing records](/guides/upgrade-a-plugin/#fill-in-values-for-existing-records)).
 
 The run input has fixed IDs and a fixed seed, so a deterministic action writes the same every
 time. The fixture's run input builder, `iki_spec.action_tests`,

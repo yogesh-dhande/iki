@@ -60,6 +60,20 @@ plugins:
 The lockfile's and `compute.yaml`'s full format is in
 [Configure a deployment's plugins and compute](/guides/configure-plugins-and-compute/).
 
+### Choose each plugin's source
+
+Pin each of Iki's own plugins to its directory in Iki's repository, `plugins/<name>`. Pin a lab's
+own plugin to the reviewed commit in your lab's repository, by the name in its manifest. To adapt
+one of Iki's worked examples, in `examples/plugins/` of Iki's repository, copy it to your lab's
+repository, give it a name in your namespace, and pin your copy: the README there says how to copy
+and test it.
+
+By default, `iki deploy build` refuses an active or detached plugin pinned to one of Iki's
+example, template, fixture or live-check directories, in Iki's repository or a mirror named under
+`plugins.mirrors` (`test-only-source`). The template's staging and production builds use that
+default. A separate deployment for CI or live checks can pass `--test-only` to build an official
+example in place. A plugin pinned with `local:` also needs `--allow-local`.
+
 ## How a change reaches a deployment
 
 1. **Change it in a pull request.** For example, pin a plugin's new commit in
@@ -179,6 +193,11 @@ policy-controller or Kyverno, for example. For the plugins' images that containe
 the build approves each by signing it into `ghcr.io/<owner>/iki-<deployment>-approvals`, and the
 chart's `containerTier.imagePolicy` admits only those in the runs' namespace, with
 policy-controller.
+
+On the reference Google Cloud deployment, put the reviewed `image.yaml` in OpenTofu's
+`config_image_files` before deploying. The build signs the GHCR images and pins both digests in
+that file. For a rolling update, admit both the current and incoming pins until the rollout
+finishes: see [Install the cluster's controllers](/guides/deploy-on-google-cloud/#install-the-clusters-controllers).
 
 ### Argo CD or Flux
 

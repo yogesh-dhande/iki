@@ -108,6 +108,10 @@ public_host = "iki.example.com"
 # Your CI's service account, which pushes the server, worker and plugins' images:
 # image_writers = ["serviceAccount:ci@acme-iki-production.iam.gserviceaccount.com"]
 
+# When your config repository publishes to GHCR, point at its reviewed build output.
+# During a rollout, list the current and incoming image.yaml files from their checkouts.
+# config_image_files = ["/path/to/iki-config/deployments/production/image.yaml"]
+
 # Images the cluster may run besides this deployment's repositories, Iki's and External
 # Secrets' (Binary Authorization refuses the rest):
 # plugin_images = ["ghcr.io/yogesh-dhande/iki-*", "ghcr.io/acme/iki-plugins/**"]
@@ -158,8 +162,17 @@ cluster autoscaler and the CSI drivers.
 The cluster starts only images Binary Authorization allows (`out allowed_images`): this
 deployment's repositories (`out images`), Iki's, External Secrets', the first-party plugins', and
 GKE's own. Before installing anything else, add its images to `extra_images` and apply, or GKE
-refuses its pods, and the audit logs say which image. A server or worker built with your plugins
-goes in the `server` or `worker` repository, pushed by your CI (`image_writers`).
+refuses its pods, and the audit logs say which image.
+
+Your CI can push its plugin builds to the `server` and `worker` repositories, as `image_writers`.
+If you use the GHCR builds of a [configuration repository](/guides/keep-configuration-in-a-repository/),
+set `config_image_files` to the paths of this deployment's reviewed `image.yaml` files.
+Binary Authorization then admits the server and backend worker by their exact digests.
+
+- Before merging the deployment's pull request, apply with the current and incoming files, each
+  from its own checkout of the configuration repository.
+- After the rollout, remove the old file, or keep its pins for a rollback.
+- Give the cluster pull access to private GHCR packages through the chart's `imagePullSecrets`.
 
 ## Store the secrets and make the database's roles
 

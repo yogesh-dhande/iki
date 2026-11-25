@@ -242,7 +242,9 @@ server, whose user needs `CREATEDB`, it:
 3. deploys the plugin as it is now, and checks every sample is still there with its history;
 4. deploys the earlier commit again, as a rollback, and checks the samples have their values.
 
-The scratch database is dropped at the end.
+The scratch database is dropped at the end. A migration that fills in values with
+`MigrateValues` is checked against a marked test's `after`: see
+[Fill in values for existing records](/guides/upgrade-a-plugin/#fill-in-values-for-existing-records).
 
 ```console
 $ iki plugin test iki-plugin-example --with iki/plugins/dna --upgrade-from origin/main \
@@ -356,8 +358,15 @@ another version built.
 | `--images FILE`                | Also write the images its container-tier runs use, one per line, pinned by digest, for its build to sign so the cluster admits them. |
 | `--environments-dir DIRECTORY` | Where the worker image builds environments. Defaults to `/opt/iki/envs`.                      |
 | `--allow-local`                | Accept `local:` plugins, from directories, for development. Servers refuse them unless told to. |
+| `--test-only`                  | Accept Iki's example, template and fixture plugins, for CI and live tests.                    |
 | `--mirror URL`                 | Fetch Iki's own plugins from this mirror of Iki's repository. Repeat for several, tried in order. |
 | `--cache DIRECTORY`            | Where to keep fetched repositories. Defaults to `~/.cache/iki/git`.                          |
+
+By default, it refuses an active or detached plugin pinned to one of the example, template,
+fixture or live-check directories of Iki's repository or its mirrors (`test-only-source`). To
+deploy one of those, copy it to your lab's repository, give it your plugin name, and pin the
+reviewed commit. CI and live tests can build Iki's own with `--test-only`, and one from a local
+checkout with both `--test-only` and `--allow-local`.
 
 With `--workers build/worker`, it also writes what the deployment's backend workers need, from the
 same commits as the server, so both agree on each run's code:

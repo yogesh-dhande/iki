@@ -1,6 +1,6 @@
 ---
 title: Declare a record type and its fields
-description: A record type's name, IDs and title, its fields and their types, lists of rows, units, formats and patterns, IDs from other systems, removing fields, and adding fields to another plugin's type.
+description: A record type's name, IDs and title, its fields and their types, file formats, lists of rows, units, formats and patterns, IDs from other systems, removing fields, and adding fields to another plugin's type.
 audience: build
 order: 20
 reference:
@@ -107,26 +107,28 @@ Each field has a [`type`](/reference/plugin-spec/field/#type), and may have:
 - [`removed`](/reference/plugin-spec/field/#removed): see
   [Removing a field](#removing-a-field).
 
-Each type takes its own options, such as `max_length` for a string or `unit` for a quantity; the
-reference lists [which keys each type takes](/reference/plugin-spec/field/#by-type).
+Each type takes its own options, such as `max_length` for a string or `unit` for a quantity. Each
+type in the table below links to its row of
+[Keys by field type](/reference/plugin-spec/field/#by-type), which lists every key it takes, each
+linked to what it means.
 
 | Type       | What it holds                                                                                                                                 |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `string`   | One line. Never empty unless `min_length: 0`. An indexed string has a `max_length` of at most 600 (`index-needs-max-length`).                 |
-| `text`     | Long text. Not indexable: searched by its words instead.                                                                                      |
-| `int`      | A 64-bit whole number.                                                                                                                        |
-| `float`    | A double-precision number.                                                                                                                    |
-| `bool`     | `true` or `false`.                                                                                                                            |
-| `enum`     | One of its `values`: letters, digits and `_ . + -`.                                                                                           |
-| `date`     | A day. Defaults are written `YYYY-MM-DD`.                                                                                                     |
-| `datetime` | A moment, always with a time zone. No default.                                                                                                |
-| `quantity` | A number in its `unit`, a UCUM code (below). `min` and `max` are in that unit.                                                                |
-| `file`     | A file, of `media_types` such as `[application/json, image/*]`, up to `max_size` such as `2GiB` (at most 5 TiB).                              |
-| `ref`      | A reference to another record, of the type `to` names or its subtypes; `iki/core.Entity` for any.                                             |
-| `person`   | Someone in the record's project: see [Name people in records](/guides/write-a-plugin/people/).                                                |
-| `list`     | A list of `items`: a type and its options without the flags, or rows (below). No lists of lists.                                              |
-| `json`     | JSON, matching its `schema`, a JSON Schema, if it has one (`invalid-json-schema`). Forms start from the schema's `default`. Not indexable.    |
-| `state`    | Where the record is in a process: see [Track where a record is with state fields](/guides/write-a-plugin/states/).                            |
+| [`string`](/reference/plugin-spec/field/#type-string) | One line. Never empty unless `min_length: 0`. An indexed string has a `max_length` of at most 600 (`index-needs-max-length`).                 |
+| [`text`](/reference/plugin-spec/field/#type-text) | Long text. Not indexable: searched by its words instead.                                                                                      |
+| [`int`](/reference/plugin-spec/field/#type-int) | A 64-bit whole number.                                                                                                                        |
+| [`float`](/reference/plugin-spec/field/#type-float) | A double-precision number.                                                                                                                    |
+| [`bool`](/reference/plugin-spec/field/#type-bool) | `true` or `false`.                                                                                                                            |
+| [`enum`](/reference/plugin-spec/field/#type-enum) | One of its `values`: letters, digits and `_ . + -`.                                                                                           |
+| [`date`](/reference/plugin-spec/field/#type-date) | A day. Defaults are written `YYYY-MM-DD`.                                                                                                     |
+| [`datetime`](/reference/plugin-spec/field/#type-datetime) | A moment, always with a time zone. No default.                                                                                                |
+| [`quantity`](/reference/plugin-spec/field/#type-quantity) | A number in its `unit`, a UCUM code (below). `min` and `max` are in that unit.                                                                |
+| [`file`](/reference/plugin-spec/field/#type-file) | A file, of `media_types`, format IDs or media types such as `[iki/core.fastq, image/*]`, up to `max_size` such as `2GiB` (at most 5 TiB): see [File formats](#file-formats). |
+| [`ref`](/reference/plugin-spec/field/#type-ref) | A reference to another record, of the type `to` names or its subtypes; `iki/core.Entity` for any.                                             |
+| [`person`](/reference/plugin-spec/field/#type-person) | Someone in the record's project: see [Name people in records](/guides/write-a-plugin/people/).                                                |
+| [`list`](/reference/plugin-spec/field/#type-list) | A list of `items`: a type and its options without the flags, or rows (below). No lists of lists.                                              |
+| [`json`](/reference/plugin-spec/field/#type-json) | JSON, matching its `schema`, a JSON Schema, if it has one (`invalid-json-schema`). Forms start from the schema's `default`. Not indexable.    |
+| [`state`](/reference/plugin-spec/field/#type-state) | Where the record is in a process: see [Track where a record is with state fields](/guides/write-a-plugin/states/).                            |
 
 A reference's [`to`](/reference/plugin-spec/field/#to) may list several types, any one of which it
 may name, each with its subtypes: `to: [StockLot, iki/lots.Lot]`. The list can't name
@@ -138,6 +140,61 @@ Field names are lower case with single underscores. Names every record already h
 `locked` and `locked_by`, names ending in `_ptr`, Python keywords, Django model methods, and
 `models`, `datetime` and `checks`, which a plugin's generated models use, are reserved
 (`reserved-name`).
+
+## File formats
+
+A plugin declares each file format it owns once, under
+[`formats`](/reference/plugin-spec/plugin/#formats) in `plugin.yaml`. Its ID is the plugin's full
+name, a dot, and the format's local name, which starts with a lower-case letter and has lower-case
+letters, digits and hyphens. The plugin template declares `acme/example.tube-scan`, for the
+tabular files its rack scanner writes:
+
+```yaml
+# plugin.yaml
+formats:
+  tube-scan:
+    label: Tube scanner export
+    media_types: [application/x-acme-tube-scan]
+    extensions: [.tubescan]
+    signatures: [{ hex: "545542455343414e09" }]
+```
+
+- Keep a format's ID the same across the plugin's versions.
+- The first of its `media_types` is the canonical one. If it changes, keep the old spelling after
+  it, as an alias. Files already stored keep the media type they were recorded with, and the alias
+  lets fields take them and format filters find them beside new uploads. Iki keeps
+  `application/octet-stream` for content of no particular format.
+- `extensions` include the leading dot, and may have several parts, such as `.fastq.gz`.
+- A signature is an exact sequence of bytes in hexadecimal, at an optional byte `offset` from the
+  start of the file (0 unless given). The template's is the ASCII header `TUBESCAN` and a tab.
+  Each is at most 256 bytes and must fit in the file's first 4,096. Choose bytes only this format
+  has: a ZIP header alone, for example, starts many unrelated formats. If you declare any
+  signatures, cover every valid variant of the format.
+
+Iki recognizes a file by its longest matching signature first, then its longest matching
+extension, in any case. It refuses two signatures of equal length that match the same bytes, and
+a specific media type that the bytes contradict. If the filename or the stated media type names a
+format with signatures, the file must hold one of them.
+
+A file field, a file parameter, or the items of a list of files takes the format's ID in its
+`media_types`. To use another plugin's format, list that plugin in `dependencies`. Every
+deployment has `iki/core`'s. The field or parameter sets its own size limit:
+
+```yaml
+fields:
+  scan: { type: file, media_types: [acme/example.tube-scan], max_size: 20MiB }
+```
+
+Exact media types and families such as `image/*` work too. Iki works out which actions take a
+format from their file parameters and their input types' file fields. Two plugins that claim the
+same extension or media type can't be installed together (`format-conflict`), and a field that
+names a format no plugin declares is refused (`unknown-format`).
+
+A format can name a built-in metadata `reader`, and a `viewer` that understands its contents. To
+show a record's file in a tab, configure the viewer under the type's `display.viewers`, which names
+the field: see [Show records in viewers and components](/guides/write-a-plugin/viewers-and-components/).
+The formats, aliases, readers, viewers and actions that ship with Iki are in
+[File formats](/reference/file-formats/).
 
 ## Units
 

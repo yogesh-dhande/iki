@@ -103,7 +103,7 @@ directory intact so the agent can run its scripts.
    [Upgrade a plugin without losing history](https://ikisci.org/guides/upgrade-a-plugin/)).
    For a backfill on existing records, use `MigrateValues` and give the
    expected fields in `after` on an `upgrade: true` fixture. Each record then
-   carries the migration's reason. See the [backfill example](https://github.com/yogesh-dhande/iki/blob/main/cli/README.md#iki-plugin-test).
+   carries the migration's reason. See the [backfill example](https://ikisci.org/guides/upgrade-a-plugin/#fill-in-values-for-existing-records).
 5. Commit the manifests, the new migration and the tests together, in one
    pull request.
 

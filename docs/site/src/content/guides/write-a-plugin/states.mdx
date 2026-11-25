@@ -80,19 +80,18 @@ amount being drawn, which a lock alone doesn't: see
 
 ## Returning a corrected record
 
-A locking state can name the state a correction returns the record to, in
-[`on_edit`](/reference/plugin-spec/field/#states.on_edit). The Requests plugin's submitted QC
-deliverables go back to Recorded when someone changes a value:
+A locking state that isn't signed for can name the state a correction returns the record to, in
+[`on_edit`](/reference/plugin-spec/field/#states.on_edit). Here an approved batch goes back to
+testing when someone changes a value:
 
 ```yaml
-submitted:
-  label: Submitted
-  set_by: [iki/lab_roles.analyst]
-  locks: true
-  on_edit: recorded
-  signatures:
-    - meaning: authorship
-      statement: I recorded this deliverable and its evidence.
+status:
+  type: state
+  initial: in_testing
+  states:
+    in_testing: { label: In testing, set_by: [analyst, reviewer, qa] }
+    in_review: { label: In review, set_by: [analyst] }
+    approved: { label: Approved, set_by: [reviewer], locks: true, on_edit: in_testing }
 ```
 
 The editor sees the return before saving and gives a reason. They must be allowed to edit the
@@ -101,6 +100,12 @@ the change succeed together, earlier signatures stay with the revisions they sig
 corrected values need fresh review: see [Corrections](/concepts/corrections/). A destination is a
 different, live, unlocked state with `set_by` and no required signatures (`state-on-edit`,
 `unknown-state`).
+
+A state with [`signatures`](#electronic-signatures) can't name an `on_edit` return
+(`state-on-edit`). To correct a record it locks, someone first sets the record to a state that
+doesn't lock, as the plugin allows, and then edits it. In the Samples plugin, a reviewer returns a
+sample to testing with a signature and a reason. The Requests plugin's QC deliverables go back from
+Submitted or Reviewed to Recorded with a reason.
 
 ## Electronic signatures
 

@@ -104,14 +104,13 @@ plugin's `receive_delivery` receiving one pack of 15 mL tubes against a reorder 
   "environment": "iki/reagents.reagent-tools",
   "job": {
     "id": "0193f2a4-6c20-7c41-a0e8-5d3b9f7e2a16",
-    "lease_token": "…",
-    "lease_expires_at": "2026-11-18T09:42:10Z",
-    "heartbeat_every": 30,
     "timeout": 120,
     "resources": { "cpu": 0.25, "memory": 268435456 }
   }
 }
 ```
+
+The worker keeps the job's lease and its own credentials out of the command's input.
 
 - Each [input](/reference/plugin-spec/run-input/#inputs) is a list, even when it takes one
   record. Values are the ones at the revision the run was launched on, as the REST API shows
@@ -254,6 +253,11 @@ the record to be at the revision the run read: if it has a later revision, the w
 refused, creates included. Use it when what the run writes depends on what it read, as a count of
 packs received does, or when a person reviewed a preview of what the run will write.
 
+If a record an update targets was locked and its lock has been lifted, whoever launches the run
+gives the reason. Iki puts it on the revision even when the update gives no
+[`reason`](/reference/plugin-spec/run-output/#updates.reason). An update that does give one must
+give the launch's text exactly.
+
 ### Creates
 
 [`creates`](/reference/plugin-spec/run-output/#creates) may make only the declared types. Leave out
@@ -316,9 +320,12 @@ effects:
 - A record with no match yet, of a type with an identity, claims the project's own record of that
   identity's registry entry if that record has no value for the field yet: a record registered
   before the LIMS knew it takes the LIMS's ID. If it's another record's already, the run fails,
-  naming both, since one record can't be two of the LIMS's; so does a file with two records of
-  one.
-- In a creates file, a record may come only once.
+  naming both, since one record can't be two of the LIMS's. So does an output in which two
+  external IDs come to the same registry entry.
+- An external record, by its `match_on` value, may come only once in a run's output, across
+  `creates` and the creates file together. If two creates name the same record, the run fails,
+  naming both positions, and writes nothing. A registration with no external match may still
+  record several origins for one identity.
 
 ### Files
 
@@ -329,8 +336,10 @@ A file field takes a file the inputs already had, by ID, or one the command made
 { "readings": { "$file": "readings/plate-0412.csv", "media_type": "text/csv" } }
 ```
 
-`name` defaults to the path's last part, and `media_type` to a guess from its extension. The
-worker uploads it for this run and puts the new file's ID in its place, so only files this run
+`name` defaults to the path's last part. The worker sends the `media_type` the output gives. Without
+one, the server recognizes the file's format by its signature, then by its extension, from the
+formats the deployment's plugins declare ([File formats](/guides/write-a-plugin/fields/#file-formats)).
+The worker uploads it for this run and puts the new file's ID in its place, so only files this run
 uploaded can be attached.
 
 ### Messages and metrics

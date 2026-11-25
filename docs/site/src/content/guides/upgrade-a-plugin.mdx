@@ -128,6 +128,63 @@ Migrations for 'acme__example':
 
 `--no-input` asks nothing, so it can't detect a rename: make a rename's migration interactively.
 
+## Fill in values for existing records
+
+A migration can also change the values of records the deployment already has, such as filling a
+new field from an old one. Add `MigrateValues` to a migration of your own, with a function,
+defined in the migration file, that reads one record and returns the fields to change and their
+new values:
+
+- An empty mapping leaves the record as it is.
+- A reference field takes the ID of the record it names.
+- Leave state changes to the state operations `makemigrations` writes.
+- The migration depends on `("iki_entities", "0027_migrated_revisions")`, beside the plugin's
+  previous migration.
+
+This one fills the template's empty `notes` with each sample's name:
+
+```python
+# migrations/0003_fill_notes.py
+from django.db import migrations
+from iki_server.plugins.operations import MigrateValues
+
+
+def fill_notes(row):
+    return {"notes": row.name} if row.notes is None else {}
+
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ("acme__example", "0002_sample_concentration_sample_history_concentration"),
+        ("iki_entities", "0027_migrated_revisions"),
+    ]
+    operations = [
+        MigrateValues(
+            "Sample",
+            fill_notes,
+            version="0.2.0",
+            migration="0003_fill_notes",
+            reason="Copy the sample's name into its notes.",
+        ),
+    ]
+```
+
+Each record it changes gets a revision of its own, by the system, with the migration's reason,
+and its provenance shows both. `version` is the plugin's release, and `migration` the file's
+name. This one goes one way: give `backwards=` a function of the same kind to set the values a
+rollback restores.
+
+To check the values in the upgrade test, give them under
+[`after`](/reference/plugin-spec/action-test/#after) in a test marked `upgrade: true`. For a test
+with one `sample` input named S1:
+
+```yaml
+upgrade: true
+after: { sample: [{ notes: S1 }] }
+```
+
+A field newly added with its manifest's `default` needs no expectation.
+
 ## Test the upgrade from the deployed commit
 
 `iki plugin test --upgrade-from` takes the deployed commit and a PostgreSQL server where it can

@@ -378,30 +378,102 @@ What runs cost: `iki.projects.costs("qc-lab", by="action")`, and across the orga
 
 ## Files
 
-```python
-report = iki.files.upload("hplc-sam-000231.pdf", project="qc-lab", media_type="application/pdf")
-iki.entities.update("QCD-000004", {"report": report["id"]}, revision=2)  # a file field takes its ID
+### Find a file and see what used it
 
-deliverable = iki.entities.get("QCD-000004")
-for file_id, file in deliverable["files"].items():
+```python
+from iki.file_types import FileFilters
+
+filters: FileFilters = {
+    "project": "plate-assays",  # its slug or ID
+    "q": "plate",
+    "format": ["text/csv"],
+    "acquired_from": "2026-03-14",
+    "acquired_to": "2026-03-14",
+}
+count = iki.files.count(**filters)
+first = iki.files.list(**filters, sort="name").first()
+if first is not None:
+    file = iki.files.get(first["id"])
+    print(file["name"], file["size"], file["sha256"], file["used_by"])
+    for record in file["records"]["items"]:  # the records that held it, and when
+        print(record["hrid"], record["spans"])
+    for run in file["runs"]["items"]:  # the runs that read or made it
+        print(run["hrid"], run["roles"])
+```
+
+`list` returns the files you can read, fetched a page at a time, and `.first()` the first or
+`None`. `count` takes the same filters. Its `total` stops at 1,000, and `more_than_total` says
+whether more match.
+
+- `q` matches part of the name, in any case.
+- `format` takes an installed format ID such as `iki/core.csv`, a media type, a family such as
+  `image/*`, or a list of these.
+- `acquired_from` and `acquired_to` are inclusive days, as dates or ISO date strings.
+- `sample` and `run` take an ID or HRID.
+- `accepts` and `max_size` (in bytes) narrow it to what a file field or action parameter takes.
+- Without `project`, it includes every file you can read.
+
+`list` also takes `sort=` (`newest`, the default, `oldest`, `name`, `name_desc`, `acquired` for
+the latest acquisition first, or `acquired_oldest`) and `page_size=` (1 to 100). Both acquisition
+sorts put unknown dates last.
+
+`get` returns the file's metadata, its `origin`, the `samples` you can read and its two **Used
+by** pages, `records` and `runs`. For a registered object, `origin["uri"]` and
+`origin["version"]` name it. Each page has its own `next_cursor`: pass it back as
+`get(file_id, records_cursor=…)` or `runs_cursor=…` for the next page of that one. `page_size=`
+limits each page. A file you can't read, or that doesn't exist, raises `iki.NotFound`.
+
+### Upload and download
+
+```python
+coordinates = iki.files.upload("abl.pdb", project="kinase-atlas")
+structure = iki.entities.create(  # a file field takes its ID
+    "iki/protein.ProteinStructure", {"structure": coordinates["id"]}, project="kinase-atlas"
+)
+run = iki.run(  # so does an import action's file parameter
+    "iki/protein.import_structure", project="kinase-atlas", params={"file": coordinates["id"]}
+)
+
+for file_id, file in iki.entities.get(structure["hrid"])["files"].items():
     iki.files.download(file_id, ".")  # checked against the SHA-256 Iki recorded
 ```
 
 `upload` computes the file's SHA-256, sends its parts straight to object storage, and waits for
 Iki to check the stored bytes, then returns the file's ID, name, size, media type and SHA-256. It
-takes a path or an open binary stream (give it `name=` if the stream has none), `acquired=` for
-when the data was acquired, and `timeout=`. It needs project Editor access and the `write` scope.
+needs project Editor access and the `write` scope: a reader gets `iki.Forbidden`.
 
-A file in a bucket location your administrators approved can be registered where it is, instead:
+- It takes a path or an open binary stream. It reads a stream from its current position and
+  leaves it open, puts a seekable stream's position back, and copies a stream it can read only
+  once to a temporary file first. Give a stream without a name `name=`.
+- Iki recognizes the deployment's registered formats from the bytes and the filename. To say which
+  it is, pass `media_type=`, such as `media_type="chemical/seq-aa-fasta"` for a protein `.fasta`
+  file.
+- `acquired=` says when the data was acquired, for a format that doesn't record it.
+- `timeout=` limits the wait in seconds, then raises `iki.TimedOut`. If Iki rejects the bytes, the
+  `iki.IkiError` says why.
+
+### Register an object in place
+
+A file in a bucket location your administrators approved, in `IKI_FILES_REGISTER_LOCATIONS`, can
+be registered where it is, instead of uploaded. It needs the `write` scope and Editor access to
+the project.
 
 ```python
-plate = iki.files.register("s3://lab-data/runs/plate-7.csv", project="qc-lab", media_type="text/csv")
+plate = iki.files.register(
+    "s3://lab-data/runs/plate-7.csv",
+    project="plate-assays",
+    media_type="text/csv",
+    acquired="2026-03-14",
+)
+print(plate["id"], plate["sha256"])
 ```
 
-The bucket must keep versions. Iki pins the object's current version, or the one `version=` names,
-so a later write to the key leaves the file as it was, and reads it to learn its SHA-256 before
-returning the file. It takes `name=`, `acquired=` and `timeout=` as `upload` does. A location that
-isn't approved, or an object without a version, raises `iki.Invalid`.
+The bucket must keep versions, and the object must have one. Iki pins the object's current
+version, or the one `version=` names, so a later write to the key leaves the file as it was. It
+waits for Iki to read the pinned bytes and check their SHA-256, then returns the file as `upload`
+does. It takes `name=` for a name other than the object's, `acquired=`, `timeout=` in seconds and
+`poll=`, how often to check. A location that isn't approved, or an object without a version,
+raises `iki.Invalid`.
 
 ## Spreadsheet imports
 
