@@ -20,6 +20,9 @@ Iki's installable first-party plugins live in [`plugins/`](../../plugins).
   known bases and a lab’s standard pattern of modifications.
 - [Protein translation](protein_translation/README.md) chains translation and
   property calculation for labs that characterize each translated protein.
+- [qPCR instrument intake](instrument_intake/README.md) sends each QuantStudio
+  run from the instrument PC to a facility's project, and reads its wells and
+  standard curves once the file is scanned clean.
 - [Sample storage labels](storage_labels/README.md) expands a lab’s location
   codes and displays them on sample labels. It includes an approved reference
   dataset, a DNA extension, a two-step workflow and a creation trigger.

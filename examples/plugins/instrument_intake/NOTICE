@@ -1,0 +1,9 @@
+Iki
+Copyright 2026 The Iki Authors
+
+This product includes software developed by The Iki Authors
+(https://ikisci.org).
+
+tests/data holds three QuantStudio results exports from Benchling's allotropy
+(https://github.com/Benchling-Open-Source/allotropy), Copyright (c) 2023
+Benchling, Inc., under the MIT licence in tests/data/allotropy-LICENSE.txt.

@@ -640,6 +640,32 @@ lists them.
   are `gs://`, and need `storage.buckets.get`, `storage.objects.get` and
   `storage.objects.list`.
 
+### Instrument files: upload or register
+
+An instrument's PC sends its exports with a service account's credential that
+is an Editor in the facility's project only. The
+[instrument intake example](../examples/plugins/instrument_intake/README.md)
+is a lab template for this: an uploader for the PC, a record type, an import
+action and an `entity.created` trigger.
+
+- **Upload** files up to about a gigabyte, such as qPCR, plate reader and most
+  chromatography exports. Iki keeps them in its own bucket. A lab doesn't need
+  a bucket of its own.
+- **Register** large files, such as sequencer runs, imaging stacks and mass
+  spectrometry raw files, and files the facility must keep in its own bucket
+  under its own retention rules. The PC writes the file to the facility's
+  versioned bucket, under a location the deployment approved, and registers
+  it there. Iki reads the file once to hash and scan it, and never copies it.
+  Write each file under a key that is its own, such as its SHA-256, so
+  nothing is ever written over it.
+
+Either way, the file can be used only once its scan finds it clean. Iki
+refuses a record that holds a file still being scanned or held, so the
+uploader makes the run's record after the scan. The record's trigger then
+runs the import, and the worker gets the file. The record keeps the file's
+SHA-256 in a `unique` field, so sending the same export again finds the
+record instead of making a second one.
+
 ## Webhooks
 
 Webhooks tell other systems, such as an ELN or LIMS, when something changes
