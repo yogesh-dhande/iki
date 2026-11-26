@@ -1858,10 +1858,9 @@ def sequencing_analysis(alice: requests.Session, project: dict[str, Any]) -> Non
         imported = launch(
             alice,
             project,
-            prefix + "import_result",
+            prefix + "import_counts",
             {"library": library["id"]},
             {
-                "format": "counts",
                 "report": report,
                 "tool": "featureCounts",
                 "tool_version": "Reported in GEO GSE176296",

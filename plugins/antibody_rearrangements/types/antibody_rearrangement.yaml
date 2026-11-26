@@ -1,0 +1,52 @@
+apiVersion: iki/v1
+kind: EntityType
+name: AntibodyRearrangement
+label: Antibody rearrangement
+schema_version: 1
+hrid: { prefix: ABR }
+description: >-
+  A curator's statement that a rearrangement in an imported AIRR repertoire encodes a chain of a
+  registered antibody, with the row it names as the report gives it.
+fields:
+  antibody: { type: ref, to: iki/antibody.Antibody, required: true, immutable: true }
+  result:
+    type: ref
+    to: iki/sequencing_analysis.SequencingAnalysisResult
+    label: AIRR result
+    required: true
+    immutable: true
+  sequence_id:
+    { type: string, label: AIRR sequence_id, required: true, immutable: true, max_length: 250 }
+  repertoire_id:
+    { type: string, label: AIRR repertoire ID, computed: true, immutable: true, max_length: 250 }
+  locus:
+    type: enum
+    values: [IGH, IGK, IGL]
+    computed: true
+    immutable: true
+    description: The row's locus, or the one its V and J calls share when the report leaves it empty.
+  rearrangement:
+    type: json
+    computed: true
+    immutable: true
+    description: The row's productive flag, gene calls, duplicate count and junction, as the report gives them.
+  curator:
+    type: person
+    computed: true
+    immutable: true
+    description: The person who linked the rearrangement to the antibody.
+  inputs:
+    type: json
+    computed: true
+    immutable: true
+    description: The AIRR result's and the antibody's record revisions, and the report's SHA-256.
+  notes:
+    type: text
+    max_length: 3000
+    description: Why the curator links them, such as a cloned and confirmed sequence.
+rules:
+  action_evidence:
+    check: record.locus != null && record.curator != null && record.inputs != null
+    message: Use Link a rearrangement to an antibody, which checks the row is in the imported repertoire.
+    fields: [locus, curator, inputs]
+display: { title: "{{ sequence_id }}" }

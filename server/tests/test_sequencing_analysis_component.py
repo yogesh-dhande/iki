@@ -1,5 +1,5 @@
 # ruff: noqa: F811 - browser fixtures imported by name are parameters here.
-"""Inspect the selected sequencing result at phone width."""
+"""A sequencing result, what its selection keeps and where every row is, at phone width."""
 
 import csv
 import io
@@ -26,6 +26,7 @@ def test_the_selected_gene_count_is_visible_and_accessible(browser: Browser, sch
             MODULE,
             {
                 "values": {
+                    "format": "counts",
                     "summary": report,
                     "pipeline_context": {"pipeline": "featureCounts", "version": "GEO GSE176296"},
                 }
@@ -37,6 +38,11 @@ def test_the_selected_gene_count_is_visible_and_accessible(browser: Browser, sch
         expect(page.get_by_text("WTJ.1", exact=True)).to_be_visible()
         expect(page.get_by_text("YDL248W", exact=True)).to_be_visible()
         expect(page.get_by_text("679", exact=True)).to_be_visible()
+        expect(page.get_by_text("RNA-seq counts", exact=True)).to_be_visible()
+        expect(page.get_by_text(report["projection"], exact=True)).to_be_visible()
+        expect(
+            page.get_by_text("The import run also keeps these rows as selected.tsv.")
+        ).to_be_visible()
         assert page.evaluate("document.documentElement.scrollWidth - innerWidth <= 1")
         assert page.evaluate("window.refused") == []
         assert ERRORS[page] == []

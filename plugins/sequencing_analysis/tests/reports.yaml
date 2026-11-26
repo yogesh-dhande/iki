@@ -1,16 +1,15 @@
 apiVersion: iki/v1
 kind: ActionTest
 name: a_cell_lines_vcf_preserves_its_sample
-action: import_result
+description: The four Genome in a Bottle HG002 calls, linked to the cell line the sample came from.
+action: import_vcf
 files: { data: tests/data/HG002-GRCh38.vcf }
 inputs:
   library:
     - values: { name: HG002, sample: 00000000-0000-7000-8003-000000000099 }
   material:
-    - type: iki/cell_lines.ParentalLine
-      values: { cellosaurus_id: CVCL_1C78, name: GM24385 }
+    - values: {}
 params:
-  format: vcf
   report: { $file: data }
   reference: GRCh38
   tool: NIST Genome in a Bottle
@@ -20,23 +19,48 @@ expect:
     creates:
       - type: iki/sequencing_analysis.SequencingAnalysisResult
         values:
+          format: vcf
           material: 00000000-0000-7000-8003-000000000002
           sample: 00000000-0000-7000-8003-000000000099
           summary:
             selector: HG002
-            metrics: { VCF sites: 4, Variant sites: 4 }
+            rows: 4
+            metrics: { VCF sites: 4, Variant sites: 4, Sites without a call: 0 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_specimens_vcf_needs_no_registered_material
+description: A VCF from a specimen with no strain or cell line record keeps its library's sample.
+action: import_vcf
+files: { data: tests/data/HG002-GRCh38.vcf }
+inputs:
+  library:
+    - values: { name: HG002 specimen, sample: 00000000-0000-7000-8003-000000000099 }
+params:
+  report: { $file: data }
+  reference: GRCh38
+  tool: NIST Genome in a Bottle
+  tool_version: 4.2.1
+  column: HG002
+expect:
+  output:
+    creates:
+      - type: iki/sequencing_analysis.SequencingAnalysisResult
+        values:
+          material: null
+          sample: 00000000-0000-7000-8003-000000000099
+          summary: { selector: HG002, rows: 4 }
 ---
 apiVersion: iki/v1
 kind: ActionTest
 name: choose_one_gene_count_column
-action: import_result
+action: import_counts
 settings: { review_flow: regulated_qc }
 files: { data: tests/data/GSE176296-counts.tsv }
 inputs:
   library:
     - values: { name: GEO GSE176296 WTJ.1, sample: 00000000-0000-7000-8003-000000000099 }
 params:
-  format: counts
   report: { $file: data }
   reference: Saccharomyces cerevisiae R64 (sacCer3)
   tool: featureCounts
@@ -47,21 +71,24 @@ expect:
     creates:
       - type: iki/sequencing_analysis.SequencingAnalysisResult
         values:
+          format: counts
           review_flow: regulated_qc
           summary:
             selector: WTJ.1
+            projection: Every gene's raw integer count in the WTJ.1 column.
+            rows: 4
             metrics: { Genes: 4, Total raw count: 1097 }
 ---
 apiVersion: iki/v1
 kind: ActionTest
 name: retain_productive_pbmc_rearrangements
-action: import_result
+action: import_airr
+settings: { review_flow: record_only }
 files: { data: tests/data/pbmc-b-airr.tsv }
 inputs:
   library:
     - values: { name: PBMC 1k B cells, sample: 00000000-0000-7000-8003-000000000099 }
 params:
-  format: airr
   report: { $file: data }
   tool: Cell Ranger VDJ
   tool_version: Public PBMC 1k tutorial export
@@ -70,19 +97,22 @@ expect:
     creates:
       - type: iki/sequencing_analysis.SequencingAnalysisResult
         values:
+          format: airr
+          review_flow: record_only
           summary:
-            metrics: { Rearrangements: 4, Productive: 4, Antibody links: 0 }
+            projection: "Every rearrangement: the file names no repertoire."
+            rows: 4
+            metrics: { Rearrangements: 4, Productive: 4 }
 ---
 apiVersion: iki/v1
 kind: ActionTest
 name: refuse_implicit_selection_from_multiple_count_columns
-action: import_result
+action: import_counts
 files: { data: tests/data/GSE176296-counts.tsv }
 inputs:
   library:
     - values: { name: GEO GSE176296 WTJ.1, sample: 00000000-0000-7000-8003-000000000099 }
 params:
-  format: counts
   report: { $file: data }
   reference: Saccharomyces cerevisiae R64 (sacCer3)
   tool: featureCounts

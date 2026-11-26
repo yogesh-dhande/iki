@@ -1,0 +1,71 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: a_heavy_chain_rearrangement_links_to_its_antibody
+description: >-
+  A PBMC B-cell contig with no locus column is a heavy chain by its IGHV and IGHJ calls, and its
+  row is kept with the curator who linked it.
+action: link_rearrangement
+files: { data: tests/data/pbmc-b-airr.tsv }
+inputs:
+  result:
+    - values:
+        format: airr
+        report: { $file: data }
+        report_sha256: e66794b785e09853d9e0aec85f0b2b0646daaba96987366b59e5157c24b2469e
+        summary: { selector: "" }
+  antibody:
+    - values: { name: PBMC clone AACTCCCAGGCTAGGT-1 }
+params:
+  sequence_id: AACTCCCAGGCTAGGT-1_contig_2
+expect:
+  output:
+    creates:
+      - type: iki/antibody_rearrangements.AntibodyRearrangement
+        values:
+          sequence_id: AACTCCCAGGCTAGGT-1_contig_2
+          repertoire_id: null
+          locus: IGH
+          curator: 00000000-0000-7000-8005-000000000001
+          rearrangement:
+            productive: T
+            v_call: IGHV4-61
+            d_call: IGHD3-3
+            j_call: IGHJ6
+            duplicate_count: "16"
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_sequence_id_absent_from_the_repertoire_is_refused
+action: link_rearrangement
+files: { data: tests/data/pbmc-b-airr.tsv }
+inputs:
+  result:
+    - values:
+        format: airr
+        report: { $file: data }
+        report_sha256: e66794b785e09853d9e0aec85f0b2b0646daaba96987366b59e5157c24b2469e
+        summary: { selector: "" }
+  antibody:
+    - values: { name: PBMC clone }
+params:
+  sequence_id: AACTCCCAGGCTAGGT-1_contig_9
+expect:
+  error: isn't exactly one row of the imported rearrangements.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: only_an_airr_result_has_rearrangements
+action: link_rearrangement
+files: { data: tests/data/pbmc-b-airr.tsv }
+inputs:
+  result:
+    - values:
+        format: counts
+        report: { $file: data }
+        summary: { selector: WTJ.1 }
+  antibody:
+    - values: { name: PBMC clone }
+params:
+  sequence_id: AACTCCCAGGCTAGGT-1_contig_2
+expect:
+  error: Choose a result imported with Import AIRR rearrangements.
