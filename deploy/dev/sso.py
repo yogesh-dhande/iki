@@ -1868,25 +1868,16 @@ def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
     prefix = "iki/sequencing."
     give_lab_roles(alice, project, prefix + "reviewer")
     accession = "SRR8690267"
-    runs = matching_records(alice, project, prefix + "SequencingRun", "run_accession", accession)
-    run = (
-        runs[0]
-        if runs
-        else created(
-            alice,
-            project,
-            prefix + "SequencingRun",
-            {
-                "name": "Yeast RNA-seq excerpt",
-                "instrument_model": "Illumina HiSeq 2500",
-                "run_accession": accession,
-            },
-        )
-    )
-    read_sets = matching_records(alice, project, prefix + "ReadSet", "run", run["id"])
+    read_sets = matching_records(alice, project, prefix + "ReadSet", "run_accession", accession)
     if read_sets:
         reads = read_sets[0]
     else:
+        run = created(
+            alice,
+            project,
+            prefix + "SequencingRun",
+            {"name": "Yeast RNA-seq excerpt", "instrument_model": "Illumina HiSeq 2500"},
+        )
         sample = created(
             alice,
             project,
@@ -1915,7 +1906,7 @@ def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
             alice,
             project,
             prefix + "ReadSet",
-            {"run": run["id"], "library": library["id"], **files},
+            {"run": run["id"], "library": library["id"], "run_accession": accession, **files},
         )
     summaries = matching_records(alice, project, prefix + "FASTQSummary", "read_set", reads["id"])
     if summaries:
@@ -2025,25 +2016,20 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
         _, plasmid = register_puc19(alice, project)
         launch(alice, project, "iki/plasmid.annotate_plasmid", {"plasmid": plasmid["id"]})
     accession = "SRR17915342"
-    runs = matching_records(
-        alice, project, "iki/sequencing.SequencingRun", "run_accession", accession
+    read_sets = matching_records(
+        alice, project, "iki/sequencing.ReadSet", "run_accession", accession
     )
-    run = (
-        runs[0]
-        if runs
-        else created(
-            alice,
-            project,
-            "iki/sequencing.SequencingRun",
-            {"name": "pUC19 MinION run", "instrument_model": "MinION", "run_accession": accession},
-        )
-    )
-    read_sets = matching_records(alice, project, "iki/sequencing.ReadSet", "run", run["id"])
     if read_sets:
         reads = read_sets[0]
         library = record(alice, reads["values"]["library"])
         prep = record(alice, library["values"]["sample"])
     else:
+        run = created(
+            alice,
+            project,
+            "iki/sequencing.SequencingRun",
+            {"name": "pUC19 MinION run", "instrument_model": "MinION"},
+        )
         prep = created(
             alice,
             project,
@@ -2070,7 +2056,12 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
             alice,
             project,
             "iki/sequencing.ReadSet",
-            {"run": run["id"], "library": library["id"], "read_1": read_1},
+            {
+                "run": run["id"],
+                "library": library["id"],
+                "run_accession": accession,
+                "read_1": read_1,
+            },
         )
     results = matching_records(
         alice, project, prefix + "WholePlasmidAlignment", "read_set", reads["id"]

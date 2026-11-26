@@ -55,3 +55,29 @@ inputs:
           - values: { sample: 00000000-0000-7000-8003-000000000099 }
 expect:
   error: the two mate files have identical content.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: record_only_summary_keeps_its_procedure
+description: A lab that records quality without sign-off gets the same statistics, marked Record only.
+action: summarize_fastq
+settings: { review_flow: record_only }
+files: { first: tests/data/SRR8690267_1.fastq }
+inputs:
+  reads:
+    - values:
+        read_1: { $file: first }
+      included:
+        library:
+          - values: { sample: 00000000-0000-7000-8003-000000000099 }
+expect:
+  output:
+    creates:
+      - type: iki/sequencing.FASTQSummary
+        values:
+          review_flow: record_only
+          statistics:
+            - mate: 1
+              sha256: 6b24de24501313e95f0597303d570b12bdf2df74317030452f8ae58d6bb22999
+              reads: 4
+              q30_percent: 90.0

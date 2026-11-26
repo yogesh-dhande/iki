@@ -9,7 +9,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('iki__sequencing', '0002_bounded_word_search'),
+        ('iki__sequencing', '0001_initial'),
         ('iki__sequencing_analysis', '0001_initial'),
         ('iki_entities', '0027_migrated_revisions'),
         ('iki_files', '0010_file_facts'),
