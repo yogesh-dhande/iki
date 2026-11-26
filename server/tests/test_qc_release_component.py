@@ -28,8 +28,9 @@ SODIUM_CHLORIDE: dict[str, Any] = {
     "upper": 100.5,
 }
 REPORT: dict[str, Any] = {
-    "format": "iki/coa/v1",
-    "title": "Certificate of analysis",
+    "format": "iki/coa-evidence/v1",
+    "title": "Certificate evidence",
+    "issue": {"state": "released"},
     "testing_on": "2026-11-22",
     "lot": {"id": "lot", "hrid": "GLOT-000001", "revision": 2, "lot_number": "Synthetic lot A"},
     "specification": {
@@ -69,6 +70,26 @@ REPORT: dict[str, Any] = {
             "findings": "The recorded dilution factor came from a different sample.",
         }
     ],
+}
+
+
+#: What a research certificate states: the final result, and that it's for research.
+COA: dict[str, Any] = {
+    "format": "iki/coa/v2",
+    "title": "Research certificate of analysis",
+    "intended_use": "For research use. Issued on one reviewer's sign-off, not released by a "
+    "quality unit.",
+    "lot": {"lot_number": "Synthetic lot A", "hrid": "GLOT-000001", "revision": 3},
+    "specification": {
+        "version": "USP 2015",
+        "hrid": "QSV-000001",
+        "revision": 2,
+        "effective_from": "2015-12-01",
+        "source": USP,
+    },
+    "testing_on": "2026-11-22",
+    "results": [{**SODIUM_CHLORIDE, "value": 99.1, "test": "QRT-000002"}],
+    "issue": {"state": "signed_off"},
 }
 
 
@@ -118,12 +139,48 @@ def test_certificate_preserves_the_original_result_and_investigation(
         expect(page.get_by_text(REPORT["investigations"][0]["findings"])).to_be_visible()
         accessible(page)
 
-        for state in ("signed_off", "released"):
+        # It's issued in the state its procedure named, and no other.
+        for state, shown in (
+            ("signed_off", "Draft awaiting signed issue"),
+            ("released", "Issued certificate"),
+        ):
             page.evaluate(
                 "values => { document.querySelector('release-certificate').entity = {values}; }",
                 {"report": REPORT, "review": state},
             )
-            expect(page.get_by_role("status")).to_have_text("Issued certificate")
+            expect(page.get_by_role("status")).to_have_text(shown)
+        page.context.close()
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_a_certificate_states_its_final_results_apart_from_its_evidence(
+    browser: Browser, scheme: str
+) -> None:
+    with serving(COMPONENTS, {"certificate.js": "release-certificate"}) as origin:
+        page = open_frame(
+            browser,
+            origin,
+            "certificate.js",
+            {
+                "values": {
+                    "report": REPORT | {"issue": COA["issue"]},
+                    "coa": COA,
+                    "review": "signed_off",
+                }
+            },
+            viewport=PHONE,
+            color_scheme=scheme,
+            bypass_csp=True,  # axe needs its own script in the frame.
+        )
+        expect(page.get_by_role("heading", level=2)).to_have_text(COA["title"])
+        expect(page.get_by_role("status")).to_have_text("Issued certificate")
+        expect(page.get_by_text(COA["intended_use"])).to_be_visible()
+        results = page.get_by_role("heading", name="Results")
+        expect(results).to_be_visible()
+        expect(page.get_by_role("heading", name="Evidence")).to_be_visible()
+        stated = page.get_by_role("listitem").filter(has_text="99.1 %").first
+        expect(stated.get_by_text("99–100.5 %")).to_be_visible()
+        accessible(page)
         page.context.close()
 
 

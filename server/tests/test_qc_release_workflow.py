@@ -38,6 +38,8 @@ from iki_spec.compute import Binding
 __all__ = ["database"]
 
 PLUGIN = PLUGINS / "qc_release"
+#: A synthetic manufacturer, as a certificate states its issuer (ICH Q7 §11.43).
+ISSUER = "Synthetic Example Chemicals, 1 Example Way, Example City · +1 555 0100"
 PREFIX = "iki/qc_release."
 
 
@@ -45,8 +47,9 @@ def test_the_installed_qc_plugin_issues_a_signed_coa(tmp_path: Path, database: s
     build = tmp_path / "build"
     built = iki("plugin", "build", *build_order(PLUGIN), "--output", build, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
+    settings = {"review_flow": "regulated_qc", "certificate_issuer": ISSUER}
     (build / "iki_plugin_iki__qc_release" / "settings.json").write_text(
-        '{"review_flow":"regulated_qc"}', encoding="utf-8"
+        json.dumps(settings), encoding="utf-8"
     )
     migrate(build, database)
     sync(build, database)
@@ -334,6 +337,15 @@ def exercise_qc() -> None:
     assert report["lot"]["revision"] == pinned["lot_revision"]
     assert report["lot"]["lot_number"] == pinned["lot_number"]
     assert report["investigations"][0]["revision"] == investigation.revision
+    # What the certificate states: the issuer, and each criterion's final result.
+    coa = services.current_values_of([certificate])[certificate.pk]["coa"]
+    assert coa["issuer"] == ISSUER
+    assert [(row["attribute"], row["value"]) for row in coa["results"]] == [
+        (assay["attribute"], 99.8),
+        (drying["attribute"], 0.3),
+    ]
+    assert "intended_use" not in coa
+    assert "investigations" not in coa
 
     reader = Api(world.browser("viewer"))
     export = f"/entities/{certificate.pk}/export"
@@ -368,7 +380,7 @@ def exercise_qc() -> None:
     downloaded = reader.get(export, format="signed-report-json")
     assert downloaded.status_code == 200, downloaded.content
     packet = downloaded.json()
-    assert packet["report"] == report
+    assert packet["report"] == coa
     assert packet["record"]["issued_revision"] == certificate.revision
     assert len(packet["signatures"]) == 3
     trusted = signing_keys.trusted()

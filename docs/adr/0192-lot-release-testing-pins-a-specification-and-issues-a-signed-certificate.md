@@ -6,6 +6,7 @@
   [0162](0162-a-lot-is-a-projects-record-of-an-entrys-material.md),
   [0171](0171-a-types-records-export-as-files-iki-writes-from-its-fields.md) and
   [0179](0179-a-corrected-result-goes-back-for-review.md)
+- Amended: 2026-11-26 — a certificate states its final results apart from its evidence (see Amendment)
 
 ## Context
 
@@ -54,3 +55,37 @@ stored attempt sequence checks that nothing was omitted. Approval and publicatio
 separate recorded steps. The teaching example covers numeric inclusive criteria and a
 single release case per lot and project. Product-specific protocols for resampling,
 rework, qualifying qualitative tests or repeated commercial release can extend this design.
+
+## Amendment. A certificate states its final results apart from its evidence
+
+The certificate's one report held everything: failed attempts, analysts and
+investigations. Its signed export was what the lab sent, so a customer received the
+lab's internal OOS record, and no issuer. A research sign-off read the same as a
+quality unit's release.
+
+**A certificate has two parts, both signed.** `report` is the internal evidence, as
+before. `coa` is what the certificate states, following ICH Q7 §11.4:
+
+- the issuer;
+- the lot number with its made, retest and expiry dates;
+- the specification version;
+- the testing date;
+- for each criterion, its method, limits or requirement, and final reportable result.
+
+The signed export now writes `coa`. The signatures bind the revision, so they cover both
+parts. The record and its certificate tab show the evidence beside it.
+
+**Iki checks two things before preparing.** The issuer is the `certificate_issuer`
+setting: the manufacturer's name, address and telephone (ICH Q7 §11.43). A regulated
+certificate can't be prepared without it. A research certificate is titled "Research
+certificate of analysis" and says it was issued on one reviewer's sign-off, not released
+by a quality unit.
+
+**The issued state is the one the procedure named.** Both parts record the state that
+issues the certificate in its flow. The certificate view shows "Issued" only in that
+state, rather than in either flow's final state.
+
+Preparing still takes the case's tests and investigations as selected inputs. An action
+can't gather a record's related records itself, and the completeness check refuses any
+selection that leaves one out. Gathering them for the issuer would need actions to take
+related records the way triggers can (ADR 0123). That is a core change.

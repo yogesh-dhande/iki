@@ -2,10 +2,10 @@ apiVersion: iki/v1
 kind: EntityType
 name: QCCertificate
 label: Regulated certificate of analysis
-schema_version: 2
+schema_version: 3
 extends: ReleaseCertificate
 hrid: { prefix: QCA }
-exports: [{ export: signed_report, report: report, review: review, issued: [released] }]
+exports: [{ export: signed_report, report: coa, review: review, issued: [released] }]
 fields:
   review:
     type: state

@@ -2338,6 +2338,13 @@ def qc_release(alice: requests.Session, project: dict[str, Any]) -> None:
         or report["investigations"][0]["resolution"] != "invalidated"
     ):
         fail(f"{certificate['hrid']} lost the pinned data: {report}")
+    # The certificate states each criterion's final result and says it's for research,
+    # without the failed attempt or its investigation.
+    coa = certificate["values"]["coa"]
+    if [row["value"] for row in coa["results"]] != [99.9, 0.2] or "research" not in coa.get(
+        "intended_use", ""
+    ):
+        fail(f"{certificate['hrid']} states the wrong results: {coa}")
     sign(certificate, "review", "signed_off")
     proofs = api_call(alice, "GET", f"/entities/{certificate['id']}/signatures?verify=true").json()
     if len(proofs["items"]) != 1 or not proofs["items"][0]["verification"]["valid"]:
@@ -2346,7 +2353,7 @@ def qc_release(alice: requests.Session, project: dict[str, Any]) -> None:
     receipt = api_call(alice, "GET", url)
     if (
         receipt.status_code != 200
-        or receipt.json()["report"] != report
+        or receipt.json()["report"] != coa
         or len(receipt.json()["signatures"]) != 1
         or api_call(alice, "GET", url).content != receipt.content
     ):

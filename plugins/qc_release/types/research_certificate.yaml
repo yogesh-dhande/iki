@@ -2,10 +2,10 @@ apiVersion: iki/v1
 kind: EntityType
 name: ResearchCertificate
 label: Research certificate of analysis
-schema_version: 1
+schema_version: 2
 extends: ReleaseCertificate
 hrid: { prefix: RCA }
-exports: [{ export: signed_report, report: report, review: review, issued: [signed_off] }]
+exports: [{ export: signed_report, report: coa, review: review, issued: [signed_off] }]
 fields:
   review:
     type: state

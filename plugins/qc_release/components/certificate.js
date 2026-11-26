@@ -1,5 +1,6 @@
-// Display the report assembled by the release action. The record's signature and Export
-// controls remain in the host, where Iki verifies the issued report and audits its download.
+// Display what the certificate states, then the internal evidence behind it. The record's
+// signature and Export controls remain in the host, where Iki verifies the issued
+// certificate and audits its download.
 const STYLE = `
   :host {
     display: block; min-width: 0; padding: .75rem; overflow-wrap: anywhere;
@@ -17,6 +18,7 @@ const STYLE = `
   ul { margin: 0; padding: 0; list-style: none; }
   li { padding: .55rem 0; border-bottom: 1px solid var(--border); }
   .row-title { font-weight: 650; }
+  .use { font-weight: 650; margin-block: .25rem .75rem; }
   dd { font-variant-numeric: tabular-nums; }
 `;
 
@@ -48,6 +50,16 @@ function listOf(items, draw) {
   const list = node("ul", ...items.map(draw));
   list.setAttribute("role", "list");
   return list;
+}
+
+// A conforming result states its requirement (ADR 0244), a number its limits.
+function acceptance(row) {
+  return row.acceptance ?? limit(row);
+}
+
+function observed(row) {
+  if (row.kind === "conforms") return row.result === "conforms" ? "Conforms" : "Does not conform";
+  return `${row.value} ${row.unit}`;
 }
 
 function result(test, tests, investigations) {
@@ -83,11 +95,52 @@ class ReleaseCertificate extends HTMLElement {
   }
 
   set entity(entity) {
-    const { report, review } = entity.values;
-    const issued = review === "signed_off" || review === "released";
+    const { report, coa, review } = entity.values;
+    // The state that issues it is the one its procedure named when it was prepared.
+    const issued = review != null && review === (coa ?? report)?.issue?.state;
     const status = node("p", issued ? "Issued certificate" : "Draft awaiting signed issue");
     status.setAttribute("role", "status");
-    const body = [node("style", STYLE), node("h2", "Certificate of analysis"), status];
+    const body = [
+      node("style", STYLE),
+      node("h2", coa?.title ?? "Certificate of analysis"),
+      status,
+    ];
+    if (coa) {
+      if (coa.intended_use) {
+        const use = node("p", coa.intended_use);
+        use.className = "use";
+        body.push(use);
+      }
+      const { lot, specification } = coa;
+      body.push(
+        facts([
+          ["Issued by", coa.issuer],
+          ["Lot", lot.lot_number],
+          ...[
+            ["Made", lot.made_on],
+            ["Retest by", lot.retest_on],
+            ["Expires", lot.expires_on],
+          ].filter(([, day]) => day),
+          ["Specification", `${specification.version} · ${label(specification)}`],
+          ["Testing date", coa.testing_on],
+        ]),
+        node("h3", "Results"),
+        listOf(coa.results, (row) => {
+          const title = node("p", row.attribute);
+          title.className = "row-title";
+          return node(
+            "li",
+            title,
+            facts([
+              ["Method", row.method],
+              ["Acceptance", acceptance(row)],
+              ["Result", observed(row)],
+            ]),
+          );
+        }),
+        node("h3", "Evidence"),
+      );
+    }
     if (report) {
       const lot = report.lot;
       const spec = report.specification;

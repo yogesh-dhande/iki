@@ -14,6 +14,10 @@ QC Reviewer and Release Testing QA lab roles as appropriate. Research investigat
 certificates need one reviewer sign-off. Regulated QC needs an analyst, independent reviewer
 and separate QA signer. Iki retains each case's original flow when the setup changes.
 
+Set `certificate_issuer` to the manufacturer's name, address and telephone, as each
+certificate states them (ICH Q7 §11.43). A regulated certificate can't be prepared without
+it.
+
 Register the material and a physical lot with its lot number. Create one **Specification
 schedule** for the material. Create a **Specification version** in that schedule with an
 effective date, a controlled source, and one criterion per attribute. Every criterion names
@@ -45,10 +49,19 @@ predecessor. Publication appends versions and retains all earlier ones.
    investigations prevent a passing certificate. QA can place the lot on hold or reject
    it using the lot's disposition. The original measurement remains visible.
 4. Prepare the certificate with every attempt and each signed investigation. Iki checks
-   the selections against the case's attempt sequence, confirms every criterion has a
-   passing result, captures all the pinned evidence, and seals the case.
-5. Sign the certificate through the selected flow. Use **Export** on the issued record
-   to download the signed HTML or machine-readable JSON. The HTML can be printed to PDF
+   the selections against the case's attempt sequence and confirms every criterion has a
+   passing result. It then seals the case and writes two parts:
+   - **Certificate:** what the certificate states (ICH Q7 §11.4). That's the issuer, the
+     lot number with its made, retest and expiry dates, the specification, and each
+     criterion's method, limits or requirement, and final reportable result. A Research
+     certificate is titled as one and says it was issued on one reviewer's sign-off, not
+     released by a quality unit.
+   - **Evidence:** everything behind the certificate. That's every attempt with its
+     analyst and evidence, the full pinned criteria and each signed investigation.
+     It stays internal to the lab.
+5. Sign the certificate through the selected flow. The signatures cover both parts. Use
+   **Export** on the issued record to download the certificate as signed HTML or
+   machine-readable JSON, which is what the lab sends. The HTML can be printed to PDF
    and attached to the lot alongside any supplier certificates. Lot QA signs the lot's
    disposition through its existing workflow.
 
