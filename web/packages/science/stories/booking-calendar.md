@@ -19,7 +19,8 @@ each day.
 
 Each booking has a string `id`, a string `title` and an ISO date-time string
 `startsAt`. Optional strings `endsAt` and `instrument` add an end time and a
-resource name. Use an explicit offset or `Z` for an absolute time. A date-time
+resource name, `bookedFor` the person the time is for, and `work` what it's for,
+such as a request: `09:00–11:00 Amplicon run (MiSeq), for Priya Shah · REQ-000004`. Use an explicit offset or `Z` for an absolute time. A date-time
 with no offset is local to the viewer. A booking with an invalid start time is
 skipped. An invalid or absent end time displays only the start time.
 

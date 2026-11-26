@@ -14,7 +14,13 @@ function calendar() {
         endsAt: "2024-03-01T08:00:00",
         instrument: "Microscope",
       },
-      { id: "maintenance", title: "Maintenance", startsAt: "2024-03-01T12:00:00" },
+      {
+        id: "maintenance",
+        title: "Maintenance",
+        startsAt: "2024-03-01T12:00:00",
+        bookedFor: "Example engineer",
+        work: "EQS-000002 Optics service",
+      },
       { id: "invalid", title: "No valid start", startsAt: "invalid" },
     ],
   };
@@ -57,7 +63,9 @@ describe("booking calendar", () => {
       { start: new Date(2024, 2, 1).toISOString(), end: new Date(2024, 3, 1).toISOString() },
     ]);
     expect(element.month).toBe("2024-03");
-    expect(root.querySelector("li")?.textContent).toContain("Maintenance");
+    expect(root.querySelector("li")?.textContent).toMatch(
+      /Maintenance, for Example engineer · EQS-000002 Optics service$/,
+    );
     expect(root.querySelector("li")?.textContent).not.toContain("Lens");
     element.month = "2025-01";
     expect(ranges).toHaveLength(1);

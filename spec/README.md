@@ -1695,9 +1695,9 @@ slots:
     label: Calendar
   - slot: project.page # a section of the project's page
     search: { sort: starts_at }
-  - slot: person.home # a section of each person's home
+  - slot: person.home # a section of each person's home: the time booked for them
     label: Your bookings
-    search: { where: { field: created_by, op: eq, value: "{{ me }}" } }
+    search: { where: { field: booked_by, op: eq, value: "{{ me }}" } }
 ```
 
 | Slot             | What it's given                                                                       |
@@ -1711,7 +1711,7 @@ A search is the API's, of `entities.type`: `where` conditions on its fields
 and `hrid`, `created_by`, `created_at` and `updated_at`, at most 20, 4
 levels deep, and a field to `sort` by. `{{ entity }}` is the entity whose
 page it is, for a reference to its type; `{{ me }}` is whoever reads it, for
-`created_by`; `{{ now }}` is now, for a date or datetime field. Iki's server runs it, as the person may read, and the element
+`created_by`, `assigned` or a field naming people; `{{ now }}` is now, for a date or datetime field. Iki's server runs it, as the person may read, and the element
 gets the results as its `entities` property: `items`, each with `id`,
 `hrid`, `title`, `type`, `revision`, `project`, the fields declared in
 `values` and the entities those fields name in `refs`, a page at a time.

@@ -139,7 +139,7 @@ var BookingCalendar = class extends HTMLElement {
 	}
 	#booking(booking, start) {
 		const end = new Date(booking.endsAt ?? "");
-		const text = `${Number.isFinite(end.getTime()) ? `${time.format(start)}–${time.format(end)}` : time.format(start)} ${booking.title}${booking.instrument ? ` (${booking.instrument})` : ""}`;
+		const text = `${Number.isFinite(end.getTime()) ? `${time.format(start)}–${time.format(end)}` : time.format(start)} ${booking.title}${booking.instrument ? ` (${booking.instrument})` : ""}` + (booking.bookedFor ? `, for ${booking.bookedFor}` : "") + (booking.work ? ` · ${booking.work}` : "");
 		const open = button(text, () => {
 			this.dispatchEvent(new CustomEvent("booking-open", {
 				detail: { id: booking.id },
@@ -211,13 +211,31 @@ var BookingCalendar = class extends HTMLElement {
 };
 if (!customElements.get("iki-booking-calendar")) customElements.define("iki-booking-calendar", BookingCalendar);
 // plugins/equipment/web/src/booking-calendar.js
+/** What a booking is for, as its reference shows it: by HRID, and its title if it has one. */
+function named(ref) {
+	if (!ref) return void 0;
+	return ref.title && ref.title !== ref.hrid ? `${ref.hrid} ${ref.title}` : ref.hrid;
+}
 var InstrumentBookings = class extends BookingCalendar {
 	#label = "Bookings";
 	#asked = false;
+	/** Whether each booking says whom it's for: not on its reader's home, where all are theirs. */
+	#naming = true;
+	#given = {
+		items: [],
+		loading: true,
+		limited: false,
+		error: null,
+		more: false
+	};
 	constructor() {
 		super();
 		this.addEventListener("month-change", (event) => this.#request(event.detail));
 		this.addEventListener("booking-open", (event) => open(this, event.detail.id));
+	}
+	/** Whether this place's bookings say whom each is for. */
+	names(place) {
+		return place.slot !== "person.home";
 	}
 	#request({ start, end }) {
 		refine(this, {
@@ -238,30 +256,42 @@ var InstrumentBookings = class extends BookingCalendar {
 	}
 	set place(place) {
 		this.#label = place.label;
-		this.data = {
-			...this.data,
-			label: this.#label
-		};
+		this.#naming = this.names(place);
+		this.#redraw();
 		if (!this.#asked) {
 			this.#asked = true;
 			this.#request(this.range);
 		}
 	}
-	set entities({ items, loading, limited, error, more: hasMore }) {
+	set entities(given) {
+		this.#given = given;
+		this.#redraw();
+		if (given.more && !given.loading) more(this);
+	}
+	#redraw() {
+		const { items, loading, limited, error, more: hasMore } = this.#given;
 		this.data = {
 			label: this.#label,
-			bookings: items.map(({ hrid, title, refs, values }) => ({
+			bookings: items.map(({ hrid, title, refs, people, values }) => ({
 				id: hrid,
 				title: values.purpose ?? title,
 				startsAt: values.starts_at,
 				endsAt: values.ends_at,
-				instrument: refs[values.instrument]?.title
+				instrument: refs[values.instrument]?.title,
+				bookedFor: this.#naming ? people?.[values.booked_by]?.name : void 0,
+				work: named(refs[values.work])
 			})),
 			loading: loading || hasMore,
 			limited,
 			error
 		};
-		if (hasMore && !loading) more(this);
+	}
+};
+/** The bookings its reader made for other people: each says whom it's for. */
+var BookingsMade = class extends InstrumentBookings {
+	names() {
+		return true;
 	}
 };
 customElements.define("equipment-booking-calendar", InstrumentBookings);
+customElements.define("equipment-bookings-made", BookingsMade);

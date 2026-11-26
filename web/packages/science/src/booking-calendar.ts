@@ -5,6 +5,10 @@ export interface Booking {
   startsAt: string;
   endsAt?: string;
   instrument?: string;
+  /** Whom the time is for, when it's someone the reader should be told of. */
+  bookedFor?: string;
+  /** What the time is for, such as a request: its ID and title, as the host names it. */
+  work?: string;
 }
 
 export interface BookingCalendarData {
@@ -143,7 +147,10 @@ export class BookingCalendar extends HTMLElement {
     const hours = Number.isFinite(end.getTime())
       ? `${time.format(start)}–${time.format(end)}`
       : time.format(start);
-    const text = `${hours} ${booking.title}${booking.instrument ? ` (${booking.instrument})` : ""}`;
+    const text =
+      `${hours} ${booking.title}${booking.instrument ? ` (${booking.instrument})` : ""}` +
+      (booking.bookedFor ? `, for ${booking.bookedFor}` : "") +
+      (booking.work ? ` · ${booking.work}` : "");
     const open = button(text, () => {
       this.dispatchEvent(
         new CustomEvent<BookingOpen>("booking-open", {

@@ -2903,12 +2903,71 @@ def core_facility_requests(
             f"{request['hrid']}: {delivery['hrid']} returned its report "
             f"with {len(steps)} signatures"
         )
+        if prefix == "QC":
+            booked_for_the_analyst(analyst, reviewer, core, request)
         if prefix == "Research":
             plain = created(
                 analyst, asking, "iki/requests.PlainRequest", {"title": "Training handoff"}
             )
             start_service_work(analyst, core, plain)
             work_and_deliverable(analyst, reviewer, requester, core, plain, report)
+
+
+def booked_for_the_analyst(
+    coordinator: requests.Session,
+    analyst: requests.Session,
+    core: dict[str, Any],
+    request: dict[str, Any],
+) -> None:
+    """The core's coordinator books its sequencer for the analyst who runs the request:
+    it's on the analyst's home and the request's lineage, and on the coordinator's home
+    among the bookings she made for others, not her own."""
+    who = api_call(analyst, "GET", "/me").json()["id"]
+    stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    sequencer = created(
+        coordinator, core, "iki/equipment.Instrument", {"name": f"PromethION {stamp}"}
+    )
+    start = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) + timedelta(days=1)
+    booking = created(
+        coordinator,
+        core,
+        "iki/equipment.Booking",
+        {
+            "purpose": "Long-read sequencing run",
+            "instrument": sequencer["id"],
+            "starts_at": start.isoformat(),
+            "ends_at": (start + timedelta(hours=48)).isoformat(),
+            "booked_by": who,
+            "work": request["id"],
+        },
+    )
+    this = {"field": "hrid", "op": "eq", "value": booking["hrid"]}
+
+    def home(session: requests.Session, component: str) -> list[dict[str, Any]]:
+        path = f"/components/iki/equipment.{component}/entities"
+        found = api_call(session, "POST", path, {"home": True, "refine": {"where": this}})
+        if found.status_code != 200:
+            fail(f"{component} on a home answered HTTP {found.status_code}: {found.text[:300]}")
+        items: list[dict[str, Any]] = found.json()["items"]
+        return items
+
+    theirs = home(analyst, "booking_calendar")
+    if [i["hrid"] for i in theirs] != [booking["hrid"]]:
+        fail(f"the analyst's home shows {[i['hrid'] for i in theirs]}, not {booking['hrid']}")
+    if theirs[0]["refs"].get(request["id"], {}).get("hrid") != request["hrid"]:
+        fail(f"{booking['hrid']} on the analyst's home doesn't say it's for {request['hrid']}")
+    if home(coordinator, "booking_calendar"):
+        fail(f"the coordinator's own bookings include {booking['hrid']}, made for the analyst")
+    made = home(coordinator, "bookings_made")
+    if [i["hrid"] for i in made] != [booking["hrid"]] or who not in made[0]["people"]:
+        fail(f"the coordinator's bookings for others show {made}")
+    lineage = api_call(analyst, "GET", f"/entities/{request['id']}/downstream")
+    if booking["id"] not in {i["entity"]["id"] for i in lineage.json()["items"]}:
+        fail(f"{request['hrid']}'s lineage doesn't list {booking['hrid']}: {lineage.text[:300]}")
+    ok(
+        f"{booking['hrid']}, booked by the core's coordinator for the analyst running "
+        f"{request['hrid']}, is on the analyst's home and the request's lineage"
+    )
 
 
 def work_and_deliverable(
@@ -3345,7 +3404,8 @@ def bookings(alice: requests.Session, project: dict[str, Any]) -> None:
     items = tab.json()["items"]
     if [i["hrid"] for i in items] != [b["hrid"] for b in booked[:2]]:
         fail(f"{reader['hrid']}'s calendar shows {[i['hrid'] for i in items]}, not its bookings")
-    if set(items[0]["values"]) != {"purpose", "instrument", "starts_at", "ends_at"}:
+    reads = {"purpose", "instrument", "starts_at", "ends_at", "booked_by", "work"}
+    if not {"purpose", "instrument", "starts_at", "ends_at"} <= set(items[0]["values"]) <= reads:
         fail(f"the calendar was given {sorted(items[0]['values'])}, not the fields it reads")
     if items[0]["refs"].get(entry_of(reader), {}).get("hrid") != reader["hrid"]:
         fail(f"the calendar wasn't given {reader['hrid']}, which its bookings name")
@@ -3368,7 +3428,7 @@ def bookings(alice: requests.Session, project: dict[str, Any]) -> None:
         fail(f"Alice's home calendar shows {[i['hrid'] for i in home]} of the bookings she made")
     ok(
         f"the booking calendar shows {reader['hrid']}'s bookings on its tab, a day of them "
-        "when it narrows, and Alice's on her home, with only the four fields it reads"
+        "when it narrows, and Alice's on her home, with only the fields it reads"
     )
     # An app places it beside Iki's own grid, given the instrument picked there.
     spec = {

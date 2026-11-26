@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# The bookings someone made for other people, on their home (ADR 0117): a core's
+# coordinator sees the instrument time they booked for the analysts it's for, each with
+# whom it's for, beside the bookings that are their own. The same module draws it as the
+# booking calendar does.
+apiVersion: iki/v1
+kind: Component
+name: bookings_made
+label: Booked for others
+description: Time you booked for other people, by day.
+module: ./components/booking-calendar.js
+element: equipment-bookings-made
+entities:
+  type: Booking
+  fields: [purpose, instrument, starts_at, ends_at, booked_by, work]
+  limit: 1000
+slots:
+  - slot: person.home
+    label: Bookings you made for others
+    search:
+      where:
+        all:
+          - { field: created_by, op: eq, value: "{{ me }}" }
+          - { field: booked_by, op: is_set, value: true }
+          - { field: booked_by, op: ne, value: "{{ me }}" }
+      sort: starts_at
