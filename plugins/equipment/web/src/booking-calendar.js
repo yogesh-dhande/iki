@@ -14,10 +14,17 @@ class InstrumentBookings extends BookingCalendar {
   /** Whether each booking says whom it's for: not on its reader's home, where all are theirs. */
   #naming = true;
   #given = { items: [], loading: true, limited: false, error: null, more: false };
+  /** Cancelled bookings hold nothing, so a calendar leaves them out until asked. */
+  #cancelled = false;
 
   constructor() {
     super();
     this.addEventListener("month-change", (event) => this.#request(event.detail));
+    this.addEventListener("cancelled-change", (event) => {
+      this.#cancelled = event.detail.shown;
+      this.#redraw();
+      this.#request(this.range);
+    });
     this.addEventListener("booking-open", (event) => open(this, event.detail.id));
   }
 
@@ -32,6 +39,7 @@ class InstrumentBookings extends BookingCalendar {
         all: [
           { field: "starts_at", op: "gte", value: start },
           { field: "starts_at", op: "lt", value: end },
+          ...(this.#cancelled ? [] : [{ field: "cancelled", op: "eq", value: false }]),
         ],
       },
       sort: { field: "starts_at", descending: false },
@@ -67,7 +75,9 @@ class InstrumentBookings extends BookingCalendar {
         bookedFor: this.#naming ? people?.[values.booked_by]?.name : undefined,
         // Only what its reader can read is in refs: any other record isn't named.
         work: named(refs[values.work]),
+        cancelled: values.cancelled === true,
       })),
+      showCancelled: this.#cancelled,
       loading: loading || hasMore,
       limited,
       error,

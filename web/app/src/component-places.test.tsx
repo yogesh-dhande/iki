@@ -361,7 +361,7 @@ describe("sections", () => {
       ],
       entities: {
         type: "iki/equipment.Booking",
-        fields: ["purpose", "instrument", "starts_at", "ends_at", "booked_by", "work"],
+        fields: ["purpose", "instrument", "starts_at", "ends_at", "booked_by", "work", "cancelled"],
         limit: 1000,
       },
       selects: "",

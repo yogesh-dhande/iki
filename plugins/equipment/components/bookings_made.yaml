@@ -13,7 +13,7 @@ module: ./components/booking-calendar.js
 element: equipment-bookings-made
 entities:
   type: Booking
-  fields: [purpose, instrument, starts_at, ends_at, booked_by, work]
+  fields: [purpose, instrument, starts_at, ends_at, booked_by, work, cancelled]
   limit: 1000
 slots:
   - slot: person.home

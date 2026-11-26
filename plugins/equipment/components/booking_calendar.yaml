@@ -8,12 +8,12 @@ apiVersion: iki/v1
 kind: Component
 name: booking_calendar
 label: Calendar
-description: Bookings by day, a month at a time.
+description: Bookings by day, a month at a time. Cancelled ones show when asked.
 module: ./components/booking-calendar.js
 element: equipment-booking-calendar
 entities:
   type: Booking
-  fields: [purpose, instrument, starts_at, ends_at, booked_by, work]
+  fields: [purpose, instrument, starts_at, ends_at, booked_by, work, cancelled]
   limit: 1000
 slots:
   # An instrument's bookings, on its page.

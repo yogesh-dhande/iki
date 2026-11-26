@@ -17,7 +17,9 @@ fields:
   cancelled:
     type: bool
     default: false
-    description: Cancelled bookings are kept, and don't hold the instrument.
+    description: >-
+      Cancelled bookings are kept, and don't hold the instrument: another booking can
+      take their time. Calendars leave them out unless asked to show them.
   booked_by:
     type: person
     label: Booked for
@@ -65,9 +67,13 @@ notifications:
     label: Instrument out of service
     description: >-
       Whoever a booking is for, and whoever booked it, hear when its instrument
-      goes out of service before the booking ends, so they can book another.
+      goes out of service before the booking ends, so they can book another. A
+      cancelled booking tells no one.
     when: { field: instrument.service, to: out_of_service }
-    where: { field: ends_at, op: gte, value: "{{ now }}" }
+    where:
+      all:
+        - { field: ends_at, op: gte, value: "{{ now }}" }
+        - { field: cancelled, op: eq, value: false }
     tell: { fields: [booked_by], creator: true }
     message:
       title: "{{ instrument }} is out of service"

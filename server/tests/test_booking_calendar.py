@@ -183,6 +183,7 @@ def test_a_month_of_bookings_by_day_asking_only_for_what_it_shows(
                     "all": [
                         {"field": "starts_at", "op": "gte", "value": start.strftime(iso)},
                         {"field": "starts_at", "op": "lt", "value": end.strftime(iso)},
+                        ACTIVE,
                     ]
                 },
                 "sort": {"field": "starts_at", "descending": False},
@@ -234,6 +235,8 @@ def test_a_month_of_bookings_by_day_asking_only_for_what_it_shows(
     context.close()
 
 
+#: What a calendar asks for until it's asked to show cancelled bookings too.
+ACTIVE = {"field": "cancelled", "op": "eq", "value": False}
 ANALYST = "00000000-0000-7000-8000-0000000000a1"
 REQUEST = "00000000-0000-7000-8000-0000000000r1"
 UNREADABLE = "00000000-0000-7000-8000-0000000000r2"
@@ -290,6 +293,52 @@ def test_each_booking_says_whom_and_what_its_for(
     assert violations == [], violations
     opens.click()
     assert sent(page)[-1] == {"type": "iki-open", "detail": {"entity": "BKG-000001"}}
+    assert errors == []
+    assert page.evaluate("window.refused") == []
+    context.close()
+
+
+def test_cancelled_bookings_are_left_out_until_asked_for_then_marked_cancelled(
+    browser: Browser, frame_server: str
+) -> None:
+    """As a resource calendar drops a cancelled meeting: a cancelled booking holds no time,
+    so the calendar asks for active ones; asked, it shows the rest struck through and
+    labelled Cancelled, in words as well as by its look."""
+    month = dt.datetime.now(dt.UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    run = booking(1, month.replace(day=8, hour=9), "16S amplicon run")
+    off = booking(2, month.replace(day=8, hour=14), "Shotgun metagenomics run")
+    off["values"]["cancelled"] = True
+    context = browser.new_context(locale="en-GB", timezone_id="UTC")
+    page = context.new_page()
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    # What a place gives before the calendar's month narrows it may hold a cancelled one.
+    page.goto(f"{frame_server}/frame#{urllib.parse.quote(json.dumps(given([run, off])))}")
+    page.get_by_role("table", name=f"Bookings: {month.strftime('%B %Y')}").wait_for()
+    assert ACTIVE in sent(page)[-1]["detail"]["where"]["all"]
+    shown = page.get_by_role("checkbox", name="Show cancelled")
+    assert not shown.is_checked()
+    page.get_by_role("status").get_by_text(f"1 booking in {month.strftime('%B %Y')}").wait_for()
+    assert page.get_by_role("button", name="Open BKG-000002", exact=False).count() == 0
+
+    shown.check()
+    assert ACTIVE not in sent(page)[-1]["detail"]["where"]["all"]
+    page.evaluate("(e) => window.give(e)", given([run, off]))
+    text = "14:00–16:00 Shotgun metagenomics run (Plate reader)"
+    cancelled = page.get_by_role("button", name=f"Open BKG-000002: Cancelled: {text}", exact=True)
+    cancelled.wait_for()
+    assert cancelled.inner_text() == f"Cancelled {text}"
+    assert cancelled.locator("s").inner_text() == text
+    status = page.get_by_role("status")
+    status.get_by_text(f"1 booking in {month.strftime('%B %Y')}, 1 cancelled").wait_for()
+    violations = check(page)
+    assert violations == [], violations
+    cancelled.click()
+    assert sent(page)[-1] == {"type": "iki-open", "detail": {"entity": "BKG-000002"}}
+
+    shown.uncheck()
+    assert ACTIVE in sent(page)[-1]["detail"]["where"]["all"]
+    assert cancelled.count() == 0
     assert errors == []
     assert page.evaluate("window.refused") == []
     context.close()

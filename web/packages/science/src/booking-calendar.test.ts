@@ -86,4 +86,46 @@ describe("booking calendar", () => {
     element.data = { bookings: [], error: "Unable to load bookings" };
     expect(root.querySelector('[role="status"]')?.textContent).toBe("Unable to load bookings");
   });
+
+  it("leaves cancelled bookings out until asked, then strikes them through and says so", () => {
+    const element = document.body.appendChild(document.createElement("iki-booking-calendar"));
+    element.month = "2024-02";
+    const bookings = [
+      { id: "run", title: "Amplicon run", startsAt: "2024-02-12T09:00:00" },
+      { id: "off", title: "Metagenomics run", startsAt: "2024-02-13T09:00:00", cancelled: true },
+    ];
+    element.data = { bookings, showCancelled: false };
+    const root = element.shadowRoot;
+    assert(root);
+    const toggle = root.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    assert(toggle);
+    expect(toggle.closest("label")?.hidden).toBe(false);
+    expect(toggle.closest("label")?.textContent).toBe("Show cancelled");
+    expect(toggle.checked).toBe(false);
+    expect(root.querySelectorAll("li button")).toHaveLength(1);
+    expect(root.querySelector('[role="status"]')?.textContent).toMatch(/^1 booking in [^,]*$/);
+    const asked: unknown[] = [];
+    element.addEventListener("cancelled-change", (event) => {
+      asked.push((event as CustomEvent<unknown>).detail);
+      expect(event.composed && event.bubbles).toBe(true);
+    });
+    toggle.click();
+    expect(asked).toEqual([{ shown: true }]);
+
+    element.data = { bookings, showCancelled: true };
+    const off = root.querySelector<HTMLButtonElement>("li button.cancelled");
+    assert(off);
+    expect(off.querySelector(".tag")?.textContent).toBe("Cancelled");
+    expect(off.querySelector("s")?.textContent).toMatch(/Metagenomics run$/);
+    expect(off.getAttribute("aria-label")).toMatch(/^Open off: Cancelled: .*Metagenomics run$/);
+    expect(root.querySelector('[role="status"]')?.textContent).toMatch(
+      /^1 booking in .*, 1 cancelled$/,
+    );
+
+    // A host that doesn't offer the switch gets what it gives, still marked cancelled.
+    element.data = { bookings };
+    expect(toggle.closest("label")?.hidden).toBe(true);
+    expect(root.querySelectorAll("li button.cancelled")).toHaveLength(1);
+    element.remove();
+  });
 });

@@ -8,6 +8,7 @@ it, as Google Calendar and Outlook put a room booked for someone on their calend
 show a delegate the meetings they arranged."""
 
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -121,7 +122,8 @@ def exercise() -> None:
     _homes(world, request, for_analyst, hers, theirs, named_self)
     _what_it_names(world, core, request, sequencer, for_analyst, start)
     _lineage(world, request, for_analyst)
-    _out_of_service(world, sequencer, for_analyst, hers, {theirs, named_self})
+    called_off, rerun = _cancelled_frees_its_slot(world, book)
+    _out_of_service(world, sequencer, for_analyst, hers, {theirs, named_self, rerun}, called_off)
 
 
 def _homes(
@@ -217,10 +219,42 @@ def _lineage(world: World, request: Entity, for_analyst: Entity) -> None:
     assert str(for_analyst.pk) not in {i["entity"]["id"] for i in downstream(REQUESTER)}
 
 
+def _cancelled_frees_its_slot(world: World, book: Callable[..., Entity]) -> tuple[Entity, Entity]:
+    """A cancelled booking is kept, holds nothing, and a calendar asks for it only when
+    it's to be shown: the analyst's home leaves it out until then."""
+    analyst = str(world.users[ANALYST].pk)
+    called_off = book(COORDINATOR, "Shotgun metagenomics run", 12, booked_by=analyst)
+    saved = services.update(
+        world.users[COORDINATOR],
+        called_off,
+        {"cancelled": True},
+        expected_revision=called_off.revision,
+    )
+    called_off = Entity.objects.get(pk=saved.entity.pk)
+    # Its time is free: the analyst books it again.
+    rerun = book(ANALYST, "Shotgun metagenomics rerun", 12)
+    with pytest.raises(Invalid) as overlapping:
+        book(ANALYST, "Overlapping run", 13)
+    assert "booked then already" in str(overlapping.value), overlapping.value
+    active = {"where": {"field": "cancelled", "op": "eq", "value": False}}
+    home = {"home": True}
+    everything = _hrids(_shown(world, ANALYST, "booking_calendar", home))
+    assert {called_off.hrid, rerun.hrid} <= everything
+    shown = _hrids(_shown(world, ANALYST, "booking_calendar", {**home, "refine": active}))
+    assert shown == everything - {called_off.hrid}
+    return called_off, rerun
+
+
 def _out_of_service(
-    world: World, sequencer: Entity, for_analyst: Entity, hers: Entity, theirs: set[Entity]
+    world: World,
+    sequencer: Entity,
+    for_analyst: Entity,
+    hers: Entity,
+    theirs: set[Entity],
+    called_off: Entity,
 ) -> None:
-    """Whom a booking is for, and whoever booked it, hear of it: each once."""
+    """Whom a booking is for, and whoever booked it, hear of it: each once. A cancelled
+    booking tells no one."""
     states.set_state(
         world.users[ENGINEER],
         sequencer,
@@ -245,6 +279,9 @@ def _out_of_service(
     for booking, people in expected.items():
         assert told(booking) == {str(p.pk) for p in people}, (booking.hrid, told(booking))
     # Each finds it in their inbox; the engineer who flagged it, nothing.
+    assert not AuditEvent.objects.filter(
+        action="notification.sent", target_id=str(called_off.pk)
+    ).exists()
     for person in (ANALYST, COORDINATOR):
         inbox = Notification.objects.filter(recipient=users[person], kind=kind)
         assert inbox.exists(), person

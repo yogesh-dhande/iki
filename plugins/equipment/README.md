@@ -15,6 +15,10 @@ the request it runs. Leave **Booked for** empty to book the time for yourself.
   for other people, with whom each is for.
 - When an instrument goes out of service, the person a booking is for and the
   person who booked it are both told, until the booking ends.
+- A cancelled booking is kept but frees its time, so another booking can take
+  it. Calendars leave cancelled bookings out until **Show cancelled** is on, and
+  then show them struck through and labelled Cancelled. A cancelled booking
+  tells no one when its instrument goes out of service.
 - A booking can name only records its project may use, such as a request sent
   to the core. Its calendar names that record only to people who can read it. The
   record's **Lineage** lists the bookings that name it, as far as the reader can

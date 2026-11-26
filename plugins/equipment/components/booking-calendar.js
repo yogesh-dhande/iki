@@ -46,6 +46,11 @@ const STYLE = `
   td[aria-current] .day { font-weight: 700; text-decoration: underline; }
   ul { list-style: none; margin: 0.25rem 0 0; padding: 0; display: grid; gap: 0.25rem; }
   li button { width: 100%; text-align: start; font-size: 0.8rem; padding: 0.15rem 0.3rem; overflow-wrap: anywhere; }
+  li button.cancelled { border-style: dashed; }
+  .tag { font-weight: 700; }
+  label { display: inline-flex; gap: 0.35rem; align-items: center; }
+  input:focus-visible { outline: 3px solid var(--focus, Highlight); outline-offset: 2px; }
+  label[hidden] { display: none; }
 `;
 const DAYS = 7;
 const time = new Intl.DateTimeFormat(void 0, {
@@ -83,6 +88,8 @@ var BookingCalendar = class extends HTMLElement {
 	#data = { bookings: [] };
 	#status = document.createElement("p");
 	#scroll = document.createElement("div");
+	#switch = document.createElement("label");
+	#showing = document.createElement("input");
 	constructor() {
 		super();
 		const root = this.attachShadow({ mode: "open" });
@@ -90,6 +97,15 @@ var BookingCalendar = class extends HTMLElement {
 		style.textContent = STYLE;
 		const bar = document.createElement("div");
 		bar.className = "bar";
+		this.#showing.type = "checkbox";
+		this.#showing.addEventListener("change", () => {
+			this.dispatchEvent(new CustomEvent("cancelled-change", {
+				detail: { shown: this.#showing.checked },
+				bubbles: true,
+				composed: true
+			}));
+		});
+		this.#switch.append(this.#showing, "Show cancelled");
 		this.#status.setAttribute("role", "status");
 		bar.append(button("Previous month", () => {
 			this.#show(firstOfMonth(this.#month, -1));
@@ -97,7 +113,7 @@ var BookingCalendar = class extends HTMLElement {
 			this.#show(firstOfMonth(/* @__PURE__ */ new Date()));
 		}), button("Next month", () => {
 			this.#show(firstOfMonth(this.#month, 1));
-		}), this.#status);
+		}), this.#switch, this.#status);
 		this.#scroll.className = "scroll";
 		this.#scroll.setAttribute("role", "region");
 		this.#scroll.tabIndex = 0;
@@ -147,28 +163,43 @@ var BookingCalendar = class extends HTMLElement {
 				composed: true
 			}));
 		});
-		open.setAttribute("aria-label", `Open ${booking.id}: ${text}`);
+		if (booking.cancelled) {
+			const tag = document.createElement("span");
+			tag.className = "tag";
+			tag.textContent = "Cancelled";
+			const was = document.createElement("s");
+			was.textContent = text;
+			open.className = "cancelled";
+			open.replaceChildren(tag, " ", was);
+		}
+		open.setAttribute("aria-label", `Open ${booking.id}: ${booking.cancelled ? `Cancelled: ${text}` : text}`);
 		const item = document.createElement("li");
 		item.append(open);
 		return item;
 	}
 	#draw() {
-		const { bookings, label = "Bookings", error, loading, limited } = this.#data;
+		const { bookings, label = "Bookings", error, loading, limited, showCancelled } = this.#data;
+		const offered = showCancelled !== void 0;
+		this.#switch.hidden = !offered;
+		this.#showing.checked = showCancelled === true;
 		const first = new Date(this.#month);
 		const end = firstOfMonth(first, 1);
 		const entries = /* @__PURE__ */ new Map();
 		let count = 0;
+		let cancelled = 0;
 		for (const booking of bookings) {
 			const start = new Date(booking.startsAt);
 			if (!(start >= first && start < end)) continue;
+			if (booking.cancelled && offered && !showCancelled) continue;
+			if (booking.cancelled) cancelled++;
+			else count++;
 			const date = start.getDate();
 			const items = entries.get(date) ?? [];
 			items.push(this.#booking(booking, start));
 			entries.set(date, items);
-			count++;
 		}
 		const month = monthName.format(first);
-		this.#status.textContent = error ?? `${String(count)} booking${count === 1 ? "" : "s"} in ${month}` + (loading ? ", finding more…" : "") + (limited ? `: the first ${String(bookings.length)} it can show` : "");
+		this.#status.textContent = error ?? `${String(count)} booking${count === 1 ? "" : "s"} in ${month}` + (cancelled ? `, ${String(cancelled)} cancelled` : "") + (loading ? ", finding more…" : "") + (limited ? `: the first ${String(bookings.length)} it can show` : "");
 		this.#scroll.setAttribute("aria-label", `${label} calendar`);
 		const table = document.createElement("table");
 		table.createCaption().textContent = `${label}: ${month}`;
@@ -228,9 +259,16 @@ var InstrumentBookings = class extends BookingCalendar {
 		error: null,
 		more: false
 	};
+	/** Cancelled bookings hold nothing, so a calendar leaves them out until asked. */
+	#cancelled = false;
 	constructor() {
 		super();
 		this.addEventListener("month-change", (event) => this.#request(event.detail));
+		this.addEventListener("cancelled-change", (event) => {
+			this.#cancelled = event.detail.shown;
+			this.#redraw();
+			this.#request(this.range);
+		});
 		this.addEventListener("booking-open", (event) => open(this, event.detail.id));
 	}
 	/** Whether this place's bookings say whom each is for. */
@@ -239,15 +277,23 @@ var InstrumentBookings = class extends BookingCalendar {
 	}
 	#request({ start, end }) {
 		refine(this, {
-			where: { all: [{
-				field: "starts_at",
-				op: "gte",
-				value: start
-			}, {
-				field: "starts_at",
-				op: "lt",
-				value: end
-			}] },
+			where: { all: [
+				{
+					field: "starts_at",
+					op: "gte",
+					value: start
+				},
+				{
+					field: "starts_at",
+					op: "lt",
+					value: end
+				},
+				...this.#cancelled ? [] : [{
+					field: "cancelled",
+					op: "eq",
+					value: false
+				}]
+			] },
 			sort: {
 				field: "starts_at",
 				descending: false
@@ -279,8 +325,10 @@ var InstrumentBookings = class extends BookingCalendar {
 				endsAt: values.ends_at,
 				instrument: refs[values.instrument]?.title,
 				bookedFor: this.#naming ? people?.[values.booked_by]?.name : void 0,
-				work: named(refs[values.work])
+				work: named(refs[values.work]),
+				cancelled: values.cancelled === true
 			})),
+			showCancelled: this.#cancelled,
 			loading: loading || hasMore,
 			limited,
 			error
