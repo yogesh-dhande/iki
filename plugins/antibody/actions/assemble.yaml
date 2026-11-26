@@ -20,7 +20,9 @@ description: >-
   hasn't is left out and said, and its bond map says whether its bonds are
   all it has: not an IgG2's or IgG3's between its chains, which aren't given,
   and only the predominant form's for a native IgG4's hinge. An IgM's chains
-  make one of its subunits: its pentamer or hexamer is a protein complex.
+  make one of its subunits: its pentamer or hexamer is a protein complex. A
+  constant region no human reference matches, such as a mouse's, keeps the
+  isotype and species given, which must be one that species has.
 inputs:
   heavy_chain: { type: iki/protein.Protein, schema: ">=2", label: Heavy chain }
   light_chain: { type: iki/protein.Protein, schema: ">=2", label: Light chain, optional: true }
@@ -39,11 +41,21 @@ params:
       anything else.
   isotype:
     type: enum
-    values: [igg1, igg2, igg3, igg4, iga1, iga2, igm, ige, igd]
+    values: [igg1, igg2, igg2a, igg2b, igg2c, igg3, igg4, igg, iga1, iga2, iga, igm, ige, igd]
     description: >-
-      Its heavy chain constant region's class: one of IgG's subclasses for an
-      IgG; none for an Fv, scFv or VHH. Left out, it's the heavy chain's
-      constant region's, where it has one; given, it must be that.
+      Its heavy chain constant region's class, as its species names it: IgG or
+      one of its subclasses for an IgG; none for an Fv, scFv or VHH. Left out,
+      it's the heavy chain's human constant region's, where it has one; given,
+      it must be that. For a constant region no human one matches, give it with
+      its species.
+  constant_species:
+    type: enum
+    values: [human, mouse, rat, rabbit]
+    label: Constant region species
+    description: >-
+      The species of the heavy chain's constant region. Left out, it's human
+      when the chain matches a human constant region. Give it for a mouse's,
+      rat's or rabbit's, whose isotype is then as given.
   target: { type: string, max_length: 255, description: What it binds. }
   copies:
     type: int

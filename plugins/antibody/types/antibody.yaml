@@ -9,7 +9,7 @@ name: Antibody
 label: Antibody
 label_plural: Antibodies
 extends: iki/core.Complex
-schema_version: 2
+schema_version: 3
 description: >-
   An antibody by the proteins that are its chains: at most one kind of heavy
   chain and one of light chain, each with its copies. Two copies of each for a
@@ -55,13 +55,28 @@ fields:
   isotype:
     type: enum
     registry: fact
-    values: [igg1, igg2, igg3, igg4, iga1, iga2, igm, ige, igd]
+    values: [igg1, igg2, igg2a, igg2b, igg2c, igg3, igg4, igg, iga1, iga2, iga, igm, ige, igd]
     indexed: true
     description: >-
       Its heavy chain constant region's class and subclass, which its heavy
-      chain's sequence carries: one of IgG's subclasses for an IgG, any for a
-      Fab or another format with a constant region, none for an Fv, scFv or
-      VHH. A registry fact: given once, then changed only by its registrars.
+      chain's sequence carries, as its constant region's species names them:
+      igg1 to igg4, iga1 and iga2 for a human's; igg1, igg2a, igg2b, igg2c and
+      igg3 for a mouse's; igg1, igg2a, igg2b and igg2c for a rat's; igg for a
+      rabbit's one IgG; and iga where a species' IgA isn't split by subclass
+      here. An IgG's is one of IgG's, a Fab's or another format's with a
+      constant region any, and an Fv, scFv or VHH has none. A registry fact:
+      given once, then changed only by its registrars.
+  constant_species:
+    type: enum
+    registry: fact
+    values: [human, mouse, rat, rabbit]
+    label: Constant region species
+    indexed: true
+    description: >-
+      The species whose constant region the heavy chain has, which names its
+      isotype: a chimeric antibody's mouse variable domains on a human IgG1 is
+      human here. `assemble` gives human when the chain matches a human
+      constant region, and takes another species as given. A registry fact.
   target:
     type: string
     max_length: 255
@@ -117,13 +132,40 @@ rules:
       An Fv, scFv or VHH has no constant region, so no isotype: leave it out,
       or choose the format its chains are.
     fields: [isotype]
+  no_constant_species_without_a_constant_region:
+    label: An Fv, scFv or VHH has no constant region species
+    check: '!(record.format in ["fv", "scfv", "vhh"])'
+    when: record.constant_species != null
+    message: >-
+      An Fv, scFv or VHH has no constant region, so no constant region
+      species: leave it out, or choose the format its chains are.
+    fields: [constant_species]
   an_iggs_isotype_is_a_subclass:
-    label: An IgG's isotype is one of its subclasses
-    check: record.isotype in ["igg1", "igg2", "igg3", "igg4"]
+    label: An IgG's isotype is IgG's
+    check: record.isotype in ["igg1", "igg2", "igg2a", "igg2b", "igg2c", "igg3", "igg4", "igg"]
     when: record.format == "igg" && record.isotype != null
     message: >-
-      An IgG's isotype is one of its subclasses (igg1 to igg4), not
-      {{ record.isotype }}: for a whole antibody of another class, choose other.
+      An IgG's isotype is IgG or one of its subclasses, not {{ record.isotype }}:
+      for a whole antibody of another class, choose other.
     fields: [isotype]
+  the_isotype_is_its_species:
+    label: The isotype is one its constant region's species has
+    description: >-
+      Subclasses are named per species, as IMGT's Repertoire names each
+      species' IGHC genes: a mouse has IgG2a, IgG2b and IgG2c but no IgG2 or
+      IgG4, a rat no IgG3, and a rabbit one IgG and no IgD.
+    check: >-
+      record.constant_species == "human" ?
+        record.isotype in ["igg1", "igg2", "igg3", "igg4", "iga1", "iga2", "igm", "ige", "igd"] :
+      record.constant_species == "mouse" ?
+        record.isotype in ["igg1", "igg2a", "igg2b", "igg2c", "igg3", "iga", "igm", "ige", "igd"] :
+      record.constant_species == "rat" ?
+        record.isotype in ["igg1", "igg2a", "igg2b", "igg2c", "iga", "igm", "ige", "igd"] :
+      record.isotype in ["igg", "iga", "igm", "ige"]
+    when: record.isotype != null && record.constant_species != null
+    message: >-
+      A {{ record.constant_species }} constant region has no {{ record.isotype }}:
+      give the isotype as that species names it.
+    fields: [isotype, constant_species]
 display:
   title: "{{ name or hrid }}"
