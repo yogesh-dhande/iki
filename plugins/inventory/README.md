@@ -51,6 +51,21 @@ its own `storage.grid` labels and order. [Layouts and containers](../../docs/adr
 
 ## Holds
 
-Withdrawing a container from use records a reason. Lifting a hold needs a
-reason too. The `hold_withdrawn` action follows split and transfer history to
-put derived containers in the same project on hold. [Amount ledger](../../docs/adr/0139-a-records-amount-is-a-ledger-of-what-moved.md)
+Withdrawing a container from use records a reason, and a draw from it is
+refused until the hold is lifted. Lifting a hold needs a reason too. A lot's
+release and restrictions are its own and follow its containers through the
+ledger. [Amount ledger](../../docs/adr/0139-a-records-amount-is-a-ledger-of-what-moved.md)
+
+What else goes on hold when a container does is the lab's procedure. Choose
+one per project:
+
+| Procedure          | How                                                                        | What's held                                                                                               |
+| ------------------ | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Case by case       | Run **Hold stock derived from a withdrawn container** after withdrawing it | The containers selected, with the reason entered or the source's                                          |
+| All derived stock  | A project admin turns on **Hold all stock derived from withdrawn stock**   | Every container split or transferred from it in the project, up to ten steps on, with the source's reason |
+| The container only | Neither                                                                    | Nothing else                                                                                              |
+
+Either way, each derived hold names the source's HRID, a container already on
+hold keeps its own hold and reason, nothing is ever released automatically, and
+the run checks that neither the source nor a derived container changed since
+it read them. [Hold procedures](../../docs/adr/0264-what-a-hold-covers-is-the-labs-procedure.md)
