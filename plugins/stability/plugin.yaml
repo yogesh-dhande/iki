@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/stability
-version: 0.2.2
+version: 0.3.0
 title: Stability studies
 description: Design lot stability studies, schedule storage pulls and trend signed measurements.
 license: Apache-2.0

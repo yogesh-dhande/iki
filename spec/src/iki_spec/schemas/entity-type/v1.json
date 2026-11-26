@@ -153,7 +153,8 @@
       "dependentRequired": {
         "source": ["by", "ready", "amount"],
         "ready": ["by", "source", "amount"],
-        "amount": ["by", "source", "ready"]
+        "amount": ["by", "source", "ready"],
+        "unit": ["amount"]
       },
       "properties": {
         "from": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
@@ -176,6 +177,10 @@
         },
         "ready": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
         "amount": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+        "unit": {
+          "description": "An enum or string field holding the planned amount's UCUM unit, when the amount is a float rather than a quantity in one fixed unit.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
         "stored": { "type": "boolean" }
       }
     },

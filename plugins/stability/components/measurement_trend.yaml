@@ -8,7 +8,21 @@ element: stability-measurement-trend
 entities:
   type: Measurement
   fields:
-    [study, pull, condition, condition_label, month, pulled_on, test, method, value, unit, review]
+    [
+      study,
+      pull,
+      condition,
+      condition_label,
+      time_point,
+      elapsed_days,
+      replicate,
+      pulled_on,
+      test,
+      method,
+      value,
+      unit,
+      review,
+    ]
   limit: 1000
 slots:
   - slot: entity.tab
@@ -18,4 +32,4 @@ slots:
         all:
           - { field: study, op: eq, value: "{{ entity }}" }
           - { field: review, op: in, value: [signed, released] }
-      sort: month
+      sort: elapsed_days

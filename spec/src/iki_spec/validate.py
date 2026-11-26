@@ -857,6 +857,7 @@ def _draw_target(data: dict[str, Any] | None, plugin: str) -> DrawTarget | None:
         ready=data.get("ready"),
         amount=data.get("amount"),
         stored=data.get("stored", False),
+        unit=data.get("unit"),
     )
 
 
@@ -1639,22 +1640,37 @@ class _Semantics:
             )
 
     def draw_target(self, target: DrawTarget, source: Document, fields: dict[str, Field]) -> None:
-        """A target opts in using an assigned container and amount, both fixed at creation."""
-        for key, name, kind in (
-            ("from", target.from_field, "ref"),
-            ("source", target.source, "ref"),
-            ("amount", target.amount, "quantity"),
+        """A target opts in using an assigned container and amount, both fixed at creation.
+        The amount is a quantity in its field's unit, or a float in the unit another field
+        names, such as a planned volume or mass (ADR 0243)."""
+        for key, name, kinds in (
+            ("from", target.from_field, ("ref",)),
+            ("source", target.source, ("ref",)),
+            ("amount", target.amount, ("float",) if target.unit else ("quantity",)),
+            ("unit", target.unit, ("enum", "string")),
         ):
             if name is None:
                 continue
             field = fields.get(name)
-            if field is None or field.type != kind or not field.immutable or not field.required:
+            if (
+                field is None
+                or field.type not in kinds
+                or not field.immutable
+                or not field.required
+            ):
                 self.add(
                     "invalid-draw-target",
-                    f"`{name}` must be a required, immutable {kind} field.",
+                    f"`{name}` must be a required, immutable {' or '.join(kinds)} field.",
                     source,
                     ("draw_target", key),
                 )
+        if target.unit is not None and target.amount is None:
+            self.add(
+                "invalid-draw-target",
+                "A planned amount's unit needs the planned amount it's the unit of.",
+                source,
+                ("draw_target", "unit"),
+            )
         field = fields.get(target.state_field)
         if field is None or field.type != "state" or target.state not in field.live_states:
             self.add(

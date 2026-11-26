@@ -862,6 +862,10 @@ fields:
   One draw can be recorded against the assigned source while the destination is pending.
   The debit and the destination receipt commit together. A prepared draw can additionally
   pin the upstream material, planned quantity, readiness field and authorized roles.
+  The planned quantity (`amount`) is a quantity field in its own unit, or a float field
+  with `unit` naming an enum or string field that holds its UCUM unit, so one type plans
+  some draws by volume and others by mass (ADR 0243). The draw is any amount that
+  converts to it, such as a volume at the container's concentration.
 - A destination type can declare `draws_received: material_draws` with
   `material_draws: { type: json, computed: true }` among its fields.
   Each draw with this destination as `used_in` appends the movement ID,

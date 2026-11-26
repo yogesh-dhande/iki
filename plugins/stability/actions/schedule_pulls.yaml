@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: Action
 name: schedule_pulls
 label: Schedule stability pulls
-description: Generate all condition and month combinations and pin the study's measurement review flow.
+description: Generate the pulls its protocol plans, at each condition, time point and replicate, and pin the study's measurement review flow.
 inputs:
   study: { type: Study, schema: ">=1", include: [lot, assignments.tube] }
 effects:

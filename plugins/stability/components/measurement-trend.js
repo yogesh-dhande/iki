@@ -83,8 +83,10 @@ function groups(items) {
   return series;
 }
 
-// Plot each reported measurement at its scheduled month. A point is an observation;
-// the table retains its exact value, actual pull date and link back to the signed result.
+// Plot each reported measurement at its scheduled time from the start, in days, so time
+// points counted in months, weeks or days share one axis, each labelled by its code. A
+// point is an observation; the table retains its exact value, actual pull date and link
+// back to the signed result.
 function plot(canvas, points) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -97,7 +99,8 @@ function plot(canvas, points) {
   const colors = dark
     ? { grid: "#3a3c41", text: "#e8e9eb", accent: "#3fb8ad" }
     : { grid: "#d6d6d0", text: "#1d1f21", accent: "#0b6e5f" };
-  const largestMonth = Math.max(1, ...points.map(({ month }) => month));
+  const largest = Math.max(1, ...points.map(({ elapsed_days }) => elapsed_days));
+  const codes = new Map(points.map(({ elapsed_days, time_point }) => [elapsed_days, time_point]));
   const rawLow = Math.min(...points.map(({ value }) => value));
   const rawHigh = Math.max(...points.map(({ value }) => value));
   // Scale before taking differences so both ends of the finite float range fit the plot.
@@ -108,7 +111,7 @@ function plot(canvas, points) {
   const right = 540;
   const top = 18;
   const bottom = 159;
-  const x = (month) => left + (month / largestMonth) * (right - left);
+  const x = (days) => left + (days / largest) * (right - left);
   const y = (value) => {
     const fraction = high === low ? 0.5 : (value / scale - low) / (high - low);
     return bottom - (0.1 + 0.8 * fraction) * (bottom - top);
@@ -133,14 +136,15 @@ function plot(canvas, points) {
   ctx.lineTo(right, bottom);
   ctx.stroke();
   ctx.textAlign = "center";
-  for (const month of new Set([0, Math.floor(largestMonth / 2), largestMonth])) {
-    ctx.fillText(String(month), x(month), bottom + 17);
+  const ticks = [...codes.keys()].sort((a, b) => a - b);
+  for (const days of new Set([ticks[0], ticks[Math.floor((ticks.length - 1) / 2)], ticks.at(-1)])) {
+    ctx.fillText(codes.get(days), x(days), bottom + 17);
   }
-  ctx.fillText("Scheduled month", (left + right) / 2, 207);
-  for (const { month, value } of points) {
+  ctx.fillText("Scheduled time point", (left + right) / 2, 207);
+  for (const { elapsed_days, value } of points) {
     ctx.fillStyle = colors.accent;
     ctx.beginPath();
-    ctx.arc(x(month), y(value), 4.5, 0, Math.PI * 2);
+    ctx.arc(x(elapsed_days), y(value), 4.5, 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -213,7 +217,7 @@ class MeasurementTrend extends HTMLElement {
     const table = node("table");
     table.setAttribute("aria-label", label);
     const header = table.createTHead().insertRow();
-    for (const name of ["Month", "Pulled", `Value (${values.unit})`, "Result"]) {
+    for (const name of ["Time point", "Pulled", `Value (${values.unit})`, "Result"]) {
       const th = node("th", name);
       th.scope = "col";
       if (name.startsWith("Value")) th.className = "number";
@@ -224,7 +228,8 @@ class MeasurementTrend extends HTMLElement {
       const open = button(item.hrid, () => this.#emit("iki-open", { entity: item.hrid }));
       open.setAttribute("aria-label", `Open reviewed result ${item.hrid}`);
       const row = body.insertRow();
-      const month = node("th", String(item.values.month));
+      const { time_point, replicate } = item.values;
+      const month = node("th", replicate > 1 ? `${time_point} (${replicate})` : time_point);
       month.scope = "row";
       const value = node("td", measurementNumber.format(item.values.value));
       value.className = "number";
@@ -249,7 +254,7 @@ class MeasurementTrend extends HTMLElement {
       const [{ values }] = rows;
       const canvas = node("canvas");
       canvas.setAttribute("role", "img");
-      canvas.setAttribute("aria-label", `${values.test} in ${values.unit} by scheduled month`);
+      canvas.setAttribute("aria-label", `${values.test} in ${values.unit} by scheduled time point`);
       this.#result.append(
         node("h3", label),
         node("figure", canvas),

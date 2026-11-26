@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: Measurement
 label: Stability measurement
-schema_version: 2
+schema_version: 3
 hrid: { prefix: STM }
 description: One test on a completed stability pull, with the protocol's method, unit and review.
 fields:
@@ -11,7 +11,10 @@ fields:
   pull_revision: { type: int, min: 1, computed: true }
   condition: { type: string, max_length: 24, required: true, immutable: true, indexed: true }
   condition_label: { type: string, max_length: 100, required: true, immutable: true }
-  month: { type: int, min: 0, max: 120, required: true, immutable: true, indexed: true }
+  time_point: { type: string, max_length: 24, required: true, immutable: true, indexed: true }
+  elapsed_days:
+    { type: int, label: Days from start, min: 0, required: true, immutable: true, indexed: true }
+  replicate: { type: int, min: 1, max: 20, required: true, immutable: true }
   pulled_on: { type: date, required: true, immutable: true }
   test: { type: string, max_length: 100, required: true, immutable: true }
   method: { type: string, max_length: 200, required: true, immutable: true }
@@ -81,4 +84,4 @@ fields:
             check: history.review[0].by != actor.person && last.review.submitted.by != actor.person && last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
             message: Release requires a signer independent of the analyst, reviewer and editors.
 display:
-  title: "{{ test }} · Month {{ month }}"
+  title: "{{ test }} · {{ time_point }}"
