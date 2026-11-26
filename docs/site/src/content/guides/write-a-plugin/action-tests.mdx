@@ -86,6 +86,13 @@ A file holds as many tests as you like, each its own YAML document after `---`.
   [`included`](/reference/plugin-spec/action-test/#inputs.included) gives the records each names,
   in the same form, as the order's stock item above. Each gets an ID, which the reference holds;
   for a list of rows' references, such as `components.part`, each row's, in order.
+- For a request, a record's [`request`](/reference/plugin-spec/action-test/#inputs.request) gives
+  its sides, as the server does:
+  `request: { asking_project: { slug: oncology-discovery, name: Oncology discovery } }`. Its
+  `service` is the test's project unless given, or null for a request not sent yet. A record of a
+  type that isn't a request can't have one (`not-a-request`).
+- An input [`from_project`](/guides/write-a-plugin/actions/#inputs-the-project-gives) is given
+  as any other.
 - [`files`](/reference/plugin-spec/action-test/#files) names files in your plugin. A value or a
   param uses one as `{"$file": "name"}`.
 - [`upgrade: true`](/reference/plugin-spec/action-test/#upgrade) marks a test whose records are
@@ -94,7 +101,7 @@ A file holds as many tests as you like, each its own YAML document after `---`.
   and a plugin can mark tests of its own for earlier commits whose tests give only part of a
   record ([Upgrade a plugin without losing history](/guides/upgrade-a-plugin/)).
 - On a marked test, [`after`](/reference/plugin-spec/action-test/#after) gives the values each of
-  its records must hold once the upgrade has migrated them. `after: { sample: [{ notes: S1 }] }`
+  its records must hold once the upgrade has migrated them. `after: { sample: [{ storage: Cold room 4 °C }] }`
   checks the first and only record of the `sample` input. Give one map of fields for each record
   of each input it names. Values are compared exactly
   ([Fill in values for existing records](/guides/upgrade-a-plugin/#fill-in-values-for-existing-records)).

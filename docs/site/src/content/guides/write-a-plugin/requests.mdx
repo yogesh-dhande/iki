@@ -199,5 +199,23 @@ fields:
 
 A request or a result is one project's record, so neither has an identity
 (`request-with-identity`, `result-with-identity`), and a type isn't both
-(`result-is-a-request`). A subtype of a request type is a request, with its service, and doesn't
-declare `request` again (`request-redeclared`).
+(`result-is-a-request`). A subtype of a request type is a request, with its service. It may
+declare `request` with `service_fields` alone, naming more of its own fields the service writes;
+anything else it says of `request` is its parent's to say (`request-redeclared`).
+
+A lab's own request type adds what its service keeps of each request, such as a core's ranking of
+the project that asked, from the request priority example (`examples/plugins/request_priority`):
+
+```yaml
+# types/sequencing_request.yaml
+extends: iki/requests.PlainRequest
+request:
+  service_fields: [project_rank] # the service's, besides its parent's
+fields:
+  project_rank: { type: int, computed: true }
+```
+
+A `request.received` trigger can fill such a field as each request arrives: see
+[A request sent to a service](/guides/write-a-plugin/triggers/#a-request-sent-to-a-service). An
+action's run reads a request with both its sides, under `request`: see
+[What a command reads](/guides/write-a-plugin/run-input-and-output/#what-a-command-reads).

@@ -13,7 +13,11 @@ reference:
 A plugin is a git repository, or a directory in one, of YAML manifests: the record types a lab
 keeps, the actions that compute and import them, and where those actions run. Iki builds each
 plugin a deployment installs into its server, with a database table per type. The
-plugin template, `plugin-template/` in Iki's repository, is a working plugin to copy and make your own.
+plugin template, `plugin-template/` in Iki's repository, is a working plugin to copy and make your own:
+one `Sample` type and one action, `assign_storage`, that fills in where a sample is stored. The
+worked examples in `examples/plugins/` show the rest, such as `examples/plugins/storage_labels` for
+settings, an extension of another plugin's type, a workflow, a trigger, a component and a file
+format.
 
 ## What a plugin holds
 
@@ -28,8 +32,13 @@ workflows/           # kind: Workflow
 triggers/            # kind: Trigger
 components/          # kind: Component, with each one's JavaScript module
 tests/               # kind: ActionTest, fixtures for the actions
+examples/            # worked examples, run from the source checkout
 migrations/          # made by iki plugin makemigrations, committed and reviewed
 ```
+
+The root `tests/` and `examples/` directories are for the source checkout: a deployment's server
+archive and worker image leave them out, and otherwise carry the same files. Keep action entry
+points, environment requirements, setup scripts and data an installed action reads outside them.
 
 Every manifest starts with [`apiVersion: iki/v1`](/reference/plugin-spec/plugin/#apiVersion) and a
 [`kind`](/reference/plugin-spec/plugin/#kind), which picks the schema it's checked against. Point
@@ -50,10 +59,15 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/example
 version: 0.1.0
-title: Example
-description: A starting point for a lab's own entity types.
+title: Sample storage
+description: Register samples in a project and record where they are stored.
 license: Apache-2.0
 iki: ">=0.1"
+```
+
+The storage labels example, `acme/storage_labels`, adds a dependency and a setting:
+
+```yaml
 dependencies:
   iki/dna:
     types:
@@ -62,8 +76,8 @@ settings:
   default_storage:
     type: string
     max_length: 100
-    default: "-80 °C freezer"
-    description: Where new samples are stored unless someone says otherwise.
+    default: "-80"
+    description: The code or full location to assign when a sample has no storage location.
 ```
 
 - [`version`](/reference/plugin-spec/plugin/#version) is a semantic version, for people.
@@ -199,18 +213,19 @@ Install the `iki` CLI at the version your deployments run (`uv tool install iki-
 for each change:
 
 1. Edit the YAML, and increase a type's `schema_version` if its fields changed.
-2. Check it: `iki plugin validate . --with path/to/iki/plugins/dna`. It checks every manifest
+2. Check it: `iki plugin validate .`, with `--with path/to/iki/plugins/dna` for each plugin it
+   depends on. It checks every manifest
    against the schemas and what a schema can't say: units, references across files and plugins,
    tables and indexes, identities, settings, expressions, and what actions read, write and run in.
    Each problem has its file, line and column, a hint, and a code (below). `--format json` and
    `--format github` are for tools and pull requests, `--settings FILE` checks a deployment's
    values for the settings too, and `--strict` fails on warnings.
-3. Make the migration: `iki plugin makemigrations . --with …`. It asks whether a field that
+3. Make the migration: `iki plugin makemigrations .`, with the same `--with`. It asks whether a field that
    disappeared was renamed, so renaming keeps its data and history, and refuses to delete a field
    outright: mark it `removed: true` instead. Types and extensions can't be deleted. A field's type
    can change only when its history can follow, and a quantity's unit change converts its stored
    values, current and past.
-4. Run the actions' tests: `iki plugin test . --with …`
+4. Run the actions' tests: `iki plugin test .`, with the same `--with`
    ([Test actions with fixtures](/guides/write-a-plugin/action-tests/)). With
    `--upgrade-from main --database postgres://…` it also upgrades the records of `main`'s tests
    with your new migrations and rolls them back, and checks that each type whose records may hold
@@ -233,7 +248,7 @@ plugin's label, so a table says whose it is, and must fit PostgreSQL's 63 charac
 | `acme__example_sample__history`       | Its values at each revision, removed fields included          |
 | `<label>_<type>__<field>`             | A list of references or files: one row per item, in order     |
 | `<label>_<type>__<field>`             | A list of rows: one row per row, a column per row field       |
-| `acme__example__iki__dna_dnasequence` | The fields `acme/example` adds to `iki/dna.DNASequence`       |
+| `acme__storage_labels__iki__dna_dnasequence` | The fields `acme/storage_labels` adds to `iki/dna.DNASequence` |
 
 Other lists are arrays. PostgreSQL checks every rule it can (formats, patterns, enums, bounds,
 lengths, list sizes) with CHECK constraints, so bad data is refused however it's written. History
@@ -277,18 +292,18 @@ Warnings are marked.
 | Dependencies                    | `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                                                                                                                                             |
 | Settings                        | `setting-policy`, `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`, `setting-needed` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Lockfiles                       | `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `test-only-source`, `unrecognized-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                                                                         |
-| Actions                         | `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`                                                                                                                                                                                                                                                                                                                                                   |
+| Actions                         | `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`, `from-project-one` |
 | What actions write              | `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `updates-state`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                                                |
 | Where actions run               | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `self-hosted-secrets`, `self-hosted-network`, `reserved-secret`, `absolute-path-on-backend`, `missing-file`                                                                                                                                                                                                                                                                                                                                                                                    |
 | Reuse and retries               | `network-unknown-setting`, `network-setting-not-hostname`, `requires-unknown-setting`; `requires-setting-always-set`, `deterministic-with-network` and `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                                                                                     |
 | Outside APIs                    | `self-hosted-apis`, `api-in-network`, `api-credential-is-secret`, `api-credential-header`, `webhook-needs-header`, `webhook-header`, `webhook-secret-is-credential`, `api-status-twice`, `api-polls-too-often`, `api-job-timeout`, `unknown-api`, `batch-parks`, `deterministic-with-api`; `unused-api` (warning)                                                                                                                                                                                                                                                                     |
-| Workflows                       | `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-each-takes-many`, `workflow-unknown-metric`, `workflow-condition-type`, `workflow-condition-each`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`                                                                                                                                                              |
-| Triggers                        | `trigger-unknown-action`, `trigger-unknown-input`, `trigger-input-ambiguous`, `trigger-input-missing`, `trigger-wrong-type`, `trigger-fields-not-updated`, `trigger-state-not-state-changed`, `trigger-state-field-missing`, `trigger-not-a-state-field`, `trigger-field-is-state`, `trigger-unknown-param`, `trigger-invalid-param`, `trigger-param-missing`, `trigger-type-missing`, `trigger-schedule-missing`, `trigger-schedule-invalid`, `trigger-schedule-never`, `trigger-schedule-entity`, `trigger-schedule-not-scheduled`, `trigger-timezone-unknown`, `duplicate-trigger` |
+| Workflows                       | `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-each-takes-many`, `workflow-unknown-metric`, `workflow-condition-type`, `workflow-condition-each`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`, `workflow-input-from-project` |
+| Triggers                        | `trigger-unknown-action`, `trigger-unknown-input`, `trigger-input-ambiguous`, `trigger-input-missing`, `trigger-wrong-type`, `trigger-fields-not-updated`, `trigger-state-not-state-changed`, `trigger-state-field-missing`, `trigger-not-a-state-field`, `trigger-field-is-state`, `trigger-unknown-param`, `trigger-invalid-param`, `trigger-param-missing`, `trigger-type-missing`, `trigger-schedule-missing`, `trigger-schedule-invalid`, `trigger-schedule-never`, `trigger-schedule-entity`, `trigger-schedule-not-scheduled`, `trigger-timezone-unknown`, `duplicate-trigger`, `trigger-received-not-a-request`, `trigger-input-from-project` |
 | Components                      | `duplicate-component`, `element-twice`, `component-too-big`, `missing-file`, `unreadable-file`, `symlink`, `slot-needs-entities`, `slot-twice`, `home-not-personal`, `unknown-operator`, `unsortable-field`, `unknown-context`, `context-misplaced`, `search-too-big`                                                                                                                                                                                                                                                                                                                 |
 | Environments                    | `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`; `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Pinned packages                 | `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`, `conda-lock-name`                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Volumes and setup               | `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-calls-api`; `setup-fills-nothing` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Action tests                    | `not-a-test`, `duplicate-test`, `unknown-action`, `unknown-param`, `missing-param`, `unknown-input`, `missing-input`, `input-count`, `wrong-type`, `unknown-field`, `unknown-file`, `missing-file`, `unknown-setting`                                                                                                                                                                                                                                                                                                                                                                 |
+| Action tests                    | `not-a-test`, `duplicate-test`, `unknown-action`, `unknown-param`, `missing-param`, `unknown-input`, `missing-input`, `input-count`, `wrong-type`, `unknown-field`, `unknown-file`, `missing-file`, `unknown-setting`, `not-a-request` |
 | Compute templates               | `duplicate-template`, `duplicate-binding`, `unknown-kind`, `wrong-provisioner`, `gpu-wrong-tier`, `limit-needs-persistent`, `fallback-without-spot`, `root-disk-too-small`, `volume-strategy-unsupported`, `fast-restore-wrong-strategy`, `volume-option-kubernetes-only`, `snapshot-class-wrong-strategy`, `mixed-currencies`; `unpriced-template` (warning)                                                                                                                                                                                                                         |
 | Bindings                        | `unknown-environment`, `unknown-template`, `template-wrong-tier`, `template-too-small`, `action-does-not-fit`, `volume-strategy-missing`, `volume-strategy-access`; `lifecycle-unbound`, `unbound-environment` and `unused-template` (warnings)                                                                                                                                                                                                                                                                                                                                       |
 | Prices of outside APIs          | `unknown-api`, `unknown-usage`; `unpriced-api` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |

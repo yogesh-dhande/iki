@@ -63,16 +63,16 @@ plugin from 0.1.0 to 0.2.0:
 schema_version: 2
 fields:
   # …
-  storage: { type: string, max_length: 100, indexed: true }
+  storage: { type: string, max_length: 100 }
   concentration: { type: quantity, unit: mg/mL, min: 0, description: "Its concentration, as measured." }
 ```
 
 ## Make the migration
 
 ```console
-$ iki plugin validate . --with ../iki/plugins/dna
-✓ acme/example 0.2.0 is valid: 1 entity type, 1 extension, 1 setting, 3 actions, 2 environments, 1 workflow, 1 trigger, 1 component.
-$ iki plugin makemigrations . --with ../iki/plugins/dna
+$ iki plugin validate .
+✓ acme/example 0.2.0 is valid: 1 entity type, 0 extensions, 0 settings, 1 action, 1 environment, 0 workflows, 0 triggers, 0 components.
+$ iki plugin makemigrations .
 Migrations for 'acme__example':
   migrations/0002_sample_concentration_sample_history_concentration.py
     + Add field concentration to sample
@@ -100,30 +100,30 @@ operations = [
 ]
 ```
 
-`--dry-run` shows what a migration would do and writes nothing. A field deleted from the manifest
-is refused, with what to do instead:
+`--dry-run` shows what a migration would do and writes nothing. In a later change, a field
+deleted from the manifest is refused, with what to do instead:
 
 ```console
-$ iki plugin makemigrations . --with ../iki/plugins/dna
-error: `notes` is gone from acme/example.Sample. Iki keeps every field's history, so a field can't be deleted.
+$ iki plugin makemigrations .
+error: `concentration` is gone from acme/example.Sample. Iki keeps every field's history, so a field can't be deleted.
   If you renamed it, run this again and answer yes when asked whether it was renamed.
   If you no longer want it, put it back and mark it `removed: true`: its column goes, its history stays.
 ```
 
-Renamed to `comments`, and confirmed, it moves the field's history with it:
+Renamed to `stock_concentration`, and confirmed, it moves the field's history with it:
 
 ```console
-$ iki plugin makemigrations . --with ../iki/plugins/dna --dry-run
-Was sample.notes renamed to sample.comments (a TextField)? [y/N] y
+$ iki plugin makemigrations . --dry-run
+Was sample.concentration renamed to sample.stock_concentration (a QuantityField)? [y/N] y
 Migrations for 'acme__example':
-  migrations/0003_remove_sample_notes_fts_7432e696415e1f3fb1da_and_more.py
-    - Remove constraint acme__example_sample__notes__not_empty from model sample
-    - Remove index notes_fts_7432e696415e1f3fb1da from sample
-    ~ Rename field notes on sample to comments
-    ~ Rename field notes on sample_history to comments
-    ? Record that sample_history.notes is now comments
-    + Create index comments_fts_bd75d0a918ddcb61a on SearchVector(F(comments)) on model sample
-    + Create constraint acme__example_sample__comments__not_empty on model sample
+  migrations/0003_rename_concentration_sample_stock_concentration_and_more.py
+    - Remove constraint acme__example_sample__concentration__finite from model sample
+    - Remove constraint acme__example_sample__concentration__min from model sample
+    ~ Rename field concentration on sample to stock_concentration
+    ~ Rename field concentration on sample_history to stock_concentration
+    ? Record that sample_history.concentration is now stock_concentration
+    + Create constraint acme__example_sample__stock_concentration__finite on model sample
+    + Create constraint acme__example_sample__stock_concentration__min on model sample
 ```
 
 `--no-input` asks nothing, so it can't detect a rename: make a rename's migration interactively.
@@ -141,16 +141,16 @@ new values:
 - The migration depends on `("iki_entities", "0027_migrated_revisions")`, beside the plugin's
   previous migration.
 
-This one fills the template's empty `notes` with each sample's name:
+This one gives the samples stored in the cold room the room's new, fuller name:
 
 ```python
-# migrations/0003_fill_notes.py
+# migrations/0003_rename_cold_room.py
 from django.db import migrations
 from iki_server.plugins.operations import MigrateValues
 
 
-def fill_notes(row):
-    return {"notes": row.name} if row.notes is None else {}
+def rename_cold_room(row):
+    return {"storage": "Cold room 4 °C"} if row.storage == "Cold room" else {}
 
 
 class Migration(migrations.Migration):
@@ -161,10 +161,10 @@ class Migration(migrations.Migration):
     operations = [
         MigrateValues(
             "Sample",
-            fill_notes,
+            rename_cold_room,
             version="0.2.0",
-            migration="0003_fill_notes",
-            reason="Copy the sample's name into its notes.",
+            migration="0003_rename_cold_room",
+            reason="The cold room's location is now Cold room 4 °C.",
         ),
     ]
 ```
@@ -176,11 +176,11 @@ rollback restores.
 
 To check the values in the upgrade test, give them under
 [`after`](/reference/plugin-spec/action-test/#after) in a test marked `upgrade: true`. For a test
-with one `sample` input named S1:
+with one `sample` input stored in the cold room:
 
 ```yaml
 upgrade: true
-after: { sample: [{ notes: S1 }] }
+after: { sample: [{ storage: Cold room 4 °C }] }
 ```
 
 A field newly added with its manifest's `default` needs no expectation.
@@ -207,12 +207,13 @@ On the scratch database, it:
 The action tests run before it. With the field added and `schema_version` still 1:
 
 ```console
-$ iki plugin test . --with ../iki/plugins/dna --upgrade-from main \
+$ iki plugin test . --upgrade-from main \
     --database postgres://postgres:ci-only@localhost:5432/postgres
-Running 2 test(s) of acme/example 0.1.0:
-  ok      default_storage  (0.2s)
-  ok      tidied  (0.2s)
-2 passed in 0.3s.
+Running 3 test(s) of acme/example 0.1.0:
+  ok      default_storage  (0.3s)
+  ok      chosen_storage  (0.2s)
+  ok      existing_storage  (0.2s)
+3 passed in 0.7s.
 Upgrading acme/example from f91fd9276bba (0.1.0) to 0.1.0 on the scratch database iki_upgrade_568f4bb4, with 3 sample(s):
   FAILED  each type whose fields changed has a higher schema_version
           acme/example.Sample changed (added concentration), and its schema_version is still 1. Increase it to 2: plugins that depend on acme/example pin its types' schema versions.
@@ -232,12 +233,13 @@ Upgrading acme/example from f91fd9276bba (0.1.0) to 0.1.0 on the scratch databas
 And with the version at 0.2.0:
 
 ```console
-$ iki plugin test . --with ../iki/plugins/dna --upgrade-from main \
+$ iki plugin test . --upgrade-from main \
     --database postgres://postgres:ci-only@localhost:5432/postgres
-Running 2 test(s) of acme/example 0.2.0:
-  ok      default_storage  (0.2s)
-  ok      tidied  (0.2s)
-2 passed in 0.3s.
+Running 3 test(s) of acme/example 0.2.0:
+  ok      default_storage  (0.3s)
+  ok      chosen_storage  (0.2s)
+  ok      existing_storage  (0.2s)
+3 passed in 0.7s.
 Upgrading acme/example from f91fd9276bba (0.1.0) to 0.2.0 on the scratch database iki_upgrade_c3d67902, with 3 sample(s):
   ok      each type whose fields changed has a higher schema_version
   ok      migrated to the earlier commit and made the samples  (26.2s)
@@ -257,11 +259,10 @@ see [Validate and test a plugin in CI on GitHub](/guides/test-a-plugin-in-ci/).
 
 The upgrade test uses the plugin's own samples. `iki plugin preflight` checks the candidate
 against the records a deployment holds, before it's promoted there, and changes nothing. Build the
-plugin with the dependencies the deployment pins, then send its `manifest.json`:
+plugin, with any dependencies the deployment pins, then send its `manifest.json`:
 
 ```console
-$ iki plugin build . ../iki/plugins/dna --output build/plugins
-Built build/plugins/iki_plugin_iki__dna
+$ iki plugin build . --output build/plugins
 Built build/plugins/iki_plugin_acme__example
 $ iki plugin preflight build/plugins/iki_plugin_acme__example/manifest.json --url https://iki.example.org
 ```
@@ -328,5 +329,5 @@ The template's `.agents/skills/iki-upgrade-plugin/SKILL.md` walks Codex and Clau
 same steps, with a script that builds the candidate and runs the preflight:
 
 ```sh
-sh .agents/skills/iki-upgrade-plugin/scripts/build-and-preflight.sh acme/example . ../iki/plugins/dna
+sh .agents/skills/iki-upgrade-plugin/scripts/build-and-preflight.sh acme/example .
 ```

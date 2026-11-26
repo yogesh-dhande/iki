@@ -18,24 +18,25 @@ its own: what it read, at which revisions, what it wrote, and the plugin's commi
 and machine it ran on.
 
 An action's manifest says what it takes, what it may change, where its command runs and what
-the command may reach. The plugin template's `assign_storage` gives a sample the deployment's
-default storage location when nobody gave one:
+the command may reach. The plugin template's `assign_storage` records the storage location you
+choose for a sample that has none:
 
 ```yaml
 # actions/assign_storage.yaml
 apiVersion: iki/v1
 kind: Action
 name: assign_storage
-label: Assign default storage
-description: Records where a sample is stored as the deployment's default, if nobody said.
+label: Assign storage
+description: Record the storage location for a sample that has none.
 inputs:
   sample: { type: Sample, schema: ">=1" }
+params:
+  location: { type: string, max_length: 100, default: "-80 °C freezer" }
 effects:
   updates: [{ input: sample, fields: [storage] }]
 runs_on: { tier: container, environment: tools }
 command: [python, ./scripts/storage.py]
 deterministic: true
-batchable: 50
 timeout: 5m
 ```
 
@@ -86,6 +87,28 @@ them, and they must be in its project, which the launch can add them to as it do
 count in what makes two runs identical, so a change to one runs the action again. Only the
 input's own references are included, not theirs.
 
+### Inputs the project gives
+
+An input marked [`from_project`](/reference/plugin-spec/action/#inputs.from_project) isn't chosen
+by whoever launches the run, a trigger or a workflow's step. Each run is given every record of its
+type the run's project owns and hasn't archived, at their current revisions, oldest first. The
+request priority example (`examples/plugins/request_priority`) reads a core's ranking of the
+projects it serves this way, kept as the core's own records:
+
+```yaml
+# examples/plugins/request_priority/actions/rank_requests.yaml
+inputs:
+  requests: { type: SequencingRequest, schema: ">=1", cardinality: many, max: 500 }
+  ranking: { type: ServedProject, schema: ">=1", cardinality: many, optional: true, from_project: true }
+```
+
+- It takes many (`from-project-one`).
+- A launch that names records for it is refused, as is one whose project has more than it takes
+  (its `max`, and never more than 1,000).
+- With none in the project, an input that isn't optional can't start.
+- A workflow's step doesn't name it (`workflow-input-from-project`), and a trigger gives it
+  nothing (`trigger-input-from-project`).
+
 ## What it may change
 
 [`effects`](/reference/plugin-spec/action/#effects) lists everything a run may write, and Iki
@@ -121,9 +144,8 @@ A run writes all of its results in one transaction, or none.
 On the container and vm tiers, [`lifecycle`](/reference/plugin-spec/action/#runs_on.lifecycle)
 says what machine a run needs. `ephemeral`, the default, is a fresh machine that runs nothing
 else. `persistent` is one kept warm that runs one job after another, for quick actions that run
-often, such as the template's `tidy_storage`. A persistent machine starts each run clean, but
-other projects' runs have run on it before. An action can ask for more than its environment's
-minimum with [`resources`](/reference/plugin-spec/action/#runs_on.resources).
+often. A persistent machine starts each run clean, but other projects' runs have run on it
+before. An action can ask for more than its environment's minimum with [`resources`](/reference/plugin-spec/action/#runs_on.resources).
 
 Each deployment decides which machines each tier and environment get
 ([Configure a deployment's plugins and compute](/guides/configure-plugins-and-compute/)).
@@ -157,7 +179,7 @@ Each deployment decides which machines each tier and environment get
 
 - [`software`](/reference/plugin-spec/action/#software) lists the tools a run makes records with,
   by name and version, as its environment installs them. Each record its runs create is recorded
-  as made with them. The template's actions run only their own scripts, so they list none; one
+  as made with them. The template's action runs only its own script, so it lists none; one
   that ran Biopython would say `software: [{ name: Biopython, version: "1.88", url: https://biopython.org }]`.
 - [`metrics`](/reference/plugin-spec/action/#metrics) names the numbers a run reports, which a
   workflow's conditions read ([Steps that run only when conditions hold](/guides/write-a-plugin/workflows/#steps-that-run-only-when-conditions-hold)).
@@ -192,15 +214,15 @@ A run gets the secrets its action declares under
 [`secrets`](/reference/plugin-spec/action/#secrets) as environment variables, and no others:
 
 ```yaml
-# plugins/lims_connector_example/actions/import_from_lims.yaml
+# examples/plugins/lims_connector/actions/import_from_lims.yaml
 secrets:
   - name: LIMS_TOKEN
     description: An API token the LIMS issued for Iki, which can read and change proteins.
 ```
 
 - Each deployment keeps a plugin's secrets in its own secret manager, for that plugin alone
-  (`iki__lims_connector_example.LIMS_TOKEN` is the example LIMS connector's), so a secret is never another
-  plugin's even under the same name.
+  (`acme__lims_connector.LIMS_TOKEN` is the LIMS connector example's), so a secret is never
+  another plugin's even under the same name.
 - Their values are never in the run's input, and `***` stands for them in its log.
 - A required secret the deployment hasn't set keeps the action from running, and says so.
   An optional one ([`required: false`](/reference/plugin-spec/action/#secrets.required)) needs a
@@ -292,8 +314,8 @@ The run waits, holding no worker, while Iki polls the job, or the API calls back
 `IKI_API_COA_READER_CALLBACK_URL`, signed as its [`webhook`](/reference/plugin-spec/plugin/#apis.jobs.webhook)
 says. Once the job is done, the command runs again with
 [`resume`](/reference/plugin-spec/run-input/#resume) in its input: the job, its `state` and the
-API's last answer. The [example models plugin](/reference/plugins/example-models/)
-is a complete example.
+API's last answer. The hosted-model example (`examples/plugins/hosted_models`) uses this against
+a fictional provider.
 
 A self-hosted action can't call an outside API (`self-hosted-apis`), and a batchable one can't
 call an API with jobs, as one job couldn't park for each of its runs (`batch-parks`). Don't make
@@ -368,8 +390,8 @@ An environment can mount volumes of data its runs read, such as a lab's referenc
 the container and vm tiers only, each at an absolute path that doesn't overlap another's. A
 volume its [`setup`](/reference/plugin-spec/environment/#setup) fills gets its data from a setup
 build: a Compute admin asks for one, the setup script fills a fresh disk on a machine of its own,
-and Iki keeps it as a new version. The plugin template's `reference` environment fills a volume
-of the lab's storage codes:
+and Iki keeps it as a new version. The storage labels example's `reference` environment
+(`examples/plugins/storage_labels`) fills a volume of the lab's storage codes:
 
 ```yaml
 # environments/reference.yaml

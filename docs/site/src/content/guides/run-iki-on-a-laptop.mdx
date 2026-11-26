@@ -15,7 +15,7 @@ same Helm chart as production, `deploy/helm/iki`, from a checkout of Iki's repos
 
 ## What it needs
 
-- Docker, with about 6 GB of memory available to it.
+- Docker, with about 10 GB of memory available to it.
 - `kind`, `kubectl`, `helm` (v4) and `tilt`. On macOS:
   `brew install kind kubernetes-cli helm tilt-dev/tap/tilt`.
 - `jq`, `curl` and [uv](https://docs.astral.sh/uv/) for the end-to-end checks.
@@ -46,9 +46,11 @@ a [dose-response plate](/use-cases/dose-response-plate-assay/), a
 CI runs `make dev-product-ci` and `make dev-ci`, each on a fresh cluster of its own. `make dev-ci`
 adds the fixture overlay in `deploy/dev/fixtures/`: more plugin pins (`plugins.lock.yaml`),
 compute bindings (`compute.yaml`) and Helm values (`values.yaml`). Its server and worker builds
-both pass `--test-only`, since the overlay pins Iki's fixture and template plugins. It adds the
-plugin template's container and storage checks, the LIMS import and write-back, and FoldCloud's
-jobs and callbacks. Both clusters read the same source datasets. Each run backs up the seeded
+both pass `--test-only`, since the overlay pins Iki's fixture and example plugins. It adds the
+execution fixture's container and storage checks (`deploy/dev/fixtures/plugins/worker_execution`),
+the LIMS import and write-back, and the hosted-model example (`examples/plugins/hosted_models`). The
+fake FoldCloud accepts a cancelled job and sends a signed callback for a completed one, and the
+seed checks the resumed run's structure, provenance and billed usage. Both clusters read the same source datasets. Each run backs up the seeded
 database, restores it, and checks the restored records and files.
 
 To work on those integrations interactively, run `IKI_DEV_FIXTURES=1 make dev-up`, then
@@ -93,16 +95,18 @@ the worker pod, so their backend actions run there: see
 | Mailpit (email)                  | `http://localhost:8025`              | Catches every email Iki and Keycloak send; nothing leaves the cluster                     |
 | Webhook receiver                 | `http://localhost:8090/requests`     | Lists what Iki sent to `http://webhook-receiver.iki.svc:8080/…` webhooks                  |
 | Grafana, Tempo, Loki, Prometheus | `http://localhost:3300`              | `grafana/otel-lgtm`; Iki sends it OTLP traces and metrics. Its dashboard is Dashboards → Iki → Iki |
+| ClamAV (`iki-clamd`)             | none                                 | Scans files with the chart's pinned signatures and FreshClam's updates                    |
 
 The fixture cluster also runs a fake LIMS and a fake FoldCloud, which list the requests they
-received at `http://localhost:8091/requests` and `http://localhost:8092/requests`. The example
-LIMS connector (`plugins/lims_connector_example`) imports from the fake LIMS as it would from a
-lab's: over HTTPS, through the egress proxy, to the host its `lims_host` setting gives
-(`deploy/dev/fixtures/settings/lims_connector_example.yaml`).
+received at `http://localhost:8091/requests` and `http://localhost:8092/requests`. The LIMS
+connector example (`examples/plugins/lims_connector`) imports from the fake LIMS
+(`deploy/dev/fixtures/fake-lims.yaml`) as it would from a lab's: over HTTPS, through the egress
+proxy, to the host its `lims_host` setting gives (`deploy/dev/fixtures/settings/lims_connector.yaml`).
 The fake LIMS's certificate comes from a dev CA that `deploy/dev/up.sh` makes. The backend worker
 trusts it, with the public CAs, through the chart's `backendWorkers.caSecret`, as a deployment
-would trust its internal CA. Its token is in the `iki-run-secrets` Secret (`runSecrets`), which the
-fake LIMS checks.
+would trust its internal CA. Its actions get `LIMS_TOKEN` from the
+`acme__lims_connector.LIMS_TOKEN` key of the `iki-run-secrets` Secret (`runSecrets`), and the fake
+LIMS mounts the same key to check it.
 
 The dna plugin's `ncbi_email` setting is set (`deploy/dev/settings/dna.yaml`), so the cluster can
 fetch sequences from NCBI, through the egress proxy. A deployment that leaves it unset doesn't

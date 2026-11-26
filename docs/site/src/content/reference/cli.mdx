@@ -8,7 +8,8 @@ The `iki` command checks, migrates, tests and builds plugins, builds the plugins
 installs, checks a bundle and its signatures offline, and sets up an assay from a starter.
 
 The examples run in a directory holding a lab's plugin, `iki-plugin-example` (a copy of the
-plugin template, `acme/example`), beside a checkout of Iki, `iki`, for the plugins it depends on.
+plugin template, `acme/example`), beside a checkout of Iki, `iki`, for the plugins a deployment
+installs with it.
 
 ## Install it
 
@@ -57,9 +58,9 @@ Checks every manifest in a plugin against the `iki/v1` spec: the
 rules for tables, indexes, identities and settings, and what its actions read, write and run in.
 
 ```console
-$ iki plugin validate iki-plugin-example --with iki/plugins/dna
-iki-plugin-example/types/sample.yaml:19:53: error: `mcL` isn't a UCUM unit. [unknown-unit]
- 19 |   volume: { type: quantity, unit: mL, display_unit: mcL, min: 0 }
+$ iki plugin validate iki-plugin-example
+iki-plugin-example/types/sample.yaml:18:53: error: `mcL` isn't a UCUM unit. [unknown-unit]
+ 18 |   volume: { type: quantity, unit: mL, display_unit: mcL, min: 0 }
     |                                                     ^
   hint: Did you mean `mL` or `cL`?
 
@@ -69,8 +70,8 @@ iki-plugin-example/types/sample.yaml:19:53: error: `mcL` isn't a UCUM unit. [unk
 Fixed, it says what the plugin declares:
 
 ```console
-$ iki plugin validate iki-plugin-example --with iki/plugins/dna
-✓ acme/example 0.1.0 is valid: 1 entity type, 1 extension, 1 setting, 3 actions, 2 environments, 1 workflow, 1 trigger, 1 component.
+$ iki plugin validate iki-plugin-example
+✓ acme/example 0.1.0 is valid: 1 entity type, 0 extensions, 0 settings, 1 action, 1 environment, 0 workflows, 0 triggers, 0 components.
 ```
 
 | Option             | What it does                                                                         |
@@ -100,7 +101,7 @@ The same problem, `--format json`:
       "message": "`mcL` isn't a UCUM unit.",
       "hint": "Did you mean `mL` or `cL`?",
       "file": "types/sample.yaml",
-      "line": 19,
+      "line": 18,
       "column": 53,
       "path": ["fields", "volume", "display_unit"]
     }
@@ -111,7 +112,7 @@ The same problem, `--format json`:
 and `--format github`:
 
 ```console
-::error file=iki-plugin-example/types/sample.yaml,line=19,col=53,title=unknown-unit::`mcL` isn't a UCUM unit.%0ADid you mean `mL` or `cL`?
+::error file=iki-plugin-example/types/sample.yaml,line=18,col=53,title=unknown-unit::`mcL` isn't a UCUM unit.%0ADid you mean `mL` or `cL`?
 1 error in iki-plugin-example.
 ```
 
@@ -127,7 +128,7 @@ on, then runs Django's makemigrations on it. It needs no database.
 Adding a `concentration` field to `Sample`:
 
 ```console
-$ iki plugin makemigrations iki-plugin-example --with iki/plugins/dna --name concentration
+$ iki plugin makemigrations iki-plugin-example --name concentration
 Migrations for 'acme__example':
   iki-plugin-example/migrations/0002_concentration.py
     + Add field concentration to sample
@@ -140,20 +141,24 @@ A field that's gone and another that's new may be a rename. It asks, so a rename
 values and history:
 
 ```console
-$ iki plugin makemigrations iki-plugin-example --with iki/plugins/dna
-Was sample.collected_on renamed to sample.collection_date (a DateField)? [y/N] y
+$ iki plugin makemigrations iki-plugin-example
+Was sample.concentration renamed to sample.stock_concentration (a QuantityField)? [y/N] y
 Migrations for 'acme__example':
-  iki-plugin-example/migrations/0003_rename_collected_on_sample_collection_date_and_more.py
-    ~ Rename field collected_on on sample to collection_date
-    ~ Rename field collected_on on sample_history to collection_date
-    ? Record that sample_history.collected_on is now collection_date
+  iki-plugin-example/migrations/0003_rename_concentration_sample_stock_concentration_and_more.py
+    - Remove constraint acme__example_sample__concentration__finite from model sample
+    - Remove constraint acme__example_sample__concentration__min from model sample
+    ~ Rename field concentration on sample to stock_concentration
+    ~ Rename field concentration on sample_history to stock_concentration
+    ? Record that sample_history.concentration is now stock_concentration
+    + Create constraint acme__example_sample__stock_concentration__finite on model sample
+    + Create constraint acme__example_sample__stock_concentration__min on model sample
 ```
 
 A field that simply disappears is refused:
 
 ```console
-$ iki plugin makemigrations iki-plugin-example --with iki/plugins/dna --no-input
-Error: `notes` is gone from acme/example.Sample. Iki keeps every field's history, so a field can't be deleted.
+$ iki plugin makemigrations iki-plugin-example --no-input
+error: `concentration` is gone from acme/example.Sample. Iki keeps every field's history, so a field can't be deleted.
   If you renamed it, run this again and answer yes when asked whether it was renamed.
   If you no longer want it, put it back and mark it `removed: true`: its column goes, its history stays.
 ```
@@ -190,29 +195,29 @@ against the test's `expect`. [Test actions with fixtures](/guides/write-a-plugin
 says how to write them.
 
 ```console
-$ iki plugin test iki-plugin-example --with iki/plugins/dna
-Running 2 test(s) of acme/example 0.1.0:
-  ok      default_storage  (0.2s)
-  ok      tidied  (0.1s)
-2 passed in 0.3s.
+$ iki plugin test iki-plugin-example
+Running 3 test(s) of acme/example 0.1.0:
+  ok      default_storage  (0.3s)
+  ok      chosen_storage  (0.2s)
+  ok      existing_storage  (0.2s)
+3 passed in 0.7s.
 ```
 
 A test that fails says what differed, with the end of the run's log:
 
 ```console
-$ iki plugin test iki-plugin-example --with iki/plugins/dna
-Running 2 test(s) of acme/example 0.1.0:
-  ok      default_storage  (0.2s)
-  FAILED  tidied  (0.1s)
+$ iki plugin test iki-plugin-example
+Running 3 test(s) of acme/example 0.1.0:
+  ok      default_storage  (0.3s)
+  FAILED  chosen_storage  (0.3s)
           tests/storage.yaml
-          updates.sample[0].values.storage: expected "-80 °C freezer, rack 2", got "-80 °C freezer"
+          updates.sample[0].values.storage: expected "Cold room 4 °C", got "Cold room"
           Its log ended:
-          | level=info msg="Running the command locally." action=acme/example.tidy_storage plugin_dir=iki-plugin-example job_dir=/tmp/iki-test-qn_l7hsz/jobs/local-1795553056817-26208
-          | SMP-000001: stored in -80 °C freezer
-          | ::progress 1.00 1 of 1
-          | level=info msg="The command succeeded." job_dir=/tmp/iki-test-qn_l7hsz/jobs/local-1795553056817-26208
-          | level=info msg="Kept the job directory." job_dir=/tmp/iki-test-qn_l7hsz/jobs/local-1795553056817-26208
-1 passed, 1 failed in 0.3s.
+          | level=info msg="Running the command locally." action=acme/example.assign_storage plugin_dir=iki-plugin-example job_dir=/tmp/iki-test-yzqh8met/jobs/local-1795675944862-76605
+          | level=info msg="The command succeeded." job_dir=/tmp/iki-test-yzqh8met/jobs/local-1795675944862-76605
+          | level=info msg="Kept the job directory." job_dir=/tmp/iki-test-yzqh8met/jobs/local-1795675944862-76605
+  ok      existing_storage  (0.2s)
+2 passed, 1 failed in 0.7s.
 ```
 
 The actions' commands run on this machine, so install what their environments need first, and
@@ -247,12 +252,13 @@ The scratch database is dropped at the end. A migration that fills in values wit
 [Fill in values for existing records](/guides/upgrade-a-plugin/#fill-in-values-for-existing-records).
 
 ```console
-$ iki plugin test iki-plugin-example --with iki/plugins/dna --upgrade-from origin/main \
+$ iki plugin test iki-plugin-example --upgrade-from origin/main \
     --database postgres://postgres@localhost:5432/postgres
-Running 2 test(s) of acme/example 0.1.0:
-  ok      default_storage  (0.2s)
-  ok      tidied  (0.2s)
-2 passed in 0.4s.
+Running 3 test(s) of acme/example 0.1.0:
+  ok      default_storage  (0.3s)
+  ok      chosen_storage  (0.2s)
+  ok      existing_storage  (0.2s)
+3 passed in 0.7s.
 Upgrading acme/example from ef8aa922b77c (0.1.0) to 0.1.0 on the scratch database iki_upgrade_00f135ca, with 3 sample(s):
   ok      each type whose fields changed has a higher schema_version
           Note: the migrations changed, and acme/example's version is still 0.1.0. Increase it when you release this, so a deployment's history tells the two apart.
@@ -390,6 +396,11 @@ The worker image's Dockerfile copies `plugins/` to `/opt/iki/plugins` and runs t
 `--images` lists, for each container template whose environment asks for an image the deployment
 supplies, that image's digest: the deployment pulls it from its own registry when a run starts.
 
+The staged plugin files are the files a self-hosted worker downloads in the server's plugin
+archive, environment setup, runtime data and redistribution notices included. Both leave out a
+plugin's root `tests/` and `examples/` directories, so keep action fixtures and worked examples
+there and run them from the source checkout.
+
 With `--mirror`, Iki's own plugins (`iki/...`) come only from the mirrors given, in order: the
 deployment's `plugins.mirrors`, for a site that can't reach github.com. Each must be at the commit
 the lockfile pins, with a tree Iki's repository has had, so a mirror can't serve a commit of its
@@ -434,26 +445,26 @@ anything doesn't check out, an untrusted key included, and 2 for a mistake in th
 
 ## `iki starter`
 
-Sets up an assay from a starter a deployment has installed: its record types, review flow, lab
-roles and example records, in a service project that takes requests from a requesting project.
-Each command signs in as [above](#sign-in-to-a-deployment), and takes `--url` for another
-deployment and `--json` to print the API's whole answer.
+Sets up an assay from a starter a deployment has installed. The dose-response starter chooses the
+review flow for new results in a service project and grants the lab roles needed to run it. Each
+command signs in as [above](#sign-in-to-a-deployment), and takes `--url` for another deployment
+and `--json` to print the API's whole answer.
 
 ### `iki starter list`
 
 Lists the installed starters, each with its review flows and the lab roles it needs. With
-`--project`, it also says which version and flow that service project has applied.
+`--project`, it also shows the version and flow that service project has applied.
 
 ```console
 $ iki starter list --project "$SERVICE"
-dose-response 1.2.0  Dose-response plate assay
-  Receive an example request, map a reader file to wells, fit a curve and return the signed result to the requester.
-  research  Research  iki/plate_assays.RequestedResearchAssayResult
-  regulated_qc  Regulated QC  iki/plate_assays.RequestedQCAssayResult
-  iki/lab_roles.coordinator  Coordinator
+dose-response 2.0.0  Dose-response plate assay
+  Choose the review flow for new dose-response fits and assign the assay roles.
+  research  Research  iki/plate_assays.ResearchAssayResult
+  regulated_qc  Regulated QC  iki/plate_assays.QCAssayResult
   iki/plate_assays.analyst  Assay analyst
   iki/plate_assays.reviewer  Assay reviewer
   iki/plate_assays.qa  Assay QA
+  Applied  2.0.0  research
 ```
 
 | Option              | What it does                                                       |
@@ -466,34 +477,28 @@ dose-response 1.2.0  Dose-response plate assay
 
 Shows what applying a starter version and review flow to a service project would change, and
 changes nothing. It ends with its plan: a code that stands for what you reviewed, which
-`iki starter apply` takes. Give the service and requesting projects' UUIDs, and a membership UUID from the
-service project for each lab role the flow needs. Repeat `--role` to give a role to more than one
-member.
+`iki starter apply` takes. Give the service project's UUID, and a membership UUID from that
+project for each lab role the flow needs. Repeat `--role` to give a role to more than one member.
 
 ```console
-$ iki starter preview dose-response --version 1.2.0 --flow research \
-    --project "$SERVICE" --requester-project "$REQUESTER" \
-    --role "iki/lab_roles.coordinator=$COORDINATOR" \
+$ iki starter preview dose-response --version 2.0.0 --flow regulated_qc \
+    --project "$SERVICE" \
     --role "iki/plate_assays.analyst=$ANALYST" \
-    --role "iki/plate_assays.reviewer=$REVIEWER"
-Would apply  dose-response 1.2.0
+    --role "iki/plate_assays.reviewer=$REVIEWER" \
+    --role "iki/plate_assays.qa=$QA"
+Would apply  dose-response 2.0.0
   Service project   5b0e9a3c-2f41-4d8e-9a6b-1c7e0d3f8a25
-  Requester project c81f4e27-6a90-4b3d-8e15-2d9a7c0b4f63
-  Review flow       research  iki/plate_assays.RequestedResearchAssayResult
-  iki/lab_roles.coordinator  0d6a2f19-8c34-4e7b-a1f5-93b2e6c4d708
+  Review flow       regulated_qc  iki/plate_assays.QCAssayResult
   iki/plate_assays.analyst  7e3b9c45-1d26-4f8a-b0e7-5a4c2d9f1e36
+  iki/plate_assays.qa  c81f4e27-6a90-4b3d-8e15-2d9a7c0b4f63
   iki/plate_assays.reviewer  a92c6e18-4b7d-43f0-9e25-6f1d8b3a7c04
+  Grant iki/plate_assays.qa to c81f4e27-6a90-4b3d-8e15-2d9a7c0b4f63
   Grant iki/plate_assays.reviewer to a92c6e18-4b7d-43f0-9e25-6f1d8b3a7c04
-  Create example request
-  Create example protein
-  Create example sample
-  Create example tube
-  Create example apigenin
-  Create example daidzein
-  Create example reader_file
-  Create example plate
   Plan              3f9c2a71d04e8b65c1a7f3e9d2b0c4a68e5f17d3b9a2c0e4f6d81b3a5c7e9f02  (apply it with --plan)
 ```
+
+When the preview lists changes, review the result type and the grants it proposes. If it prints
+`Already applied`, the project has that version and flow, and each member holds their role.
 
 | Option                                | What it does                                                                |
 | ------------------------------------- | --------------------------------------------------------------------------- |
@@ -501,19 +506,19 @@ Would apply  dose-response 1.2.0
 | `--version VERSION`                   | The starter version to apply. Required.                                     |
 | `--flow research`, `--flow regulated_qc` | The review flow. Required.                                               |
 | `--project PROJECT`                   | The service project's UUID. Required.                                       |
-| `--requester-project PROJECT`         | The requesting project's UUID. Required.                                    |
 | `--role ROLE=MEMBERSHIP`              | Give a lab role, such as `iki/plate_assays.reviewer`, to a member of the service project, by their membership's UUID. Repeat for more. |
 | `--url URL`                           | The deployment. Defaults to `IKI_URL`, or the one you signed in to.          |
 | `--json`                              | Print the API's answer as JSON.                                             |
 
-Regulated QC needs a different person in each of the analyst, reviewer and QA roles, and each role
-needs a member whose project role is high enough: the deployment refuses the setup and says why.
+Research needs an analyst and a reviewer. Regulated QC also needs QA, with a different person in
+each of the three roles. An analyst needs at least Editor access to the project, and a reviewer or
+QA at least Viewer: the deployment refuses the setup and says why.
 
 ### `iki starter apply`
 
 Applies the setup, with the same arguments as `iki starter preview` and `--plan` set to the plan
-the preview printed. It prints `Applied`, and the example records it made, or `Already applied`
-when the project has that version and flow already.
+the preview printed. It prints `Applied`, or `Already applied` when the project has that version
+and flow already and each member holds their role.
 
 If what applying does has changed since the preview, because another Admin changed a grant or
 applied the starter first, nothing is applied. The command prints what applying does now, and its
@@ -522,6 +527,9 @@ new plan, to review and apply.
 | Option        | What it does                                                                 |
 | ------------- | ---------------------------------------------------------------------------- |
 | `--plan PLAN` | The plan `iki starter preview` printed for the same arguments. Required.      |
+
+The [dose-response plate assay](/use-cases/dose-response-plate-assay/) runs the assay after
+setup, from a reader file to a released result.
 
 `iki starter` exits with 0 when the deployment answers, and 2 when it refuses or can't be reached,
 with its reason.

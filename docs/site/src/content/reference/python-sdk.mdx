@@ -118,10 +118,8 @@ found.first()  # the first, or None
 found.to_pandas(limit=1000)  # a DataFrame, indexed by HRID
 
 sample = iki.entities.get("SAM-000231")
-# By a unique field, such as the ID a LIMS gives its record: one per project at most.
-[protein] = iki.entities.lookup(
-    "iki/protein.Protein", "lims_id", "LIMS-0042", project="qc-lab"
-)
+# By a unique field, such as a tube's barcode in an Inventory project: one per project at most.
+[tube] = iki.entities.lookup("iki/inventory.Tube", "barcode", "TUBE-0042", project="qc-lab")
 ```
 
 `search` also takes `collection=` (a collection's records), `run=` (what a run made), and
@@ -323,10 +321,10 @@ client.notifications.watch("SAM-000231")  # or mode="muted", or "default"
 
 ```python
 iki.actions.list(takes=["iki/stability.Study"])  # what can run on stability studies
-iki.actions.get("iki/lims_connector_example.import_from_lims")  # its inputs, params and tier
+iki.actions.get("acme/lims_connector.import_from_lims")  # its inputs, params and tier
 
 run = iki.run(
-    "iki/lims_connector_example.import_from_lims",
+    "acme/lims_connector.import_from_lims",
     project="qc-lab",
     reason="Catch up after the LIMS was down",
 )
@@ -352,22 +350,27 @@ iki.runs.reproduce("RUN-000045", reason="Audit")  # the same commit, params and 
 run's results), `add_to_project=True` (share inputs from other projects into it) and `labels=`.
 
 An action that sends data to an outside API says what it sends and where. Starting it needs your
-agreement, as `consent`, and the API's approval for the project by an Org Admin:
+agreement, as `consent`, and the API's approval for the project by an Org Admin. This example
+uses the hosted-model example in `examples/plugins/hosted_models`, with its fictional FoldCloud
+service. For your own provider, use the action name from its manifest.
 
 ```python
 try:
-    run = iki.run("iki/example_models.predict_structure", project="qc-lab", inputs={"protein": "PRT-000123"})
+    run = iki.run("lab/hosted_models.predict_structure", project="qc-lab", inputs={"protein": "PRT-000123"})
 except iki.ConsentRequired as refused:
     for statement in refused.statements:
         print(statement["statement"])  # what it sends, and to whom
+    if input("Send the listed data? [y/N] ").strip().lower() != "y":
+        raise SystemExit("Run cancelled")
     run = iki.run(
-        "iki/example_models.predict_structure",
+        "lab/hosted_models.predict_structure",
         project="qc-lab",
         inputs={"protein": "PRT-000123"},
         consent=refused.apis,
     )
 except iki.NotApproved as refused:
     print(refused.detail, refused.approvers)  # who can approve it, in Iki's web app
+    raise
 
 for call in iki.runs.api_calls(run):  # the model and version that answered, and hashes
     print(call["model"], call["version"], call["response_sha256"])
@@ -405,7 +408,8 @@ if first is not None:
 `None`. `count` takes the same filters. Its `total` stops at 1,000, and `more_than_total` says
 whether more match.
 
-- `q` matches part of the name, in any case.
+- `q` matches part of the name, or of what the file states about itself (its instrument, serial
+  number, operator, software, protocol or read groups), in any case.
 - `format` takes an installed format ID such as `iki/core.csv`, a media type, a family such as
   `image/*`, or a list of these.
 - `acquired_from` and `acquired_to` are inclusive days, as dates or ISO date strings.
@@ -417,8 +421,12 @@ whether more match.
 the latest acquisition first, or `acquired_oldest`) and `page_size=` (1 to 100). Both acquisition
 sorts put unknown dates last.
 
-`get` returns the file's metadata, its `origin`, the `samples` you can read and its two **Used
-by** pages, `records` and `runs`. For a registered object, `origin["uri"]` and
+`get` returns the file's metadata, its `facts` and `read_groups`, its `origin`, the `samples` you
+can read and its two **Used by** pages, `records` and `runs`. `facts` holds what the file's format
+says of where its data came from, read when the file was added: `instrument`, `manufacturer`,
+`serial`, `instrument_name`, `operator`, `software` and `protocol`. Each is `None`, or a `value`
+with where in the file it's stated (`stated_in`, such as `FCS keyword $CYT`). A SAM or BAM file's
+`read_groups` are its `@RG` lines' standard tags, such as `ID`, `SM` and `LB`. For a registered object, `origin["uri"]` and
 `origin["version"]` name it. Each page has its own `next_cursor`: pass it back as
 `get(file_id, records_cursor=…)` or `runs_cursor=…` for the next page of that one. `page_size=`
 limits each page. A file you can't read, or that doesn't exist, raises `iki.NotFound`.
@@ -427,6 +435,8 @@ limits each page. A file you can't read, or that doesn't exist, raises `iki.NotF
 
 ```python
 coordinates = iki.files.upload("abl.pdb", project="kinase-atlas")
+if not coordinates["scan"]["usable"]:
+    raise RuntimeError(f"Held file: {coordinates['scan']['reason']}")
 structure = iki.entities.create(  # a file field takes its ID
     "iki/protein.ProteinStructure", {"structure": coordinates["id"]}, project="kinase-atlas"
 )
@@ -439,8 +449,11 @@ for file_id, file in iki.entities.get(structure["hrid"])["files"].items():
 ```
 
 `upload` computes the file's SHA-256, sends its parts straight to object storage, and waits for
-Iki to check the stored bytes, then returns the file's ID, name, size, media type and SHA-256. It
-needs project Editor access and the `write` scope: a reader gets `iki.Forbidden`.
+Iki to check the stored bytes and record a malware scan decision. It returns the file's ID, name,
+size, media type, SHA-256 and `scan`: its `state` (`clean`, `infected` or `not_scanned`), whether
+it's `usable`, and the finding or `reason`. A deployment can allow files too large to scan, with
+their state recorded as `not_scanned`. Uploading needs project Editor access and the `write`
+scope: a reader gets `iki.Forbidden`.
 
 - It takes a path or an open binary stream. It reads a stream from its current position and
   leaves it open, puts a seekable stream's position back, and copies a stream it can read only
@@ -449,8 +462,26 @@ needs project Editor access and the `write` scope: a reader gets `iki.Forbidden`
   it is, pass `media_type=`, such as `media_type="chemical/seq-aa-fasta"` for a protein `.fasta`
   file.
 - `acquired=` says when the data was acquired, for a format that doesn't record it.
-- `timeout=` limits the wait in seconds, then raises `iki.TimedOut`. If Iki rejects the bytes, the
-  `iki.IkiError` says why.
+- `timeout=` limits the wait for checking and scanning in seconds, then raises `iki.TimedOut`. If
+  Iki rejects the bytes, the `iki.IkiError` says why.
+
+After a timeout, Iki goes on checking the file. The error's `pending` names the upload or
+registration, and `iki.files.wait(pending)` waits for it again later, so a script run again doesn't
+send the file a second time:
+
+```python
+import json
+from pathlib import Path
+
+waiting = Path("run.txt.pending.json")
+try:
+    if waiting.exists():
+        run_file = iki.files.wait(json.loads(waiting.read_text()), timeout=600)
+    else:
+        run_file = iki.files.upload("run.txt", project="plate-assays", timeout=600)
+except iki.TimedOut as error:
+    waiting.write_text(json.dumps(error.pending))  # {"upload": "…"}: try again later
+```
 
 ### Register an object in place
 
@@ -470,8 +501,9 @@ print(plate["id"], plate["sha256"])
 
 The bucket must keep versions, and the object must have one. Iki pins the object's current
 version, or the one `version=` names, so a later write to the key leaves the file as it was. It
-waits for Iki to read the pinned bytes and check their SHA-256, then returns the file as `upload`
-does. It takes `name=` for a name other than the object's, `acquired=`, `timeout=` in seconds and
+waits for Iki to read the pinned bytes, check their SHA-256 and record a malware scan decision,
+then returns the file and its `scan` as `upload` does. A version that's held keeps its metadata and
+the finding. It takes `name=` for a name other than the object's, `acquired=`, `timeout=` in seconds and
 `poll=`, how often to check. A location that isn't approved, or an object without a version,
 raises `iki.Invalid`.
 

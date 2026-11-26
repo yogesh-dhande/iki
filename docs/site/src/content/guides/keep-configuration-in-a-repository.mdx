@@ -226,6 +226,31 @@ The chart won't render workers or container-tier runs without them, or with any 
 wider than a /8 (a /32 for IPv6). Allow more destinations that actions need in
 `networkPolicy.egress.workers`.
 
+### File scanning
+
+Setting `files.bucket` starts the chart's ClamAV Deployment, `iki-clamd`. The web pods and task
+runners reach it on a cluster-internal service. It starts with the signatures in its pinned image;
+FreshClam checks for new ones every hour, and clamd reloads them. The upstream project publishes
+the image and documents its memory needs in
+[ClamAV in Docker](https://docs.clamav.net/manual/Installing/Docker.html).
+
+When scans are waiting, check both containers' logs:
+
+```sh
+kubectl logs deploy/iki-clamd -c clamd
+kubectl logs deploy/iki-clamd -c freshclam
+```
+
+- **An air-gapped cluster:** mirror the chart's pinned `files.scanner.clamd.image` into the local
+  registry, and point `files.scanner.clamd.privateMirror` at the internal FreshClam mirror. Set
+  `networkPolicy.egress.signatureUpdates.to` and `.ports` to that mirror's network peers and port.
+- **A scanner of your own:** install its Python module in the server image, set
+  `files.scanner.adapter` to the callable, and set `files.scanner.clamd.enabled: false`. Declare
+  the network peers it needs in `networkPolicy.egress.externalScanner`.
+- **Large files:** `files.scanner.maxBytes` defaults to 100 MiB. With bundled clamd, keep it below
+  2 GiB. Larger files stay held unless `files.scanner.oversizePolicy` is `allow`. Either way, the
+  file keeps the recorded size exception.
+
 ### Bundles between deployments
 
 Bundles move validated records, with their history, from staging to production. In each

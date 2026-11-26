@@ -14,8 +14,10 @@ A workflow runs several of your plugin's actions as one. Each step runs an actio
 plugin, by its name there, and each step's run is an ordinary run, with its own inputs, results and
 record of what it read. The types those actions read and write can come from your dependencies. To
 run actions of several plugins one after another, call them from a client, such as the
-[Python SDK](/reference/python-sdk/). The plugin template's `store_sample` gives a sample the default storage if it has
-none, then writes its storage location in full:
+[Python SDK](/reference/python-sdk/). The storage labels example
+(`examples/plugins/storage_labels`) has a workflow, `store_sample`, that runs two of its actions on
+the same sample. It gives the sample the default storage if it has none, then writes its storage
+location in full:
 
 ```yaml
 # workflows/store_sample.yaml
@@ -38,7 +40,7 @@ steps:
 A workflow's [`inputs`](/reference/plugin-spec/workflow/#inputs) and
 [`params`](/reference/plugin-spec/workflow/#params) are declared as an action's are. Its
 [`name`](/reference/plugin-spec/workflow/#name) is in snake case, and in full it's your plugin's:
-`acme/example.store_sample`.
+`acme/storage_labels.store_sample`.
 
 ## Where a step's inputs come from
 
@@ -46,7 +48,10 @@ Each of a step's [`inputs`](/reference/plugin-spec/workflow/#steps.inputs) names
 come from:
 
 - the workflow's input: `$inputs.<name>`
-- the records an earlier step created of a type: `$steps.<id>.created.<Type>`
+- the records an earlier step created of a type: `$steps.<id>.created.<Type>`. For a type a
+  dependency supplies, use its full name, as in `$steps.translate.created.iki/protein.Protein`.
+  The translation example (`examples/plugins/protein_translation`) does this: it declares both of
+  its actions and takes its DNA and Protein types from its dependencies
 - what a step was given: `$steps.<id>.inputs.<name>`, as `decode` takes the sample `assign` was
   given
 

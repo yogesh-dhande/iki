@@ -51,8 +51,8 @@ module with everything it needs bundled in, and Iki runs it in a sandboxed frame
 no access to the person's session or to Iki's pages. Iki gives it the data it shows, as the person
 viewing it may read it, and does what it asks for itself.
 
-The plugin template's `sample_label` shows a sample's tube label on its page, and a sheet of
-labels for the samples a grid finds:
+The storage labels example's `sample_label` (`examples/plugins/storage_labels`) shows a sample's
+tube label on its page, and a sheet of labels for the samples a grid finds:
 
 ```yaml
 # components/sample_label.yaml
@@ -62,7 +62,7 @@ name: sample_label
 label: Label
 description: The sample's label, as it's printed for its tube.
 module: ./components/sample-label.js
-element: example-sample-label
+element: storage-sample-label
 entities: { type: Sample, fields: [name, kind, storage], limit: 200 }
 slots:
   - { slot: entity.tab, type: Sample }
@@ -98,7 +98,10 @@ calendar of instrument bookings fills all four:
 
 ```yaml
 # plugins/equipment/components/booking_calendar.yaml
-entities: { type: Booking, fields: [purpose, instrument, starts_at, ends_at], limit: 1000 }
+entities:
+  type: Booking
+  fields: [purpose, instrument, starts_at, ends_at, booked_by, work, cancelled]
+  limit: 1000
 slots:
   - slot: entity.tab
     type: Instrument
@@ -106,10 +109,23 @@ slots:
     search: { where: { field: instrument, op: eq, value: "{{ entity }}" }, sort: starts_at }
   - { slot: search.results, label: Calendar }
   - { slot: project.page, label: Instrument bookings, search: { sort: starts_at } }
-  - slot: person.home
+  - slot: person.home # the time booked for them, by them or by someone else
     label: Your bookings
-    search: { where: { field: created_by, op: eq, value: "{{ me }}" }, sort: starts_at }
+    search:
+      where:
+        any:
+          - { field: booked_by, op: eq, value: "{{ me }}" }
+          - all:
+              - { field: created_by, op: eq, value: "{{ me }}" }
+              - { field: booked_by, op: is_set, value: false }
+      sort: starts_at
 ```
+
+A booking can be made for someone else, in its `booked_by` field, and name the record it's for,
+such as a request, in `work`. It's on the home of the person it's for, or of whoever booked it
+when nobody else is named. The plugin's `bookings_made` component shows each person the time they
+booked for others, and both calendars leave cancelled bookings out unless the person viewing them
+chooses **Show cancelled**.
 
 | Slot             | What it's given                                                                                |
 | ---------------- | ---------------------------------------------------------------------------------------------- |
@@ -123,7 +139,8 @@ slots:
   its fields and `hrid`, `created_by`, `created_at` and `updated_at`, at most 20 and 4 levels deep,
   and a field to [`sort`](/reference/plugin-spec/component/#slots.search.sort) by. `{{ entity }}`
   is the record whose page it is, for a reference to its type; `{{ me }}` is whoever reads it, for
-  `created_by`; `{{ now }}` is now, for a date or datetime field.
+  `created_by`, `assigned` or a field naming people; `{{ now }}` is now, for a date or datetime
+  field.
 - Iki's server runs the search as the person may read, and the element gets the results as its
   `entities` property: `items`, each with `id`, `hrid`, `title`, `type`, `revision`, `project`,
   the declared fields in `values` and the records those fields name in `refs`, a page at a time.

@@ -160,8 +160,8 @@ secrets, as itself, through Workload Identity. GKE brings the rest: the Gateway 
 cluster autoscaler and the CSI drivers.
 
 The cluster starts only images Binary Authorization allows (`out allowed_images`): this
-deployment's repositories (`out images`), Iki's, External Secrets', the first-party plugins', and
-GKE's own. Before installing anything else, add its images to `extra_images` and apply, or GKE
+deployment's repositories (`out images`), Iki's, External Secrets', the chart's pinned ClamAV
+image, the first-party plugins', and GKE's own. Before installing anything else, add its images to `extra_images` and apply, or GKE
 refuses its pods, and the audit logs say which image.
 
 Your CI can push its plugin builds to the `server` and `worker` repositories, as `image_writers`.
@@ -267,7 +267,8 @@ Otherwise import `deploy/helm/iki/files/dashboards/iki.json` into Grafana and lo
   Secrets reads only this deployment's secrets. Backend workers and runs get no identity.
 - Images' tags can't be moved, and every image is scanned as it's pushed.
 - The cluster runs only images Binary Authorization allows: the deployment's own repositories,
-  Iki's and External Secrets' images, the first-party plugins', and any you list (`plugin_images`,
+  Iki's and External Secrets' images, the chart's pinned ClamAV image, the first-party plugins', and
+  any you list (`plugin_images`,
   `extra_images`). Google's policy allows GKE's system images. Anything else is refused, and each
   refusal is in the audit logs.
 - Plugins' code runs on its own nodes. Pools other than `system` are tainted

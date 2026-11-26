@@ -15,7 +15,8 @@ times. Installing your plugin doesn't turn a trigger on. A project's Admins do, 
 project, and its runs are theirs: launched as the Admin who turned it on, and recorded as started
 by the trigger. A run on the container or vm tier waits for that Admin's approval first.
 
-The plugin template's `store_new_samples` gives each new sample the default storage:
+The storage labels example (`examples/plugins/storage_labels`) has a trigger, `store_new_samples`,
+that gives each new sample the default storage:
 
 ```yaml
 # triggers/store_new_samples.yaml
@@ -45,10 +46,17 @@ params values; a string starting with `$` is written `$$`.
 | `entity.registered`    | A new registry entry of a type with an identity is registered, once, by the record that registered it |
 | `entity.updated`       | A record's values change                                                                                |
 | `entity.state_changed` | One of a record's state fields is set                                                                   |
+| `request.received`     | A request of its type is sent to the project as a service, once                                        |
 | `schedule`             | At the times its schedule gives                                                                         |
 
 Computing what's derived from an identity belongs on `entity.registered`: the registry entry keeps
 it for every project ([Registries and project records](/concepts/registries-and-project-records/)).
+
+An `entity.created` trigger can import a file into the record that holds it, as an instrument's
+uploader makes one record for each export. Iki refuses a record whose file field holds a file that's
+still being scanned or is held, and gives a run's worker a file only once it's usable, so the import
+reads only clean files. A `unique` field for the file's SHA-256 keeps a re-sent export from making
+a second record: see [Import records from a file](/guides/write-a-plugin/import-from-a-file/).
 
 ### Changes to some fields
 
@@ -71,6 +79,27 @@ On `entity.state_changed`, [`field`](/reference/plugin-spec/trigger/#field) name
 (`trigger-state-field-missing`, `trigger-not-a-state-field`), and
 [`states`](/reference/plugin-spec/trigger/#states) narrows it to records set to one of those
 states ([Track a record's state](/guides/write-a-plugin/states/)).
+
+### A request sent to a service
+
+On `request.received`, the trigger runs in the service's project as a request of its
+[`type`](/reference/plugin-spec/trigger/#type), a request type, is sent there
+(`trigger-received-not-a-request`). It's the service's: the project that asked has none of it. Its
+action reads the request with both its sides, and writes the service's fields, as any run in the
+service's project does. Nobody in the service's project sent the request, so its runs are launched
+as a service account the Admin who turns it on chooses, as a schedule's are. The request priority
+example (`examples/plugins/request_priority`) gives each request sent to a sequencing core the rank
+of the project that asked:
+
+```yaml
+on: request.received
+type: SequencingRequest
+run: rank_requests
+input: requests
+```
+
+See [Requests between projects](/guides/write-a-plugin/requests/) for request types and their
+service fields.
 
 ### Changes runs make
 
@@ -109,6 +138,13 @@ related:
   nothing related, skips the run.
 - Each such input takes many (`trigger-related-one`), and isn't the one the record goes to
   (`trigger-related-is-input`).
+- An input [`from_project`](/guides/write-a-plugin/actions/#inputs-the-project-gives) needs
+  nothing from a trigger, and takes neither the record nor related ones
+  (`trigger-input-from-project`).
+
+The calibration tracing example (`examples/plugins/calibration_tracing`) uses three downstream
+reference searches to collect an instrument's service history, its uses and existing assessments
+when its calibration fails. The equipment types come from its dependency, `iki/equipment`.
 
 ## Run actions on a schedule
 
@@ -118,7 +154,7 @@ five fields (minute, hour, day of the month, month, day of the week) and a
 connector imports what the LIMS added or changed every night:
 
 ```yaml
-# plugins/lims_connector_example/triggers/import_nightly.yaml
+# examples/plugins/lims_connector/triggers/import_nightly.yaml
 apiVersion: iki/v1
 kind: Trigger
 name: import_nightly

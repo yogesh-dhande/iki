@@ -41,14 +41,14 @@ plugins:
     path: plugins/reagents # the plugin's directory in the repository, if not its root
     sha: 4f1c2b9e0d6a7c3b8e5f1a2d9c0b7e6f5a4d3c2b
     state: active
-  - name: iki/lims_connector_example
+  - name: iki/dna
     git: https://github.com/yogesh-dhande/iki.git
-    path: plugins/lims_connector_example
+    path: plugins/dna
     sha: 4f1c2b9e0d6a7c3b8e5f1a2d9c0b7e6f5a4d3c2b
     state: active
-    settings: settings/lims_connector_example.yaml # relative to the lockfile
-  - name: acme/example # a lab's own, in its namespace, from its repository
-    git: https://github.com/acme/iki-example.git
+    settings: settings/dna.yaml # relative to the lockfile
+  - name: acme/storage_labels # a lab's own, in its namespace, from its repository
+    git: https://github.com/acme/iki-storage-labels.git
     sha: 9b2e4c1d0a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d
     state: active
 ```
@@ -90,8 +90,10 @@ build them as they are, in CI or a live check, pass `--test-only`. A `local:` di
 `compute.yaml` holds compute templates, the machines a deployment runs actions on, and bindings,
 which environments run on which. An action's environment
 ([Environments](/guides/write-a-plugin/actions/#environments)) runs only where a binding puts
-it. This deployment runs the plugin template's `tools` environment in Kubernetes pods, a Job for
-each run or a warm pool for quick actions:
+it. This deployment runs the lab's storage labels plugin, adapted from
+`examples/plugins/storage_labels`, in Kubernetes pods: its `tools` environment in a Job for each
+run or a warm pool for quick actions, and its `reference` environment, with its volume of storage
+codes, in a Job:
 
 ```yaml
 # deployments/production/compute.yaml
@@ -116,14 +118,14 @@ price: { per_hour: 0.05, currency: USD }
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: acme/example.tools # plugin.environment
+environment: acme/storage_labels.tools # plugin.environment
 templates:
   - { template: containers } # priority 0 is tried first
   - { template: warm-containers, priority: 1 }
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: acme/example.reference
+environment: acme/storage_labels.reference
 templates: [{ template: containers }]
 ```
 

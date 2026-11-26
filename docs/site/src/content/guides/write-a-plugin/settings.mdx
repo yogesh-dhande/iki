@@ -23,8 +23,8 @@ it ([Secrets](/guides/write-a-plugin/actions/#secrets)).
 ## Declare a setting
 
 Each setting has a name, a [`type`](/reference/plugin-spec/settings/#type) and the options that
-go with it, as a field's do. The plugin template's one setting is where samples are stored
-unless someone says otherwise:
+go with it, as a field's do. The storage labels example's one setting
+(`examples/plugins/storage_labels`) is the storage to assign when a sample has none:
 
 ```yaml
 # plugin.yaml
@@ -32,8 +32,8 @@ settings:
   default_storage:
     type: string
     max_length: 100
-    default: "-80 °C freezer"
-    description: Where new samples are stored unless someone says otherwise.
+    default: "-80"
+    description: The code or full location to assign when a sample has no storage location.
 ```
 
 The example LIMS connector needs to know which LIMS it talks to, and each deployment's is its own:
@@ -83,14 +83,14 @@ A deployment's lockfile names each plugin's settings file, a YAML mapping of set
 values:
 
 ```yaml
-# deployments/production/settings/lims_connector_example.yaml
+# deployments/production/settings/lims_connector.yaml
 lims_host: lims.northfield-bio.org
 ```
 
 Check one against your plugin before the deployment builds:
 
 ```sh
-iki plugin validate . --settings deployments/production/settings/lims_connector_example.yaml
+iki plugin validate . --settings deployments/production/settings/lims_connector.yaml
 ```
 
 It reports a value of the wrong type or outside its options (`invalid-setting`), a required

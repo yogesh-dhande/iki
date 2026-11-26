@@ -12,7 +12,8 @@ reference:
 
 A record type is an `EntityType` manifest in `types/`. Each type is a table of its own, with a
 history table beside it that keeps every revision's values: see
-[Records and revisions](/concepts/records-and-revisions/). The template's sample type:
+[Records and revisions](/concepts/records-and-revisions/). The template's `Sample` type, with
+the fields a lab might add to it:
 
 ```yaml
 apiVersion: iki/v1
@@ -29,9 +30,9 @@ fields:
   kind: { type: enum, values: [tissue, cells, blood, dna, rna, protein, other], required: true }
   collected_on: { type: date }
   volume: { type: quantity, unit: mL, display_unit: uL, min: 0 }
-  storage: { type: string, max_length: 100, indexed: true }
+  storage: { type: string, max_length: 100 }
   derived_from: { type: ref, to: Sample, description: The sample it was taken from. }
-  construct: { type: ref, to: iki/dna.DNASequence, description: The construct it carries. }
+  construct: { type: ref, to: iki/dna.DNASequence, description: The construct it carries. } # iki/dna is a dependency
   notes: { type: text }
 display:
   title: "{{ name }}"
@@ -130,6 +131,22 @@ linked to what it means.
 | [`json`](/reference/plugin-spec/field/#type-json) | JSON, matching its `schema`, a JSON Schema, if it has one (`invalid-json-schema`). Forms start from the schema's `default`. Not indexable.    |
 | [`state`](/reference/plugin-spec/field/#type-state) | Where the record is in a process: see [Track where a record is with state fields](/guides/write-a-plugin/states/).                            |
 
+A text field's words are searched, with `matches`, from a full-text index of its first 100,000
+characters. Set [`searchable: false`](/reference/plugin-spec/field/#searchable) on text whose words
+mean nothing to a reader, such as a Molfile, a BigSMILES string or an instrument's export. It then
+gets no full-text index, and a search finds text in it with `contains`, not `matches`. The small
+molecule plugin's compound keeps its structure this way:
+
+```yaml
+# plugins/small_molecule/types/compound.yaml
+molfile:
+  type: text
+  registry: derived
+  max_length: 4000000
+  computed: true
+  searchable: false
+```
+
 A reference's [`to`](/reference/plugin-spec/field/#to) may list several types, any one of which it
 may name, each with its subtypes: `to: [StockLot, iki/lots.Lot]`. The list can't name
 `iki/core.Entity` beside others, nor a type beside one of its subtypes. The database holds every
@@ -146,15 +163,15 @@ Field names are lower case with single underscores. Names every record already h
 A plugin declares each file format it owns once, under
 [`formats`](/reference/plugin-spec/plugin/#formats) in `plugin.yaml`. Its ID is the plugin's full
 name, a dot, and the format's local name, which starts with a lower-case letter and has lower-case
-letters, digits and hyphens. The plugin template declares `acme/example.tube-scan`, for the
-tabular files its rack scanner writes:
+letters, digits and hyphens. The storage labels example (`examples/plugins/storage_labels`)
+declares `acme/storage_labels.tube-scan`, for the tabular files a rack scanner writes:
 
 ```yaml
 # plugin.yaml
 formats:
   tube-scan:
     label: Tube scanner export
-    media_types: [application/x-acme-tube-scan]
+    media_types: [application/x-tube-scan]
     extensions: [.tubescan]
     signatures: [{ hex: "545542455343414e09" }]
 ```
@@ -166,7 +183,7 @@ formats:
   `application/octet-stream` for content of no particular format.
 - `extensions` include the leading dot, and may have several parts, such as `.fastq.gz`.
 - A signature is an exact sequence of bytes in hexadecimal, at an optional byte `offset` from the
-  start of the file (0 unless given). The template's is the ASCII header `TUBESCAN` and a tab.
+  start of the file (0 unless given). The example's is the ASCII header `TUBESCAN` and a tab.
   Each is at most 256 bytes and must fit in the file's first 4,096. Choose bytes only this format
   has: a ZIP header alone, for example, starts many unrelated formats. If you declare any
   signatures, cover every valid variant of the format.
@@ -182,7 +199,7 @@ deployment has `iki/core`'s. The field or parameter sets its own size limit:
 
 ```yaml
 fields:
-  scan: { type: file, media_types: [acme/example.tube-scan], max_size: 20MiB }
+  scan: { type: file, media_types: [acme/storage_labels.tube-scan], max_size: 20MiB }
 ```
 
 Exact media types and families such as `image/*` work too. Iki works out which actions take a
@@ -190,9 +207,19 @@ format from their file parameters and their input types' file fields. Two plugin
 same extension or media type can't be installed together (`format-conflict`), and a field that
 names a format no plugin declares is refused (`unknown-format`).
 
-A format can name a built-in metadata `reader`, and a `viewer` that understands its contents. To
-show a record's file in a tab, configure the viewer under the type's `display.viewers`, which names
-the field: see [Show records in viewers and components](/guides/write-a-plugin/viewers-and-components/).
+A format can name a built-in metadata `reader`, and a `viewer` that understands its contents. A
+file whose format names one of these viewers is previewed on its page, and from the records and
+runs that hold it, without being downloaded:
+
+- `pdf`, and `image` for PNG and JPEG;
+- `image-tiff`, for TIFF and OME-TIFF, read in tiles;
+- `table-csv`, `table-tsv` and `table-xlsx`;
+- `chromatogram-abif`, for Sanger traces with their calls and qualities;
+- `spectrum-mzml` and `spectrum-jcamp-dx`.
+
+`structure-pdb`, `structure-mmcif` and `alignment` show a record's file in a tab instead. Configure
+the viewer under the type's `display.viewers`, which names the field: see
+[Show records in viewers and components](/guides/write-a-plugin/viewers-and-components/).
 The formats, aliases, readers, viewers and actions that ship with Iki are in
 [File formats](/reference/file-formats/).
 
@@ -263,7 +290,8 @@ A string field may [`link`](/reference/plugin-spec/field/#link) to where its val
 system. `{value}` is the value and `{settings.name}` one of the plugin's settings, so each
 deployment points at its own LIMS. A link starts with `https://` or a setting
 (`link-not-https`, `link-without-value`, `link-unknown-placeholder`), and Iki shows only links
-that are https once the settings are filled in. The example LIMS connector adds one to proteins:
+that are https once the settings are filled in. The LIMS connector example
+(`examples/plugins/lims_connector`) extends Protein with one, and matches repeated imports by it:
 
 ```yaml
 lims_id:

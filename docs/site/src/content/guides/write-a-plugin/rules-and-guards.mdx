@@ -197,3 +197,8 @@ a_person:
 - The record's page offers only the states its reader may set, saying why not of the others in the
   guards' words. A refused change is answered `guard_refused`, with the guard's name.
 - A state has at most 20 guards.
+
+The construct review example (`examples/plugins/construct_review`) adds a state field to an
+Assembly subtype. Its guards check the current product comparison, who recorded the build and who
+edited it afterward. Its notifications tell the creator and watchers when a comparison fails or a
+reviewer verifies the record.

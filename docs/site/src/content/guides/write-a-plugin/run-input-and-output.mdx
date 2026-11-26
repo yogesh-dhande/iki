@@ -123,6 +123,12 @@ The worker keeps the job's lease and its own credentials out of the command's in
   at launch, [`entry_revision`](/reference/plugin-spec/run-input/#inputs.entry_revision). An action
   that seals evidence should keep both pairs, since the entry's registry facts can change on
   their own ([Registries and project records](/concepts/registries-and-project-records/)).
+- A request between projects also has
+  [`request`](/reference/plugin-spec/run-input/#inputs.request): the project that asked
+  (`asking_project`) and the service it was sent to (`service`, null until it's sent), each by
+  `id`, `slug` and `name`, as each side's people see the other. A slug never changes, so it's what
+  a lab's own records match a project by
+  ([Requests between projects](/guides/write-a-plugin/requests/)).
 - An input that includes references gives each record an
   [`included`](/reference/plugin-spec/run-input/#inputs.included) object: for each reference, a
   list of the records it names, in the same form.
@@ -175,8 +181,8 @@ those hosts. A run's secrets are environment variables too, by their names
 - On SIGTERM, which a cancel, its timeout or the machine stopping sends, it has 10 seconds to
   stop.
 
-The plugin template's `scripts/storage.py` is a complete command: it reads
-`IKI_INPUT`, prints progress for each sample, and writes `IKI_OUTPUT`.
+The plugin template's `scripts/storage.py` is a complete command: it reads `IKI_INPUT`, and
+writes `IKI_OUTPUT` with the sample's storage when it has none.
 
 ### Save progress in checkpoints
 
