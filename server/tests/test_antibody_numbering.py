@@ -6,6 +6,7 @@ stand-in ANARCI on the path that answers with what the real one said about the s
 chains, in the image (data/anarci.json, from data/record_anarci.py), and records how it
 was called. The image's own check runs the real one."""
 
+import ast
 import json
 import os
 import subprocess
@@ -119,6 +120,7 @@ def test_a_heavy_chain_gets_its_imgt_cdrs_and_closest_human_germline(tmp_path: P
     assert {k: v for k, v in values.items() if k != "variable_domains"} == {
         "chain_type": "heavy",
         "species": "human",
+        "germline_set": "ANARCI 2026.2.13.2, IMGT germlines",
         "numbering_scheme": "imgt",
         "cdr_definition": "imgt",
         "cdr_h1": "GFNIKDTY",
@@ -512,3 +514,20 @@ def test_a_domain_cut_short_of_its_first_cysteine_has_no_disulfide_of_its_own(
     code, log, output = run_assemble(tmp_path, vhh, None, format="vhh")
     assert code == 0, log
     assert "bonds" not in output["creates"][0]["values"]
+
+
+def test_the_germline_set_names_the_anarci_release_that_assigns_the_genes() -> None:
+    """The species and genes are assignments against the germlines one ANARCI release
+    carries: the set a chain records is the release the action and the image pin."""
+    plugin = SCRIPT.parents[1]
+    action = yaml.safe_load((plugin / "actions/number_chains.yaml").read_text())
+    (anarci,) = [s["version"] for s in action["software"] if s["name"] == "ANARCI"]
+    (germline_set,) = [
+        node.value.value
+        for node in ast.parse(SCRIPT.read_text()).body
+        if isinstance(node, ast.Assign)
+        and [t.id for t in node.targets if isinstance(t, ast.Name)] == ["GERMLINE_SET"]
+        and isinstance(node.value, ast.Constant)
+    ]
+    assert germline_set == f"ANARCI {anarci}, IMGT germlines"
+    assert f"anarci=={anarci}" in (plugin / "requirements.in").read_text()

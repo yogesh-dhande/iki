@@ -5890,6 +5890,7 @@ NUMBERING_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-antibody-numbering-tools"
     "@sha256:c314f625ee3c381add9a9cfcba3596cd7e0b61529764dc906c4fb09902007384"
 )
+#: The ab_predict plugin's ImmuneBuilder image (its environments/structure-tools.yaml).
 IMMUNEBUILDER_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-antibody-structure-tools"
     "@sha256:eb6f0596205fa9fac71d5909b25e992668854599fb8e53e60ab5e88604b81e85"
@@ -6133,6 +6134,7 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
         if (
             (got.get("chain_type"), got.get(cdr), got.get(gene), got.get("species"))
             != (kind, cdr3, v_gene, "human")
+            or got.get("germline_set") != "ANARCI 2026.2.13.2, IMGT germlines"
             or got.get("numbering_scheme") != "imgt"
             or not isinstance(identity, (int, float))
             or not 80 < identity < 90
@@ -6348,9 +6350,15 @@ def screened(
             (f["kind"], f["motif"], f["position"], f["number"], f["region"], f["severity"])
             for f in got.get("liabilities") or []
         ]
+        screen = {
+            "rule_set": "developability_v1",
+            "numbering_scheme": "imgt",
+            "cdr_definition": "imgt",
+        }
         counts = Counter(kind for kind, *_ in wanted)
         if (
             found != wanted
+            or got.get("liability_screen") != screen
             or got.get("liability_count") != len(wanted)
             or got.get("liability_counts") != dict(sorted(counts.items()))
         ):
@@ -6371,8 +6379,9 @@ def predicted(
     heavy: dict[str, Any],
     light: dict[str, Any],
 ) -> None:
-    """iki/antibody.predict_structure_with_immunebuilder: trastuzumab's structure from its chains,
-    which its input includes (ADR 0105), in a pod of its own with the plugin's image."""
+    """iki/ab_predict.predict_structure_with_immunebuilder, the optional structure provider:
+    trastuzumab's structure from its chains, which its input includes (ADR 0105), in a pod of
+    its own with that plugin's image. Registration, numbering and the screen ran without it."""
     # Numbering changed the chains: the run reads them as they are now.
     revisions = {
         c["id"]: api_call(alice, "GET", f"/entities/{c['id']}").json()["revision"]
@@ -6382,13 +6391,13 @@ def predicted(
     run = launch(
         alice,
         project,
-        "iki/antibody.predict_structure_with_immunebuilder",
+        "iki/ab_predict.predict_structure_with_immunebuilder",
         {"antibody": antibody},
         within=1800,
     )
     (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
     if attempt["environment_build"] != IMMUNEBUILDER_TOOLS.rpartition("@")[2]:
-        fail(f"{run['hrid']} didn't run in the antibody structure-tools image: {attempt}")
+        fail(f"{run['hrid']} didn't run in the ImmuneBuilder structure-tools image: {attempt}")
     if attempt["template"] != "container-antibody-structures":
         fail(f"{run['hrid']} didn't run on the antibody structures template: {attempt}")
     read = {(i["field"], i["entity"], i["revision"]) for i in run.get("included") or []}
@@ -6405,6 +6414,8 @@ def predicted(
     error = structure.get("predicted_error")
     if (
         structure.get("method") != "predicted"
+        or (structure.get("immunebuilder_model"), structure.get("immunebuilder_version"))
+        != ("abodybuilder2", "1.2")
         or structure.get("chains") != [entry_of(heavy), entry_of(light)]
         or structure.get("chain_ids") != ["H", "L"]
         or not isinstance(error, (int, float))
@@ -6413,7 +6424,7 @@ def predicted(
     ):
         fail(f"{run['hrid']} made {made[0]['hrid']} as {structure}")
     ok(
-        "iki/antibody.predict_structure_with_immunebuilder ran in a pod of its own "
+        "iki/ab_predict.predict_structure_with_immunebuilder ran in a pod of its own "
         f"({run['hrid']}): "
         f"{made[0]['hrid']}, from {heavy['hrid']} and {light['hrid']} as numbered, "
         f"estimated error {error} Å (CDR-H3 {structure.get('cdr_h3_predicted_error')} Å)"
