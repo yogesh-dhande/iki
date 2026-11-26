@@ -21,8 +21,18 @@ its method and unit and has an inclusive lower limit, upper limit or both.
 
 Release Testing QA signs **Approved for publication** on the version. Run **Publish an
 approved specification version** on the schedule and that signed version. The first version
-can establish a historical baseline. A successor must start on a future UTC date after its
-predecessor. Publication appends versions and retains all earlier ones.
+can establish a historical baseline. Publication appends versions and retains all earlier
+ones. A successor starts after its predecessor and after the latest testing date any release
+case has pinned from the schedule, so publishing never changes which version a case was
+tested under. The deployment's `successor_effective_dates` setting says how soon:
+
+| Policy             | A successor may start                                                                                                                                       |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `future` (default) | After today (UTC).                                                                                                                                          |
+| `same_day`         | Today, for a version effective on approval, unless a case already tested under its predecessor today.                                                       |
+| `backdated`        | On an earlier date, as when importing a history of approved versions. Its publication says why, in **Why it took effect in the past**, which the run keeps. |
+
+[Effective dates decision](../../docs/adr/0241-a-specifications-successor-takes-effect-after-every-pinned-testing-date.md)
 
 ## Test, investigate and issue
 

@@ -1764,6 +1764,105 @@ def lims(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(f"{sent['hrid']} wrote {first['hrid']} to external record {LIMS_RECORDS[0]}")
 
 
+#: examples/liquid_handling's Tecan worklist (ADR 0230) for one transfer: an aspirate from
+#: well B3 of a 384-well source plate (column 3, row B: (3 - 1) x 16 + 2 = 34), a dispense
+#: to A1 of a 96-well plate (position 1), then a wash, as Freedom EVOware reads it.
+TECAN_WORKLIST = (
+    b"A;Compound source 1;CP-0412;384 Well Greiner PP;34;;2.5;DMSO Free Single;;;\r\n"
+    b"D;Assay plate 1;AP-0031;96 Well Corning Flat;1;;2.5;DMSO Free Single;;;\r\n"
+    b"W;\r\n"
+)
+
+
+def plugin_export(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Download a plugin's format: a liquid handler's worklist for a plate-to-plate
+    transfer, written by examples/liquid_handling's Wasm writer in the export sandbox,
+    and audited with the module that wrote it."""
+    kind = "examples/liquid_handling."
+    source = created(
+        alice,
+        project,
+        kind + "Plate",
+        {
+            "label": "Compound source 1",
+            "barcode": "CP-0412",
+            "labware_type": "384 Well Greiner PP",
+            "wells": "plate_384",
+        },
+    )
+    destination = created(
+        alice,
+        project,
+        kind + "Plate",
+        {
+            "label": "Assay plate 1",
+            "barcode": "AP-0031",
+            "labware_type": "96 Well Corning Flat",
+            "wells": "plate_96",
+        },
+    )
+    transfer = created(
+        alice,
+        project,
+        kind + "Transfer",
+        {
+            "source": entry_of(source),
+            "source_well": "B3",
+            "destination": entry_of(destination),
+            "destination_well": "A1",
+            "volume": {"value": 2.5, "unit": "uL"},
+            "liquid_class": "DMSO Free Single",
+        },
+    )
+    format_name = kind + "tecan-worklist"
+    query = urlencode({"format": format_name})
+    got = api_call(alice, "GET", f"/entities/{transfer['hrid']}/export?{query}")
+    if got.status_code != 200:
+        fail(f"exporting {transfer['hrid']} answered HTTP {got.status_code}: {got.text[:300]}")
+    media_type = got.headers.get("Content-Type", "")
+    if not media_type.startswith("text/x-tecan-gwl"):
+        fail(f"{transfer['hrid']}'s worklist came as {media_type!r}, not text/x-tecan-gwl")
+    if got.content != TECAN_WORKLIST:
+        fail(f"{transfer['hrid']}'s worklist is {got.content!r}, not {TECAN_WORKLIST!r}")
+    digest = hashlib.sha256(got.content).hexdigest()
+    audited = json.loads(
+        kubectl(
+            "exec",
+            "-i",
+            WEB["target"],
+            "-c",
+            "web",
+            "--",
+            "iki-server",
+            "shell",
+            stdin=(
+                "import json\n"
+                "from iki_server.audit.models import AuditEvent\n"
+                "event = AuditEvent.objects.filter(\n"
+                f"    action='entity.exported', target_id={str(transfer['id'])!r}\n"
+                ").order_by('-occurred_at').first()\n"
+                "print(json.dumps(event.data if event else None))\n"
+            ),
+        )
+        .strip()
+        .splitlines()[-1]
+    )
+    writer = (audited or {}).get("writer") or {}
+    if (
+        not audited
+        or audited.get("format") != format_name
+        or audited.get("sha256") != digest
+        or writer.get("plugin") != "examples/liquid_handling"
+        or not re.fullmatch(r"[0-9a-f]{64}", str(writer.get("module_sha256", "")))
+    ):
+        fail(f"exporting {transfer['hrid']} was audited as {audited}")
+    ok(
+        f"{transfer['hrid']} downloads as a Tecan worklist that examples/liquid_handling's writer "
+        f"wrote in the export sandbox (SHA-256 {digest[:12]}…), audited with module "
+        f"{writer['module_sha256'][:12]}…"
+    )
+
+
 def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
     """Trace paired reads from a public yeast library to a signed quality summary."""
     prefix = "iki/sequencing."
@@ -3542,7 +3641,7 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
 
 #: The example models plugin's outside API (examples/plugins/hosted_models), and where the dev
 #: cluster's settings point it: the fake FoldCloud (fixtures/fake-foldcloud.yaml).
-FOLDCLOUD = "lab/hosted_models.foldcloud"
+FOLDCLOUD = "acme/hosted_models.foldcloud"
 FOLDCLOUD_HOST = "fake-foldcloud.iki.svc"
 #: What the CI fixture charges for its calls, in USD: per call, and per GPU second
 #: the finished job reports. The fake reports half a GPU second per residue.
@@ -3566,7 +3665,7 @@ def foldcloud(alice: requests.Session, project: dict[str, Any]) -> None:
     approvals = f"/outside-apis/{FOLDCLOUD}/approvals"
     # One left by an earlier check that stopped part way.
     api_call(bob, "DELETE", f"{approvals}/{project['id']}")
-    action = "lab/hosted_models.predict_structure"
+    action = "acme/hosted_models.predict_structure"
     body = {"project": project["id"], "inputs": {"protein": protein["id"]}, "params": {}}
     refused = api_call(alice, "POST", f"/actions/{action}/runs", {**body, "consent": [FOLDCLOUD]})
     if refused.status_code != 409 or refused.json().get("code") != "outside_api_not_approved":
@@ -7037,6 +7136,7 @@ def main() -> None:
             lims(alice, project)
             foldcloud(alice, project)
             containers(alice, project)
+            plugin_export(alice, project)
         oauth(admin)
         saml()
 

@@ -290,9 +290,13 @@ class Refs:
         readable_entries: Any = None,  # noqa: ANN401
         project: str = "the project",
         namer: Any = None,  # noqa: ANN401 - people.Namer
+        scanning: bool = False,
     ) -> None:
         self.readable = readable
         self.files = files
+        #: Files still being scanned may be named: a run's params, as it waits for their
+        #: scans (ADR 0234). A record's value never may be (ADR 0216).
+        self.scanning = scanning
         #: Why these values may not refer to an entity, or a file, the caller can read
         #: (ADR 0067, 0132), or None for one they can't: a reference to one says so.
         self.held = held
@@ -372,10 +376,12 @@ class Refs:
         found = self.files.filter(pk=file_id).select_related("blob__scan_result__release").first()
         if found is None:
             return None
-        try:
-            status_from_decision(getattr(found.blob, "scan_result", None)).require_usable()
-        except Problem as error:
-            raise ValueError(error.detail) from error
+        scan = status_from_decision(getattr(found.blob, "scan_result", None))
+        if not (self.scanning and scan.state == "pending"):
+            try:
+                scan.require_usable()
+            except Problem as error:
+                raise ValueError(error.detail) from error
         return found.media_type, found.blob.size
 
     def why_held(self, entity_id: uuid.UUID) -> str | None:

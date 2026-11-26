@@ -6,12 +6,13 @@ label: Box
 label_plural: Boxes
 schema_version: 1
 description: >-
-  A cryobox of tubes (ADR 0180): 9 × 9 for 2 mL cryovials, 10 × 10 for 1.5 mL
-  tubes, its positions A1 to I9 or A1 to J10, along each row. Its shape is set
-  as it's made, so no tube is ever outside it.
+  A cryobox of tubes, vials or other containers (ADR 0180): 9 × 9 for 2 mL
+  cryovials, 10 × 10 for 1.5 mL tubes, its positions A1 to I9 or A1 to J10,
+  along each row. Its shape is set as it's made, so no container is ever
+  outside it.
 hrid: { prefix: BOX }
 storage:
-  holds: [Tube]
+  holds: [Container]
   grid: { rows: rows, columns: columns, labels: letter_number, order: by_row }
   barcode: barcode
   label: "{{ contents }}"
@@ -24,7 +25,7 @@ fields:
     min: 1
     max: 16
     default: 9
-    description: How many rows of tubes it has, lettered from A.
+    description: How many rows of containers it has, lettered from A.
   columns:
     type: int
     required: true
@@ -32,7 +33,7 @@ fields:
     min: 1
     max: 24
     default: 9
-    description: How many tubes each row holds, numbered from 1.
+    description: How many containers each row holds, numbered from 1.
   barcode:
     type: string
     max_length: 64

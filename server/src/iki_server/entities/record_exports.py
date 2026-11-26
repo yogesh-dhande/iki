@@ -1,5 +1,5 @@
 """Many records as one file (ADR 0229): a selection, or every record a table's search finds,
-as FASTA, GenBank or SDF.
+as FASTA, GenBank, SDF, or a plugin's format (ADR 0230).
 
 Asking pins each record at the revision it has then, read in one snapshot, so editing one
 afterwards doesn't change what's written. Each must be one its requester can read, of a
@@ -15,6 +15,12 @@ project of its records is under a legal hold. Each download checks they can stil
 every record it holds and what those refer to. Asking, and each download, are in the
 audit log: which records at which revisions, the file's SHA-256 and size, what it
 couldn't hold of each, and which writer wrote it.
+
+A plugin's format of one record per file (``many: zip``) makes a ZIP of them, one entry
+per record, named for it and dated by its revision, stored uncompressed so the same
+records make the same bytes. A writer that fails, or a sandbox that can't take the
+export, fails it, logged and counted; a background export first tries again a few times
+while the sandbox is busy.
 """
 
 from __future__ import annotations
@@ -22,21 +28,23 @@ from __future__ import annotations
 import hashlib
 import tempfile
 import uuid
-from collections.abc import Sequence
+import zipfile
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, timedelta
 from pathlib import Path
-from typing import Any
+from typing import IO, Any, cast
 
 import structlog
 from django.db import transaction
 from django.db.models import QuerySet
+from django.tasks import TaskContext
 from django.utils import timezone
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
 from iki_server.core.snapshots import snapshot
-from iki_server.entities import access, exports, registry, search
+from iki_server.entities import access, exports, plugin_writers, registry, search
 from iki_server.entities.models import Entity, ProjectLink, RecordExport, RecordExportState
 from iki_server.entities.sequence_files import Written
 from iki_server.files import storage
@@ -44,6 +52,7 @@ from iki_server.org import holds
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
 from iki_server.tasks import task
+from iki_server.tasks.backend import Retry
 from iki_spec.model import CompoundExport, ReportExport
 
 logger = structlog.get_logger("iki.record_exports")
@@ -216,7 +225,7 @@ def _checked(
     unexported: dict[str, list[str]] = {}
     for one in pinned:
         match = exports.format_of(one.type, file_format)
-        if match is None or match[1].many != "file":
+        if match is None or match[1].many == "one":
             unexported.setdefault(one.type, []).append(one.hrid)
             continue
         export_, chosen = match
@@ -270,7 +279,8 @@ def _file_name(pinned: list[Pinned], chosen: exports.Format, projects: list[Proj
     what = _plural(next(iter(kinds))) if len(kinds) == 1 else "Records"
     words = f"{projects[0].name} {what}" if len(projects) == 1 else what
     safe = " ".join("".join(c for c in words if c.isprintable()).translate(_NOT_IN_A_NAME).split())
-    return f"{safe[:150]} ({len(pinned):,}).{chosen.extension}"
+    extension = "zip" if chosen.many == "zip" else chosen.extension
+    return f"{safe[:150]} ({len(pinned):,}).{extension}"
 
 
 def _search_of(wanted: search.Search | None) -> dict[str, Any] | None:
@@ -293,69 +303,112 @@ def _search_of(wanted: search.Search | None) -> dict[str, Any] | None:
 # --- Writing ------------------------------------------------------------------------------------
 
 
-@task()
-def write_record_export(export_id: str) -> str:
+#: Attempts at a background export while the sandbox is busy or away.
+ATTEMPTS = 4
+#: Between them.
+RETRY_AFTER = timedelta(seconds=30)
+
+
+@task(takes_context=True, max_attempts=ATTEMPTS)
+def write_record_export(context: TaskContext[Any, Any], export_id: str) -> str:
     """Writes an export's file and keeps it in the file store."""
     made = RecordExport.objects.select_related("requested_by").get(pk=export_id)
     # Again if a runner stopped partway: the file is written afresh, to the same key.
     if made.state not in (RecordExportState.QUEUED, RecordExportState.WRITING):
         return str(made.state)
-    return _write(made)
+    return _write(made, background=True, last=context.attempt >= ATTEMPTS)
 
 
 class _TooBig(Exception):  # noqa: N818 - caught here, never raised beyond
     pass
 
 
-def _write(made: RecordExport) -> str:
+class _Spool:
+    """The file as it's written: hashed and counted, and refused past :data:`MAX_BYTES`."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._out = path.open("wb")
+        self.size = 0
+
+    def add(self, content: bytes) -> None:
+        self.size += len(content)
+        if self.size > MAX_BYTES:
+            raise _TooBig
+        self._out.write(content)
+
+    def close(self) -> str:
+        """Closes it; returns its SHA-256."""
+        self._out.close()
+        digest = hashlib.sha256()
+        with self.path.open("rb") as written:
+            while chunk := written.read(1024 * 1024):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+
+def _zip_entry(gathered: exports.Gathered, taken: set[str]) -> zipfile.ZipInfo:
+    """A record's place in a ZIP: its file's name, unique there, dated by its revision."""
+    name = gathered.name
+    if name in taken:
+        stem, dot, extension = name.rpartition(".")
+        name = f"{stem} ({gathered.record.hrid}){dot}{extension}"
+    taken.add(name)
+    when = (
+        gathered.record.revised_at
+        if isinstance(gathered.record, plugin_writers.PluginRecord)
+        else None
+    )
+    stamp = when.astimezone(UTC).timetuple()[:6] if when is not None else (1980, 1, 1, 0, 0, 0)
+    entry = zipfile.ZipInfo(name, date_time=max(stamp, (1980, 1, 1, 0, 0, 0)))
+    entry.compress_type = zipfile.ZIP_STORED
+    entry.create_system = 3  # Unix, so the permissions below mean what they say
+    entry.external_attr = 0o100644 << 16
+    return entry
+
+
+def _write(made: RecordExport, *, background: bool = False, last: bool = True) -> str:
     made.state = RecordExportState.WRITING
     made.save(update_fields=["state"])
     by = made.requested_by
-    chosen = next(f for fs in exports.FORMATS.values() for f in fs if f.format == made.format)
-    file_writer = exports.writer(made.format)
+    chosen = exports.find_format(made.format)
+    if chosen is None:
+        return _failed(made, f"{made.format} is no longer installed, so it can't be written.")
     notes: dict[str, list[str]] = {}
     refused: dict[str, str] = {}
     read: set[uuid.UUID] = set()
-    digest = hashlib.sha256()
-    size = 0
+    identity: dict[str, str] = {}
     try:
         with tempfile.TemporaryDirectory(prefix="iki-record-export-") as tmp:
-            spool = Path(tmp) / "file"
-            with spool.open("wb") as out:
-
-                def add(content: bytes) -> None:
-                    nonlocal size
-                    size += len(content)
-                    if size > MAX_BYTES:
-                        raise _TooBig
-                    digest.update(content)
-                    out.write(content)
-
-                add(file_writer.begin(len(made.records)))
-                for done, (key, hrid, revision) in enumerate(made.records, start=1):
-                    gathered = _gathered(by, key, hrid, revision, chosen, made.fields, refused)
-                    written = (
-                        _written(file_writer, gathered, refused) if gathered is not None else None
-                    )
-                    if gathered is not None and written is not None:
-                        read |= gathered.read
-                        if written.left_out:
-                            notes[hrid] = written.left_out
-                        if not refused:
-                            add(written.content)
-                    if done % PROGRESS_EVERY == 0:
-                        RecordExport.objects.filter(pk=made.pk).update(done=done)
-                tail = file_writer.end()
-                add(tail.content)
+            spool = _Spool(Path(tmp) / "file")
+            try:
+                identity = _written_out(made, by, chosen, spool, notes, refused, read, background)
+            finally:
+                sha256 = spool.close()
             if refused:
                 return _failed(made, _refusal(refused), refused=refused)
-            storage.upload_file(spool, storage.record_export_key(made.pk), chosen.media_type)
+            if chosen.plugin is not None and chosen.many != "zip":
+                with spool.path.open("rb") as written:
+                    exports.check_signature(chosen, written.read(4096), "a file")
+            media_type = "application/zip" if chosen.many == "zip" else chosen.media_type
+            storage.upload_file(spool.path, storage.record_export_key(made.pk), media_type)
     except _TooBig:
         return _failed(
             made,
             f"The file would be over {MAX_BYTES // 1024 // 1024:,} MB: export fewer records "
             "at a time.",
         )
+    except exports.Unexportable as why:
+        logger.warning("record_export_writer_failed", export=str(made.pk), error=str(why))
+        return _failed(made, str(why))
+    except plugin_writers.WriterBroke as error:
+        return _failed(made, f"{error} No file was made: try again, or tell your administrator.")
+    except plugin_writers.SandboxUnavailable as error:
+        if not last:
+            made.state = RecordExportState.QUEUED
+            made.save(update_fields=["state"])
+            raise Retry(str(error), after=RETRY_AFTER) from None
+        return _failed(made, f"{error} No file was made: export again.")
     except Exception:
         logger.exception("record_export_failed", export=str(made.pk))
         _failed(made, "Something went wrong writing it. Try again, or tell your administrator.")
@@ -363,11 +416,11 @@ def _write(made: RecordExport) -> str:
     now = timezone.now()
     made.state = RecordExportState.READY
     made.done = len(made.records)
-    made.sha256 = digest.hexdigest()
-    made.size = size
+    made.sha256 = sha256
+    made.size = spool.size
     made.notes = notes
     made.references = sorted(read)
-    made.writer = dict(file_writer.identity)
+    made.writer = identity
     made.finished_at = now
     made.expires_at = now + KEPT
     made.save(
@@ -384,6 +437,79 @@ def _write(made: RecordExport) -> str:
         ]
     )
     return str(made.state)
+
+
+def _written_out(
+    made: RecordExport,
+    by: User,
+    chosen: exports.Format,
+    spool: _Spool,
+    notes: dict[str, list[str]],
+    refused: dict[str, str],
+    read: set[uuid.UUID],
+    background: bool,
+) -> dict[str, str]:
+    """Writes the file to ``spool``: one of the format's files of all the records, or a ZIP
+    of one each. Returns which code wrote it. A writer that refuses a record is asked for
+    the rest, so the failure names every one; nothing more is kept once one is refused."""
+    each = chosen.many == "zip"
+    file_writer = exports.writer(made.format, background=background)
+    try:
+        if each:
+            archive = zipfile.ZipFile(cast("IO[bytes]", _Appending(spool.add)), "w")
+            taken: set[str] = set()
+        else:
+            spool.add(exports.edges(file_writer, "begin", len(made.records)))
+        for done, (key, hrid, revision) in enumerate(made.records, start=1):
+            gathered = _gathered(by, key, hrid, revision, chosen, made.fields, refused)
+            if gathered is not None:
+                head = exports.edges(file_writer, "begin", 1) if each else b""
+                written = _written(file_writer, gathered, refused)
+                tail = exports.edges(file_writer, "end") if each else Written(b"", [])
+                if written is not None and not refused:
+                    read |= gathered.read
+                    if written.left_out or tail.left_out:
+                        notes[hrid] = [*written.left_out, *tail.left_out]
+                    if each:
+                        content = head + written.content + tail.content
+                        exports.check_signature(chosen, content, f"{hrid}'s file")
+                        archive.writestr(_zip_entry(gathered, taken), content)
+                    else:
+                        spool.add(written.content)
+            if done % PROGRESS_EVERY == 0:
+                RecordExport.objects.filter(pk=made.pk).update(done=done)
+        if each:
+            if not refused:
+                archive.close()
+        else:
+            tail = exports.edges(file_writer, "end")
+            if tail.left_out:
+                # What the file as a whole couldn't hold, under no record's HRID.
+                notes[""] = tail.left_out
+            spool.add(tail.content)
+    finally:
+        exports.closed(file_writer)
+    return dict(file_writer.identity)
+
+
+class _Appending:
+    """A write-only stream into the spool, for :mod:`zipfile`, which then writes the ZIP
+    in one pass: each entry's sizes after it, in a data descriptor."""
+
+    def __init__(self, add: Callable[[bytes], None]) -> None:
+        self._add = add
+        self._at = 0
+
+    def write(self, data: bytes) -> int:
+        self._add(bytes(data))
+        self._at += len(data)
+        return len(data)
+
+    def tell(self) -> int:
+        return self._at
+
+    def flush(self) -> None:
+        pass
 
 
 def _gathered(
@@ -468,7 +594,14 @@ def download_url(by: User, made: RecordExport) -> str:
         )
     if made.references is None or not access.all_references_readable(by, made.references):
         raise Refused("It holds a record you can no longer read, so it can't be downloaded.")
-    chosen = next(f for fs in exports.FORMATS.values() for f in fs if f.format == made.format)
+    chosen = exports.find_format(made.format)
+    media_type = (
+        "application/octet-stream"
+        if chosen is None
+        else "application/zip"
+        if chosen.many == "zip"
+        else chosen.media_type
+    )
     projects = list(Project.objects.filter(pk__in=made.projects))
     audit.record(
         "entities.exported",
@@ -490,7 +623,7 @@ def download_url(by: User, made: RecordExport) -> str:
         },
     )
     return storage.download_url(
-        storage.uri(storage.record_export_key(made.pk)), "", made.name, chosen.media_type
+        storage.uri(storage.record_export_key(made.pk)), "", made.name, media_type
     )
 
 

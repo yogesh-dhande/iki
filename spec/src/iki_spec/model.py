@@ -1072,8 +1072,77 @@ class ReportExport:
     issued: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class PluginExport:
+    """A type's records as a plugin's writer writes them (ADR 0230): the writer, by its
+    qualified ID, and the field each of its roles reads."""
+
+    export: str  # the writer: "acme/liquid_handling.tecan-worklist"
+    #: role → the type's field it reads.
+    fields: dict[str, str] = field(default_factory=dict)
+
+
 #: Any of the files a type's records export as.
-type AnyExport = Export | ProteinExport | CompoundExport | ReportExport
+type AnyExport = Export | ProteinExport | CompoundExport | ReportExport | PluginExport
+
+#: What a writer's roles may be: fields of these types.
+WRITER_ROLE_TYPES = (
+    "string",
+    "text",
+    "int",
+    "float",
+    "bool",
+    "date",
+    "datetime",
+    "enum",
+    "quantity",
+    "ref",
+)
+
+
+@dataclass(frozen=True)
+class WriterRole:
+    """What a writer reads of a record: a field of this type, mapped by each type that
+    exports through it."""
+
+    type: str
+    required: bool = False
+    description: str | None = None
+    #: A quantity's unit: the mapped field's must measure the same thing, and Iki gives the
+    #: writer its value in this one.
+    unit: str | None = None
+    #: A reference's targets, qualified: the mapped field must refer to one of these (or a
+    #: subtype). Empty for any record.
+    to: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Writer:
+    """A plugin's writer of a file format (ADR 0230): a WebAssembly module built from the
+    Rust crate at ``module``, pinned by the digest tracked beside it."""
+
+    plugin: str
+    name: str
+    label: str
+    #: The format it writes, qualified (ADR 0213): its media type and extension.
+    format: str
+    #: The crate's directory in the plugin: ``writers/tecan-worklist``.
+    module: str
+    #: ``file``: many records make one file; ``zip``: one file each, in a ZIP; ``one``:
+    #: one record only.
+    many: str = "file"
+    #: Its memory's cap, in bytes.
+    memory: int = 64 * 1024 * 1024
+    description: str | None = None
+    roles: dict[str, WriterRole] = field(default_factory=dict)
+    #: The SHA-256 of the module the Linux x86-64 builder makes, as the plugin tracks it.
+    sha256: str = ""
+    order: int = 0
+    file: str | None = None
+
+    @property
+    def qualified_name(self) -> str:
+        return f"{self.plugin}.{self.name}"
 
 
 @dataclass(frozen=True)
@@ -1696,6 +1765,8 @@ class Plugin:
     formats: dict[str, FileFormat] = field(default_factory=dict)
     #: The outside APIs its actions call, by name (ADR 0130).
     apis: dict[str, OutsideApi] = field(default_factory=dict)
+    #: The writers of export formats it declares, by qualified ID (ADR 0230).
+    writers: dict[str, Writer] = field(default_factory=dict)
 
 
 class _CoreTypes(Mapping[str, EntityType]):
@@ -1799,6 +1870,9 @@ _DATACLASSES = (
     ProteinExport,
     CompoundExport,
     ReportExport,
+    PluginExport,
+    Writer,
+    WriterRole,
     Extension,
     Plugin,
     FileFormat,
@@ -1850,6 +1924,7 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
                 and value.draw_target is None
             )
             and not (isinstance(value, Plugin) and f.name == "formats" and not value.formats)
+            and not (isinstance(value, Plugin) and f.name == "writers" and not value.writers)
             and not (
                 f.name == "reason_on_clear"
                 and isinstance(value, Field)
@@ -1893,6 +1968,8 @@ def _viewer(data: dict[str, Any]) -> Viewer:
 
 
 def _export(data: dict[str, Any]) -> AnyExport:
+    if "fields" in data:
+        return PluginExport(export=data["export"], fields=dict(data["fields"]))
     if data["export"] == "signed_report":
         return ReportExport(**{**data, "issued": tuple(data["issued"])})
     if data["export"] == "protein":
@@ -2004,6 +2081,20 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
             "roles": {k: LabRole(**v) for k, v in (data.get("roles") or {}).items()},
             # ...or outside APIs.
             "apis": {k: outside_api(v) for k, v in (data.get("apis") or {}).items()},
+            # ...or writers.
+            "writers": {k: _writer(v) for k, v in (data.get("writers") or {}).items()},
+        }
+    )
+
+
+def _writer(data: dict[str, Any]) -> Writer:
+    return Writer(
+        **{
+            **data,
+            "roles": {
+                k: WriterRole(**{**r, "to": tuple(r.get("to") or ())})
+                for k, r in (data.get("roles") or {}).items()
+            },
         }
     )
 

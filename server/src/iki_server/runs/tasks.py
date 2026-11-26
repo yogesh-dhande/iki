@@ -41,3 +41,12 @@ def advance_workflow(workflow_id: str) -> str:
     from iki_server.runs import workflows
 
     return workflows.advance(workflow_id)
+
+
+@task(max_attempts=5)
+def scan_decided(blob_id: str) -> int:
+    """Ends the waits of the runs that read a file whose scan is now done (ADR 0234). Safe to
+    run twice: it locks each waiting attempt, and checks only those still waiting."""
+    from iki_server.runs import scan_waits
+
+    return scan_waits.decided(blob_id)

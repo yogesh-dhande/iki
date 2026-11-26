@@ -200,7 +200,9 @@ def test_each_export_is_given_once(tmp_path: Path) -> None:
 def test_the_schema_knows_each_exports_fields(tmp_path: Path) -> None:
     assert codes(made(tmp_path, "[{ export: sequence }]")) == ["schema"]
     assert codes(made(tmp_path, "[{ export: sequence, sequence: bases, file: x }]")) == ["schema"]
-    assert codes(made(tmp_path, "[{ export: chart, sequence: bases }]")) == ["schema"]
+    # Not one of Iki's, so a plugin's writer (ADR 0230): which maps roles to `fields`.
+    assert set(codes(made(tmp_path, "[{ export: chart, sequence: bases }]"))) == {"schema"}
+    assert set(codes(made(tmp_path, "[{ export: Chart!, fields: {} }]"))) == {"schema"}
 
 
 def test_a_signed_report_names_a_json_field_and_a_locking_signed_state(tmp_path: Path) -> None:

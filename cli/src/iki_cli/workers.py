@@ -429,7 +429,8 @@ def bundle(directory: Path, output: Path, *, pinned: bool = False) -> dict[str, 
 
     A module `directory` tracks a digest for is put there and checked first, or the
     bundle is refused: see :func:`_place_modules`."""
-    files = _runtime_files(directory)
+    # A writer's crate is built into the plugin image, not run by workers (ADR 0230).
+    files = [f for f in _runtime_files(directory) if f.relative_to(directory).parts[0] != "writers"]
     files = sorted({*files, *_place_modules(directory, files, pinned=pinned)})
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode="w", format=tarfile.PAX_FORMAT) as tar:

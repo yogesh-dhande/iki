@@ -1595,8 +1595,11 @@ An `entity.created` trigger can import a file into the record that holds it,
 as an instrument's uploader makes one record for each export. Iki refuses a
 record whose file field holds a file that is still being scanned or is held,
 and gives a run's worker a file only once it's usable, so the import reads only
-clean files. The record's `unique` field for the file's SHA-256 keeps a
-re-sent export from making a second record. The
+clean files. A triggered run that meets an older record's file still waiting for
+its scan waits for it, and starts once the scan finds it clean
+([ADR 0234](../docs/adr/0234-a-run-waits-for-its-files-scans.md)). The record's
+`unique` field for the file's SHA-256 keeps a re-sent export from making a
+second record. The
 [instrument intake example](../examples/plugins/instrument_intake/README.md)
 is one.
 
@@ -1731,6 +1734,138 @@ shows, and that each viewer is given once.
 A viewer's tab lists the views it's in and saves what it shows as a
 `iki/core.View`, on the revision it shows, with other entities beside it if
 wanted (ADR 0086, ADR 0110).
+
+## Exports
+
+A type names the files Iki writes of its records under `exports`, as it names
+its viewers' fields. Each record downloads as one of them from its page, at
+its latest revision or any earlier one. Many records download as one file
+from a table. The file is written from the record's values at that
+revision, so it's the same file whoever asks and whenever. Each download is
+in the audit log with the file's SHA-256 (ADR 0171, ADR 0229).
+
+```yaml
+exports:
+  - { export: sequence, sequence: bases, features: features } # GenBank, FASTA
+  - { export: protein, sequence: residues } # FASTA
+  - { export: compound, structure: molfile } # SDF, Molfile
+```
+
+### A plugin's own format
+
+When no format Iki writes fits, a plugin writes its own (ADR 0230). It declares
+the [format](#file-formats) and a `writer`, a Rust crate in the plugin that Iki
+builds into a WebAssembly module. A type exports through the writer by mapping
+each of the writer's roles to one of its fields. The
+[liquid handling example](../examples/plugins/liquid_handling/README.md) writes
+transfers as a Tecan worklist:
+
+```yaml
+# plugin.yaml
+formats:
+  tecan-gwl:
+    label: Tecan worklist
+    media_types: [text/x-tecan-gwl]
+    extensions: [.gwl]
+writers:
+  tecan-worklist:
+    label: Tecan worklist
+    format: tecan-gwl
+    module: writers/tecan-worklist
+    many: file
+    memory: 16MiB
+    roles:
+      source_plate: { type: ref, types: [Plate], required: true }
+      source_well: { type: string, required: true }
+      volume: { type: quantity, unit: uL, required: true }
+      liquid_class: { type: string }
+```
+
+```yaml
+# types/transfer.yaml
+exports:
+  - export: tecan-worklist
+    fields:
+      { source_plate: source, source_well: source_well, volume: volume, liquid_class: liquid_class }
+```
+
+A writer declares:
+
+- `format`: the format it writes, its own or a dependency's. The format gives the
+  file's media type and extension. It can't be HTML, SVG, XSLT, JavaScript or
+  WebAssembly, or anything else a browser would run. A file that doesn't start with
+  one of the format's `signatures`, if it declares any, isn't kept.
+- `module`: the crate's directory under `writers/`. It holds `Cargo.toml`, with
+  `crate-type = ["cdylib"]`, and `Cargo.lock`, and no symbolic links. Beside it,
+  `<module>.wasm.sha256` holds the SHA-256 of the module the Linux x86-64 builder
+  makes. `iki plugin writers --update` builds it and writes the file. Commit the
+  digest with the Rust, and never the `.wasm`.
+- `many`: `file` when many records make one file, as a worklist's lines do (the
+  default); `zip` when each record is a file of its own, so many make a ZIP of
+  them; `one` when only one record is ever exported.
+- `memory`: the most the module's memory may grow to, from `1MiB` to `256MiB`
+  (default `64MiB`).
+- `roles`: what it reads of a record, each with a `type` (`string`, `text`,
+  `int`, `float`, `bool`, `date`, `datetime`, `enum`, `quantity` or `ref`), and
+  optionally `required` and a `description`. A `quantity` role names its `unit`:
+  the field it reads must measure the same thing, and the writer gets its value
+  converted to that unit. A `ref` role can name the `types` it refers to.
+
+A type's `fields` maps every required role, and only the writer's roles, to a
+field of a kind the role takes. A `text` role also reads a `string` field, and
+a `float` role an `int` one. The validator checks the mapping against the
+writer, and the writer against its crate.
+
+The writer gets each record as canonical JSON with its ID, HRID, name, type,
+revision and when it was made, and each role's value as the API gives it. A
+reference is the referenced record, one step deep, as it was at that revision,
+with its fields. A reference the person exporting can't read is left out, and
+its role is listed in `withheld`. The writer answers each record with the bytes
+it adds to the file and notes on what the file couldn't hold. Or it refuses
+the record, saying why, and the export fails, naming it.
+
+Write a writer with the `iki-writer` crate. It turns a `Writer` trait's `begin`,
+`record` and `end` into the module's exports (ABI 1):
+
+```rust
+use iki_writer::{Part, Record, Refusal, Writer};
+
+#[derive(Default)]
+struct SampleSheet;
+
+impl Writer for SampleSheet {
+    fn record(&mut self, record: &Record) -> Result<Part, Refusal> {
+        let Some(concentration) = record.quantity("concentration") else {
+            return Err(Refusal::new(format!("{} has no concentration.", record.hrid)));
+        };
+        Ok(Part::bytes(format!("{},{}\r\n", record.hrid, concentration.value)))
+    }
+}
+
+iki_writer::writer!(SampleSheet);
+```
+
+Depend on `iki-writer = "=0.1.0-dev.0"`. Until the crate is published, the
+builder supplies it from the Iki that builds the plugin. The module must
+import nothing: no clock, no files, no randomness. A writer is a function of
+its records, so the same records always make the same file.
+
+A deployment's image build rebuilds each writer from its source on
+`linux/amd64`, with Iki's pinned Rust and no network or credentials. Only
+fetching the crates uses the network, and Cargo checks each against
+`Cargo.lock`. A site without crates.io sets `IKI_CARGO_MIRROR` to a registry
+mirror, or the plugin vendors its crates (`cargo vendor --versioned-dirs`, with
+the crate's `.cargo/config.toml` replacing crates.io). Either way the module
+is the same. The build refuses a module whose digest isn't the tracked one,
+or one that imports anything, breaks the ABI, has more than one memory, or
+holds a function body over 1 MiB or a `br_table` over 65,536 targets.
+
+The writer runs in the chart's export sandbox (`sandbox.enabled`), a
+Deployment with no Secrets, no service-account token, no cloud identity and
+no network but the connections web and task pods make to it. Each export is
+a fresh process that loads only the module the image installed, under a fuel
+budget, its memory cap, a 512 KiB stack and a deadline. The download's audit
+event names the plugin, its commit, the module's digest and the ABI.
 
 ## Components
 
@@ -2175,7 +2310,7 @@ unit of each usage the API reports, in the same currency.
 ```yaml
 apiVersion: iki/v1
 kind: ApiPrice
-api: lab/hosted_models.foldcloud
+api: acme/hosted_models.foldcloud
 per_call: 0.01
 usage: { gpu_seconds: 0.0011 }
 currency: USD
@@ -2683,6 +2818,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `unsupported-index`, `index-needs-max-length`, `unique-needs-index`, `link-not-https`, `link-without-value`, `link-unknown-placeholder`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Indexes                         |
 | `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Units                           |
 | `unknown-format`, `format-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | File formats                    |
+| `writer-memory`, `writer-format-dependency`, `writer-active-format`, `writer-format-extension`, `writer-module`, `writer-digest`, `writer-rejected`, `writer-dependency`, `unknown-writer`, `unknown-role`, `export-field`, `export-role-missing`                                                                                                                                                                                                                                                                                                                                                                                                     | Writers and their exports       |
 | `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Files, JSON fields and titles   |
 | `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Extensions                      |
 | `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Dependencies                    |

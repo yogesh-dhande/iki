@@ -63,6 +63,7 @@ from iki_spec.model import (
     Guard,
     LabRole,
     Plugin,
+    PluginExport,
     ProteinExport,
     ReportExport,
     RequestSpec,
@@ -86,6 +87,7 @@ from iki_spec.model import (
     split_entry,
 )
 from iki_spec.problems import Location, Path, Problem, Severity
+from iki_spec.writers import manifest as writer_manifest
 from iki_spec.yamlsource import Document, parse_documents, read_documents
 
 __all__ = [
@@ -594,6 +596,7 @@ def _read(root: FilePath) -> _Loaded:
         },
         starters=dict(data.get("starters", {})),
         apis=apis.read_apis(name, data),
+        writers=writer_manifest.read_writers(name, data, root),
     )
     # Each action's uses of an outside API, with the API as the plugin declares it.
     loaded.plugin = apis.resolve(loaded.plugin)
@@ -801,7 +804,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         fields=_fields(body.get("fields", {}), plugin),
         display_title=(body.get("display") or {}).get("title"),
         viewers=tuple(_viewer(v) for v in (body.get("display") or {}).get("viewers") or ()),
-        exports=tuple(_export(x) for x in body.get("exports") or ()),
+        exports=tuple(_export(x, plugin) for x in body.get("exports") or ()),
         file=document.file,
         due=body.get("due"),
         rules=rules.read(body.get("rules"), plugin),
@@ -985,7 +988,10 @@ _VIEWER_ROLES: dict[str, tuple[tuple[str, str, Callable[[Field], bool]], ...]] =
 VIEWER_LABELS = {"sequence": "Sequence", "structure": "Structure", "alignment": "Alignment"}
 
 
-def _export(body: dict[str, Any]) -> AnyExport:
+def _export(body: dict[str, Any], plugin: str) -> AnyExport:
+    if "fields" in body:
+        # A plugin's writer (ADR 0230): one of this plugin's by its local name, or qualified.
+        return PluginExport(export=qualify(body["export"], plugin), fields=dict(body["fields"]))
     if body["export"] == "signed_report":
         return ReportExport(body["export"], body["report"], body["review"], tuple(body["issued"]))
     if body["export"] == "protein":
@@ -1130,6 +1136,7 @@ class _Semantics:
         )
         actions.check(self)
         apis.check(self)
+        writer_manifest.check(self)
         workflows.check(self)
         # With the input each gives its entity, where it was left out and only one fits.
         self.loaded.plugin = dataclasses.replace(self.plugin, triggers=triggers.check(self))
@@ -3105,6 +3112,9 @@ class _Semantics:
             seen.add(export.export)
             if isinstance(export, ReportExport):
                 self.report_export(export, source, path, fields)
+                continue
+            if isinstance(export, PluginExport):
+                writer_manifest.check_export(self, entity_type, export, source, path, fields)
                 continue
             for role, wanted, kinds in self._export_roles(export.export):
                 name = getattr(export, role)

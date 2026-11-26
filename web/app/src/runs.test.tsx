@@ -886,6 +886,69 @@ describe("a run's page", () => {
     expect(await screen.findByText("Nothing printed yet.")).toBeInTheDocument();
   });
 
+  it("says a run waits for a malware scan, of which files, and links each", async () => {
+    const waiting = {
+      since: "2026-03-14T09:00:00Z",
+      files: [{ id: "0195f2a8-0000-7000-8000-00000000c0a1", name: "CoA lot KA-24-117.pdf" }],
+      others: 1,
+    };
+    onRun(
+      () =>
+        run({
+          status: "queued",
+          started_at: null,
+          waiting: "2 files it reads (CoA lot KA-24-117.pdf and others) are being scanned.",
+          waiting_for_scan: waiting,
+        }),
+      () => [
+        attempt({
+          state: "queued",
+          worker: null,
+          started_at: null,
+          progress: null,
+          log_size: 0,
+          scan_wait: { started_at: "2026-03-14T09:00:00Z", ended_at: null, files: 2 },
+        }),
+      ],
+    );
+    withLog(() => "");
+    await renderApp("/runs/RUN-000001/");
+    const note = screen
+      .getAllByRole("status")
+      .find((s) => s.textContent.startsWith("Waiting for a malware scan"));
+    if (!note) throw new Error("No note says the run waits for a malware scan.");
+    expect(note).toHaveTextContent(
+      /^Waiting for a malware scan2 files it reads \(CoA lot KA-24-117\.pdf, and 1 you can’t read\) are being scanned, since .+\. No worker takes the run until they’re found clean; then it starts by itself\. If one is quarantined, the run fails, saying why\.Files it reads or made$/,
+    );
+    expect(within(note).getByRole("link", { name: "CoA lot KA-24-117.pdf" })).toHaveAttribute(
+      "href",
+      "/files/0195f2a8-0000-7000-8000-00000000c0a1/",
+    );
+    // The note says it all: not again as the generic reason.
+    expect(screen.queryByText(/^Waiting to start/)).toBeNull();
+    const attempts = await screen.findByRole("region", { name: "Attempts" });
+    expect(within(attempts).getByText(/^Waiting for 2 files/)).toHaveTextContent(
+      /^Waiting for 2 files it reads to be scanned for malware, since .+$/,
+    );
+  });
+
+  it("says how long an attempt waited for its files' scans", async () => {
+    onRun(run, () => [
+      attempt({
+        scan_wait: {
+          started_at: "2026-03-14T08:56:30Z",
+          ended_at: "2026-03-14T09:00:00Z",
+          files: 1,
+        },
+      }),
+    ]);
+    await renderApp("/runs/RUN-000001/");
+    const attempts = await screen.findByRole("region", { name: "Attempts" });
+    expect(await within(attempts).findByText(/^Waited/)).toHaveTextContent(
+      /^Waited 3 min 30 s for a file it reads to be scanned for malware, until .+$/,
+    );
+  });
+
   function waitingSelfHosted(why: "unregistered" | "offline" | "busy") {
     onRun(
       () => run({ status: "queued", started_at: null, tier: "self_hosted", needs_worker: why }),

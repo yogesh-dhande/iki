@@ -140,10 +140,11 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
         "--empty", action="store_true", help="Write an empty migration, to fill in by hand."
     )
     makemigrations.set_defaults(handler=run_makemigrations)
-    from iki_cli import preflight, testing
+    from iki_cli import preflight, testing, writer_commands
 
     preflight.add_command(commands)
     testing.add_command(commands)
+    writer_commands.add_command(commands)
     plugin.set_defaults(handler=lambda _args: _help(plugin))
 
 
@@ -418,6 +419,7 @@ def _summary(result: Result, errors: int, warnings: int, *, color: bool) -> str:
         _count(len(plugin.workflows), "workflow"),
         _count(len(plugin.triggers), "trigger"),
         _count(len(plugin.components), "component"),
+        _count(len(plugin.writers), "writer"),
     ]
     tail = f", with {_count(warnings, 'warning')}" if warnings else ""
     mark = "\033[1;32m✓\033[0m" if color else "✓"

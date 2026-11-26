@@ -16,6 +16,9 @@ Iki's installable first-party plugins live in [`plugins/`](../../plugins).
 - [Independent construct review](construct_review/README.md) adds a reviewed Assembly
   for labs that require someone other than the builder or a later editor to verify a
   matching comparison and lock the record.
+- [Liquid handling](liquid_handling/README.md) records plates and the transfers
+  between them, and exports transfers as a Tecan worklist for Freedom EVOware or
+  FluentControl. Its writer is a plugin's own export format, in Rust (ADR 0230).
 - [LIMS connector](lims_connector/README.md) imports changed proteins from a
   LIMS and sends name changes back under the project’s chosen policy.
 - [Oligonucleotide design](oligo_design/README.md) registers a strand from its
