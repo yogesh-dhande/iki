@@ -375,6 +375,20 @@ Uploading requires project Editor access and the `write` scope. A reader
 who tries to upload gets `iki.Forbidden`. If Iki rejects the bytes during
 verification, `iki.IkiError` includes its reason. Pass `timeout=` in
 seconds to raise `iki.TimedOut` if verification and scanning take longer.
+Iki goes on checking the file. The error's `pending` names the upload or
+registration, and `iki.files.wait(pending)` waits for it again later, so a
+script run again doesn't send the file a second time:
+
+```python
+waiting = Path("run.txt.pending.json")
+try:
+    if waiting.exists():
+        run_file = iki.files.wait(json.loads(waiting.read_text()), timeout=600)
+    else:
+        run_file = iki.files.upload("run.txt", project=project, timeout=600)
+except iki.TimedOut as error:
+    waiting.write_text(json.dumps(error.pending))  # {"upload": "…"}: try again later
+```
 
 ```python
 entity = iki.entities.get("STR-000007")

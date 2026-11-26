@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: acme/instrument_intake
+version: 0.1.0
+title: qPCR instrument intake
+description: >-
+  Brings each QuantStudio qPCR run into the facility's project from the
+  instrument PC, and reads its Cq values once the file is scanned clean.
+license: Apache-2.0
+iki: ">=0.1"

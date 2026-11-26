@@ -1517,6 +1517,15 @@ On `entity.updated`, `fields` narrows it to changes of those fields. A
 change a triggered run makes never fires a trigger, so a trigger can't fire
 itself, or another that fires it back: chain actions in a workflow instead.
 
+An `entity.created` trigger can import a file into the record that holds it,
+as an instrument's uploader makes one record for each export. Iki refuses a
+record whose file field holds a file that is still being scanned or is held,
+and gives a run's worker a file only once it's usable, so the import reads only
+clean files. The record's `unique` field for the file's SHA-256 keeps a
+re-sent export from making a second record. The
+[instrument intake example](../examples/plugins/instrument_intake/README.md)
+is one.
+
 ```yaml
 on: entity.updated
 type: Protein

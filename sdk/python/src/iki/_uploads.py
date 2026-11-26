@@ -119,7 +119,10 @@ def wait_for_file(
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 phase = "scanning" if status["state"] == "scanning" else "checking"
-                raise TimedOut(f"Iki is still {phase} {name} after {timeout} s. See {path}.")
+                raise TimedOut(
+                    f"Iki is still {phase} {name} after {timeout} s. See {path}.",
+                    pending={operation: str(status["id"])},
+                )
             delay = min(delay, remaining)
         client._sleep(delay)
         status = cast(UploadStatusOut | RegistrationStatusOut, client.request("GET", path))

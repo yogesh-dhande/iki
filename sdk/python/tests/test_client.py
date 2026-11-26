@@ -967,6 +967,42 @@ def test_timing_out_leaves_iki_checking_the_upload(fake: FakeIki, client: Client
     assert not fake.sent("DELETE", "/api/v1/uploads/u1")
 
 
+def test_a_timed_out_upload_is_waited_for_again_without_sending_it_twice(
+    fake: FakeIki, client: Client
+) -> None:
+    offer_one_part(fake)
+    fake.on("PUT", "/staging/u1", httpx2.Response(200))
+    fake.on("POST", "/api/v1/uploads/u1/complete", {"id": "u1", "state": "scanning", "file": None})
+    with pytest.raises(iki.TimedOut) as raised:
+        client.files.upload(io.BytesIO(b"x"), project=PROJECT, name="run.txt", timeout=0)
+    assert raised.value.pending == {"upload": "u1"}
+    file = {"id": "f1", "name": "run.txt", "scan": {"state": "clean", "usable": True}}
+    fake.on(
+        "GET",
+        "/api/v1/uploads/u1",
+        {"id": "u1", "state": "scanning", "file": None, "error": ""},
+        {"id": "u1", "state": "ready", "file": file, "error": ""},
+    )
+    assert client.files.wait(raised.value.pending)["id"] == "f1"
+    assert len(fake.sent("PUT", "/staging/u1")) == 1
+    assert len(fake.sent("POST", "/api/v1/uploads")) == 1
+
+
+def test_a_timed_out_registration_is_waited_for_again(fake: FakeIki, client: Client) -> None:
+    fake.on("POST", "/api/v1/registrations", {"id": "r1", "name": "run.txt", "state": "scanning"})
+    with pytest.raises(iki.TimedOut) as raised:
+        client.files.register("s3://lab-data/runs/run.txt", project=PROJECT, timeout=0)
+    assert raised.value.pending == {"registration": "r1"}
+    fake.on(
+        "GET",
+        "/api/v1/registrations/r1",
+        {"id": "r1", "state": "ready", "file": {"id": "f1"}, "error": ""},
+    )
+    assert client.files.wait({"registration": "r1"})["id"] == "f1"
+    with pytest.raises(ValueError, match="pending upload or registration"):
+        client.files.wait({"run": "r1"})
+
+
 def downloadable(fake: FakeIki, content: bytes, sha256: str, name: str = "abl1.pdb") -> None:
     fake.on("GET", "/api/v1/files/f1", {"id": "f1", "name": name, "sha256": sha256})
     fake.on(

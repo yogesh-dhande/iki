@@ -7,6 +7,9 @@ Iki's installable first-party plugins live in [`plugins/`](../../plugins).
 
 - [Oligonucleotide design](oligo_design/README.md) registers a strand from its
   known bases and a lab’s standard pattern of modifications.
+- [qPCR instrument intake](instrument_intake/README.md) sends each QuantStudio
+  run from the instrument PC to a facility's project, and reads its wells and
+  standard curves once the file is scanned clean.
 
 ## Copy and name a plugin
 

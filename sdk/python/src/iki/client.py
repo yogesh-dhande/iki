@@ -1769,6 +1769,34 @@ class Files(_Part):
             given,
         )
 
+    def wait(
+        self,
+        pending: Mapping[str, str],
+        *,
+        timeout: float | None = None,
+        poll: float = 2.0,
+    ) -> FileOut:
+        """Wait again for an upload or registration whose ``upload`` or ``register`` timed
+        out, given the ``pending`` of its ``iki.TimedOut``: ``{"upload": id}`` or
+        ``{"registration": id}``. Returns its file once Iki has checked and scanned it, as
+        they do. The file is never sent again, so a script that's run again later doesn't
+        add it twice."""
+        from iki._uploads import wait_for_file
+
+        if poll < 0 or (timeout is not None and timeout < 0):
+            raise ValueError("poll and timeout must be nonnegative.")
+        (operation, found), *more = pending.items() if pending else [("", "")]
+        if more or operation not in ("upload", "registration") or not found:
+            raise ValueError('Give the pending upload or registration: {"upload": id}.')
+        kind: Literal["upload", "registration"] = (
+            "upload" if operation == "upload" else "registration"
+        )
+        path = _path(f"/{kind}s/{{id}}", id=found)
+        status = self._client.request("GET", path)
+        return wait_for_file(
+            self._client, path, status, str(status.get("name") or found), kind, timeout, poll
+        )
+
     def download(self, file_id: str, to: str | os.PathLike[str]) -> str:
         """Saves a file's content at `to` and returns where. Its checksum is checked
         against the one Iki recorded, so a damaged download is never kept."""
