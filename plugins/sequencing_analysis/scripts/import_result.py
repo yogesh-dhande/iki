@@ -1,4 +1,4 @@
-"""Archive one sample's results from an existing sequencing report."""
+"""Archive one sample's results from an existing VCF, count matrix or AIRR rearrangement TSV."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import gzip
 import json
 import os
 import re
+import sys
 import zlib
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -14,12 +15,7 @@ from pathlib import Path
 from typing import Any
 
 PREVIEW_ROWS = 12
-MATERIAL_TYPES = {
-    "iki/strains.BaseStrain",
-    "iki/strains.TransformedStrain",
-    "iki/cell_lines.ParentalLine",
-    "iki/cell_lines.EngineeredLine",
-}
+FORMATS = ("vcf", "counts", "airr")
 VCF_COLUMNS = ["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"]
 FEATURECOUNTS = ["Geneid", "Chr", "Start", "End", "Strand", "Length"]
 AIRR_COLUMNS = [
@@ -90,6 +86,7 @@ def variant_rows(lines: Iterable[str], selector: str, output: csv._writer) -> di
     preview: list[dict[str, Any]] = []
     variants = 0
     sites = 0
+    untyped = 0
     for number, row in enumerate(rows, 1):
         width(row, header, number)
         if any(not value for value in row) or not re.fullmatch(r"[0-9]+", row[1]):
@@ -105,6 +102,7 @@ def variant_rows(lines: Iterable[str], selector: str, output: csv._writer) -> di
         if sample_index is not None:
             keys = row[8].split(":")
             if not keys or keys[0] != "GT":
+                untyped += 1
                 continue
             alleles = re.split(r"[|/]", row[sample_index].split(":")[0])
             # VCF 4.4+ permits a leading phasing separator.
@@ -120,6 +118,9 @@ def variant_rows(lines: Iterable[str], selector: str, output: csv._writer) -> di
                 raise ValueError(f"VCF site {number} has an invalid genotype.") from None
             if any(index < 0 or index > len(alternatives) for index in called):
                 raise ValueError(f"VCF site {number} has an allele outside the ALT list.")
+            if not called:
+                untyped += 1
+                continue
             if not genuine.intersection(called):
                 continue
             selected.extend([row[8], row[sample_index]])
@@ -141,9 +142,24 @@ def variant_rows(lines: Iterable[str], selector: str, output: csv._writer) -> di
                     ),
                 }
             )
+    if sample:
+        projection = (
+            f"Sites where {sample}'s genotype calls an alternate allele. Calls of only the "
+            "reference or a symbolic allele (<NON_REF>, <*> or *), and sites without a "
+            "genotype call, are left out."
+        )
+        metrics = {"VCF sites": sites, "Variant sites": variants, "Sites without a call": untyped}
+    else:
+        projection = (
+            "Sites with an alternate allele other than a symbolic reference "
+            "(<NON_REF>, <*>, * or .)."
+        )
+        metrics = {"VCF sites": sites, "Variant sites": variants}
     return {
         "selector": sample,
-        "metrics": {"VCF sites": sites, "Variant sites": variants},
+        "projection": projection,
+        "rows": variants,
+        "metrics": metrics,
         "preview": preview,
     }
 
@@ -177,14 +193,14 @@ def count_rows(lines: Iterable[str], selector: str, output: csv._writer) -> dict
         raise ValueError("The count table has no gene rows.")
     return {
         "selector": sample,
+        "projection": f"Every gene's raw integer count in the {sample} column.",
+        "rows": len(observed),
         "metrics": {"Genes": len(observed), "Total raw count": total},
         "preview": preview,
     }
 
 
-def rearrangement_rows(
-    lines: Iterable[str], selector: str, matches: set[str], output: csv._writer
-) -> dict[str, Any]:
+def rearrangement_rows(lines: Iterable[str], selector: str, output: csv._writer) -> dict[str, Any]:
     # AIRR Rearrangement schema: https://docs.airr-community.org/en/stable/datarep/rearrangements.html
     rows = tsv_rows(lines)
     header = next(rows, [])
@@ -198,7 +214,6 @@ def rearrangement_rows(
     selected = selector or None
     output.writerow(AIRR_COLUMNS)
     seen: set[str] = set()
-    found = set()
     preview: list[dict[str, Any]] = []
     productive = 0
     for number, cells in enumerate(rows, 1):
@@ -232,85 +247,35 @@ def rearrangement_rows(
             }
             if row["v_call"] and row["j_call"] and len(prefixes) == 1 and prefixes <= IG_LOCI:
                 row["locus"] = prefixes.pop()
-        if sequence_id in matches:
-            if row.get("locus") not in IG_LOCI:
-                raise ValueError(
-                    f"AIRR row {number} needs an immunoglobulin locus for the antibody match."
-                )
-            found.add(sequence_id)
         add_row({name: row.get(name, "") for name in AIRR_COLUMNS}, preview, output)
     if not seen:
         raise ValueError("The selected AIRR repertoire has no rearrangements.")
-    if found != matches:
-        raise ValueError(
-            "An antibody association names a sequence_id absent from the imported repertoire."
-        )
     return {
         "selector": selected,
-        "metrics": {
-            "Rearrangements": len(seen),
-            "Productive": productive,
-            "Antibody links": len(matches),
-        },
+        "projection": (
+            f"Every rearrangement in repertoire {selected}."
+            if selected
+            else "Every rearrangement: the file names no repertoire."
+        ),
+        "rows": len(seen),
+        "metrics": {"Rearrangements": len(seen), "Productive": productive},
         "preview": preview,
     }
 
 
-def antibody_links(specification: str, antibodies: list[dict[str, Any]]) -> list[dict[str, str]]:
-    by_hrid = {antibody["hrid"]: antibody for antibody in antibodies}
-    links = {}
-    used = set()
-    for number, raw in enumerate(specification.splitlines(), 1):
-        if not raw.strip():
-            continue
-        columns = [cell.strip() for cell in raw.split("\t")]
-        if len(columns) != 2:
-            raise ValueError(f"Antibody association {number} needs sequence_id and antibody HRID.")
-        sequence_id, hrid = columns
-        if not sequence_id or len(sequence_id) > 250 or sequence_id in links:
-            raise ValueError(
-                f"Antibody association {number} has an empty, long or duplicate sequence_id."
-            )
-        antibody = by_hrid.get(hrid)
-        if antibody is None:
-            raise ValueError(
-                f"Antibody association {number} names an antibody outside the selected inputs."
-            )
-        links[sequence_id] = antibody.get("entry_id") or antibody["id"]
-        used.add(hrid)
-    if len(links) > 100 or used != set(by_hrid):
-        raise ValueError(
-            "Give an association for each selected antibody, with at most 100 associations."
-        )
-    return [
-        {"sequence_id": sequence_id, "antibody": antibody}
-        for sequence_id, antibody in links.items()
-    ]
-
-
-def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
+def result(run: dict[str, Any], artifact: Path, format_: str) -> dict[str, Any]:
+    if format_ not in FORMATS:
+        raise ValueError(f"Unknown report format {format_!r}.")
     params = run["params"]
     inputs = run["inputs"]
     library = inputs["library"][0]
     sequencing_run = next(iter(inputs.get("run", [])), None)
     material = next(iter(inputs.get("material", [])), None)
-    antibodies = inputs.get("antibodies", [])
-    format_ = params["format"]
     reference = (params.get("reference") or "").strip()
     column = (params.get("column") or "").strip()
     repertoire = (params.get("repertoire_id") or "").strip()
-    matches = params.get("antibody_matches") or ""
-    if format_ == "vcf" and (material is None or material["type"] not in MATERIAL_TYPES):
-        raise ValueError("Select the strain or cell line for this VCF.")
-    if format_ != "vcf" and material is not None:
-        raise ValueError("Choose a strain or cell line only for VCF.")
     if format_ in {"vcf", "counts"} and not reference:
         raise ValueError("Enter the reference build and version used for this report.")
-    if format_ != "airr" and (antibodies or matches or repertoire):
-        raise ValueError("Repertoire ID and antibody links apply to AIRR reports.")
-    if format_ == "airr" and column:
-        raise ValueError("Use the AIRR repertoire ID field to select a repertoire.")
-    links = antibody_links(matches, antibodies)
     file_id = params["report"]
     report = run["files"][file_id]
     with (
@@ -323,10 +288,8 @@ def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
         elif format_ == "counts":
             summary = count_rows(lines, column, writer)
         else:
-            summary = rearrangement_rows(
-                lines, repertoire, {link["sequence_id"] for link in links}, writer
-            )
-    parents = [row for row in (library, sequencing_run, material, *antibodies) if row]
+            summary = rearrangement_rows(lines, repertoire, writer)
+    parents = [row for row in (library, sequencing_run, material) if row]
     return {
         "apiVersion": "iki/v1",
         "kind": "RunOutput",
@@ -339,7 +302,6 @@ def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
                     "sample": library["values"]["sample"],
                     "run": sequencing_run["id"] if sequencing_run else None,
                     "material": (material.get("entry_id") or material["id"]) if material else None,
-                    "matches": links,
                     "report": file_id,
                     "report_sha256": report["sha256"],
                     "format": format_,
@@ -364,7 +326,7 @@ def main() -> None:
     output = Path(os.environ["IKI_OUTPUT"])
     artifacts = Path(os.environ["IKI_OUT_DIR"])
     try:
-        document = result(run, artifacts / "selected.tsv")
+        document = result(run, artifacts / "selected.tsv", sys.argv[1] if len(sys.argv) > 1 else "")
     except (ValueError, OSError, EOFError, zlib.error) as error:
         print(f"::error {error}", flush=True)
         raise SystemExit(1) from None
