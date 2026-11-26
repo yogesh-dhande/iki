@@ -66,8 +66,14 @@
               "required": ["asking_project"],
               "additionalProperties": false,
               "properties": {
-                "asking_project": { "$ref": "#/$defs/project" },
-                "service": { "oneOf": [{ "$ref": "#/$defs/project" }, { "type": "null" }] }
+                "asking_project": {
+                  "description": "The project that asked, which owns the request.",
+                  "$ref": "#/$defs/project"
+                },
+                "service": {
+                  "description": "The service it was sent to, or null until it's sent.",
+                  "oneOf": [{ "$ref": "#/$defs/project" }, { "type": "null" }]
+                }
               }
             },
             "included": {
@@ -127,13 +133,19 @@
   "then": { "required": ["upgrade"], "properties": { "upgrade": { "const": true } } },
   "$defs": {
     "project": {
+      "description": "A project, as the other side's people see it.",
       "type": "object",
       "required": ["slug", "name"],
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "format": "uuid" },
-        "slug": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "name": { "type": "string", "minLength": 1, "maxLength": 200 }
+        "id": { "description": "Its ID.", "type": "string", "format": "uuid" },
+        "slug": {
+          "description": "Its slug, which never changes.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "name": { "description": "Its name.", "type": "string", "minLength": 1, "maxLength": 200 }
       }
     },
     "hrid": {

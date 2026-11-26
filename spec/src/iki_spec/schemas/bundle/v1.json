@@ -513,20 +513,90 @@
             "type": "object",
             "required": ["ID"],
             "properties": {
-              "ID": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "BC": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "CN": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "DS": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "DT": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "FO": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "KS": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "LB": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "PG": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "PI": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "PL": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "PM": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "PU": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "SM": { "type": "string", "minLength": 1, "maxLength": 1024 }
+              "ID": {
+                "description": "The read group's identifier, unique in the file.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "BC": {
+                "description": "The barcode sequence that identifies the sample or library.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "CN": {
+                "description": "The sequencing center that produced the reads.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "DS": {
+                "description": "A description of the read group.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "DT": {
+                "description": "When the run was produced, as an ISO 8601 date or date-time.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "FO": {
+                "description": "The flow order, for flow-based platforms.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "KS": {
+                "description": "The key sequence of each read, for flow-based platforms.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "LB": {
+                "description": "The library the reads came from.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "PG": {
+                "description": "The programs that processed the read group.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "PI": {
+                "description": "The predicted median insert size, in bases.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "PL": {
+                "description": "The sequencing platform, such as `ILLUMINA`, `ONT` or `PACBIO`.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "PM": {
+                "description": "The platform model, such as the instrument's name.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "PU": {
+                "description": "The platform unit: the flow cell and lane, or the cell, the reads came from.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "SM": {
+                "description": "The sample the reads came from: a pool's name, if pooled.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              }
             },
             "additionalProperties": false
           }
@@ -539,8 +609,18 @@
       "type": "object",
       "required": ["value", "stated_in"],
       "properties": {
-        "value": { "type": "string", "minLength": 1, "maxLength": 255 },
-        "stated_in": { "type": "string", "minLength": 1, "maxLength": 200 }
+        "value": {
+          "description": "The value, as the file states it.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "stated_in": {
+          "description": "Where in the file it's stated, such as `FCS keyword $CYT`.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
       },
       "additionalProperties": false
     },
