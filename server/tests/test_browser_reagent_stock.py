@@ -204,7 +204,9 @@ def test_project_stock_and_outstanding_deliveries(
     spare = catalogue.get_by_role("link", name=OTHER["name"], exact=True)
     expect(spare).to_be_visible()
     # An item the lab doesn't reorder by its level has no threshold, and is never low.
-    spare_row = catalogue.get_by_role("row").filter(has=spare)
+    spare_row = catalogue.get_by_role("row").filter(
+        has=page.get_by_role("link", name=OTHER["name"], exact=True)
+    )
     expect(spare_row.get_by_text("Not reordered by level", exact=True)).to_be_visible()
     expect(spare_row.get_by_text("Low stock", exact=True)).to_have_count(0)
     check_action(

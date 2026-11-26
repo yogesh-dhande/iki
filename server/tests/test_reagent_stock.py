@@ -385,7 +385,8 @@ def exercise() -> None:
     )
     (row,) = [i for i in api.get(base).json()["items"] if i["id"] == str(film.pk)]
     assert (row["threshold"], row["low"]) == (None, False)
-    assert stock_alerts.send_alerts() == 0
+    # The tubes are low again after the draws above; the film is never low.
+    assert stock_alerts.send_alerts() == 1
     assert not Notification.objects.filter(entity=film).exists()
 
     def unordered(on: Entity, kind: str, note: str, **more: str) -> Attempt:
