@@ -54,9 +54,21 @@ fields:
     description: Earliest possible start of the error for an out-of-tolerance check, including the last demonstrated good check when uncertain.
   report:
     type: file
-    media_types: [application/pdf, text/plain, text/csv]
+    media_types:
+      [
+        application/pdf,
+        text/plain,
+        text/csv,
+        application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,
+        image/png,
+        image/jpeg,
+        image/tiff,
+      ]
     max_size: 50MiB
-    description: The original calibration report or service evidence, including as-found measurements and limits.
+    description: >-
+      The original calibration report or service evidence, including as-found measurements
+      and limits: a certificate, the instrument's export, a workbook or a scan or photo of a
+      signed paper record.
   notes:
     type: text
     max_length: 10000
@@ -168,13 +180,21 @@ rules:
     message: Enter when the work was performed.
     fields: [performed_at]
   validity_period:
-    label: Passing service has a next due time
+    label: A passing calibration has a next due time
+    description: >-
+      A passing calibration is valid until its next due time. Completed maintenance may
+      give one, when the procedure sets an interval. A failed check or a repair confers no
+      validity.
     when: record.outcome != null
     check: >-
-      record.outcome in ["in_tolerance", "completed"]
+      record.outcome == "in_tolerance"
         ? record.performed_at != null && record.valid_until != null && record.valid_until > record.performed_at
-        : record.valid_until == null
-    message: For successful service, enter a next due time after performance. A failed check confers no validity.
+        : record.outcome == "completed"
+          ? record.performed_at != null && (record.valid_until == null || record.valid_until > record.performed_at)
+          : record.valid_until == null
+    message: >-
+      For a passing calibration, enter a next due time after performance. Maintenance's
+      next due time, if any, comes after it. A failed check confers no validity.
     fields: [outcome, performed_at, valid_until]
   failure_window:
     label: A failed calibration defines the impact window
