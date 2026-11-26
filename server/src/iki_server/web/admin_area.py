@@ -111,7 +111,10 @@ def home(request: HttpRequest) -> HttpResponse:
     it answers that plainly rather than as an error, as each page under it does."""
     for section in navigation(request.user, request.path):
         return redirect(section.links[0].href)
-    roles = [f"{label}s" for label in OrgRole.labels]
+    # The roles that open one of its pages, which needn't be every org role.
+    needs = {need for group in groups() for item in group.items for need in item.requires}
+    granting = set().union(*(permissions.roles_granting(need) for need in needs))
+    roles = [f"{role.label}s" for role in OrgRole if role in granting]
     return render(
         request,
         "web/admin_none.html",

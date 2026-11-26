@@ -35,6 +35,11 @@ components/          # kind: Component, with each one's JavaScript module
 migrations/          # made by `iki plugin makemigrations`, committed and reviewed
 ```
 
+The plugin-root `tests/` and `examples/` directories are for source-checkout tests
+and worked examples. Keep action entry points, environment requirements, setup
+scripts and data an installed action reads outside those directories. The server
+archive and worker image carry the same runtime files. [Distribution details](../docs/adr/0219-plugin-archives-and-worker-images-use-the-same-runtime-files.md)
+
 Every manifest starts with `apiVersion: iki/v1` and a `kind`.
 
 ```yaml
@@ -76,6 +81,74 @@ with a letter. The namespace is your lab's or company's.
   `namespace__name` (`iki__protein`): its Django app and tables, its
   package `iki_plugin_iki__protein`, its code's directory in a worker's
   bundle, and its secrets' keys (`iki__dna.NCBI_API_KEY`).
+
+The first-party catalog contains the plugins at `plugins/<name>` and the
+built-in `iki/core`. CI checks that the directories and manifest names
+match the first-party name list. A lab can copy a worked example, give it
+a name in its own namespace and deploy a commit from its own repository.
+See the [author examples](../examples/plugins/README.md).
+
+### File formats
+
+Declare a file format once under `formats` in `plugin.yaml`. A format's ID
+is the plugin's full name, a dot, and the local format name. Local names
+start with a lowercase letter and use lowercase letters, digits and hyphens.
+The [storage labels example](../examples/plugins/storage_labels/plugin.yaml) declares
+`acme/storage_labels.tube-scan` for the tabular files a rack scanner writes.
+
+```yaml
+formats:
+  tube-scan:
+    label: Tube scanner export
+    media_types: [application/x-tube-scan]
+    extensions: [.tubescan]
+    signatures: [{ hex: "545542455343414e09" }]
+```
+
+Keep the format ID stable across plugin versions. The first `media_types`
+entry is canonical. If it changes, retain the previous spelling as an alias
+after the canonical entry. Existing files keep their recorded media type.
+The alias lets fields accept those files and format filters find them
+alongside new uploads. Iki reserves `application/octet-stream` for
+unspecified content. Extensions
+include the leading dot and can have multiple parts, such as `.fastq.gz`.
+A signature gives an exact sequence of bytes in hexadecimal and an optional
+byte `offset` from the start (default zero). The example looks for the ASCII
+header `TUBESCAN` followed by a tab. Each signature can be up to 256 bytes
+long and must fit within the first 4,096 bytes. A ZIP header
+alone, for example, occurs in many unrelated formats. If you declare any
+signatures, cover every valid variant. Iki checks the longest matching byte
+signature first, then the longest matching extension, case-insensitively.
+It refuses ambiguous byte matches of equal length and a specific media type
+that contradicts the bytes. If the filename or stated media type identifies
+a format with signatures, at least one must occur in the file.
+
+Use the format ID in the `media_types` of a file field, a file parameter, or
+the items of a list of files. To use another plugin's format, list its owner
+in `dependencies`. Every deployment already has `iki/core`. The field or
+parameter sets its own size limit.
+
+```yaml
+fields:
+  scan: { type: file, media_types: [acme/storage_labels.tube-scan], max_size: 20MiB }
+```
+
+Exact media types and wildcards such as `image/*` also work. Iki derives the
+actions that accept a format from their file parameters and the file fields
+of their input record types. A deployment refuses two plugins that claim the
+same extension or media type.
+
+A format can name a built-in metadata `reader` and a `viewer` that understands
+its contents. A file whose format names a viewer is previewed on its page, and
+from the records and runs that hold it, without being downloaded: `pdf`,
+`image` (PNG, JPEG), `image-tiff` (TIFF and OME-TIFF, read in tiles),
+`table-csv`, `table-tsv`, `table-xlsx`, `chromatogram-abif` (Sanger traces
+with their calls and qualities), `spectrum-mzml` and `spectrum-jcamp-dx`.
+`structure-pdb`, `structure-mmcif` and `alignment` show a record's file in a
+tab instead: [configure the viewer](#viewers) under the type's
+`display.viewers` so it knows which field to show. See the
+[generated format reference](../docs/site/src/content/reference/file-formats.mdx) for the IDs,
+aliases, readers, viewers and actions that ship with Iki.
 
 ### Lab roles
 
@@ -290,13 +363,14 @@ fields:
   registry entry, while the field is in it. A record is locked while any of
   its state fields is in a state that locks. State fields stay settable by
   their roles, which is how a record is unlocked.
-- A locking state can name the state to return to on a correction. In the
+- An unsigned locking state can name the state to return to on a correction. In the
   example, `on_edit: in_testing` means changing any record value while
   approved returns the record to testing. The editor sees the return before
   saving and supplies a reason. The editor must be allowed to edit the
   record and enter the destination, including its lab role and guards.
   The return and the value change succeed together. Earlier signatures
   remain with their revisions and the corrected values need fresh review.
+  Corrections to a signed lock require an explicit signed return first.
   A destination must be a different, live, unlocked state with `set_by`
   and no required signatures (`state-on-edit`, `unknown-state`).
 - `signatures` makes setting a state an electronic signature under 21 CFR
@@ -528,6 +602,11 @@ approved:
   `guard_refused`, with the guard's name.
 - A state has at most 20.
 
+The [construct review example](../examples/plugins/construct_review/README.md)
+adds a state field to an Assembly subtype. Its guards check the current product
+comparison, who recorded the build and who edited it afterward. Its notifications
+tell the creator and watchers when a comparison fails or a reviewer verifies the record.
+
 ### Notifications
 
 A type says who is told when its records change, in Iki and by email
@@ -673,7 +752,22 @@ fields:
 - A request or a result is one project's record, so it has no `identity`
   (`request-with-identity`, `result-with-identity`), and a type isn't both
   (`result-is-a-request`). A subtype of a request type is one, with its
-  service; it doesn't declare `request` again (`request-redeclared`).
+  service. It may declare `request` with `service_fields` alone, naming
+  more of its own fields the service writes, such as a core's ranking of
+  the project that asked (ADR 0232); anything else it says of `request` is
+  its parent's to say (`request-redeclared`).
+
+A lab's own request type adds what its service keeps of each request:
+
+```yaml
+# types/sequencing_request.yaml
+extends: iki/requests.PlainRequest
+request:
+  service_fields: [project_rank] # the service's, besides its parent's
+fields:
+  project_rank: { type: int, computed: true }
+```
+
 - A result's `of` is a required, immutable reference to a request type
   (`result-of-not-a-request`, `result-of-changes`). `released.field` is
   one of its state fields (`result-released-without-states`), and its
@@ -749,13 +843,18 @@ fields:
   split from, and a record transferred into depends on what was moved into
   it. A draw with `used_in` links the receiving record to the stock it used.
   Lineage walks can follow or filter these edges as `aliquot`, `transfer`, or `used`.
-- `material` names an immutable reference of the type to what its
-  amount is of, such as a lot's molecule (`amount-material`). An empty container can identify its contents when first filled. A positive balance requires an identified material. A transfer
-  into one of its records takes only material of that entity, from a record
-  whose type says so too (a reference to a registry entry and one to a
-  project's record of it are the same entity), and its aliquots are of it
-  too, whatever they're given. Pooling different materials is a mixture: a
-  record of its own.
+- `material` identifies what the ledger measures (`amount-material`). Set it
+  to an immutable reference field for material held by a container, such as
+  a tube's `contents`, or for a lot of a registered molecule. Set `material: id`
+  when the record itself identifies the material. In that case, declare
+  `aliquots` with a destination whose ledger names a reference field as its
+  material. Two physical strain isolates of the same registered strain then
+  have different ledger materials. Splitting
+  an isolate into glycerol stocks fills each stock's contents with that isolate's
+  ID. A positive balance requires an identified material. An empty container can
+  identify its contents when first filled. A transfer must match the destination's
+  material. For registry material, a registry entry and a project's record
+  of that entry match. Record a mixture of different materials as its own record.
 - A transfer into a record that a state locks, such as a released lot,
   takes only material from a record in that same state, so nothing that
   wasn't released becomes part of what was.
@@ -807,8 +906,9 @@ stock_catalogue:
     received: received_packs
 ```
 
-The item's required, immutable enum gives its ledger unit. Its required
-numeric threshold has a nonnegative minimum. Each lot and order refers to
+The item's required, immutable enum gives its ledger unit. Its numeric
+threshold has a nonnegative minimum. An item whose threshold is empty isn't
+reordered by its level: it's never low, and nobody is notified. Each lot and order refers to
 an active catalogue item owned by the same project with a required,
 immutable reference. Every concrete lot type's amount uses that reference
 as its `material` and matches the item's unit. An open order contributes
@@ -821,8 +921,9 @@ Physical stock is the current ledger balance of its lots. Stored stock
 is in a container and checked in. Available stock must also pass routine
 draw guards and hold, archive and expiry checks. A reader sees a container's
 ID and position only when they can read it. The low-stock list
-(`low_only=true`) includes items with available stock at or below the
-threshold, including items without lots. The periodic stock check notifies
+(`low_only=true`) includes items with available stock at or below their
+threshold, including items without lots. An item's `threshold` is null
+when it has none. The periodic stock check notifies
 the declared project lab roles once per low-stock episode.
 
 ### Extensions
@@ -866,7 +967,8 @@ as the record in the LIMS. `{value}` is the value, and `{settings.name}` one
 of the plugin's settings, so each deployment can point at its own LIMS. A
 link starts with `https://` or a setting, and Iki shows only links that are
 https once the settings are filled in. The API, SDK and MCP look entities
-up by a unique field's value.
+up by a unique field's value. The [LIMS connector example](../examples/plugins/lims_connector/README.md)
+extends Protein with a field of this kind and uses it to match repeated imports.
 
 ```yaml
 lims_id:
@@ -892,7 +994,7 @@ type's history. Identity fields can't be removed.
 | `date`     |                                                                 | Defaults are written `YYYY-MM-DD`.                                                                            |
 | `datetime` |                                                                 | Always with a time zone. No default.                                                                          |
 | `quantity` | `unit` (required), `display_unit`, `min`, `max`                 | Stored in `unit`, a UCUM code. `min`/`max` are in that unit.                                                  |
-| `file`     | `media_types`, `max_size`                                       | Such as `[application/json, image/*]` and `2GiB` (at most 5 TiB).                                             |
+| `file`     | `media_types`, `max_size`                                       | Format IDs or media types, e.g. `[iki/core.fastq, image/*]`, and up to 5 TiB.                                 |
 | `ref`      | `to` (required)                                                 | Another entity, of type `to` or its subtypes; `iki/core.Entity` for any. Or a list of types: any one of them. |
 | `person`   | `role`, `assignment`                                            | Someone in the record's project. See [People in records](#people-in-records).                                 |
 | `list`     | `items` (required), `min_items`, `max_items`                    | `items` is a type and its options, without the flags, or a row (below). No lists of lists.                    |
@@ -1091,6 +1193,7 @@ name: predict_structure_with_alphafold
 inputs: # leave out for actions that import or fetch
   protein: { type: iki/protein.Protein, schema: ">=2" } # cardinality: one (default) or many
   # include: [encoded_by] # references whose entities the run reads too (ADR 0105)
+  # ranking: { type: ServedProject, cardinality: many, from_project: true } # not chosen
 params:
   model_preset: { type: enum, values: [monomer, multimer], default: monomer }
 effects: # what a run may write; anything else is refused
@@ -1156,6 +1259,15 @@ the run keeps them. Whoever launches it must be able to read them, and they
 must be in its project, which the launch can add them to as it does inputs.
 They count in what makes two runs identical, so a change to one runs it again.
 Only the input's own references are included, not theirs.
+
+An input `from_project` isn't chosen by whoever launches the run, a trigger
+or a workflow's step: each run is given every record of its type its
+project owns and hasn't archived, at their current revisions, oldest first,
+such as a core's ranking of the projects it serves, kept as its records
+(ADR 0232). It takes many (`from-project-one`); a launch naming any for it is
+refused, as are more than it takes (its `max`, and never more than 1,000),
+and with none there, an input that isn't optional can't start. A workflow's
+step doesn't name it (`workflow-input-from-project`).
 
 A run keeps as artifacts the files in its output directory (`$IKI_OUT_DIR`)
 that one of the `artifacts.keep` patterns matches, whether the command
@@ -1251,7 +1363,8 @@ An API with `jobs` lets a command submit, then park: its output is
 The run waits, holding no worker, while Iki polls the job, or the API calls
 back (`IKI_API_FOLDCLOUD_CALLBACK_URL`, signed). Once the job's done, the
 command runs again with `resume` in its input: the job, its `state` and the
-API's last answer. `plugins/example_models` is a complete example.
+API's last answer. The [hosted-model author example](../examples/plugins/hosted_models/README.md)
+exercises this contract against a fictional provider.
 
 Runs whose machine went away (`worker_lost`, `interrupted`) are retried twice
 by default. Actions that reach the network aren't retried unless they say so,
@@ -1313,18 +1426,26 @@ tiers can still use their manifest's Python or conda environment.
 
 ## Workflows
 
-A workflow runs several of the plugin's actions as one (ADR 0079). Each step
-runs an action, by its name in the plugin, and says where each of its inputs
-comes from: the workflow's input (`$inputs.<name>`), the entities a step
-created of a type (`$steps.<id>.created.<Type>`), or what a step was given
-(`$steps.<id>.inputs.<name>`), once that step has run. A param takes a value,
-or the workflow's param (`$params.<name>`); a value that starts with `$` is
-written `$$`.
+A workflow runs several of its own plugin's actions as one (ADR 0079).
+Each step names an action declared in that plugin. Dependencies can supply
+the types those actions read or write. To run actions belonging to several
+plugins in sequence, call them from a client.
+The [translation workflow example](../examples/plugins/protein_translation)
+declares both actions locally and uses DNA and Protein record types from its dependencies.
+The [storage labels workflow](../examples/plugins/storage_labels/workflows/store_sample.yaml)
+runs two local actions on the same sample.
+
+A step can take its inputs from the workflow (`$inputs.<name>`), from records
+an earlier step created (`$steps.<id>.created.<Type>`), or from the inputs an
+earlier step received (`$steps.<id>.inputs.<name>`). For a type supplied by a
+dependency, use its qualified name in the created-output reference. A step
+parameter can take a literal value or a workflow parameter (`$params.<name>`).
+Write an initial `$` as `$$` in a literal string.
 
 ```yaml
 apiVersion: iki/v1
 kind: Workflow
-name: translate_and_characterize # snake_case; qualified as iki/protein.translate_and_characterize
+name: translate_and_characterize # acme/protein_translation.translate_and_characterize
 label: Translate and characterize
 inputs:
   sequence: { type: iki/dna.DNASequence, schema: ">=1" } # as an action's inputs
@@ -1337,7 +1458,7 @@ steps:
     params: { frame: $params.frame }
   properties:
     action: compute_properties
-    inputs: { protein: $steps.translate.created.Protein }
+    inputs: { protein: $steps.translate.created.iki/protein.Protein }
     # needs: [other_step]  # wait for a step it doesn't take from
 ```
 
@@ -1451,6 +1572,18 @@ On `entity.updated`, `fields` narrows it to changes of those fields. A
 change a triggered run makes never fires a trigger, so a trigger can't fire
 itself, or another that fires it back: chain actions in a workflow instead.
 
+An `entity.created` trigger can import a file into the record that holds it,
+as an instrument's uploader makes one record for each export. Iki refuses a
+record whose file field holds a file that is still being scanned or is held,
+and gives a run's worker a file only once it's usable, so the import reads only
+clean files. A triggered run that meets an older record's file still waiting for
+its scan waits for it, and starts once the scan finds it clean
+([ADR 0234](../docs/adr/0234-a-run-waits-for-its-files-scans.md)). The record's
+`unique` field for the file's SHA-256 keeps a re-sent export from making a
+second record. The
+[instrument intake example](../examples/plugins/instrument_intake/README.md)
+is one.
+
 ```yaml
 on: entity.updated
 type: Protein
@@ -1481,8 +1614,33 @@ related:
   results: { direction: downstream, depth: 5, edges: [reference, run] }
 ```
 
+The [calibration tracing example](../examples/plugins/calibration_tracing/README.md)
+uses three downstream reference searches to collect service history, instrument
+uses and existing assessments when an instrument's calibration state changes.
+The equipment types come from its dependency. The trigger's action and worker
+are local to the example.
+
 Each such input takes many (`trigger-related-one`), and isn't the one the
 entity goes to (`trigger-related-is-input`); a scheduled trigger has none.
+An input `from_project` (see [Actions](#actions)) needs nothing from a
+trigger, and takes neither the entity nor related ones
+(`trigger-input-from-project`).
+
+`request.received` runs it in a service's project as a request of its type
+(a request type: `trigger-received-not-a-request`) is sent there, once
+(ADR 0232). It's the service's: the project that asked has none of it. Its
+action reads the request with both its sides (`request` in
+[What a command reads](#what-a-command-reads)), and writes the service's
+fields, as any run in the service's project does. Nobody in the service's
+project sent it, so, as a schedule's, its runs are launched as a service
+account the Admin who turns it on chooses, on their authority.
+
+```yaml
+on: request.received
+type: SequencingRequest
+run: rank_requests
+input: requests
+```
 
 The build checks that the type exists and has the fields, that the action
 takes an entity of the type in one input and needs no other, besides those
@@ -1534,8 +1692,8 @@ display:
 | Viewer      | Fields                                                                                                                                                                                                                                                                                |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sequence`  | `sequence`: a string with format `dna_sequence`, `rna_sequence` or `protein_sequence`. `features` (optional): a json field of regions, each with `type`, `start`, `end`, `name`, `strand`. `tracks` (optional): json fields of one number per residue, each with an optional `label`. |
-| `structure` | `structure`: a file field whose `media_types` are `chemical/x-mmcif`, `chemical/x-pdb` or both.                                                                                                                                                                                       |
-| `alignment` | `alignment`: a file field whose `media_types` are FASTA (`chemical/seq-aa-fasta`, `chemical/seq-na-fasta`, `text/plain`). `rows` (optional): a list of references, the sequences headed by their HRIDs. `reference` (optional): a reference, the row pinned at the top.               |
+| `structure` | `structure` names a file field accepting formats that use the `structure-pdb` or `structure-mmcif` viewer.                                                                                                                                                                            |
+| `alignment` | `alignment` names a file field accepting formats that use the `alignment` viewer, including FASTA and plain text. Optional `rows` lists references to the sequences headed by their HRIDs. Optional `reference` names the row pinned at the top.                                      |
 
 The sequence viewer shows the residues in rows of 60, in groups of 10, as
 they're stored (an RNA's U stays U), with its length in bp for DNA, nt for RNA
@@ -1557,6 +1715,138 @@ shows, and that each viewer is given once.
 A viewer's tab lists the views it's in and saves what it shows as a
 `iki/core.View`, on the revision it shows, with other entities beside it if
 wanted (ADR 0086, ADR 0110).
+
+## Exports
+
+A type names the files Iki writes of its records under `exports`, as it names
+its viewers' fields. Each record downloads as one of them from its page, at
+its latest revision or any earlier one. Many records download as one file
+from a table. The file is written from the record's values at that
+revision, so it's the same file whoever asks and whenever. Each download is
+in the audit log with the file's SHA-256 (ADR 0171, ADR 0229).
+
+```yaml
+exports:
+  - { export: sequence, sequence: bases, features: features } # GenBank, FASTA
+  - { export: protein, sequence: residues } # FASTA
+  - { export: compound, structure: molfile } # SDF, Molfile
+```
+
+### A plugin's own format
+
+When no format Iki writes fits, a plugin writes its own (ADR 0230). It declares
+the [format](#file-formats) and a `writer`, a Rust crate in the plugin that Iki
+builds into a WebAssembly module. A type exports through the writer by mapping
+each of the writer's roles to one of its fields. The
+[liquid handling example](../examples/plugins/liquid_handling/README.md) writes
+transfers as a Tecan worklist:
+
+```yaml
+# plugin.yaml
+formats:
+  tecan-gwl:
+    label: Tecan worklist
+    media_types: [text/x-tecan-gwl]
+    extensions: [.gwl]
+writers:
+  tecan-worklist:
+    label: Tecan worklist
+    format: tecan-gwl
+    module: writers/tecan-worklist
+    many: file
+    memory: 16MiB
+    roles:
+      source_plate: { type: ref, types: [Plate], required: true }
+      source_well: { type: string, required: true }
+      volume: { type: quantity, unit: uL, required: true }
+      liquid_class: { type: string }
+```
+
+```yaml
+# types/transfer.yaml
+exports:
+  - export: tecan-worklist
+    fields:
+      { source_plate: source, source_well: source_well, volume: volume, liquid_class: liquid_class }
+```
+
+A writer declares:
+
+- `format`: the format it writes, its own or a dependency's. The format gives the
+  file's media type and extension. It can't be HTML, SVG, XSLT, JavaScript or
+  WebAssembly, or anything else a browser would run. A file that doesn't start with
+  one of the format's `signatures`, if it declares any, isn't kept.
+- `module`: the crate's directory under `writers/`. It holds `Cargo.toml`, with
+  `crate-type = ["cdylib"]`, and `Cargo.lock`, and no symbolic links. Beside it,
+  `<module>.wasm.sha256` holds the SHA-256 of the module the Linux x86-64 builder
+  makes. `iki plugin writers --update` builds it and writes the file. Commit the
+  digest with the Rust, and never the `.wasm`.
+- `many`: `file` when many records make one file, as a worklist's lines do (the
+  default); `zip` when each record is a file of its own, so many make a ZIP of
+  them; `one` when only one record is ever exported.
+- `memory`: the most the module's memory may grow to, from `1MiB` to `256MiB`
+  (default `64MiB`).
+- `roles`: what it reads of a record, each with a `type` (`string`, `text`,
+  `int`, `float`, `bool`, `date`, `datetime`, `enum`, `quantity` or `ref`), and
+  optionally `required` and a `description`. A `quantity` role names its `unit`:
+  the field it reads must measure the same thing, and the writer gets its value
+  converted to that unit. A `ref` role can name the `types` it refers to.
+
+A type's `fields` maps every required role, and only the writer's roles, to a
+field of a kind the role takes. A `text` role also reads a `string` field, and
+a `float` role an `int` one. The validator checks the mapping against the
+writer, and the writer against its crate.
+
+The writer gets each record as canonical JSON with its ID, HRID, name, type,
+revision and when it was made, and each role's value as the API gives it. A
+reference is the referenced record, one step deep, as it was at that revision,
+with its fields. A reference the person exporting can't read is left out, and
+its role is listed in `withheld`. The writer answers each record with the bytes
+it adds to the file and notes on what the file couldn't hold. Or it refuses
+the record, saying why, and the export fails, naming it.
+
+Write a writer with the `iki-writer` crate. It turns a `Writer` trait's `begin`,
+`record` and `end` into the module's exports (ABI 1):
+
+```rust
+use iki_writer::{Part, Record, Refusal, Writer};
+
+#[derive(Default)]
+struct SampleSheet;
+
+impl Writer for SampleSheet {
+    fn record(&mut self, record: &Record) -> Result<Part, Refusal> {
+        let Some(concentration) = record.quantity("concentration") else {
+            return Err(Refusal::new(format!("{} has no concentration.", record.hrid)));
+        };
+        Ok(Part::bytes(format!("{},{}\r\n", record.hrid, concentration.value)))
+    }
+}
+
+iki_writer::writer!(SampleSheet);
+```
+
+Depend on `iki-writer = "=0.1.0-dev.0"`. Until the crate is published, the
+builder supplies it from the Iki that builds the plugin. The module must
+import nothing: no clock, no files, no randomness. A writer is a function of
+its records, so the same records always make the same file.
+
+A deployment's image build rebuilds each writer from its source on
+`linux/amd64`, with Iki's pinned Rust and no network or credentials. Only
+fetching the crates uses the network, and Cargo checks each against
+`Cargo.lock`. A site without crates.io sets `IKI_CARGO_MIRROR` to a registry
+mirror, or the plugin vendors its crates (`cargo vendor --versioned-dirs`, with
+the crate's `.cargo/config.toml` replacing crates.io). Either way the module
+is the same. The build refuses a module whose digest isn't the tracked one,
+or one that imports anything, breaks the ABI, has more than one memory, or
+holds a function body over 1 MiB or a `br_table` over 65,536 targets.
+
+The writer runs in the chart's export sandbox (`sandbox.enabled`), a
+Deployment with no Secrets, no service-account token, no cloud identity and
+no network but the connections web and task pods make to it. Each export is
+a fresh process that loads only the module the image installed, under a fuel
+budget, its memory cap, a 512 KiB stack and a deadline. The download's audit
+event names the plugin, its commit, the module's digest and the ABI.
 
 ## Components
 
@@ -1604,9 +1894,9 @@ slots:
     label: Calendar
   - slot: project.page # a section of the project's page
     search: { sort: starts_at }
-  - slot: person.home # a section of each person's home
+  - slot: person.home # a section of each person's home: the time booked for them
     label: Your bookings
-    search: { where: { field: created_by, op: eq, value: "{{ me }}" } }
+    search: { where: { field: booked_by, op: eq, value: "{{ me }}" } }
 ```
 
 | Slot             | What it's given                                                                       |
@@ -1620,7 +1910,7 @@ A search is the API's, of `entities.type`: `where` conditions on its fields
 and `hrid`, `created_by`, `created_at` and `updated_at`, at most 20, 4
 levels deep, and a field to `sort` by. `{{ entity }}` is the entity whose
 page it is, for a reference to its type; `{{ me }}` is whoever reads it, for
-`created_by`; `{{ now }}` is now, for a date or datetime field. Iki's server runs it, as the person may read, and the element
+`created_by`, `assigned` or a field naming people; `{{ now }}` is now, for a date or datetime field. Iki's server runs it, as the person may read, and the element
 gets the results as its `entities` property: `items`, each with `id`,
 `hrid`, `title`, `type`, `revision`, `project`, the fields declared in
 `values` and the entities those fields name in `refs`, a page at a time.
@@ -1735,6 +2025,19 @@ a tree Iki's repository has had, as
 [`first_party_trees.json`](src/iki_spec/first_party_trees.json) lists them
 ([ADR 0114](../docs/adr/0114-ikis-own-plugins-can-come-from-a-mirror.md)).
 `make first-party` adds a plugin's tree when it changes.
+
+Production builds check the source of every active and detached entry.
+A production pin to one of these directories in Iki's repository or a
+configured mirror raises `test-only-source`, even at a Git commit.
+
+- `examples/plugins/` and `plugin-template/`
+- `spec/tests/`, `server/tests/` and `deploy/dev/fixtures/`
+- `deploy/live/plugins/live_check/`
+
+Deploy a lab's adaptation from its own repository under its own name.
+To build the official sources in CI or a live check, pass `--test-only`.
+A local directory also requires `--allow-local`. See
+[ADR 0218](../docs/adr/0218-first-party-plugins-and-author-examples.md).
 
 ## A deployment's compute
 
@@ -1988,7 +2291,7 @@ unit of each usage the API reports, in the same currency.
 ```yaml
 apiVersion: iki/v1
 kind: ApiPrice
-api: iki/example_models.foldcloud
+api: acme/hosted_models.foldcloud
 per_call: 0.01
 usage: { gpu_seconds: 0.0011 }
 currency: USD
@@ -2047,6 +2350,12 @@ When a worker leases a job, it gets the run input and writes it to
 ```
 
 The worker keeps the lease and its control credentials outside the command’s input.
+
+A request between projects (ADR 0132) also has `request`: the project that
+asked (`asking_project`) and the service it was sent to (`service`, null
+until it's sent), each by `id`, `slug` and `name`, which each side's people
+see of the other (ADR 0232). A slug never changes, so it's what a lab's own
+records match a project by.
 
 For a single run, `run.requested_by` identifies its authenticated requester. A job
 that packs several runs omits this field, since each run has its own requester.
@@ -2211,14 +2520,19 @@ revision by the run, with its origin, setting the values the create gives.
 One that changes nothing is found again, as the project's own record is when
 its identity is registered again. Only the project's own entities match,
 never one linked in from elsewhere; for a field marked `registry`, the
-project's record of the registry entry that has the value. In a creates
-file, a record may come only once.
+project's record of the registry entry that has the value. An external record
+with a supplied `match_on` value may come only once in the run's output,
+across both `creates` and `creates_file`. If two creates identify the same
+record, the run reports both positions and writes nothing. Registrations
+without an external match may still record several origins for one identity
+([ADR 0154](../docs/adr/0154-an-accession-is-the-records-not-the-entrys.md)).
 
 A record with no match yet, of a type with an identity, claims the
 project's own record of that identity's registry entry, if it has no value
 for the field yet: a protein registered before the LIMS knew it takes the record's
 ID. If it's another record's already, the run fails, naming both, since one
-entity can't be two records; so does a file with two records of one entity.
+entity can't be two records. The same rule applies when two external IDs in
+one output resolve to a single registry entry.
 
 ```yaml
 effects:
@@ -2232,10 +2546,12 @@ command made:
 { "structure": { "$file": "relaxed.pdb", "media_type": "chemical/x-pdb" } }
 ```
 
-`$file` is a path inside `IKI_OUT_DIR`; `name` defaults to its last part,
-and `media_type` to a guess from its extension. The worker uploads it for
-this run and puts the new file's ID in its place, so only files this run
-uploaded can be attached. Iki writes all of it in one transaction, or none.
+`$file` is a path inside `IKI_OUT_DIR`. The default `name` is its last part.
+The worker sends the action's `media_type` when given. Otherwise the server
+recognizes the format by signature, then by extension, using the deployment's
+registry. The worker uploads the file for this run and puts the new file's
+ID in its place, so only files this run uploaded can be attached. Iki
+writes all of it in one transaction, or none.
 A message can name the input `entity` it's about. One at level `error`
 fails that entity's run, which then writes nothing.
 
@@ -2406,6 +2722,15 @@ expect:
   created in the earlier build. The probe prefers marked fixtures from
   the earlier commit. A plugin can supply current marked fixtures for
   commits whose worker fixtures describe partial input snapshots (ADR 0094).
+- On a marked fixture, `after` gives the values a migrated sample must hold.
+  For example, `after: { sample: [{ notes: S1 }] }` checks the first and only
+  record of the `sample` input. Give one field map per record of each input
+  named in `after`. Values are compared exactly.
+- For a request, an entity's `request` gives its sides, as the server does:
+  `request: { asking_project: { slug: oncology-discovery, name: Oncology discovery } }`.
+  Its `service` is the test's project unless given (null for a request
+  not sent yet).
+- An input `from_project` is given as any other.
 - `files` names files in the plugin. A value or param uses one as
   `{"$file": "name"}`.
 - `expect.output` is compared by what it gives: every key in a mapping,
@@ -2452,44 +2777,46 @@ refused, so what is reviewed is what Iki reads.
 
 Every problem has a stable `code`, shown in brackets and in `--format json`:
 
-| Code                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | What's wrong                    |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| `yaml-syntax`, `yaml-duplicate-key`, `yaml-alias`, `yaml-merge-key`, `yaml-tag`, `yaml-key`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | The YAML itself                 |
-| `file-too-large`, `not-utf8`, `unreadable-file`, `symlink`, `not-a-mapping`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | The file                        |
-| `missing-plugin-manifest`, `duplicate-plugin-manifest`, `wrong-file`, `not-a-directory`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Where manifests are             |
-| `missing-api-version`, `unsupported-api-version`, `missing-kind`, `unknown-kind`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | A manifest's header             |
-| `schema`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Anything the JSON Schemas catch |
-| `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                   | Names                           |
-| `unknown-role`; `duplicate-role-label` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Lab roles                       |
-| `state-initial`, `state-removed`, `unknown-state`, `state-unreachable`, `state-signatures`, `state-on-edit`, `state-field-in-extension`, `state-field-in-list`                                                                                                                                                                                                                                                                                                                                                                                                                        | States                          |
-| `rule-kind`, `rule-field`, `rule-while`, `rule-shadows-parent`, `invalid-expression`, `expressions-unchecked`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Rules and guards                |
-| `assignment-not-people`, `assignment-without-states`, `due-not-a-date`, `due-in-registry`, `person-in-registry`                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | People in records               |
-| `notification-when`, `notification-field`, `notification-values`, `notification-recipients`, `notification-where`, `notification-message`, `notification-shadows-parent`, `notification-in-registry`; `notification-repeats-ready` (warning)                                                                                                                                                                                                                                                                                                                                          | Notifications                   |
-| `service-field-inherited`, `service-field-refers`, `service-field-unique`, `service-field-immutable`, `service-field-required`, `request-sends-not-a-reference`, `request-sends-service-field`, `request-with-identity`, `request-redeclared`, `result-with-identity`, `result-is-a-request`, `result-of-not-a-request`, `result-of-changes`, `result-released-without-states`, `result-released-initial`, `result-release-on-edit`, `result-release-lock`                                                                                                                            | Requests between projects       |
-| `amount-unit`, `amount-concentration`, `amount-aliquots`, `amount-twice`, `amount-on-identity`, `holds-without-amount`                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Amounts                         |
-| `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Types                           |
-| `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HRIDs                           |
-| `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                                                                                                                                              | Identities                      |
-| `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Field options                   |
-| `unsupported-index`, `index-needs-max-length`, `unique-needs-index`, `link-not-https`, `link-without-value`, `link-unknown-placeholder`                                                                                                                                                                                                                                                                                                                                                                                                                                               | Indexes                         |
-| `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Units                           |
-| `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Files, JSON fields and titles   |
-| `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Extensions                      |
-| `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                                                                                                                                             | Dependencies                    |
-| `setting-policy`, `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`, `setting-needed` (warning)                                                                                                                                                                                                                                                                                                                                                                                                     | Settings                        |
-| `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                                                                         | Lockfiles                       |
-| `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`                                                                                                                                                                                                                                                                                                                                                   | Actions                         |
-| `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `updates-state`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                                                | What actions write              |
-| `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `self-hosted-secrets`, `self-hosted-network`, `reserved-secret`, `absolute-path-on-backend`, `missing-file`                                                                                                                                                                                                                                                                                                                                                                                    | Where actions run               |
-| `network-unknown-setting`, `network-setting-not-hostname`, `requires-unknown-setting`, `requires-setting-always-set` (warning), `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                                                                              | Reuse and retries               |
-| `self-hosted-apis`, `api-in-network`, `api-credential-is-secret`, `api-credential-header`, `webhook-needs-header`, `webhook-header`, `webhook-secret-is-credential`, `api-status-twice`, `api-polls-too-often`, `api-job-timeout`, `unknown-api`, `batch-parks`, `deterministic-with-api`; `unused-api` (warning)                                                                                                                                                                                                                                                                     | Outside APIs                    |
-| `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-each-takes-many`, `workflow-unknown-metric`, `workflow-condition-type`, `workflow-condition-each`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`                                                                                                                                                              | Workflows                       |
-| `trigger-unknown-action`, `trigger-unknown-input`, `trigger-input-ambiguous`, `trigger-input-missing`, `trigger-wrong-type`, `trigger-fields-not-updated`, `trigger-state-not-state-changed`, `trigger-state-field-missing`, `trigger-not-a-state-field`, `trigger-field-is-state`, `trigger-unknown-param`, `trigger-invalid-param`, `trigger-param-missing`, `trigger-type-missing`, `trigger-schedule-missing`, `trigger-schedule-invalid`, `trigger-schedule-never`, `trigger-schedule-entity`, `trigger-schedule-not-scheduled`, `trigger-timezone-unknown`, `duplicate-trigger` | Triggers                        |
-| `duplicate-component`, `element-twice`, `component-too-big`, `missing-file`, `unreadable-file`, `symlink`, `slot-needs-entities`, `slot-twice`, `home-not-personal`, `unknown-operator`, `unsortable-field`, `unknown-context`, `context-misplaced`, `search-too-big`                                                                                                                                                                                                                                                                                                                 | Components                      |
-| `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                                               | Environments                    |
-| `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`, `conda-lock-name`                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Pinned packages                 |
-| `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-calls-api`, `setup-fills-nothing` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Volumes and setup               |
-| `not-a-test`, `duplicate-test`, `unknown-action`, `unknown-param`, `missing-param`, `unknown-input`, `missing-input`, `input-count`, `wrong-type`, `unknown-field`, `unknown-file`, `missing-file`, `unknown-setting`                                                                                                                                                                                                                                                                                                                                                                 | Action tests                    |
-| `duplicate-template`, `duplicate-binding`, `unknown-kind`, `wrong-provisioner`, `gpu-wrong-tier`, `limit-needs-persistent`, `fallback-without-spot`, `root-disk-too-small`, `volume-strategy-unsupported`, `fast-restore-wrong-strategy`, `volume-option-kubernetes-only`, `snapshot-class-wrong-strategy`, `mixed-currencies`; `unpriced-template` (warning)                                                                                                                                                                                                                         | Compute templates               |
-| `unknown-environment`, `unknown-template`, `template-wrong-tier`, `template-too-small`, `action-does-not-fit`, `volume-strategy-missing`, `volume-strategy-access`; `lifecycle-unbound`, `unbound-environment` and `unused-template` (warnings)                                                                                                                                                                                                                                                                                                                                       | Bindings                        |
-| `unknown-api`, `unknown-usage`; `unpriced-api` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Prices of outside APIs          |
+| Code                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | What's wrong                    |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `yaml-syntax`, `yaml-duplicate-key`, `yaml-alias`, `yaml-merge-key`, `yaml-tag`, `yaml-key`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | The YAML itself                 |
+| `file-too-large`, `not-utf8`, `unreadable-file`, `symlink`, `not-a-mapping`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | The file                        |
+| `missing-plugin-manifest`, `duplicate-plugin-manifest`, `wrong-file`, `not-a-directory`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Where manifests are             |
+| `missing-api-version`, `unsupported-api-version`, `missing-kind`, `unknown-kind`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | A manifest's header             |
+| `schema`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Anything the JSON Schemas catch |
+| `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Names                           |
+| `unknown-role`; `duplicate-role-label` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Lab roles                       |
+| `state-initial`, `state-removed`, `unknown-state`, `state-unreachable`, `state-signatures`, `state-on-edit`, `state-field-in-extension`, `state-field-in-list`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | States                          |
+| `rule-kind`, `rule-field`, `rule-while`, `rule-shadows-parent`, `invalid-expression`, `expressions-unchecked`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Rules and guards                |
+| `assignment-not-people`, `assignment-without-states`, `due-not-a-date`, `due-in-registry`, `person-in-registry`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | People in records               |
+| `notification-when`, `notification-field`, `notification-values`, `notification-recipients`, `notification-where`, `notification-message`, `notification-shadows-parent`, `notification-in-registry`; `notification-repeats-ready` (warning)                                                                                                                                                                                                                                                                                                                                                                                                          | Notifications                   |
+| `service-field-inherited`, `service-field-refers`, `service-field-unique`, `service-field-immutable`, `service-field-required`, `request-sends-not-a-reference`, `request-sends-service-field`, `request-with-identity`, `request-redeclared`, `result-with-identity`, `result-is-a-request`, `result-of-not-a-request`, `result-of-changes`, `result-released-without-states`, `result-released-initial`, `result-release-on-edit`, `result-release-lock`                                                                                                                                                                                            | Requests between projects       |
+| `amount-unit`, `amount-concentration`, `amount-aliquots`, `amount-twice`, `amount-on-identity`, `holds-without-amount`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Amounts                         |
+| `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Types                           |
+| `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HRIDs                           |
+| `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                                                                                                                                                                                                              | Identities                      |
+| `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Field options                   |
+| `unsupported-index`, `index-needs-max-length`, `unique-needs-index`, `link-not-https`, `link-without-value`, `link-unknown-placeholder`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Indexes                         |
+| `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Units                           |
+| `unknown-format`, `format-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | File formats                    |
+| `writer-memory`, `writer-format-dependency`, `writer-active-format`, `writer-format-extension`, `writer-module`, `writer-digest`, `writer-rejected`, `writer-dependency`, `unknown-writer`, `unknown-role`, `export-field`, `export-role-missing`                                                                                                                                                                                                                                                                                                                                                                                                     | Writers and their exports       |
+| `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Files, JSON fields and titles   |
+| `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Extensions                      |
+| `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Dependencies                    |
+| `setting-policy`, `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`, `setting-needed` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Settings                        |
+| `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `test-only-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                                                                                                                     | Lockfiles                       |
+| `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`, `from-project-one`                                                                                                                                                                                                                                                                                                                                                                                               | Actions                         |
+| `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `updates-state`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | What actions write              |
+| `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `self-hosted-secrets`, `self-hosted-network`, `reserved-secret`, `absolute-path-on-backend`, `missing-file`                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Where actions run               |
+| `network-unknown-setting`, `network-setting-not-hostname`, `requires-unknown-setting`, `requires-setting-always-set` (warning), `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                                                              | Reuse and retries               |
+| `self-hosted-apis`, `api-in-network`, `api-credential-is-secret`, `api-credential-header`, `webhook-needs-header`, `webhook-header`, `webhook-secret-is-credential`, `api-status-twice`, `api-polls-too-often`, `api-job-timeout`, `unknown-api`, `batch-parks`, `deterministic-with-api`; `unused-api` (warning)                                                                                                                                                                                                                                                                                                                                     | Outside APIs                    |
+| `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-each-takes-many`, `workflow-unknown-metric`, `workflow-condition-type`, `workflow-condition-each`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`, `workflow-input-from-project`                                                                                                                                                                                               | Workflows                       |
+| `trigger-unknown-action`, `trigger-unknown-input`, `trigger-input-ambiguous`, `trigger-input-missing`, `trigger-wrong-type`, `trigger-fields-not-updated`, `trigger-state-not-state-changed`, `trigger-state-field-missing`, `trigger-not-a-state-field`, `trigger-field-is-state`, `trigger-unknown-param`, `trigger-invalid-param`, `trigger-param-missing`, `trigger-type-missing`, `trigger-schedule-missing`, `trigger-schedule-invalid`, `trigger-schedule-never`, `trigger-schedule-entity`, `trigger-schedule-not-scheduled`, `trigger-timezone-unknown`, `duplicate-trigger`, `trigger-received-not-a-request`, `trigger-input-from-project` | Triggers                        |
+| `duplicate-component`, `element-twice`, `component-too-big`, `missing-file`, `unreadable-file`, `symlink`, `slot-needs-entities`, `slot-twice`, `home-not-personal`, `unknown-operator`, `unsortable-field`, `unknown-context`, `context-misplaced`, `search-too-big`                                                                                                                                                                                                                                                                                                                                                                                 | Components                      |
+| `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Environments                    |
+| `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`, `conda-lock-name`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Pinned packages                 |
+| `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-calls-api`, `setup-fills-nothing` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Volumes and setup               |
+| `not-a-test`, `duplicate-test`, `unknown-action`, `unknown-param`, `missing-param`, `unknown-input`, `missing-input`, `input-count`, `wrong-type`, `unknown-field`, `unknown-file`, `missing-file`, `unknown-setting`, `not-a-request`                                                                                                                                                                                                                                                                                                                                                                                                                | Action tests                    |
+| `duplicate-template`, `duplicate-binding`, `unknown-kind`, `wrong-provisioner`, `gpu-wrong-tier`, `limit-needs-persistent`, `fallback-without-spot`, `root-disk-too-small`, `volume-strategy-unsupported`, `fast-restore-wrong-strategy`, `volume-option-kubernetes-only`, `snapshot-class-wrong-strategy`, `mixed-currencies`; `unpriced-template` (warning)                                                                                                                                                                                                                                                                                         | Compute templates               |
+| `unknown-environment`, `unknown-template`, `template-wrong-tier`, `template-too-small`, `action-does-not-fit`, `volume-strategy-missing`, `volume-strategy-access`; `lifecycle-unbound`, `unbound-environment` and `unused-template` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                       | Bindings                        |
+| `unknown-api`, `unknown-usage`; `unpriced-api` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Prices of outside APIs          |

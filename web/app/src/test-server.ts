@@ -4,6 +4,16 @@
  */
 
 import type { Schemas } from "@ikisci/sdk";
+import core from "../../../server/src/iki_plugin_iki__core/manifest.json";
+
+/** The test deployment uses the same generated declarations that ship with the server. */
+export const CORE_FORMATS: Schemas["InstalledFormatOut"][] = Object.values(core.plugin.formats).map(
+  (format) => {
+    const [canonical] = format.media_types;
+    if (!canonical) throw new Error(`Missing canonical media type for ${format.id}.`);
+    return { ...format, canonical, parsers: [] };
+  },
+);
 
 /** JSON to answer with, a Response, or a function of the request giving either. */
 type Answer = unknown;
@@ -85,6 +95,17 @@ export const serverFetch: typeof fetch = async (input, init) => {
 
 // --- Fixtures --------------------------------------------------------------------
 
+export const CLEAN_SCAN: Schemas["FileScanOut"] = {
+  state: "clean",
+  usable: true,
+  reason: "",
+  scanner: "fixture",
+  signature_version: "1",
+  scanned_at: "2026-11-11T09:00:00Z",
+  decision_id: "00000000-0000-7000-8000-0000000d0001",
+  released: false,
+};
+
 export const ME: Schemas["MeOut"] = {
   id: "00000000-0000-7000-8000-000000000001",
   email: "rosalind@example.com",
@@ -96,6 +117,7 @@ export const ME: Schemas["MeOut"] = {
   delegation: null,
   org_roles: [],
   can: {
+    manage_quarantine: false,
     manage_org: false,
     read_audit: false,
     create_projects: true,

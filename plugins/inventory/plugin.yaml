@@ -2,8 +2,8 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/inventory
-version: 0.1.0
+version: 0.2.0
 title: Inventory
-description: Physical storage locations, tube contents, stock balances and withdrawal holds.
+description: Physical storage locations, container contents, stock balances and withdrawal holds.
 license: Apache-2.0
 iki: ">=0.1"

@@ -147,8 +147,13 @@ class Catalog:
                 url,
                 params={**params, "pageSize": "5000", **({"pageToken": token} if token else {})},
                 headers={"Authorization": f"Bearer {self.token()}"},
+                allow_redirects=False,
                 timeout=120,
             )
+            if page.is_redirect:
+                raise requests.HTTPError(
+                    "The Cloud Billing Catalog redirected its request", response=page
+                )
             page.raise_for_status()
             body: dict[str, Any] = page.json()
             yield body
@@ -536,6 +541,7 @@ def _log_bytes(cloud: Cloud, window: Window) -> float:
                 "aggregation.crossSeriesReducer": "REDUCE_SUM",
             },
             headers={"Authorization": f"Bearer {cloud.access_token()}"},
+            allow_redirects=False,
             timeout=120,
         )
         if response.status_code != 200:
@@ -551,13 +557,15 @@ def billing_export(cloud: Cloud, window: Window) -> list[dict[str, Any]] | str:
     """The project's billing export's rows labelled iki-deployment=<name>, if it has one."""
     headers = {"Authorization": f"Bearer {cloud.access_token()}"}
     api = f"https://bigquery.googleapis.com/bigquery/v2/projects/{window.project}"
-    datasets = requests.get(f"{api}/datasets", headers=headers, timeout=60)
+    datasets = requests.get(f"{api}/datasets", headers=headers, allow_redirects=False, timeout=60)
     if datasets.status_code != 200:
         return f"couldn't list BigQuery datasets (HTTP {datasets.status_code})"
     tables = []
     for dataset in datasets.json().get("datasets", []):
         ref = dataset["datasetReference"]["datasetId"]
-        listed = requests.get(f"{api}/datasets/{ref}/tables", headers=headers, timeout=60)
+        listed = requests.get(
+            f"{api}/datasets/{ref}/tables", headers=headers, allow_redirects=False, timeout=60
+        )
         for table in listed.json().get("tables", []) if listed.status_code == 200 else []:
             name = table["tableReference"]["tableId"]
             if name.startswith(("gcp_billing_export_v1_", "gcp_billing_export_resource_v1_")):
@@ -586,6 +594,7 @@ def billing_export(cloud: Cloud, window: Window) -> list[dict[str, Any]] | str:
         answer = requests.post(
             f"{api}/queries",
             headers=headers,
+            allow_redirects=False,
             json={
                 "query": sql,
                 "useLegacySql": False,

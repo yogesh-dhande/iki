@@ -29,6 +29,7 @@ class OrgRole(models.TextChoices):
     ORG_ADMIN = "org_admin", "Org Admin"
     COMPUTE_ADMIN = "compute_admin", "Compute Admin"
     AUDITOR = "auditor", "Auditor"
+    QUARANTINE_ADMIN = "quarantine_admin", "Quarantine Admin"
 
 
 ORG_ROLE_DESCRIPTIONS = {
@@ -36,6 +37,7 @@ ORG_ROLE_DESCRIPTIONS = {
     "members, but reads project data only as a member.",
     OrgRole.COMPUTE_ADMIN: "Manages compute: templates, worker pools, builds, volumes and cost.",
     OrgRole.AUDITOR: "Reads the audit log.",
+    OrgRole.QUARANTINE_ADMIN: "Reviews held file scans and releases false positives.",
 }
 
 

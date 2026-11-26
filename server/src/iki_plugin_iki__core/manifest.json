@@ -34,6 +34,7 @@
             "computed": false,
             "registry": null,
             "indexed": true,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -81,6 +82,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -128,6 +130,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -177,6 +180,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -226,6 +230,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -260,6 +265,7 @@
               "computed": false,
               "registry": null,
               "indexed": false,
+              "searchable": true,
               "unique": false,
               "link": null,
               "removed": false,
@@ -321,6 +327,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -372,6 +379,7 @@
             "computed": true,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -423,6 +431,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -514,6 +523,7 @@
             "computed": false,
             "registry": null,
             "indexed": true,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -561,6 +571,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -608,6 +619,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -1052,6 +1064,7 @@
             "computed": false,
             "registry": null,
             "indexed": true,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -1099,6 +1112,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -1146,6 +1160,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -1180,6 +1195,7 @@
               "computed": false,
               "registry": null,
               "indexed": false,
+              "searchable": true,
               "unique": false,
               "link": null,
               "removed": false,
@@ -1241,6 +1257,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -1356,6 +1373,7 @@
             "computed": false,
             "registry": null,
             "indexed": true,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -1403,6 +1421,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -1450,6 +1469,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -1484,6 +1504,7 @@
               "computed": false,
               "registry": null,
               "indexed": false,
+              "searchable": true,
               "unique": false,
               "link": null,
               "removed": false,
@@ -1526,6 +1547,7 @@
                   "computed": false,
                   "registry": null,
                   "indexed": false,
+                  "searchable": true,
                   "unique": false,
                   "link": null,
                   "removed": false,
@@ -1575,6 +1597,7 @@
                   "computed": false,
                   "registry": null,
                   "indexed": false,
+                  "searchable": true,
                   "unique": false,
                   "link": null,
                   "removed": false,
@@ -1622,6 +1645,7 @@
                   "computed": false,
                   "registry": null,
                   "indexed": false,
+                  "searchable": true,
                   "unique": false,
                   "link": null,
                   "removed": false,
@@ -1690,6 +1714,7 @@
             "computed": false,
             "registry": "fact",
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -1724,6 +1749,7 @@
               "computed": false,
               "registry": null,
               "indexed": false,
+              "searchable": true,
               "unique": false,
               "link": null,
               "removed": false,
@@ -1766,6 +1792,7 @@
                   "computed": false,
                   "registry": null,
                   "indexed": false,
+                  "searchable": true,
                   "unique": false,
                   "link": null,
                   "removed": false,
@@ -1818,6 +1845,7 @@
                   "computed": false,
                   "registry": null,
                   "indexed": false,
+                  "searchable": true,
                   "unique": false,
                   "link": null,
                   "removed": false,
@@ -1867,6 +1895,7 @@
                   "computed": false,
                   "registry": null,
                   "indexed": false,
+                  "searchable": true,
                   "unique": false,
                   "link": null,
                   "removed": false,
@@ -1914,6 +1943,7 @@
                   "computed": false,
                   "registry": null,
                   "indexed": false,
+                  "searchable": true,
                   "unique": false,
                   "link": null,
                   "removed": false,
@@ -1961,6 +1991,7 @@
                   "computed": false,
                   "registry": null,
                   "indexed": false,
+                  "searchable": true,
                   "unique": false,
                   "link": null,
                   "removed": false,
@@ -2010,6 +2041,7 @@
                   "computed": false,
                   "registry": null,
                   "indexed": false,
+                  "searchable": true,
                   "unique": false,
                   "link": null,
                   "removed": false,
@@ -2057,6 +2089,7 @@
                   "computed": false,
                   "registry": null,
                   "indexed": false,
+                  "searchable": true,
                   "unique": false,
                   "link": null,
                   "removed": false,
@@ -2122,6 +2155,7 @@
             "computed": false,
             "registry": "fact",
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -2173,6 +2207,7 @@
             "computed": true,
             "registry": "derived",
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -2220,6 +2255,7 @@
             "computed": true,
             "registry": "derived",
             "indexed": true,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -2267,6 +2303,7 @@
             "computed": true,
             "registry": "derived",
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -2314,6 +2351,7 @@
             "computed": true,
             "registry": "derived",
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -2361,6 +2399,7 @@
             "computed": true,
             "registry": "derived",
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -2408,6 +2447,7 @@
             "computed": true,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -2455,6 +2495,7 @@
             "computed": true,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -2567,6 +2608,7 @@
             "computed": false,
             "registry": null,
             "indexed": true,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -2614,6 +2656,7 @@
             "computed": false,
             "registry": "fact",
             "indexed": true,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -2661,6 +2704,7 @@
             "computed": false,
             "registry": "fact",
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -2708,6 +2752,7 @@
             "computed": false,
             "registry": "fact",
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -2789,6 +2834,7 @@
             "computed": false,
             "registry": null,
             "indexed": true,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -2836,6 +2882,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -2883,6 +2930,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -2964,6 +3012,7 @@
             "computed": false,
             "registry": null,
             "indexed": true,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -3011,6 +3060,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -3058,6 +3108,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": true,
@@ -3107,6 +3158,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": true,
@@ -3154,6 +3206,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": true,
@@ -3205,6 +3258,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -3239,6 +3293,7 @@
               "computed": false,
               "registry": null,
               "indexed": false,
+              "searchable": true,
               "unique": false,
               "link": null,
               "removed": false,
@@ -3300,6 +3355,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -3334,6 +3390,7 @@
               "computed": false,
               "registry": null,
               "indexed": false,
+              "searchable": true,
               "unique": false,
               "link": null,
               "removed": false,
@@ -3393,6 +3450,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -3427,6 +3485,7 @@
               "computed": false,
               "registry": null,
               "indexed": false,
+              "searchable": true,
               "unique": false,
               "link": null,
               "removed": false,
@@ -3490,6 +3549,7 @@
             "computed": false,
             "registry": null,
             "indexed": false,
+            "searchable": true,
             "unique": false,
             "link": null,
             "removed": false,
@@ -3837,6 +3897,628 @@
     "components": {},
     "roles": {},
     "starters": {},
+    "formats": {
+      "iki/core.pdb": {
+        "id": "iki/core.pdb",
+        "label": "PDB",
+        "media_types": [
+          "chemical/x-pdb"
+        ],
+        "extensions": [
+          ".pdb",
+          ".ent"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": "structure-pdb",
+        "order": 0
+      },
+      "iki/core.mmcif": {
+        "id": "iki/core.mmcif",
+        "label": "mmCIF",
+        "media_types": [
+          "chemical/x-mmcif"
+        ],
+        "extensions": [
+          ".cif",
+          ".mmcif"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": "structure-mmcif",
+        "order": 1
+      },
+      "iki/core.mol": {
+        "id": "iki/core.mol",
+        "label": "MOL",
+        "media_types": [
+          "chemical/x-mdl-molfile"
+        ],
+        "extensions": [
+          ".mol"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": null,
+        "order": 2
+      },
+      "iki/core.sdf": {
+        "id": "iki/core.sdf",
+        "label": "SDF",
+        "media_types": [
+          "chemical/x-mdl-sdfile"
+        ],
+        "extensions": [
+          ".sdf"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": null,
+        "order": 3
+      },
+      "iki/core.mol2": {
+        "id": "iki/core.mol2",
+        "label": "MOL2",
+        "media_types": [
+          "application/vnd.sybyl.mol2",
+          "chemical/x-mol2"
+        ],
+        "extensions": [
+          ".mol2"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": null,
+        "order": 4
+      },
+      "iki/core.xyz": {
+        "id": "iki/core.xyz",
+        "label": "XYZ",
+        "media_types": [
+          "chemical/x-xyz"
+        ],
+        "extensions": [
+          ".xyz"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": null,
+        "order": 5
+      },
+      "iki/core.cml": {
+        "id": "iki/core.cml",
+        "label": "CML",
+        "media_types": [
+          "chemical/x-cml"
+        ],
+        "extensions": [
+          ".cml"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": null,
+        "order": 6
+      },
+      "iki/core.smiles": {
+        "id": "iki/core.smiles",
+        "label": "SMILES",
+        "media_types": [
+          "chemical/x-daylight-smiles"
+        ],
+        "extensions": [
+          ".smi"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": null,
+        "order": 7
+      },
+      "iki/core.nucleotide-fasta": {
+        "id": "iki/core.nucleotide-fasta",
+        "label": "nucleotide FASTA",
+        "media_types": [
+          "chemical/seq-na-fasta"
+        ],
+        "extensions": [
+          ".fasta",
+          ".fa",
+          ".fna"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": "alignment",
+        "order": 8
+      },
+      "iki/core.protein-fasta": {
+        "id": "iki/core.protein-fasta",
+        "label": "protein FASTA",
+        "media_types": [
+          "chemical/seq-aa-fasta"
+        ],
+        "extensions": [
+          ".fasta",
+          ".fa",
+          ".faa"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": "alignment",
+        "order": 9
+      },
+      "iki/core.fasta": {
+        "id": "iki/core.fasta",
+        "label": "FASTA (unspecified alphabet)",
+        "media_types": [
+          "text/x-fasta"
+        ],
+        "extensions": [
+          ".fasta",
+          ".fa"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": "alignment",
+        "order": 10
+      },
+      "iki/core.genbank": {
+        "id": "iki/core.genbank",
+        "label": "GenBank",
+        "media_types": [
+          "chemical/seq-na-genbank"
+        ],
+        "extensions": [
+          ".gb",
+          ".gbk"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": null,
+        "order": 11
+      },
+      "iki/core.snapgene": {
+        "id": "iki/core.snapgene",
+        "label": "SnapGene",
+        "media_types": [
+          "application/x-snapgene"
+        ],
+        "extensions": [
+          ".dna"
+        ],
+        "signatures": [
+          {
+            "hex": "090000000e536e617047656e65",
+            "offset": 0
+          }
+        ],
+        "reader": null,
+        "viewer": null,
+        "order": 12
+      },
+      "iki/core.fastq": {
+        "id": "iki/core.fastq",
+        "label": "FASTQ",
+        "media_types": [
+          "text/x-fastq"
+        ],
+        "extensions": [
+          ".fastq",
+          ".fq"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": null,
+        "order": 13
+      },
+      "iki/core.sam": {
+        "id": "iki/core.sam",
+        "label": "SAM",
+        "media_types": [
+          "text/x-sam"
+        ],
+        "extensions": [
+          ".sam"
+        ],
+        "signatures": [],
+        "reader": "sam",
+        "viewer": null,
+        "order": 14
+      },
+      "iki/core.bam": {
+        "id": "iki/core.bam",
+        "label": "BAM",
+        "media_types": [
+          "application/x-bam"
+        ],
+        "extensions": [
+          ".bam"
+        ],
+        "signatures": [],
+        "reader": "sam",
+        "viewer": null,
+        "order": 15
+      },
+      "iki/core.abif": {
+        "id": "iki/core.abif",
+        "label": "ABI trace",
+        "media_types": [
+          "application/x-abi"
+        ],
+        "extensions": [
+          ".ab1",
+          ".abi",
+          ".fsa"
+        ],
+        "signatures": [
+          {
+            "hex": "41424946",
+            "offset": 0
+          }
+        ],
+        "reader": "abif",
+        "viewer": "chromatogram-abif",
+        "order": 16
+      },
+      "iki/core.vcf": {
+        "id": "iki/core.vcf",
+        "label": "VCF",
+        "media_types": [
+          "text/x-vcf"
+        ],
+        "extensions": [
+          ".vcf"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": null,
+        "order": 17
+      },
+      "iki/core.fcs": {
+        "id": "iki/core.fcs",
+        "label": "FCS",
+        "media_types": [
+          "application/vnd.isac.fcs"
+        ],
+        "extensions": [
+          ".fcs",
+          ".lmd"
+        ],
+        "signatures": [
+          {
+            "hex": "464353312e30",
+            "offset": 0
+          },
+          {
+            "hex": "464353322e30",
+            "offset": 0
+          },
+          {
+            "hex": "464353332e30",
+            "offset": 0
+          },
+          {
+            "hex": "464353332e31",
+            "offset": 0
+          },
+          {
+            "hex": "464353332e32",
+            "offset": 0
+          }
+        ],
+        "reader": "fcs",
+        "viewer": null,
+        "order": 18
+      },
+      "iki/core.mzml": {
+        "id": "iki/core.mzml",
+        "label": "mzML",
+        "media_types": [
+          "application/x-mzml"
+        ],
+        "extensions": [
+          ".mzml"
+        ],
+        "signatures": [],
+        "reader": "mzml",
+        "viewer": "spectrum-mzml",
+        "order": 19
+      },
+      "iki/core.jcamp-dx": {
+        "id": "iki/core.jcamp-dx",
+        "label": "JCAMP-DX",
+        "media_types": [
+          "chemical/x-jcamp-dx"
+        ],
+        "extensions": [
+          ".jdx",
+          ".dx",
+          ".jcamp"
+        ],
+        "signatures": [],
+        "reader": "jcamp-dx",
+        "viewer": "spectrum-jcamp-dx",
+        "order": 20
+      },
+      "iki/core.hdf5": {
+        "id": "iki/core.hdf5",
+        "label": "HDF5",
+        "media_types": [
+          "application/vnd.hdfgroup.hdf5",
+          "application/x-hdf5"
+        ],
+        "extensions": [
+          ".h5",
+          ".hdf5"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": null,
+        "order": 21
+      },
+      "iki/core.czi": {
+        "id": "iki/core.czi",
+        "label": "Zeiss CZI",
+        "media_types": [
+          "application/x-czi"
+        ],
+        "extensions": [
+          ".czi"
+        ],
+        "signatures": [
+          {
+            "hex": "5a495352415746494c45",
+            "offset": 0
+          }
+        ],
+        "reader": "czi",
+        "viewer": null,
+        "order": 22
+      },
+      "iki/core.tiff": {
+        "id": "iki/core.tiff",
+        "label": "TIFF",
+        "media_types": [
+          "image/tiff"
+        ],
+        "extensions": [
+          ".tif",
+          ".tiff",
+          ".ome.tif",
+          ".ome.tiff"
+        ],
+        "signatures": [
+          {
+            "hex": "49492a00",
+            "offset": 0
+          },
+          {
+            "hex": "4d4d002a",
+            "offset": 0
+          },
+          {
+            "hex": "49492b00",
+            "offset": 0
+          },
+          {
+            "hex": "4d4d002b",
+            "offset": 0
+          }
+        ],
+        "reader": "image",
+        "viewer": "image-tiff",
+        "order": 23
+      },
+      "iki/core.jpeg": {
+        "id": "iki/core.jpeg",
+        "label": "JPEG",
+        "media_types": [
+          "image/jpeg"
+        ],
+        "extensions": [
+          ".jpg",
+          ".jpeg"
+        ],
+        "signatures": [
+          {
+            "hex": "ffd8ff",
+            "offset": 0
+          }
+        ],
+        "reader": "image",
+        "viewer": "image",
+        "order": 24
+      },
+      "iki/core.png": {
+        "id": "iki/core.png",
+        "label": "PNG",
+        "media_types": [
+          "image/png"
+        ],
+        "extensions": [
+          ".png"
+        ],
+        "signatures": [
+          {
+            "hex": "89504e470d0a1a0a",
+            "offset": 0
+          }
+        ],
+        "reader": null,
+        "viewer": "image",
+        "order": 25
+      },
+      "iki/core.csv": {
+        "id": "iki/core.csv",
+        "label": "CSV",
+        "media_types": [
+          "text/csv"
+        ],
+        "extensions": [
+          ".csv"
+        ],
+        "signatures": [],
+        "reader": "csv",
+        "viewer": "table-csv",
+        "order": 26
+      },
+      "iki/core.tsv": {
+        "id": "iki/core.tsv",
+        "label": "TSV",
+        "media_types": [
+          "text/tab-separated-values"
+        ],
+        "extensions": [
+          ".tsv"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": "table-tsv",
+        "order": 27
+      },
+      "iki/core.json": {
+        "id": "iki/core.json",
+        "label": "JSON",
+        "media_types": [
+          "application/json"
+        ],
+        "extensions": [
+          ".json"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": null,
+        "order": 28
+      },
+      "iki/core.xlsx": {
+        "id": "iki/core.xlsx",
+        "label": "Excel",
+        "media_types": [
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ],
+        "extensions": [
+          ".xlsx"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": "table-xlsx",
+        "order": 29
+      },
+      "iki/core.xlsm": {
+        "id": "iki/core.xlsm",
+        "label": "Macro-enabled Excel workbook",
+        "media_types": [
+          "application/vnd.ms-excel.sheet.macroenabled.12"
+        ],
+        "extensions": [
+          ".xlsm"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": "table-xlsx",
+        "order": 30
+      },
+      "iki/core.xls": {
+        "id": "iki/core.xls",
+        "label": "Excel 97–2003",
+        "media_types": [
+          "application/vnd.ms-excel"
+        ],
+        "extensions": [
+          ".xls"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": null,
+        "order": 31
+      },
+      "iki/core.parquet": {
+        "id": "iki/core.parquet",
+        "label": "Parquet",
+        "media_types": [
+          "application/vnd.apache.parquet"
+        ],
+        "extensions": [
+          ".parquet"
+        ],
+        "signatures": [
+          {
+            "hex": "50415245",
+            "offset": 0
+          },
+          {
+            "hex": "50415231",
+            "offset": 0
+          }
+        ],
+        "reader": null,
+        "viewer": null,
+        "order": 32
+      },
+      "iki/core.pdf": {
+        "id": "iki/core.pdf",
+        "label": "PDF",
+        "media_types": [
+          "application/pdf"
+        ],
+        "extensions": [
+          ".pdf"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": "pdf",
+        "order": 33
+      },
+      "iki/core.text": {
+        "id": "iki/core.text",
+        "label": "plain-text",
+        "media_types": [
+          "text/plain"
+        ],
+        "extensions": [
+          ".txt",
+          ".log",
+          ".aln",
+          ".a3m",
+          ".sto",
+          ".fasta",
+          ".fa"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": "alignment",
+        "order": 34
+      },
+      "iki/core.gzip": {
+        "id": "iki/core.gzip",
+        "label": "gzip",
+        "media_types": [
+          "application/gzip",
+          "application/x-gzip"
+        ],
+        "extensions": [
+          ".gz",
+          ".fastq.gz",
+          ".fq.gz"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": null,
+        "order": 35
+      },
+      "iki/core.zip": {
+        "id": "iki/core.zip",
+        "label": "ZIP",
+        "media_types": [
+          "application/zip"
+        ],
+        "extensions": [
+          ".zip"
+        ],
+        "signatures": [],
+        "reader": null,
+        "viewer": null,
+        "order": 36
+      }
+    },
     "apis": {}
   }
 }

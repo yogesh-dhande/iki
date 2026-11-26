@@ -304,6 +304,7 @@ class Gcp(iki_live.Tools):
         info = requests.post(
             "https://oauth2.googleapis.com/tokeninfo",
             data={"access_token": self.access_token()},
+            allow_redirects=False,
             timeout=60,
         )
         assert info.status_code == 200, f"the token's info: HTTP {info.status_code}"
@@ -1789,7 +1790,7 @@ def test_a_vm_tier_run_reads_the_volume_from_its_image_on_a_machine_of_its_own(
         )
         assert link.status_code == 302, link.text[:300]
         assert urlsplit(link.headers["Location"]).hostname == "storage.googleapis.com"
-        got = requests.get(link.headers["Location"], timeout=120)
+        got = requests.get(link.headers["Location"], allow_redirects=False, timeout=120)
         assert got.status_code == 200, got.text[:300]
         return got.text
 

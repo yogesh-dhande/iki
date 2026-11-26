@@ -277,6 +277,33 @@ def test_its_run_input_is_made_from_the_manifests(
     assert list(root.iterdir()) == []
 
 
+def test_local_worker_receives_installed_formats(plugin: Path) -> None:
+    # The file parameter distinguishes shared FASTA extensions. The installed
+    # plugin can also recognize its own signature under an unfamiliar filename.
+    (plugin / "example.fa").write_text(">sample\nABC\n")
+    (plugin / "coordinates.bin").write_bytes(b"REMARK 700 MODEL example\n")
+    (plugin / "malformed.ab1").write_bytes(b"truncated fixture")
+    fixture(
+        plugin,
+        """apiVersion: iki/v1
+kind: ActionTest
+action: import_proteins
+params: {file: {$file: example}}
+files: {example: example.fa, model: coordinates.bin, malformed: malformed.ab1}
+""",
+    )
+    response: dict[str, object] = {"output": OUTPUT}
+    answer(plugin, **{"acme/protein.import_proteins": response})
+    assert run(plugin) == 0
+    seen = json.loads((plugin.parent / "seen.jsonl").read_text())
+    types = {Path(f["path"]).name: f["media_type"] for f in seen["input"]["files"].values()}
+    assert types == {
+        "example.fa": "chemical/seq-aa-fasta",
+        "coordinates.bin": "chemical/x-acme-model",
+        "malformed.ab1": "application/x-abi",
+    }
+
+
 def test_what_an_action_may_not_change_fails_it(
     plugin: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

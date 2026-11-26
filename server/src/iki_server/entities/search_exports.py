@@ -17,7 +17,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-__all__ = ["Column", "NoColumn", "columns", "text"]
+__all__ = ["Column", "NoColumn", "columns", "heading", "text"]
 
 #: A row: a record as :func:`text` reads it, its values and what they refer to, as the API
 #: gives them (``values``, ``refs``, ``files``, ``people``, ``request``), and its own
@@ -89,10 +89,10 @@ def columns(
             continue
         if key in fields:
             f = fields[key]
-            out.append(Column(key, _heading(f), _field_cell(f)))
+            out.append(Column(key, heading(f), _field_cell(f)))
         elif key in _OWN and (key not in ("asked_by", "sent_to") or request or not fields):
-            heading, cell = _OWN[key]
-            out.append(Column(key, heading, cell))
+            said, cell = _OWN[key]
+            out.append(Column(key, said, cell))
         else:
             where = entity_type["name"] if entity_type else "every entity"
             raise NoColumn(index, f"{where} has no column `{key}`.")
@@ -124,7 +124,8 @@ def _grid(entity_type: Mapping[str, Any] | None, request: bool, *, projects: boo
     ]
 
 
-def _heading(f: Mapping[str, Any]) -> str:
+def heading(f: Mapping[str, Any]) -> str:
+    """A field's column heading: its label, a quantity's with its unit."""
     label = str(f["label"])
     return f"{label} ({_unit(f)})" if f["type"] == "quantity" else label
 
@@ -152,8 +153,9 @@ def text(f: Mapping[str, Any], value: Any, row: Row) -> str:  # noqa: ANN401 - J
             for item in value
         )
     if isinstance(value, list):
+        # Items apart by "; ", as a spreadsheet import reads a list back (ADR 0178).
         item = {**f, "type": f.get("items") or "string"}
-        return ", ".join(text(item, v, row) for v in value)
+        return "; ".join(_item(text(item, v, row)) for v in value)
     kind = f["type"]
     if kind == "bool":
         return "Yes" if value is True else "No"
@@ -177,6 +179,14 @@ def text(f: Mapping[str, Any], value: Any, row: Row) -> str:  # noqa: ANN401 - J
     if kind == "state":
         return _state(f, value, row)
     return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+
+
+def _item(shown: str) -> str:
+    """A list's item as its cell holds it: in double quotes, a quote in it doubled, where
+    it holds a semicolon or starts with a quote, so the import reads it as one item."""
+    if ";" in shown or shown.startswith('"'):
+        return '"' + shown.replace('"', '""') + '"'
+    return shown
 
 
 def _shown(f: Mapping[str, Any], value: float) -> float:

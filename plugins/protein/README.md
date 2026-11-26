@@ -38,6 +38,11 @@ of proteins, two or many.
 alongside DNA. The plugin depends on the [dna plugin](../dna) for
 `encoded_by`.
 
+A project Admin can enable **Compute each new protein’s properties** to run
+the calculation when a new sequence is registered. For a lab that calculates
+properties after translation, the [translation workflow example](../../examples/plugins/protein_translation)
+shows how to chain the two operations in a lab-owned plugin.
+
 ## Actions
 
 Most run on backend workers, in the `protein-tools` environment (Python 3.12

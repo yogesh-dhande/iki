@@ -21,6 +21,7 @@ import {
 import {
   answer,
   calls,
+  CLEAN_SCAN,
   MAIN_REGISTRY,
   page,
   problem,
@@ -779,6 +780,7 @@ describe("file fields", () => {
     };
     const made = {
       id: MADE,
+      scan: CLEAN_SCAN,
       name: "1abc.pdb",
       media_type: "chemical/x-pdb",
       size: 12,
@@ -872,7 +874,14 @@ describe("file fields", () => {
       created_at: "2026-03-14T09:00:00Z",
       expires_at: "2026-03-15T09:00:00Z",
     };
-    const made = { ...upload, id: MADE, project: null, created_by: null, external: false };
+    const made = {
+      ...upload,
+      id: MADE,
+      scan: CLEAN_SCAN,
+      project: null,
+      created_by: null,
+      external: false,
+    };
     // A new answer for each call: the files upload side by side.
     answer("POST /api/v1/uploads", () =>
       respond(201, {
@@ -891,7 +900,7 @@ describe("file fields", () => {
     const group = screen.getByRole("group", { name: /^Traces/ });
     const several = within(group).getByLabelText("Or upload several at once");
     expect(several).toHaveAttribute("multiple");
-    expect(several).toHaveAttribute("accept", "chemical/x-pdb,.pdb,.ent");
+    await waitFor(() => expect(several).toHaveAttribute("accept", "chemical/x-pdb,.pdb,.ent"));
 
     // More than the list takes: none are added.
     await user.upload(
@@ -911,7 +920,7 @@ describe("file fields", () => {
     ]);
     expect(
       await within(group).findByText(
-        "notes.txt is a plain-text file. Choose a PDB (.pdb or .ent) file.",
+        "notes.txt is in plain-text format. Choose a file matching PDB (.pdb or .ent).",
       ),
     ).toBeInTheDocument();
     // Each file sent is one line, with Remove; the refused one's place is left to choose
@@ -954,12 +963,17 @@ describe("file fields", () => {
     answer("POST /api/v1/uploads", problem(503, "unavailable", "Storage is resting."));
     await renderApp("/projects/kinase-atlas/entities/new/?type=iki/protein.ProteinStructure");
     const structure = screen.getByRole("group", { name: "Structure" });
-    expect(structure).toHaveAccessibleDescription(
-      "It takes protein FASTA (.fasta, .fa or .faa) or plain-text files.",
+    await waitFor(() =>
+      expect(structure).toHaveAccessibleDescription(
+        "It takes protein FASTA (.fasta, .fa or .faa) or plain-text (.txt, .log, .aln, .a3m, .sto, .fasta or .fa) files.",
+      ),
     );
     const input = within(structure).getByLabelText("Upload a file");
     // The system's file chooser offers .fasta and .fa files too.
-    expect(input).toHaveAttribute("accept", "chemical/seq-aa-fasta,text/plain,.fasta,.fa,.faa");
+    expect(input).toHaveAttribute(
+      "accept",
+      "chemical/seq-aa-fasta,text/plain,.fasta,.fa,.faa,.txt,.log,.aln,.a3m,.sto",
+    );
     // UniProt's human insulin, as UniProt names its download; browsers give no type.
     const insulin =
       ">sp|P01308|INS_HUMAN Insulin OS=Homo sapiens OX=9606 GN=INS PE=1 SV=1\n" +
@@ -996,15 +1010,17 @@ describe("file fields", () => {
     // As if the browser's file chooser let it through: some do, for "All files".
     const user = userEvent.setup({ applyAccept: false });
     const structure = screen.getByRole("group", { name: "Structure" });
-    expect(structure).toHaveAccessibleDescription(
-      "It takes PDB (.pdb or .ent) files, up to 1.0 KiB.",
+    await waitFor(() =>
+      expect(structure).toHaveAccessibleDescription(
+        "It takes PDB (.pdb or .ent) files, up to 1.0 KiB.",
+      ),
     );
     const input = within(structure).getByLabelText("Upload a file");
     expect(input).toHaveAttribute("accept", "chemical/x-pdb,.pdb,.ent");
     await user.upload(input, new File(["x"], "notes.txt", { type: "text/plain" }));
     expect(
       await within(structure).findByText(
-        "notes.txt is a plain-text file. Choose a PDB (.pdb or .ent) file.",
+        "notes.txt is in plain-text format. Choose a file matching PDB (.pdb or .ent).",
       ),
     ).toBeInTheDocument();
     expect(calls("POST", "/api/v1/uploads")).toEqual([]);

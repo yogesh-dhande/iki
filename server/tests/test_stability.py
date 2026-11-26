@@ -17,6 +17,7 @@ from django.db import connection, transaction
 from django.utils import timezone
 from first_party_dependencies import PLUGINS, ROOT, build_order
 from org_world import build_world
+from scan_fixtures import clean_blob
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, ready, signed
 
@@ -25,7 +26,7 @@ from iki_server.amounts import services as amounts
 from iki_server.amounts.models import Amount, DrawPurpose, Movement
 from iki_server.entities import registry, services, states
 from iki_server.entities.models import Entity
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
 from iki_server.org.models import LabRoleGrant
 from iki_server.org.services import Refused
 from iki_server.runs import catalog, queue, results
@@ -76,6 +77,20 @@ def test_schedule_checks_the_material_declared_by_the_lot(
     del lot["material_field"]
     with pytest.raises(ValueError, match="material"):
         schedule(schedule_input)
+
+
+def test_schedule_uses_the_physical_isolate_as_the_material(schedule_input: dict[str, Any]) -> None:
+    schedule = runpy.run_path(str(PLUGIN / "scripts" / "stability.py"))["schedule"]
+    study = schedule_input["inputs"]["study"][0]
+    lot = study["included"]["lot"][0]
+    lot.update(type="iki/lots.StrainIsolate", material_field="id", values={"strain": "design"})
+    for material in ("design", "other-isolate"):
+        study["values"]["material"] = material
+        with pytest.raises(ValueError, match="material does not match"):
+            schedule(schedule_input)
+    study["values"]["material"] = lot["id"]
+    [pull] = schedule(schedule_input)["creates"]
+    assert pull["values"]["lot"] == lot["id"]
 
 
 def test_a_tube_can_supply_repeated_pulls_only_under_one_storage_condition(
@@ -255,10 +270,11 @@ def exercise_stability() -> None:
             name="Synthetic report.csv",
             media_type="text/csv",
             project=world.project,
-            blob=Blob.objects.get_or_create(
+            blob=clean_blob(
                 sha256="e" * 64,
-                defaults={"size": 22, "storage_uri": "s3://test/stability-report"},
-            )[0],
+                size=22,
+                storage_uri="s3://test/stability-report",
+            ),
         )
         run, doc = start("record_measurement", "pull", pull, test="Demo peak area", value=1.25)
         commit(run, workflow.measure(doc))

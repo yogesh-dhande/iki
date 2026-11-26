@@ -14,7 +14,7 @@ set -euo pipefail
 # (the units' licence ships inside iki_spec).
 is_docs() {
   case "$1" in
-    plugins/* | plugin-template/* | */src/*) return 1 ;;
+    plugins/* | examples/plugins/* | plugin-template/* | */src/*) return 1 ;;
     docs/* | *.md) return 0 ;;
     *) return 1 ;;
   esac

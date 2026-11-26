@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ikisci.org/schemas/trigger/v1",
   "title": "Iki trigger (iki/v1)",
-  "description": "Runs one of the plugin's actions by itself: when an entity of a type is created or changed, or on a schedule. It runs in a project only after one of the project's Admins turns it on there.",
+  "description": "Runs one of the plugin's actions by itself: when an entity of a type is created or changed, when a request arrives at a service, or on a schedule. It runs in a project only after one of the project's Admins turns it on there.",
   "type": "object",
   "required": ["apiVersion", "kind", "name", "on", "run"],
   "properties": {
@@ -23,12 +23,13 @@
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
     },
     "on": {
-      "description": "What fires it: an entity of its type created (`entity.created`, for each project's new record) or changed (`entity.updated`), a new registry entry of a type with an identity registered (`entity.registered`, once for each identity in a registry, by the record that registered it: ADR 0115), one of a record's state fields set (`entity.state_changed`: ADR 0125), or the time coming round (`schedule`). Changes a triggered run makes never fire a trigger.",
+      "description": "What fires it: an entity of its type created (`entity.created`, for each project's new record) or changed (`entity.updated`), a new registry entry of a type with an identity registered (`entity.registered`, once for each identity in a registry, by the record that registered it: ADR 0115), one of a record's state fields set (`entity.state_changed`: ADR 0125), a request of its type sent to the project as a service (`request.received`, in the service's project, once: ADR 0232), or the time coming round (`schedule`). On a schedule or a request's arrival, its runs are launched as a service account the Admin who turns it on chooses. Changes a triggered run makes never fire a trigger.",
       "enum": [
         "entity.created",
         "entity.registered",
         "entity.state_changed",
         "entity.updated",
+        "request.received",
         "schedule"
       ]
     },
@@ -45,7 +46,7 @@
       "maxLength": 64
     },
     "type": {
-      "description": "For `entity.created`, `entity.registered`, `entity.state_changed` and `entity.updated`: the entities it fires for, with their subtypes.",
+      "description": "For `entity.created`, `entity.registered`, `entity.state_changed`, `entity.updated` and `request.received` (a request type): the entities it fires for, with their subtypes.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
     },
     "fields": {

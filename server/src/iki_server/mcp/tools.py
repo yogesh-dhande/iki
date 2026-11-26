@@ -9,6 +9,7 @@ marker the data itself can't guess (ADR 0013).
 import json
 import secrets
 from collections.abc import Sequence
+from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -23,8 +24,10 @@ from iki_server.api.entities import Condition, SortIn
 from iki_server.api.graph import FollowedName
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT
 from iki_server.api.runs import MAX_BATCH
+from iki_server.entities.record_exports import MAX_RECORDS
+from iki_server.files.listing import Sort as FileSort
 from iki_server.graph import queries
-from iki_server.mcp.api import call, path, web_url
+from iki_server.mcp.api import Query, call, path, web_url
 from iki_server.runs.models import RunStatus
 
 INSTRUCTIONS = """\
@@ -54,6 +57,7 @@ CHANGE = ToolAnnotations(
 )
 
 Ref = Annotated[str, Field(description="Its ID, or its HRID such as PRT-000123.", max_length=64)]
+ExportId = Annotated[UUID, Field(description="The export's ID, as export_entities gave it.")]
 Depth = Annotated[
     int,
     Field(ge=1, le=queries.MAX_DEPTH, description="How many edges away, at most."),
@@ -76,6 +80,7 @@ Cursor = Annotated[
     str | None, Field(description="To get the next page: the last page's next_cursor.")
 ]
 Limit = Annotated[int, Field(ge=1, le=MAX_LIMIT, description="Items per page.")]
+FileId = Annotated[UUID, Field(description="The file's ID from find_files or a file field.")]
 Revision = Annotated[
     int,
     Field(
@@ -210,6 +215,49 @@ class AmountIn(BaseModel):
     unit: str = Field(max_length=50, description="Its UCUM unit, such as uL, mg or umol.")
 
 
+class SheetRow(BaseModel):
+    """A row of a sheet: a record's, or a new one's."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(max_length=64, description="Yours, to match the answer's rows to these.")
+    entity: UUID | None = Field(default=None, description="The record's ID; none for a new one.")
+    revision: int | None = Field(
+        default=None, ge=1, description="The record's revision whose values you read."
+    )
+    cells: dict[str, str | None] = Field(
+        default_factory=dict,
+        description="Only the fields that change, each its cell's text: `98.5`, `1.2 mg/mL`, "
+        "`2027-04-03`, a reference's HRID or name, a list's items with `;` between. "
+        "An empty cell unsets it.",
+    )
+    location: str | None = Field(
+        default=None,
+        max_length=200,
+        description="A new record's place: a container's HRID, code or name, then a position "
+        "(`BOX-000002 A1`); just the container takes its next free position.",
+    )
+    amount: str | None = Field(
+        default=None,
+        max_length=100,
+        description="A new record's starting amount, such as `500` (its type's unit) or `0.5 mL`.",
+    )
+
+
+class SheetLocale(BaseModel):
+    """How a sheet's text writes numbers and dates."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decimal: Literal["point", "comma"] | None = Field(default=None, description="Its decimal mark.")
+    dates: Literal["day_first", "month_first"] | None = Field(
+        default=None, description="Whether 03/04 is the 3rd of April or March 4th."
+    )
+    time_zone: str | None = Field(
+        default=None, max_length=64, description="Its times' zone, such as Europe/Berlin."
+    )
+
+
 Inputs = Annotated[
     dict[str, UUID | list[UUID]],
     Field(
@@ -341,6 +389,118 @@ def build() -> MCPServer:
         list_projects says which the person holds where. Only people give them, in Iki."""
         return answer(await call("GET", "/lab-roles"))
 
+    @server.tool(annotations=READ, title="Find files")
+    async def find_files(
+        project: Annotated[UUID | None, Field(description="Only this project's files.")] = None,
+        q: Annotated[
+            str | None,
+            Field(
+                max_length=255,
+                description="Part of the name, or of what the file states (instrument, serial "
+                "number, operator, software, protocol, read groups), in any case.",
+            ),
+        ] = None,
+        format: Annotated[
+            list[str] | None,
+            Field(
+                max_length=50,
+                description="Format IDs, media types or families, such as iki/core.csv or image/*.",
+            ),
+        ] = None,
+        acquired_from: Annotated[
+            date | None, Field(description="Acquired on this day or later.")
+        ] = None,
+        acquired_to: Annotated[
+            date | None, Field(description="Acquired on this day or earlier.")
+        ] = None,
+        sample: Annotated[
+            str | None,
+            Field(
+                max_length=64,
+                description="A sample's ID or HRID. Includes files from runs that read it.",
+            ),
+        ] = None,
+        run: Annotated[
+            str | None,
+            Field(max_length=64, description="A run's ID or HRID. Includes files it read or made."),
+        ] = None,
+        accepts: Annotated[
+            list[str] | None,
+            Field(
+                max_length=50,
+                description="Format IDs, media types or families a field or parameter takes.",
+            ),
+        ] = None,
+        max_size: Annotated[int | None, Field(ge=0, description="Maximum size in bytes.")] = None,
+        sort: Annotated[
+            FileSort,
+            Field(
+                description="newest or oldest added, name (A to Z) or name_desc, acquired "
+                "(latest first) or acquired_oldest. Unknown acquisition dates come last."
+            ),
+        ] = "newest",
+        limit: Limit = DEFAULT_LIMIT,
+        cursor: Cursor = None,
+    ) -> CallToolResult:
+        """Find files as in Iki's Files list. Each item has the file's ID and counts of the
+        records and runs you can read that use it. Pass next_cursor to continue. The total
+        stops at 1,000, with more_than_total true when more match. Each formats entry gives
+        the format ID if declared, its label, media type and count under the other filters.
+        A format's aliases count together. Each file gives the facts it states (instrument,
+        serial, operator, software, protocol). Use get_file for its read groups, origin and
+        uses."""
+        filters: Query = {
+            "project": str(project) if project else None,
+            "q": q,
+            "format": format,
+            "acquired_from": acquired_from.isoformat() if acquired_from else None,
+            "acquired_to": acquired_to.isoformat() if acquired_to else None,
+            "sample": sample,
+            "run": run,
+            "accepts": accepts,
+            "max_size": max_size,
+        }
+        page = await call(
+            "GET", "/files", query={**filters, "sort": sort, "limit": limit, "cursor": cursor}
+        )
+        count = await call("GET", "/files/count", query=filters)
+        formats = await call("GET", "/files/formats", query=filters)
+        return answer({**page, **count, "formats": formats})
+
+    @server.tool(annotations=READ, title="Get a file")
+    async def get_file(
+        file_id: FileId,
+        limit: Limit = DEFAULT_LIMIT,
+        records_cursor: Annotated[
+            str | None, Field(description="The previous records.next_cursor.")
+        ] = None,
+        runs_cursor: Annotated[
+            str | None, Field(description="The previous runs.next_cursor.")
+        ] = None,
+    ) -> CallToolResult:
+        """Read a file's metadata, SHA-256, byte size, acquisition date, samples and origin
+        (including the URI and pinned version for a registration), and what the file states
+        about itself: its facts (instrument, serial, operator, software, protocol, each with
+        where in the file it's stated) and a SAM or BAM file's read groups. The records page
+        gives the revisions that held it. The runs page lists the runs that read or made it.
+        Each has its own next_cursor. file.scan gives the malware scan status. When
+        file.scan.usable is true, get_file_download_link can issue a link to the bytes."""
+        where = path("/files/{id}", id=str(file_id))
+        file = await call("GET", where)
+        records = await call(
+            "GET", f"{where}/records", query={"limit": limit, "cursor": records_cursor}
+        )
+        runs = await call("GET", f"{where}/runs", query={"limit": limit, "cursor": runs_cursor})
+        return answer({"file": file, "records": records, "runs": runs})
+
+    @server.tool(annotations=READ, title="Get a file download link")
+    async def get_file_download_link(file_id: FileId) -> CallToolResult:
+        """Get a signed URL for the file's bytes, its expiry (five minutes) and the SHA-256
+        to check after download. Anyone holding the URL can read the bytes until it expires.
+        Use it without sending an Iki token. A held file returns its scan problem. Issuing
+        a link is audited."""
+        return answer(await call("GET", path("/files/{id}/content-url", id=str(file_id))))
+
     @server.tool(annotations=READ, title="List entity types")
     async def list_entity_types() -> CallToolResult:
         """Every installed entity type: its name (such as iki/dna.DNASequence), label,
@@ -384,6 +544,14 @@ def build() -> MCPServer:
             ),
         ] = None,
         sort: Annotated[SortIn | None, Field(description="A field to sort by.")] = None,
+        then: Annotated[
+            list[SortIn] | None,
+            Field(
+                max_length=3,
+                description="Further sorts, in order, for what sort ties: a queue by its "
+                "service's ranking, then priority, then needed_by.",
+            ),
+        ] = None,
         archived: Annotated[
             bool | None, Field(description="false (the default): current ones only.")
         ] = False,
@@ -407,6 +575,8 @@ def build() -> MCPServer:
             body["where"] = where.model_dump(by_alias=True, exclude_unset=True)
         if sort is not None:
             body["sort"] = sort.model_dump(by_alias=True, exclude_unset=True)
+        if then:
+            body["then"] = [t.model_dump(by_alias=True, exclude_unset=True) for t in then]
         return answer(
             await call(
                 "POST", "/entities/search", body={k: v for k, v in body.items() if v is not None}
@@ -436,6 +606,93 @@ def build() -> MCPServer:
             "project": str(project) if project else None,
         }
         return answer(await call("GET", "/entities/lookup", query=query))
+
+    @server.tool(annotations=ADD, title="Export entities as one file")
+    async def export_entities(
+        format: Annotated[
+            Literal["genbank", "fasta", "protein-fasta", "sdf"],
+            Field(
+                description="A format every one of their types exports, of which many make "
+                "one file: describe_entity_type lists its exports' formats (many: file)."
+            ),
+        ],
+        entities: Annotated[
+            list[Ref] | None,
+            Field(
+                max_length=MAX_RECORDS,
+                description="These entities, in this order. Or leave it out to export every "
+                "one the search (type, project, q, where, archived, collection) finds.",
+            ),
+        ] = None,
+        type: Annotated[
+            str | None, Field(description="This type and its subtypes, such as iki/dna.Primer.")
+        ] = None,
+        project: Annotated[UUID | None, Field(description="Only this project's.")] = None,
+        q: Annotated[
+            str | None, Field(max_length=200, description="Text in their HRID or title.")
+        ] = None,
+        where: Annotated[
+            Condition | None, Field(description="Conditions on fields, as search_entities takes.")
+        ] = None,
+        sort: Annotated[SortIn | None, Field(description="A field to sort by.")] = None,
+        archived: Annotated[
+            bool | None, Field(description="false (the default): current ones only.")
+        ] = False,
+        collection: Annotated[
+            str | None, Field(description="Only members of this collection (ID or HRID).")
+        ] = None,
+        fields: Annotated[
+            list[str] | None,
+            Field(
+                max_length=500,
+                description="For SDF: the fields it carries as data. All it can, if left out.",
+            ),
+        ] = None,
+    ) -> CallToolResult:
+        """Entities the person can read, as one FASTA, GenBank or SDF file (ADR 0229), up to
+        10,000, each at the revision it has now. Up to 100 are written straight away; more
+        in the background: get_entity_export says how far it's got. Once its state is
+        ready, get_entity_export_download_link gives the file. A record the format can't be
+        written for fails it, and `refused` says which and why; `notes` says what the
+        file couldn't hold of each record. Asking is audited."""
+        body: dict[str, Any] = {"format": format, "fields": fields}
+        if entities is not None:
+            body["entities"] = entities
+            body["project"] = str(project) if project else None
+        else:
+            search: dict[str, Any] = {
+                "type": type,
+                "project": str(project) if project else None,
+                "q": q,
+                "archived": archived,
+                "collection": collection,
+            }
+            if where is not None:
+                search["where"] = where.model_dump(by_alias=True, exclude_unset=True)
+            if sort is not None:
+                search["sort"] = sort.model_dump(by_alias=True, exclude_unset=True)
+            body["search"] = {k: v for k, v in search.items() if v is not None}
+        return answer(
+            await call(
+                "POST", "/entity-exports", body={k: v for k, v in body.items() if v is not None}
+            )
+        )
+
+    @server.tool(annotations=READ, title="Get an export of entities")
+    async def get_entity_export(export_id: ExportId) -> CallToolResult:
+        """An export the person asked for: its state (queued, writing, ready, failed or
+        expired), how many of its records are written (done of count), and once it's ready,
+        its file's name, size and SHA-256 and what it couldn't hold of each record."""
+        return answer(await call("GET", path("/entity-exports/{id}", id=str(export_id))))
+
+    @server.tool(annotations=READ, title="Get an export's download link")
+    async def get_entity_export_download_link(export_id: ExportId) -> CallToolResult:
+        """A signed URL for a ready export's file, its expiry (five minutes) and the
+        SHA-256 to check after download. Anyone holding the URL can read the bytes until it
+        expires. Use it without sending an Iki token. Each link is audited as a download."""
+        return answer(
+            await call("GET", path("/entity-exports/{id}/content-url", id=str(export_id)))
+        )
 
     @server.tool(annotations=READ, title="Get an entity")
     async def get_entity(
@@ -681,6 +938,69 @@ def build() -> MCPServer:
                 body={"state": state, "reason": reason},
                 if_match=f'"{revision}"',
             )
+        )
+
+    @server.tool(annotations=READ, title="Check many records' changes, as a sheet's")
+    async def check_record_sheet(
+        project: Annotated[UUID, Field(description="The project whose records these are.")],
+        type: Annotated[str, Field(description="Their type, such as acme/protein.Sample.")],
+        rows: Annotated[
+            list[SheetRow],
+            Field(min_length=1, max_length=200, description="Up to 200 rows at a time."),
+        ],
+        locale: Annotated[
+            SheetLocale | None,
+            Field(description="How the cells write numbers and dates, when they're text."),
+        ] = None,
+    ) -> CallToolResult:
+        """What saving many records' changes at once would do, changing nothing (ADR 0228):
+        each row a record's, at the revision you read, or a new one's, with its cells as a
+        spreadsheet's text, read as an import reads them. Each row comes back with what it
+        would do (`kind`), its `values` as read, which save_record_sheet takes, and its
+        `problems`, each at its cell. A cell that reads two ways (03/04/2027, 1,234) is a
+        problem until `locale` says how; never guess it. Show the person the changes and
+        problems before saving."""
+        body: dict[str, Any] = {
+            "type": type,
+            "rows": [r.model_dump(mode="json", exclude_none=True) for r in rows],
+        }
+        if locale is not None:
+            body["locale"] = locale.model_dump(mode="json", exclude_none=True)
+        return answer(
+            await call("POST", path("/projects/{p}/sheet-edits/check", p=str(project)), body=body)
+        )
+
+    @server.tool(annotations=CHANGE, title="Save many records' changes, all or none")
+    async def save_record_sheet(
+        project: Annotated[UUID, Field(description="The project whose records these are.")],
+        type: Annotated[str, Field(description="Their type, such as acme/protein.Sample.")],
+        rows: Annotated[
+            list[dict[str, Any]],
+            Field(
+                min_length=1,
+                max_length=1000,
+                description="The rows check_record_sheet returned, as it returned them: each "
+                "row's key, entity and revision, values, and a new one's location and amount.",
+            ),
+        ],
+        reason: Reason,
+        hold_reason: HoldReason = "",
+    ) -> CallToolResult:
+        """Saves what check_record_sheet checked, each change a revision with the reason,
+        every row or none. A record changed since its revision refuses it all (412): check
+        again. So does any row's problem, each named at its row and cell."""
+        kept = ("key", "entity", "revision", "values", "location", "amount")
+        sent = []
+        for row in rows:
+            one = {k: row[k] for k in kept if row.get(k) is not None}
+            if isinstance(place := one.get("location"), dict):
+                one["location"] = {k: place.get(k) for k in ("container", "position")}
+            sent.append(one)
+        body: dict[str, Any] = {"type": type, "reason": reason, "rows": sent}
+        if hold_reason:
+            body["hold_reason"] = hold_reason
+        return answer(
+            await call("POST", path("/projects/{p}/sheet-edits", p=str(project)), body=body)
         )
 
     @server.tool(annotations=READ, title="List the services a project may ask")
@@ -1188,9 +1508,7 @@ def build() -> MCPServer:
 
     @server.tool(annotations=READ, title="Describe a workflow")
     async def describe_workflow(
-        name: Annotated[
-            str, Field(description="Its name, such as protein.translate_and_characterize.")
-        ],
+        name: Annotated[str, Field(description="A qualified workflow name from list_workflows.")],
     ) -> CallToolResult:
         """One workflow: its inputs, params (with a JSON Schema), and its steps in the order
         they start: the action each runs, where each input comes from, what it waits for,
@@ -1199,9 +1517,7 @@ def build() -> MCPServer:
 
     @server.tool(annotations=ADD, title="Run a workflow")
     async def run_workflow(
-        name: Annotated[
-            str, Field(description="The workflow, such as protein.translate_and_characterize.")
-        ],
+        name: Annotated[str, Field(description="The qualified name returned by list_workflows.")],
         project: Annotated[
             UUID, Field(description="Where its steps run. Entities they create belong to it.")
         ],

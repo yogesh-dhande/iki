@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { answer, calls, respond } from "./test-server";
+import { answer, calls, CLEAN_SCAN, respond } from "./test-server";
 import { sha256Of, timing, upload, uploadError, type Progress } from "./uploads";
 
 const UPLOAD_ID = "00000000-0000-7000-8000-0000000b0001";
@@ -66,6 +66,7 @@ const FILE = {
   created_by: null,
   created_at: "2026-03-14T09:00:00Z",
   external: false,
+  scan: CLEAN_SCAN,
 };
 
 beforeEach(() => {
@@ -103,7 +104,7 @@ describe("uploading", () => {
     let checks = 0;
     answer("GET /api/v1/uploads/" + UPLOAD_ID, () => {
       checks += 1;
-      return checks < 2 ? started({ state: "checking" }) : started({ state: "ready", file: FILE });
+      return checks < 2 ? started({ state: "scanning" }) : started({ state: "ready", file: FILE });
     });
     // Part 1 goes through; part 2's URL has expired.
     FakeStorage.answers = [200, 403, 200];
@@ -129,7 +130,43 @@ describe("uploading", () => {
     expect(calls("POST", "/api/v1/uploads/" + UPLOAD_ID + "/parts")[0]?.body).toEqual({
       numbers: [2],
     });
-    expect(new Set(seen)).toEqual(new Set(["hashing", "sending", "checking"]));
+    expect(new Set(seen)).toEqual(new Set(["hashing", "sending", "checking", "scanning"]));
+  });
+
+  it("retains a quarantined upload and reports the hold to the person attaching it", async () => {
+    answer("POST /api/v1/uploads", respond(201, started({ state: "scanning", parts: [] })));
+    answer(
+      "GET /api/v1/uploads/" + UPLOAD_ID,
+      started({
+        state: "ready",
+        file: { ...FILE, scan: { state: "infected", usable: false } },
+      }),
+    );
+    const file = new File([], "plate.csv");
+    await expect(upload(file, PROJECT_ID, () => undefined)).rejects.toThrow(
+      "Iki quarantined plate.csv",
+    );
+    expect(FakeStorage.puts).toEqual([]);
+    expect(calls("DELETE", "/api/v1/uploads/" + UPLOAD_ID)).toEqual([]);
+  });
+
+  it("reports when the upload finished and the file is no longer readable", async () => {
+    answer("POST /api/v1/uploads", respond(201, started()));
+    answer("POST /api/v1/uploads/" + UPLOAD_ID + "/complete", respond(202, { state: "checking" }));
+    answer("GET /api/v1/uploads/" + UPLOAD_ID, { state: "ready", file: null, error: "" });
+    const file = new File(["0123456789"], "plate.csv", { type: "text/csv" });
+    await expect(upload(file, PROJECT_ID, () => undefined)).rejects.toThrow(
+      "The upload finished. You no longer have access to the file.",
+    );
+  });
+
+  it("reports lost access immediately when the upload starts ready without a file", async () => {
+    answer("POST /api/v1/uploads", respond(201, started({ state: "ready", parts: [] })));
+    const file = new File([], "plate.csv");
+    await expect(upload(file, PROJECT_ID, () => undefined)).rejects.toThrow(
+      "The upload finished. You no longer have access to the file.",
+    );
+    expect(calls("GET", "/api/v1/uploads/" + UPLOAD_ID)).toEqual([]);
   });
 
   it("gives up on a part after a few tries, saying why", async () => {

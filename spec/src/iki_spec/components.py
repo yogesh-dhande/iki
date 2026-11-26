@@ -383,7 +383,14 @@ class _Search:
         if kind is None:
             return
         op = node["op"]
-        allowed = ("is_set", *conditions.operators(kind, found.format if found else None))
+        allowed = (
+            "is_set",
+            *conditions.operators(
+                kind,
+                found.format if found else None,
+                searchable=found.searchable if found else True,
+            ),
+        )
         if op not in allowed:
             self.add(
                 "unknown-operator",

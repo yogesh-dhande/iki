@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/lots
-version: 0.5.0
+version: 0.7.0
 title: Lots
 description: >-
   Lots of any registered entity: what was made or bought at one time, how much of it is
@@ -10,10 +10,12 @@ description: >-
   it. Oligonucleotide synthesis lots with their mass by ESI-MS checked against the
   computed one, plasmid preps with signed verification evidence, lots of proteins and
   complexes with their concentration by A280, conjugate lots with their DAR, polymer
-  lots with their Mn, Mw and dispersity, and generic lots of other registered entities.
+  lots with their Mn, Mw and dispersity, microbial strain isolates and their glycerol stocks,
+  and generic lots of other registered entities.
 license: Apache-2.0
 iki: ">=0.1"
 homepage: https://ikisci.org/plugins/lots
+starters: { plasmid-prep-verification: "1.0.0" }
 dependencies:
   iki/conjugate:
     types:
@@ -24,6 +26,13 @@ dependencies:
   iki/protein:
     types:
       Protein: ">=3"
+  iki/inventory:
+    types:
+      Tube: ">=1"
+  iki/strains:
+    types:
+      BaseStrain: ">=1"
+      TransformedStrain: ">=1"
   iki/oligo:
     types:
       Oligonucleotide: ">=1"
@@ -38,7 +47,9 @@ settings:
     default: research
     description: >-
       Research requires a single reviewer signature. Regulated QC requires signed submission,
-      independent review and QA release. Each verification keeps the choice made at recording.
+      independent review and QA release. The deployment's default for projects that haven't
+      chosen one with the Plasmid prep verification starter. Each verification keeps the
+      choice in force when it was recorded.
 roles:
   verification_analyst:
     label: Verification analyst

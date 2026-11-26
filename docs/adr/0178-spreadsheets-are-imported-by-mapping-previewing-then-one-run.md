@@ -95,6 +95,8 @@ A cell is read as its field:
   entries have is a problem naming their HRIDs; of several, the project's own
   is meant.
 - **Lists** are split by `;` (or the column's separator), and each item read.
+  An item in double quotes is read whole, a doubled quote in it as one, as
+  Iki's CSV download writes an item that holds the separator.
 - **Enumerations** and **truth values** match their choices in any case, and
   the column can say what its own spellings mean (`circ.` is circular).
 - **Dates and times** are ISO 8601, `1 Mar 2026`, or numbers in the sheet's

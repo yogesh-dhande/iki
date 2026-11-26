@@ -98,3 +98,99 @@ params:
     packs: 2,
   }
 expect: { error: up to the 1 outstanding }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: count_the_tubes_already_on_the_shelf
+action: receive_stock
+description: >-
+  A lab starting to count its stock records a synthetic rack of Corning 430790 already on its
+  shelf. There is no order, so no reorder line, and the count sheet is the receipt document.
+inputs:
+  item:
+    - values:
+        {
+          name: Corning 15 mL centrifuge tubes,
+          supplier: Corning,
+          catalogue_number: "430790",
+          stock_unit: "1",
+          pack_size: 50,
+        }
+  storage: [{ values: { name: Synthetic cabinet } }]
+params:
+  {
+    received_as: opening_balance,
+    delivery_note: SYNTH-COUNT-2026-11,
+    delivery_line: Cabinet 2,
+    received_on: "2026-11-02",
+    lot_number: SYNTH-LOT-03,
+    packs: 1,
+  }
+expect:
+  output:
+    creates:
+      - type: iki/reagents.CountStockLot
+        values:
+          {
+            received_as: opening_balance,
+            packs: 1,
+            source: bought,
+            supplier: Corning,
+            delivery_note: SYNTH-COUNT-2026-11,
+            delivery_line: Cabinet 2,
+          }
+        receipt:
+          amount: { value: "50", unit: "1" }
+          reason: Opening stock, count SYNTH-COUNT-2026-11, line Cabinet 2.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_transfer_names_its_sender
+action: receive_stock
+inputs:
+  item:
+    - values:
+        {
+          name: Corning 15 mL centrifuge tubes,
+          supplier: Corning,
+          catalogue_number: "430790",
+          stock_unit: "1",
+          pack_size: 50,
+        }
+  storage: [{ values: { name: Synthetic cabinet } }]
+params:
+  {
+    received_as: transfer,
+    delivery_note: SYNTH-TR-07,
+    delivery_line: "1",
+    received_on: "2026-11-02",
+    lot_number: SYNTH-LOT-04,
+    packs: 2,
+  }
+expect: { error: the transfer came from }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_lab_that_receives_only_against_orders_refuses_a_direct_receipt
+action: receive_stock
+settings: { receipts_without_order: refused }
+inputs:
+  item:
+    - values:
+        {
+          name: Corning 15 mL centrifuge tubes,
+          supplier: Corning,
+          catalogue_number: "430790",
+          stock_unit: "1",
+          pack_size: 50,
+        }
+  storage: [{ values: { name: Synthetic cabinet } }]
+params:
+  {
+    delivery_note: SYNTH-DEL-05,
+    delivery_line: "1",
+    received_on: "2026-11-02",
+    lot_number: SYNTH-LOT-05,
+    packs: 1,
+  }
+expect: { error: only against a reorder line }

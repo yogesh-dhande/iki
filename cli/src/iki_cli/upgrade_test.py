@@ -104,10 +104,18 @@ def run(
         if _built(directory, dependencies, work / "build-current", err) is None:
             return False
         sample_source = "earlier"
+        current = _samples(directory, plugin, types, marked_only=True)
         if not marked:
-            marked = _samples(directory, plugin, types, marked_only=True)
+            marked = current
             sample_source = "current"
         samples = marked or fallback
+        # Inputs can come from the earlier commit. Expectations describe this candidate.
+        expected = {s["from"]: s["after"] for s in current if s.get("after")}
+        for sample in samples:
+            sample["after"] = expected.pop(sample["from"], {})
+        if expected:
+            err.write("No upgrade sample matches after for " + ", ".join(expected) + ".\n")
+            return False
         steps = [
             (
                 "before",
@@ -289,7 +297,7 @@ def _built(
     loaded = []
     for d in [directory, *dependencies]:
         others = [o for o in [directory, *dependencies] if o != d]
-        result = _load(d, others, err, require_setting_policy=not historical)
+        result = _load(d, others, err, historical=historical)
         if result is None or result.plugin is None:
             return None
         loaded.append((result.plugin, d))
@@ -326,6 +334,8 @@ def _samples(
                 type_name = entity.get("type") or test.action.inputs[name].type
                 label = f"{test.name}'s {name} {n}"
                 sample = _sample(type_name, entity, label)
+                if marked_only and name in test.after:
+                    sample["after"] = test.after[name][n - 1]
                 if marked_only and entity.get("included"):
                     fields = action_tests.fields_of(every[type_name], every)
                     included = {}

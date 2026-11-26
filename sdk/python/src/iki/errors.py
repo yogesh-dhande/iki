@@ -171,7 +171,15 @@ class ImportFailed(IkiError):
 
 
 class TimedOut(IkiError):
-    """Waiting took longer than you allowed. The run or file check continues."""
+    """Waiting took longer than you allowed. The run or file check continues.
+
+    For a file, ``pending`` names the upload or registration Iki is still checking,
+    such as ``{"upload": "…"}``: ``iki.files.wait(error.pending)`` waits for it again,
+    without sending the file a second time."""
+
+    def __init__(self, message: str, *, pending: dict[str, str] | None = None) -> None:
+        super().__init__(message)
+        self.pending = pending
 
 
 _BY_STATUS: dict[int, type[ApiError]] = {

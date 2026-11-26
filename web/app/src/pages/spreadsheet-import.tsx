@@ -32,6 +32,7 @@ import { formatSize, inSentence, typesQuery, type EntityType } from "../entities
 import { FilePicker } from "../file-picker";
 import { UploadStatus } from "../file-upload";
 import { usePageTitle } from "../layout";
+import { useMedia } from "../media";
 import {
   CHOICES,
   columnName,
@@ -57,8 +58,7 @@ import {
   startImport,
   STATES,
   useImportSaves,
-  WORKBOOK_ACCEPT,
-  WORKBOOK_TYPES,
+  WORKBOOK_FORMATS,
   type Choose,
   type ImportSaves,
   type Outcome,
@@ -83,7 +83,8 @@ import {
   TextField,
   useMessages,
 } from "../ui";
-import { upload, uploadError, type Progress } from "../uploads";
+import { templateUrl } from "../sheet";
+import { progressLabel, upload, uploadError, type Progress } from "../uploads";
 import { useProject } from "./project-overview";
 
 /** The types a sheet's rows can become: those whose records can be made. */
@@ -174,6 +175,7 @@ export function ChooseWorkbook({
   onStarted: (made: SheetImport) => void;
 }) {
   const id = useId();
+  const media = useMedia();
   const choices = importableTypes(types);
   const [type, setType] = useState(given && choices.some((t) => t.name === given) ? given : "");
   const [file, setFile] = useState<File>();
@@ -199,13 +201,12 @@ export function ChooseWorkbook({
     const controller = new AbortController();
     transfer.current = controller;
     try {
-      const kind = /\.(csv|tsv|txt)$/i.test(chosen.name) ? "text/csv" : WORKBOOK_TYPES[0];
       const uploaded = await upload(
         chosen,
         project.id,
         setProgress,
         controller.signal,
-        kind,
+        WORKBOOK_FORMATS,
         acquiredAt,
       );
       onStarted(await startImport(project.id, uploaded.id, type));
@@ -253,16 +254,27 @@ export function ChooseWorkbook({
           ...choices.map((t) => ({ value: t.name, label: t.label_plural })),
         ]}
       />
+      {type ? (
+        // A sheet to fill in, its headings the fields an import sets (ADR 0228).
+        <p className="field-help">
+          <a href={templateUrl(type)} download>
+            Download the import template
+          </a>{" "}
+          for {inSentence(choices.find((t) => t.name === type)?.label_plural ?? "these records")}: a
+          CSV file with a heading for each field, its unit in brackets, to fill in or send to a
+          collaborator.
+        </p>
+      ) : null}
       {file && progress ? (
         <div className="upload">
           <p className="visually-hidden" role="status">
-            {progress.phase === "checking" ? `Checking ${file.name}` : `Uploading ${file.name}`}
+            {progressLabel(progress, file.name)}
           </p>
           <p aria-hidden="true">
             <UploadStatus name={file.name} progress={progress} />
           </p>
-          {progress.phase === "checking" ? (
-            <progress aria-label={`Checking ${file.name}`} />
+          {progress.phase === "checking" || progress.phase === "scanning" ? (
+            <progress aria-label={progressLabel(progress, file.name)} />
           ) : (
             <>
               <progress
@@ -290,7 +302,7 @@ export function ChooseWorkbook({
               ref={input}
               id={`${id}-file`}
               type="file"
-              accept={WORKBOOK_ACCEPT}
+              accept={media.accept(WORKBOOK_FORMATS)}
               disabled={starting !== undefined}
               aria-invalid={error ? "true" : undefined}
               aria-describedby={error ? `${id}-error` : `${id}-help`}
@@ -332,7 +344,7 @@ export function ChooseWorkbook({
         }}
         projectId={project.id}
         label="the import"
-        takes={{ accepts: WORKBOOK_TYPES, maxSize: WORKBOOK_MAX_SIZE }}
+        takes={{ accepts: WORKBOOK_FORMATS, maxSize: WORKBOOK_MAX_SIZE }}
         onChoose={([chosen]) => {
           if (chosen) void pick(chosen.id, chosen.name);
         }}

@@ -31,19 +31,22 @@ Dunnen et al. 2016, https://doi.org/10.1002/humu.22981; HGVS, "General recommend
 most 3' position possible"). VCF's normalization goes the other way, left (Tan et al. 2015),
 so a VCF record of the same deletion starts at the run's first base.
 
-**The consensus.** At each base, the reads that observe it (with a base, or a deletion) are
-its depth, each read once however many times it passes the base: a read longer than the
-plasmid reads some of it twice, but it's one molecule's evidence, so its passes vote among
-themselves first, and a read whose passes tie is one of the reads there that says nothing
-of which allele. With at least `min_depth` reads, the consensus is the base, or the
-deletion, more than half of them have; with no majority it's N, unresolved. Between two
-bases, the consensus has an insertion where more than half the reads that read across that
-place insert something, and has the inserted bases most of those reads have; where two
-sets of bases tie, the insertion is N, as many as most of them inserted. A base fewer than
-`min_depth` reads observe is N. Reads disagree most inside a long insertion, where no single
-read's bases are a majority's, so the reads are aligned again to that consensus and it's
-called again, until it no longer changes (at most four rounds), as reference-guided
-polishing does (racon: Vaser et al. 2017, https://doi.org/10.1101/gr.214270.116).
+**The consensus (Iki majority consensus, version 1).** This is the plugin's own caller,
+named on each result as `iki_majority_1` and on its run as software; a lab with another
+validated caller compares that caller's consensus instead. At each base, the reads that
+observe it (with a base, or a deletion) are its depth, each read once however many times it
+passes the base: a read longer than the plasmid reads some of it twice, but it's one
+molecule's evidence, so its passes vote among themselves first, and a read whose passes tie
+is one of the reads there that says nothing of which allele. With at least `min_depth`
+reads, the consensus is the base, or the deletion, more than half of them have; with no
+majority it's N, unresolved. Between two bases, the consensus has an insertion where more
+than half the reads that read across that place insert something, and has the inserted bases
+most of those reads have; where two sets of bases tie, the insertion is N, as many as most
+of them inserted. A base fewer than `min_depth` reads observe is N. Reads disagree most
+inside a long insertion, where no single read's bases are a majority's, so the reads are
+aligned again to that consensus and it's called again, until it no longer changes (at most
+four rounds), as reference-guided polishing does (racon: Vaser et al. 2017,
+https://doi.org/10.1101/gr.214270.116).
 
 **Comparing.** The consensus, the reads' or a service's, is then aligned to the reference
 as one sequence, with a stretch of its own circle either side so its cut ends don't hide a
@@ -61,7 +64,7 @@ Every base of the consensus must be placed on the reference once. Bases no align
 as a second lap of the circle) are listed as unplaced, and the consensus is then kept as it
 was given rather than in the reference's frame.
 
-The result's agreement is `matches` where every base is called, none differs and the whole
+The result's verdict is `matches` where every base is called, none differs and the whole
 consensus is placed once; `differs` where any differs or some of the consensus isn't placed
 once; and `incomplete` where none differs but some weren't called.
 """
@@ -1039,7 +1042,7 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         method = (
             f"minimap2 {version} (-x {preset} -c --cs --secondary=no)"
             + (", round the circle" if circular else "")
-            + f"; majority consensus of at least {min_depth} reads, indels moved 3', "
+            + f"; Iki majority consensus 1 of at least {min_depth} reads, indels moved 3', "
             f"polished against the reads in {rounds} round{'s' if rounds != 1 else ''}; "
             f"compared with minimap2 -x asm5"
         )
@@ -1062,7 +1065,7 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     print("::progress 0.8 Comparing the consensus with the plasmid", flush=True)
     comparison = compare(reference, consensus, circular, work)
     if source == "consensus":
-        method = f"minimap2 {minimap2_version()} (-x asm5 -c --cs), the service's consensus" + (
+        method = f"minimap2 {minimap2_version()} (-x asm5 -c --cs), the supplied consensus" + (
             ", round the circle" if circular else ""
         )
         depths = [0 if base == "." else 1 for base in comparison.aligned]
@@ -1156,11 +1159,11 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             writer.writerow([*(row[c] for c in columns), "; ".join(row["features"])])
 
     if listed or unplaced:
-        agreement = "differs"
+        verdict = "differs"
     elif uncalled:
-        agreement = "incomplete"
+        verdict = "incomplete"
     else:
-        agreement = "matches"
+        verdict = "matches"
     called_percent = round(100 * (size - len(uncalled)) / size, 2)
     summary = {
         "matches": f"The consensus matches {hrid} at all {size:,} bases.",
@@ -1184,9 +1187,9 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             f"No differences from {hrid} where called, but {len(uncalled):,} of its "
             f"{size:,} bases weren't called."
         ),
-    }[agreement]
+    }[verdict]
     messages.append(
-        {"level": "info" if agreement == "matches" else "warning", "text": summary[:MAX_TEXT]}
+        {"level": "info" if verdict == "matches" else "warning", "text": summary[:MAX_TEXT]}
     )
     if low_regions:
         text = (
@@ -1210,8 +1213,8 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         "plasmid_record_id": plasmid["id"],
         "plasmid_revision": plasmid["revision"],
         "source": source,
-        "agreement": agreement,
-        "verdict": agreement,
+        "verdict": verdict,
+        "consensus_caller": "iki_majority_1" if source == "reads" else "supplied",
         "reference_length": size,
         "topology": "circular" if circular else "linear",
         "called_percent": called_percent,

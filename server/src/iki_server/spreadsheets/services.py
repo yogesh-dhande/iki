@@ -47,13 +47,14 @@ from django.db.models.functions import Lower
 from django.utils import timezone
 
 from iki_server.accounts.models import User
+from iki_server.api.problems import Problem
 from iki_server.audit import log as audit
 from iki_server.entities import access, registry, unique
 from iki_server.entities import services as entities
 from iki_server.entities.identity import hash_of
 from iki_server.entities.models import UniqueValue
 from iki_server.entities.values import Invalid, referable, shape
-from iki_server.files import listing, storage
+from iki_server.files import listing, scan_state, storage
 from iki_server.files import services as files
 from iki_server.files.models import File
 from iki_server.org import permissions
@@ -219,6 +220,7 @@ def start(user: User, project: Project, file_id: uuid.UUID, type_name: str) -> S
             f"Give one of {project.name}’s files that you can read: a workbook, or a CSV file.",
             field="file",
         )
+    scan_state.require_usable(file.blob)
     with transaction.atomic():
         made = SpreadsheetImport.objects.create(
             project=project,
@@ -242,7 +244,7 @@ def read(import_id: str) -> str:
         with _workbook(found.file) as book:
             sheets = book.describe()
             found.kind, found.encoding, found.separator = book.kind, book.encoding, book.separator
-    except Unreadable as error:
+    except (Unreadable, Problem) as error:
         _fail(found, str(error))
         return "unreadable"
     with transaction.atomic():
@@ -659,6 +661,7 @@ def preview(
             ImportState.PREVIEWING,
         ):
             raise Refused(_why_not_changed(imported))
+        scan_state.require_usable(imported.file.blob)
         if not any(c.get("field") for c in imported.columns):
             raise Refused("Map a column to a field first.", field="columns")
         _reset(imported)
@@ -805,6 +808,7 @@ def _advance(import_id: uuid.UUID, round_: int) -> bool:
 @contextlib.contextmanager
 def _workbook(file: File) -> Iterator[Workbook]:
     """The file, downloaded to a temporary file, opened as a workbook."""
+    scan_state.require_usable(file.blob)
     with tempfile.TemporaryDirectory(prefix="iki-sheet-") as directory:
         path = Path(directory) / "workbook"
         body = storage.open_object(file.blob.storage_uri, file.blob.object_version)
@@ -855,7 +859,7 @@ def _read_rows(imported: SpreadsheetImport) -> None:
         "file": str(imported.file_id),
     }
     sheet_name = imported.sheet if imported.kind == "xlsx" else ""
-    resolver = _Resolver(imported.requested_by, imported.project)
+    resolver = Resolver(imported.requested_by, imported.project)
     digest = hashlib.sha256()
     try:
         with (
@@ -891,7 +895,7 @@ def _read_rows(imported: SpreadsheetImport) -> None:
                     storage.spreadsheet_key(imported.pk, imported.round),
                     "application/x-ndjson",
                 )
-    except Unreadable as error:
+    except (Unreadable, Problem) as error:
         imported.state = ImportState.MAPPING
         imported.phase = ""
         imported.error = str(error)
@@ -954,7 +958,7 @@ def _write_block(
     out: Any,  # noqa: ANN401 - a binary file
     digest: Any,  # noqa: ANN401 - a hash
     block: list[_Row],
-    resolver: _Resolver,
+    resolver: Resolver,
     imported: SpreadsheetImport,
     origin: dict[str, str],
     sheet_name: str,
@@ -977,7 +981,7 @@ def _write_block(
             if name not in named:
                 continue
             try:
-                read.values[name] = _resolved(value, named[name])
+                read.values[name] = resolved(value, named[name])
             except ValueError as error:
                 del read.values[name]
                 read.problems.append(
@@ -998,12 +1002,12 @@ def _write_block(
     return lines
 
 
-def _resolved(value: Any, found: Mapping[str, str | uuid.UUID]) -> Any:  # noqa: ANN401 - JSON
+def resolved(value: Any, found: Mapping[str, str | uuid.UUID]) -> Any:  # noqa: ANN401 - JSON
     if isinstance(value, list):
         out = []
         for number, item in enumerate(value, start=1):
             try:
-                out.append(_resolved(item, found))
+                out.append(resolved(item, found))
             except ValueError as error:
                 raise ValueError(f"Its item {number}: {error}") from None
         return out
@@ -1015,7 +1019,7 @@ def _resolved(value: Any, found: Mapping[str, str | uuid.UUID]) -> Any:  # noqa:
     raise ValueError(f"“{value.text}” {target or 'names no record here.'}")
 
 
-class _Resolver:
+class Resolver:
     """Finds the records a sheet's references name, in the import's project: by ID, by
     HRID, or by name, a block of rows' at once."""
 
@@ -1465,6 +1469,7 @@ def commit(
             if imported.state in (ImportState.MAPPING, ImportState.PREVIEWING):
                 raise Refused("Preview it first: Iki checks every row before it imports them.")
             raise Refused(_why_not_changed(imported))
+        scan_state.require_usable(imported.file.blob)
         if imported.schema != imports._schema():
             raise Refused("A plugin changed since it was previewed: preview it again.")
         counts = imported.counts
@@ -1490,6 +1495,22 @@ def commit(
     return imported
 
 
+def _blocked_commit(imported: SpreadsheetImport, problem: Problem) -> str:
+    from iki_server.spreadsheets import tasks
+
+    active = SpreadsheetImport.objects.filter(pk=imported.pk, state=ImportState.COMMITTING)
+    if problem.code == "file_scanning":
+        with transaction.atomic():
+            now = timezone.now()
+            if active.update(progress_message=problem.detail, updated_at=now):
+                tasks.commit_import.using(run_after=now + timedelta(seconds=30)).enqueue(
+                    str(imported.pk)
+                )
+        return "scanning"
+    active.update(state=ImportState.FAILED, error=problem.detail)
+    return "refused"
+
+
 def committing(import_id: str) -> str:
     """Writes the rows to import as the run's creates file, then starts its run."""
     found = (
@@ -1499,6 +1520,10 @@ def committing(import_id: str) -> str:
     )
     if found is None or found.state != ImportState.COMMITTING:
         return "done"
+    try:
+        scan_state.require_usable(found.file.blob)
+    except Problem as error:
+        return _blocked_commit(found, error)
     if found.creates_id is None:
         file = _creates_file(found)
         with transaction.atomic():
@@ -1526,6 +1551,10 @@ def committing(import_id: str) -> str:
             locked.error = f"{user.name} can no longer add records to {project.name}."
             locked.save(update_fields=["state", "error"])
             return "refused"
+        try:
+            scan_state.require_usable(locked.creates.blob)
+        except Problem as error:
+            return _blocked_commit(locked, error)
         # A task queued before upgrades may not have a snapshot yet.
         pinned = locked.applied_mapping or _applied_mapping(locked)
         params = {

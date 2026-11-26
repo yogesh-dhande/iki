@@ -38,7 +38,8 @@ function modelOf(type: string, field: string): FlowModel {
 }
 
 const RESULT = "iki/requests.QCDeliverable";
-const SAMPLE = "iki/samples.Sample";
+const SAMPLE = "iki/samples.ReviewedSample";
+const PLAIN_SAMPLE = "iki/samples.PlainSample";
 const REQUEST = "iki/requests.Request";
 const LOT = "iki/lots.Lot";
 const RESEARCH = "iki/plate_assays.ResearchAssayResult";
@@ -111,7 +112,7 @@ describe("the plugins' flows", () => {
 });
 
 describe("a flow as a diagram has it", () => {
-  it("says who sets each state, what they sign, and where an edit returns it", () => {
+  it("says who sets each signed state and what they sign", () => {
     const model = modelOf(RESULT, "review");
     const released = model.nodes.find((n) => n.name === "released");
     expect(released).toMatchObject({
@@ -127,15 +128,28 @@ describe("a flow as a diagram has it", () => {
         },
       ],
     });
-    expect(model.edges.filter((e) => e.kind === "correction").map((e) => e.id)).toEqual([
-      "submitted~recorded",
-      "reviewed~recorded",
-    ]);
+    expect(model.edges.filter((e) => e.kind === "correction")).toEqual([]);
     expect(model.nodes.find((n) => n.name === "recorded")).toMatchObject({
       initial: true,
       setters: ["Analyst", "Reviewer", "Sample and result QA"],
       reason: "required",
     });
+  });
+
+  it("draws an unsigned lock's return on edit", () => {
+    const review = flowOf(RESULT, "review");
+    const states = review.states.map((s) =>
+      s.name === "submitted" ? { ...s, signatures: [], on_edit: "recorded" } : s,
+    );
+    const model = flowModel({ ...review, states }, ROLES);
+    const submitted = model.nodes.find((n) => n.name === "submitted");
+    if (!submitted) throw new Error("Missing Submitted state");
+    expect(model.edges.filter((e) => e.kind === "correction").map((e) => e.id)).toEqual([
+      "submitted~recorded",
+    ]);
+    expect(whatItMeans(submitted, model)).toContain(
+      "Correcting a value returns it to Recorded, with a reason.",
+    );
   });
 
   it("draws a state reached from every other once, not an arrow from each", () => {
@@ -164,6 +178,23 @@ describe("a flow as a diagram has it", () => {
     expect(model.edges.filter((e) => e.kind === "correction").map((e) => e.id)).toEqual([]);
   });
 
+  it("draws a plain sample completed by its analyst, and reopened with a reason", () => {
+    const model = modelOf(PLAIN_SAMPLE, "status");
+    expect(nextFrom(model, "received").map((n) => n.name)).toEqual(["in_testing", "done"]);
+    expect(model.nodes.find((n) => n.name === "done")).toMatchObject({
+      from: ["received", "in_testing", "retesting"],
+      setters: ["Analyst"],
+      locks: true,
+      signatures: [],
+    });
+    expect(model.nodes.find((n) => n.name === "retesting")).toMatchObject({
+      from: ["done"],
+      setters: ["Analyst"],
+      reason: "required",
+      signatures: [],
+    });
+  });
+
   it("says each state in words, with its guards' messages", () => {
     const model = modelOf(RESULT, "review");
     const node = (name: string) => {
@@ -178,7 +209,7 @@ describe("a flow as a diagram has it", () => {
       "Sample and result QA sets it from Reviewed by signing it: QA release (Approval).",
     );
     expect(whatItMeans(node("submitted"), model)).toBe(
-      "It locks the record: its values can’t change. Correcting a value returns it to Recorded, with a reason.",
+      "It locks the record: its values can’t change.",
     );
     expect(node("released").checks.map((c) => c.message)).toContain(
       "Have someone in QA who did not create, submit, edit or review the deliverable release it.",
@@ -234,22 +265,13 @@ describe("laying a flow out", () => {
         .map((m) => Number(m[0]))
         .filter((_, k) => k % 2 === 1);
     // Back: below the row.
-    for (const id of [
-      "submitted>recorded",
-      "reviewed>recorded",
-      "submitted~recorded",
-      "reviewed~recorded",
-    ]) {
+    const back = ["submitted>recorded", "reviewed>recorded"];
+    for (const id of back) {
       expect(Math.max(...ys(id))).toBeGreaterThan(nodeBottom);
     }
     // Each back arc has a lane of its own: none at the same depth.
-    const depths = [
-      "submitted>recorded",
-      "reviewed>recorded",
-      "submitted~recorded",
-      "reviewed~recorded",
-    ].map((id) => Math.max(...ys(id)));
-    expect(new Set(depths).size).toBe(4);
+    const depths = back.map((id) => Math.max(...ys(id)));
+    expect(new Set(depths).size).toBe(back.length);
     // The next state's a straight arrow, level with the nodes.
     expect(new Set(ys("recorded>submitted")).size).toBe(1);
     expect(ys("recorded>submitted")[0]).toBeGreaterThan(nodeTop);

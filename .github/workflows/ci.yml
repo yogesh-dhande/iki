@@ -63,7 +63,7 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Prettier
         run: pnpm format:check
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
@@ -88,20 +88,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
-      - name: actionlint
-        run: |
-          uvx --from actionlint-py==1.7.12.25 actionlint -color
-          # The plugin template's workflow, which plugin repositories start from.
-          uvx --from actionlint-py==1.7.12.25 actionlint -color plugin-template/.github/workflows/*.yml
-      - name: zizmor (workflow security audit)
+      - name: Check Iki, template and example workflows
         env:
           # Read-only token so zizmor can also check actions against known advisories.
           GH_TOKEN: ${{ github.token }}
-        run: uvx zizmor==1.32.0 --persona=auditor --format=github .github/ plugin-template/.github/
+        run: make check-workflows
 
   python-checks:
     name: Python ${{ matrix.python }} lint and types
@@ -120,7 +115,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ matrix.python }}
@@ -200,7 +195,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ matrix.python }}
@@ -234,6 +229,11 @@ jobs:
         if: matrix.kind == 'worker'
         working-directory: worker
         run: cargo build --locked -p iki-worker
+      - name: Validate and run the author examples with their dependencies
+        if: matrix.kind == 'worker'
+        env:
+          IKI_WORKER: ${{ github.workspace }}/worker/target/debug/iki-worker
+        run: uv run --no-sync python scripts/ci/check_plugin_examples.py
       - name: Build and check the web app, package stories and accessibility assets
         if: matrix.kind == 'browser'
         run: |
@@ -339,7 +339,7 @@ jobs:
           name: test-durations
           path: ${{ runner.temp }}/test-durations.json
           retention-days: 30
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
@@ -533,7 +533,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.14"
@@ -657,7 +657,7 @@ jobs:
       - name: Install pinned toolchain
         working-directory: worker
         run: rustup show active-toolchain || rustup toolchain install
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
@@ -683,7 +683,7 @@ jobs:
         with:
           tofu_version: 1.13.9
           tofu_wrapper: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
@@ -707,7 +707,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+      - uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
         with:
           config-file: ./.github/dependency-review-config.yml
 
@@ -739,7 +739,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.14"
@@ -761,11 +761,15 @@ jobs:
         run: tail -n 100 .pytest_cache/slurm-e2e/logs/* || true
 
   dev-cluster:
-    name: Dev cluster end to end (kind + Tilt)
+    name: Dev cluster end to end (${{ matrix.target }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [dev-product-ci, dev-ci]
     permissions:
       contents: read
     steps:
@@ -785,7 +789,7 @@ jobs:
       - name: Install Tilt (pinned, checksum verified)
         run: scripts/ci/install-tools.sh tilt
       # The sign-in checks (deploy/dev/sso.py) run with the project's locked Python environment.
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
@@ -815,14 +819,16 @@ jobs:
           path: ~/.cache/ci-apt
           key: ${{ steps.apt-chromium.outputs.cache-primary-key }}
       - name: Bring up the dev cluster and run end-to-end checks
-        run: make dev-ci
+        env:
+          DEV_TARGET: ${{ matrix.target }}
+        run: make "$DEV_TARGET"
       - name: Diagnostics on failure
         if: failure()
         run: |
           kubectl --context kind-iki get pods -A -o wide || true
           kubectl --context kind-iki -n iki get events --sort-by=.lastTimestamp | tail -50 || true
-          for d in iki-web keycloak seaweedfs otel-lgtm; do
-            echo "--- logs: $d"; kubectl --context kind-iki -n iki logs "deploy/$d" --tail=100 || true
+          for d in iki-web iki-tasks iki-clamd keycloak seaweedfs otel-lgtm; do
+            echo "--- logs: $d"; kubectl --context kind-iki -n iki logs "deploy/$d" --all-containers --tail=100 || true
           done
           kubectl --context kind-iki -n iki logs job/iki-migrate --tail=100 || true
 

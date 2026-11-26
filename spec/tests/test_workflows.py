@@ -174,22 +174,31 @@ GOOD = flow("""\
 def test_the_example_workflows_are_valid() -> None:
     root = Path(__file__).resolve().parents[2]
     protein_dir = root / "plugins" / "protein"
-    template_dir = root / "plugin-template"
-    dependencies = dependency_closures(root / "plugins", protein_dir, template_dir)
+    storage_dir = root / "examples" / "plugins" / "storage_labels"
+    lesson_dir = root / "examples" / "plugins" / "protein_translation"
+    dependencies = dependency_closures(root / "plugins", protein_dir, storage_dir, lesson_dir)
     protein = load_plugin(protein_dir, dependencies=dependencies[protein_dir])
     assert protein.problems == []
     assert protein.plugin is not None
-    flow_ = protein.plugin.workflows["translate_and_characterize"]
-    assert flow_.qualified_name == "iki/protein.translate_and_characterize"
+    assert not protein.plugin.workflows
+    assert "compute_new_protein_properties" in protein.plugin.triggers
+
+    lesson = load_plugin(lesson_dir, dependencies=dependencies[lesson_dir])
+    assert lesson.problems == []
+    assert lesson.plugin is not None
+    flow_ = lesson.plugin.workflows["translate_and_characterize"]
+    assert flow_.qualified_name == "acme/protein_translation.translate_and_characterize"
     assert flow_.inputs["sequence"].type == "iki/dna.DNASequence"
     assert flow_.order() == ["translate", "properties"]
     created = "$steps.translate.created.iki/protein.Protein"
     assert flow_.steps["properties"].inputs == {"protein": created}
 
-    template = load_plugin(template_dir, dependencies=dependencies[template_dir])
-    assert template.problems == []
-    assert template.plugin is not None
-    assert template.plugin.workflows["store_sample"].order() == ["assign", "decode"]
+    storage = load_plugin(storage_dir, dependencies=dependencies[storage_dir])
+    assert storage.problems == []
+    assert storage.plugin is not None
+    workflow = storage.plugin.workflows["store_sample"]
+    assert workflow.order() == ["assign", "decode"]
+    assert workflow.steps["decode"].inputs == {"sample": "$steps.assign.inputs.sample"}
 
 
 # --- What a valid workflow reads as ------------------------------------------------------------
@@ -257,8 +266,9 @@ def test_a_workflow_needs_steps(tmp_path: Path) -> None:
     assert "`steps` is missing" in only(make(tmp_path, HEAD), "schema")
 
 
-def test_a_reference_has_one_of_three_forms(tmp_path: Path) -> None:
-    result = make(tmp_path, flow("t: { action: total, inputs: { readout: steps.m.created } }"))
+@pytest.mark.parametrize("ref", ["steps.m.created", "$steps.m.created.acme/lab/extra.Readout"])
+def test_a_reference_has_one_of_three_forms(tmp_path: Path, ref: str) -> None:
+    result = make(tmp_path, flow(f"t: {{ action: total, inputs: {{ readout: {ref} }} }}"))
     assert codes(result) == ["schema"]
 
 
@@ -327,6 +337,7 @@ def test_a_steps_param_value_fits_the_param(tmp_path: Path) -> None:
         ("$inputs.asay", "it has no input `asay`"),
         ("$steps.nope.created.Readout", "it has no step `nope`"),
         ("$steps.m.created.Assay", "`measure` creates `acme/lab.Readout`"),
+        ("$steps.m.created.other/lab.Readout", "`measure` creates `acme/lab.Readout`"),
         ("$steps.m.inputs.other", "step `m` isn't given `other`"),
     ],
 )
@@ -664,3 +675,33 @@ def test_an_approvals_lab_role_must_be_declared(tmp_path: Path) -> None:
     ]
     # A role of a plugin it doesn't depend on.
     assert codes(_with_roles(tmp_path, "acme/qms.release_officer")) == ["undeclared-dependency"]
+
+
+def test_a_step_gives_nothing_to_an_input_from_the_project(tmp_path: Path) -> None:
+    """Its run is given every record of the type its project owns (ADR 0232)."""
+    global ACTIONS
+    saved = ACTIONS
+    ACTIONS = saved + (
+        "---\napiVersion: iki/v1\nkind: Action\nname: rank\ninputs:\n"
+        "  assay: { type: Assay }\n"
+        "  readouts: { type: Readout, cardinality: many, from_project: true }\n"
+        "effects:\n  updates: [{ input: assay, fields: [score] }]\n"
+        "runs_on: { tier: backend, environment: tools }\ncommand: [python, ./run.py]\n"
+    )
+    try:
+        left = make(tmp_path, flow("r: { action: rank, inputs: { assay: $inputs.assay } }"))
+        assert left.ok, left.problems
+        given = make(
+            tmp_path,
+            flow(
+                """\
+                m: { action: measure, inputs: { assay: $inputs.assay }, params: { mode: fast } }
+                r:
+                  action: rank
+                  inputs: { assay: $inputs.assay, readouts: $steps.m.created.Readout }
+                """
+            ),
+        )
+        assert "workflow-input-from-project" in codes(given), given.problems
+    finally:
+        ACTIONS = saved

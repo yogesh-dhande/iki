@@ -61,6 +61,7 @@ from iki_server.entities import (
     exports,
     holds,
     people,
+    plugin_writers,
     registry,
     requests,
     schema,
@@ -70,6 +71,7 @@ from iki_server.entities import (
     states,
     unique,
 )
+from iki_server.entities.history import FieldNames
 from iki_server.entities.models import (
     Entity,
     ProjectLink,
@@ -99,11 +101,15 @@ from iki_server.signatures import changes as sig_changes
 from iki_server.signatures import entries as signed_entries
 from iki_server.signatures import models as signing_models
 from iki_server.signatures import services as sig_services
+from iki_spec import conditions, titles, units
 from iki_spec import rules as spec_rules
-from iki_spec import titles, units
 from iki_spec.model import (
     SIGNATURE_MEANINGS,
+    AnyExport,
+    CompoundExport,
     EntityType,
+    PluginExport,
+    ProteinExport,
     ReportExport,
     Rule,
     State,
@@ -316,6 +322,13 @@ class FieldOut(Schema):
     unique: bool = Field(
         description="No two entities in a project have the same value, such as a LIMS record's ID."
     )
+    searchable: bool | None = Field(
+        None,
+        description="Text: true when a search finds its words with `matches`, which reads "
+        f"its first {conditions.WORDS_SEARCHED:,} characters (ADR 0233); false for machine "
+        "text, such as a Molfile, which a search reads with `contains` only. Null for other "
+        "kinds of field.",
+    )
     detached: bool = Field(
         description="Its plugin is detached (ADR 0091): it keeps its value, which can't change.",
     )
@@ -427,8 +440,8 @@ class StructureViewerOut(Schema):
     viewer: Literal["structure"] = Field(description="`structure`: a 3D structure, in Mol*.")
     label: str = Field(description="What its tab is called.")
     structure: str = Field(
-        description="The file field holding the structure: mmCIF (chemical/x-mmcif) or PDB "
-        "(chemical/x-pdb)."
+        description="The file field holding coordinates in a format that declares "
+        "the structure-mmcif or structure-pdb viewer."
     )
 
 
@@ -452,15 +465,37 @@ ViewerOut = Annotated[
 ]
 
 
-ExportFormat = Literal["genbank", "fasta", "signed-report-html", "signed-report-json"]
+#: A format a type exports: one of Iki's (genbank, fasta, protein-fasta, sdf, molfile,
+#: signed-report-html, signed-report-json), or a plugin's writer's, by its qualified ID.
+ExportFormat = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=200,
+        pattern=r"^[a-z0-9][a-z0-9._/-]*$",
+        examples=["genbank", "acme/liquid_handling.tecan-worklist"],
+    ),
+]
 
 
 class FileFormatOut(Schema):
-    format: ExportFormat = Field(description="What `/entities/{ref}/export` takes.")
+    format: str = Field(
+        description="What `/entities/{ref}/export` takes: one of Iki's formats, such as "
+        "`genbank`, or a plugin's writer's qualified ID (ADR 0230)."
+    )
     label: str = Field(description="Its name, such as GenBank.")
     extension: str = Field(description="Its file name's, such as gb.")
     media_type: str = Field(description="Its media type, such as chemical/seq-na-genbank.")
     description: str = Field(description="What of a record it holds.")
+    many: Literal["file", "one", "zip"] = Field(
+        description="`file`: many records make one file of it, from `POST /entity-exports` "
+        "(ADR 0229); `one`: it holds one record; `zip`: one record each, so many records "
+        "make a ZIP of them."
+    )
+    plugin: str | None = Field(
+        description="The plugin whose writer writes it, in the export sandbox (ADR 0230); "
+        "null for Iki's own."
+    )
 
 
 class FileExportOut(Schema):
@@ -476,6 +511,38 @@ class FileExportOut(Schema):
         description="A json field of features (type, start, end, name, strand) it adds "
         "along the sequence, or null. A record page draws them as a map."
     )
+
+
+class ProteinExportOut(Schema):
+    export: Literal["protein"] = Field(
+        description="What it writes. `protein`: a protein's residues, as FASTA (ADR 0229)."
+    )
+    formats: list[FileFormatOut] = Field(description="The files it's written as.")
+    sequence: str = Field(description="The protein sequence field it's written from.")
+
+
+class CompoundExportOut(Schema):
+    export: Literal["compound"] = Field(
+        description="What it writes. `compound`: a compound's structure, as a Molfile, and "
+        "as an SDF with its fields as data (ADR 0229)."
+    )
+    formats: list[FileFormatOut] = Field(description="The files it's written as.")
+    structure: str = Field(description="The text field holding its Molfile.")
+    data: list[str] = Field(
+        description="The fields an SDF can carry as data, in order, which it carries unless "
+        "`fields` names fewer: those of a kind SD holds as text (not files, people or JSON)."
+    )
+
+
+class PluginExportOut(Schema):
+    export: Literal["plugin"] = Field(
+        description="What it writes. `plugin`: a plugin's format, by its writer (ADR 0230)."
+    )
+    writer: str = Field(description="The writer, by its qualified ID.")
+    formats: list[FileFormatOut] = Field(
+        description="The file it's written as; none when this deployment can't write it."
+    )
+    fields: dict[str, str] = Field(description="The field each of the writer's roles reads.")
 
 
 class SignedReportExportOut(Schema):
@@ -557,9 +624,8 @@ class TypeAmountOut(Schema):
         "split from."
     )
     material: str | None = Field(
-        description="Its reference naming what its amount is of, such as a lot's molecule: "
-        "a transfer into one of its records takes only that entity's, and its aliquots are "
-        "of it too."
+        description="The reference field that identifies the material, or id if the record itself "
+        "is the material. Transfers and aliquots retain that material identity."
     )
     follows: list[str] = Field(
         default_factory=list,
@@ -622,7 +688,14 @@ class EntityTypeOut(Schema):
         "nearest parent's."
     )
     exports: list[
-        Annotated[FileExportOut | SignedReportExportOut, Field(discriminator="export")]
+        Annotated[
+            FileExportOut
+            | ProteinExportOut
+            | CompoundExportOut
+            | SignedReportExportOut
+            | PluginExportOut,
+            Field(discriminator="export"),
+        ]
     ] = Field(
         default_factory=list,
         description="The files Iki writes of its records (ADR 0171), from "
@@ -1152,6 +1225,7 @@ class RevisionOut(Schema):
     kind: Literal[
         "created",
         "edited",
+        "migrated",
         "archived",
         "restored",
         "curated",
@@ -1300,7 +1374,10 @@ class Condition(Schema):
 
 
 class SortIn(Schema):
-    field: str = Field(description="A field to sort by: text, numbers, dates or yes/no.")
+    field: str = Field(
+        description="A field to sort by: text, numbers, dates or yes/no; or a request's "
+        "`asked_by` or `sent_to`, by the project's name (ADR 0232)."
+    )
     descending: bool = False
 
 
@@ -1326,6 +1403,13 @@ class SearchIn(Schema):
     )
     where: Condition | None = None
     sort: SortIn | None = None
+    then: list[SortIn] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Further sorts, in order, for what `sort` ties: a core's queue by its "
+        "ranking, then priority, then when each is needed (ADR 0232). Blanks are last in "
+        "each.",
+    )
     cursor: str | None = Field(None, description="From the previous page's next_cursor.")
     limit: int = Field(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT, description="Items per page.")
 
@@ -1349,6 +1433,7 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "required": f.required,
         "immutable": f.immutable,
         "unique": f.unique,
+        "searchable": f.searchable if f.type == "text" else None,
         "detached": plugin in registry.detached(),
         "link": unique.link(f, plugin),
         "computed": f.computed,
@@ -1437,6 +1522,23 @@ def _track_out(form: Shape, track: Track) -> dict[str, Any]:
     }
 
 
+def _export_out(type_name: str, e: AnyExport) -> dict[str, Any]:
+    """An export, as ``EntityTypeOut.exports`` gives it."""
+    formats = [
+        {k: v for k, v in asdict(f).items() if k != "signatures"} for f in exports.formats_of(e)
+    ]
+    if isinstance(e, PluginExport):
+        return {"export": "plugin", "writer": e.export, "formats": formats, "fields": e.fields}
+    out: dict[str, Any] = {"export": e.export, "formats": formats}
+    if isinstance(e, ReportExport):
+        return {**out, "report": e.report, "review": e.review, "issued": e.issued}
+    if isinstance(e, ProteinExport):
+        return {**out, "sequence": e.sequence}
+    if isinstance(e, CompoundExport):
+        return {**out, "structure": e.structure, "data": exports.data_fields(type_name, e)}
+    return {**out, "sequence": e.sequence, "features": e.features or None}
+
+
 def _type_out(entity_type: EntityType) -> dict[str, Any]:
     form = shape(entity_type.qualified_name)
     owner = registry.identity_owner(entity_type)
@@ -1468,16 +1570,7 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "values_schema": schema.for_type(name),
         "viewers": [_viewer_out(form, v) for v in registry.viewers(entity_type)],
         "exports": [
-            {
-                "export": e.export,
-                "formats": [asdict(f) for f in exports.FORMATS[e.export]],
-                **(
-                    {"report": e.report, "review": e.review, "issued": e.issued}
-                    if isinstance(e, ReportExport)
-                    else {"sequence": e.sequence, "features": e.features or None}
-                ),
-            }
-            for e in registry.exports(entity_type)
+            _export_out(entity_type.qualified_name, e) for e in registry.exports(entity_type)
         ],
         "due": assignments.due_field_name(name) if assignments.due_field(name) else None,
         "rules": [_rule_out(r) for r in checking.rules_of(name)],
@@ -2402,8 +2495,9 @@ def list_entities(request: HttpRequest, filters: Query[EntityFilters]) -> dict[s
 def search_entities(request: HttpRequest, payload: SearchIn) -> dict[str, Any]:
     """Entities you can read that match every filter given: a type (with its subtypes), a
     project, archived or not, text in their HRID or title (``q``), membership of a
-    ``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``
-    (then by ID), oldest first without one.
+    ``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``,
+    then by each of ``then`` (ADR 0232), then by ID; oldest first without one. Requests
+    also sort by ``asked_by`` and ``sent_to``: the projects on their two sides, by name.
 
     Each kind of field takes its own operators, and every field takes ``is_set``:
 
@@ -2456,6 +2550,7 @@ def search_entities(request: HttpRequest, payload: SearchIn) -> dict[str, Any]:
         else None,
         sort=payload.sort.field if payload.sort else None,
         descending=payload.sort.descending if payload.sort else False,
+        then=tuple((t.field, t.descending) for t in payload.then),
     )
     with _searching():
         rows, cursor = search.page(
@@ -2490,6 +2585,12 @@ class SearchCsvParams(Schema):
     )
     sort: str | None = Field(None, max_length=100, description="A field to sort by.")
     descending: bool = False
+    then: list[str] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Further sorts, in order, for what `sort` ties: each a field, with `-` "
+        "first for descending, as `-priority`.",
+    )
     columns: list[str] = Field(
         default_factory=list,
         max_length=200,
@@ -2532,6 +2633,7 @@ def search_csv(request: HttpRequest, params: Query[SearchCsvParams]) -> Streamin
         where=where,
         sort=params.sort,
         descending=params.descending,
+        then=tuple((t.removeprefix("-"), t.startswith("-")) for t in params.then),
     )
     entity_type = registry.types().get(params.type) if params.type else None
     typed = entity_type if entity_type is not None and params.type != "iki/core.Entity" else None
@@ -3129,12 +3231,12 @@ class TrailFilter(Schema):
     )
 
     def applied(
-        self, revisions: QuerySet[Revision], *, disclosed: Q | None = None
+        self, revisions: QuerySet[Revision], names: FieldNames, *, disclosed: Q | None = None
     ) -> QuerySet[Revision]:
         """``revisions``, narrowed. A person is matched only among those ``disclosed``
         says who made, so narrowing by them tells no more than reading each would."""
         if self.field:
-            revisions = revisions.filter(changed_fields__contains=[self.field])
+            revisions = revisions.filter(names.setting(self.field))
         if self.person:
             revisions = revisions.filter(user_id=self.person)
             if disclosed is not None:
@@ -3160,17 +3262,18 @@ def list_revisions(
     a person made, or that set a field, as its audit trail's filters do (ADR 0176)."""
     me = caller(request)
     entity = _find(me, ref, project)
-    revisions = trail.applied(Revision.objects.filter(entity=entity)).select_related(
+    names = FieldNames.for_type(entity.type)
+    revisions = trail.applied(Revision.objects.filter(entity=entity), names).select_related(
         "user", "agent"
     )
     result = page(revisions, params, key="number", newest_first=True)
     made = _runs_of(me, result["items"])
-    states = revision_states(result["items"])
+    states = revision_states(result["items"], {entity.type: names})
     held = _holds_opened(me, entity, result["items"])
     submitted = _submissions(me, result["items"])
     result["items"] = [
         {
-            **_revision(r, made, states=states, submitted=submitted.get(r.pk)),
+            **_revision(r, made, names=names, states=states, submitted=submitted.get(r.pk)),
             "holds": held.get(r.number, []),
         }
         for r in result["items"]
@@ -3224,14 +3327,21 @@ def project_changes(
     values = services.current_values_of(entities) if entities else {}
     submitted = _submissions(me, revisions)
     made = _runs_of(me, revisions)
-    states = revision_states(revisions)
+    by_type = {t: FieldNames.for_type(t) for t in {e.type for e in entities}}
+    states = revision_states(revisions, by_type)
     out = []
     for r in revisions:
         fields = shape(r.entity.type).fields()
         shown = {n: to_json(fields[n], v) for n, v in values.get(r.entity_id, {}).items()}
         out.append(
             {
-                **_revision(r, made, states=states, submitted=submitted.get(r.pk)),
+                **_revision(
+                    r,
+                    made,
+                    names=by_type[r.entity.type],
+                    states=states,
+                    submitted=submitted.get(r.pk),
+                ),
                 "entity": {
                     "id": r.entity.pk,
                     "hrid": r.entity.hrid,
@@ -3313,6 +3423,7 @@ def get_revision(
         **_revision(
             revision,
             _runs_of(me, [revision]),
+            names=FieldNames.for_type(entity.type),
             submitted=_submissions(me, [revision]).get(revision.pk),
         ),
         "holds": _holds_opened(me, entity, [revision]).get(revision.number, []),
@@ -3332,6 +3443,12 @@ def get_revision(
 
 class ExportParams(Schema):
     format: ExportFormat = Field(description="Which file, as its type's `exports` list them.")
+    fields: list[str] | None = Field(
+        None,
+        max_length=500,
+        description="An SDF's data: the fields it carries, in order. Every one it can, if "
+        "left out (its export's `data`).",
+    )
     revision: int | None = Field(
         None, ge=1, description="Which revision, as it was then. Its latest if left out."
     )
@@ -3351,10 +3468,18 @@ class ExportParams(Schema):
                 "content": {
                     "chemical/seq-na-genbank": {},
                     "chemical/seq-na-fasta": {},
+                    "chemical/seq-aa-fasta": {},
+                    "chemical/x-mdl-sdfile": {},
+                    "chemical/x-mdl-molfile": {},
                     "text/html": {},
                     "application/json": {},
+                    "application/octet-stream": {
+                        "description": "A plugin's format, as its media type (ADR 0230)."
+                    },
                 },
-            }
+            },
+            422: {"description": "Its plugin's writer refused it, or failed (ADR 0230)."},
+            503: {"description": "The export sandbox can't take it now: try again."},
         }
     },
 )
@@ -3363,14 +3488,29 @@ def export_entity(request: HttpRequest, ref: str, params: Query[ExportParams]) -
     the one asked for, written from its values then, so a revision is always the same file.
     Anyone who can read it may; each download is in the audit log (``entity.exported``),
     with the file's SHA-256. What the file can't say, such as a feature across a linear
-    molecule's ends, is listed in it (GenBank's COMMENT), and ``Iki-Left-Out`` says how
-    many such notes there are."""
+    molecule's ends, is listed in it where the format has a place (GenBank's COMMENT, an
+    SDF's ``IKI_NOTES``), and ``Iki-Left-Out`` says how many such notes there are. Many
+    records make one file from ``POST /entity-exports`` (ADR 0229).
+
+    A plugin's format is written by its writer in the export sandbox (ADR 0230), and its
+    audit event names the plugin's commit and the module's digest. A writer that refuses
+    the record (``writer_refused``) or fails (``writer_failed``) is 422, and no file is
+    made; a sandbox that's busy or away is 503 (``sandbox_unavailable``) with
+    ``Retry-After``."""
     me = caller(request)
     entity = _find(me, ref, params.project)
     try:
-        made = exports.export(me, entity, params.format, params.revision)
+        made = exports.export(me, entity, params.format, params.revision, data=params.fields)
     except exports.Unexportable as why:
-        raise Problem(404, str(why), code=why.code) from None
+        status = 422 if why.code in ("writer_refused", "writer_failed") else 404
+        raise Problem(status, str(why), code=why.code) from None
+    except plugin_writers.SandboxUnavailable as why:
+        raise Problem(
+            503,
+            str(why),
+            code="sandbox_unavailable",
+            headers={"Retry-After": str(plugin_writers.RETRY_AFTER)},
+        ) from None
     response = HttpResponse(made.content, content_type=made.media_type)
     response["Content-Disposition"] = f'attachment; filename="{made.name}"'
     response["Cache-Control"] = "no-store"
@@ -3429,6 +3569,7 @@ def _revision(
     revision: Revision,
     runs: dict[tuple[Any, int], dict[str, Any]],
     *,
+    names: FieldNames,
     entity: Entity | None = None,
     projects: set[Any] | None = None,
     states: dict[Any, dict[str, Any]] | None = None,
@@ -3439,12 +3580,12 @@ def _revision(
     revisions pass their ``states``, from :func:`revision_states`, found for all at once."""
     of_entry = entity is not None and revision.entity_id != entity.pk
     if of_entry and not services.discloses(revision, projects or set()):
-        return undisclosed(revision)
+        return undisclosed(revision, names)
     return {
         "number": revision.number,
         "kind": revision.kind,
         "entry": of_entry,
-        "changed_fields": revision.changed_fields,
+        "changed_fields": names.changed(revision),
         "user": revision.user,
         "via": revision.via,
         "client": revision.client,
@@ -3479,7 +3620,9 @@ def _submissions(me: User, revisions: Iterable[Revision]) -> dict[Any, dict[str,
     }
 
 
-def revision_states(revisions: list[Revision]) -> dict[Any, dict[str, Any]]:
+def revision_states(
+    revisions: list[Revision], by_type: dict[str, FieldNames] | None = None
+) -> dict[Any, dict[str, Any]]:
     """What each state change among the revisions did, by revision ID: its field, its
     states, and the signatures that set it (ADR 0126). Their entities' types and their
     signatures are found for all of them at once, in two queries however many there are."""
@@ -3489,13 +3632,15 @@ def revision_states(revisions: list[Revision]) -> dict[Any, dict[str, Any]]:
     types = dict(
         Entity.objects.filter(pk__in={r.entity_id for r in changed}).values_list("pk", "type")
     )
+    if by_type is None:
+        by_type = {t: FieldNames.for_type(t) for t in set(types.values())}
     wanted = {i for r in changed for i in r.signatures or ()}
     carried = (
         {s.pk: s for s in signing_models.Signature.objects.filter(pk__in=wanted)} if wanted else {}
     )
     return {
         r.pk: {
-            **services.state_change(types[r.entity_id], r),
+            **services.state_change(types[r.entity_id], r, by_type[types[r.entity_id]]),
             "signatures": [
                 {
                     "id": i,
@@ -3511,14 +3656,14 @@ def revision_states(revisions: list[Revision]) -> dict[Any, dict[str, Any]]:
     }
 
 
-def undisclosed(revision: Revision) -> dict[str, Any]:
+def undisclosed(revision: Revision, names: FieldNames) -> dict[str, Any]:
     """A registry entry's revision as told to a reader it isn't disclosed to: what it set,
     not who, how or when (ADR 0115)."""
     return {
         "number": revision.number,
         "kind": revision.kind,
         "entry": True,
-        "changed_fields": revision.changed_fields,
+        "changed_fields": names.changed(revision),
         "user": None,
         "via": "",
         "client": "",
@@ -3546,13 +3691,16 @@ def get_provenance(request: HttpRequest, ref: str) -> dict[str, dict[str, Any]]:
     found = {n: r for n, r in services.provenance(entity).items() if n in fields}
     made = _runs_of(me, found.values())
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
-    states = revision_states(list(found.values()))
+    names = FieldNames.for_type(entity.type)
+    entry_names = FieldNames.for_type(entity.type, entry=True) if entity.entry_id else names
+    states = revision_states(list(found.values()), {entity.type: names})
     submitted = _submissions(me, found.values())
     return {
         name: _revision(
             revision,
             made,
             entity=entity,
+            names=names if revision.entity_id == entity.pk else entry_names,
             projects=readable,
             states=states,
             submitted=submitted.get(revision.pk),

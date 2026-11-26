@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: import_quantstudio_results
+label: Read a qPCR run's QuantStudio results
+description: >-
+  Reads the run's results export: the experiment, instrument and calibration
+  facts above its tables, each well's Cq for each target, and each target's
+  standard curve. Iki gives the worker the file only once its malware scan
+  found it clean. The file must be the one whose SHA-256 the record names.
+inputs:
+  run: { type: QPCRRun, schema: ">=1" }
+effects:
+  updates:
+    - input: run
+      fields:
+        - experiment_name
+        - experiment_type
+        - instrument_type
+        - instrument_serial
+        - block
+        - chemistry
+        - passive_reference
+        - cycle_method
+        - endogenous_control
+        - reference_sample
+        - run_ended
+        - operator
+        - expired_calibrations
+        - wells
+        - standard_curves
+runs_on: { tier: backend, environment: qpcr-tools }
+command: [python, ./scripts/quantstudio.py]
+deterministic: true
+# Reading a file is safe to repeat.
+retries: { max: 2, on: [worker_lost, interrupted] }
+metrics:
+  wells: { label: Wells, description: The well results the export listed. }
+  undetermined: { label: Undetermined, description: Wells with no Cq. }
+timeout: 5m

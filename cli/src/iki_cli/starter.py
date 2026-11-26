@@ -54,9 +54,6 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
         if name != "list":
             parser.add_argument("starter", help="The installed starter ID from 'iki starter list'.")
             parser.add_argument("--version", required=True, help="The starter version to apply.")
-            parser.add_argument(
-                "--requester-project", type=UUID, required=True, help="The requesting project UUID."
-            )
             parser.add_argument("--flow", required=True, choices=["research", "regulated_qc"])
             parser.add_argument(
                 "--role",
@@ -101,7 +98,6 @@ def run(args: argparse.Namespace) -> int:
                     path,
                     json={
                         "project": str(args.project),
-                        "requester_project": str(args.requester_project),
                         "version": args.version,
                         "flow": args.flow,
                         "role_assignments": assignments,
@@ -150,16 +146,11 @@ def _print_application(
         status = "Already applied"
     write(f"{status}  {result['starter']} {result['version']}\n")
     write(f"  Service project   {result['project']}\n")
-    write(f"  Requester project {result['requester_project']}\n")
     write(f"  Review flow       {result['flow']}  {result['result_type']}\n")
     for role, memberships in result["role_assignments"].items():
         write(f"  {role}  {', '.join(memberships)}\n")
     if preview:
         for role, memberships in result["grants_to_add"].items():
             write(f"  Grant {role} to {', '.join(memberships)}\n")
-        for key in result["examples_to_create"]:
-            write(f"  Create example {key}\n")
-    for key, record in result["examples"].items():
-        write(f"  Example {key}  {record}\n")
     if preview and result["changed"]:
         write(f"  Plan              {result['plan']}  (apply it with --plan)\n")

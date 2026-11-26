@@ -19,6 +19,7 @@ from django.db import transaction
 
 from iki_server.files import storage
 from iki_server.files.models import File
+from iki_server.files.scan_state import require_usable
 from iki_server.runs.models import ActionRun, RunFile, RunFileRole, Worker
 from iki_server.runs.queue import held
 from iki_spec.model import Field
@@ -134,6 +135,7 @@ def download(
             raise LookupError("This job's run input doesn't list that file.")
         found = File.objects.select_related("blob").get(pk=file_id)
     blob = found.blob
+    require_usable(blob)
     return found, storage.download_url(
         blob.storage_uri, blob.object_version, found.name, found.media_type, workers=True
     )

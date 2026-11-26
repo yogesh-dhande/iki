@@ -82,17 +82,19 @@ def check_mirror(url: str, protocols: Sequence[str] | None = None) -> str | None
         parts = urlsplit(url)
     except ValueError:
         return f"`{shown}` isn't a URL git reads"
-    if not parts.scheme and "ssh" in allowed and "@" in url and ":" in url.partition("@")[2]:
-        return None  # scp-like ssh: git@git.example.org:mirrors/iki.git
-    if parts.scheme not in allowed:
+    remote = repository(url)
+    scp = "://" not in url and remote is not None and remote.scheme == "ssh"
+    if ("ssh" if scp else parts.scheme) not in allowed:
         return f"`{shown}` isn't an {' or '.join(allowed)} URL"
     what = url_credentials(url)
     if what == "a query or fragment":
         return f"`{shown}` has a query or fragment, which a git URL doesn't"
     if what is not None:
         return f"`{shown}` has {what} in it: give it to git's credential helper instead"
-    if parts.scheme != "file" and not parts.hostname:
+    if not scp and parts.scheme != "file" and not parts.hostname:
         return f"`{shown}` has no host"
+    if remote is None:
+        return f"`{shown}` isn't a valid Git repository address"
     return None
 
 
@@ -114,7 +116,8 @@ def fetch(
     assert plugin.git is not None and plugin.sha is not None  # noqa: S101 - the lockfile's rules
     protocols = protocols or PROTOCOLS
     ours = naming.split(plugin.name)[0] == naming.IKI_NAMESPACE
-    sources = list(mirrors) if ours and mirrors else [plugin.git]
+    mirrored = ours and bool(mirrors)
+    sources = mirrors if mirrored else [plugin.git]
     failures = []
     for source in sources:
         git = _Git(_cache(cache, source), protocols)
@@ -125,7 +128,6 @@ def fetch(
         except FetchError as error:
             failures.append(str(error))
             continue
-        mirrored = source != plugin.git
         if mirrored:
             _check_iki_made(git, plugin, source)
         return Fetched(_export(git, plugin, into), without_credentials(source), mirrored)
@@ -229,7 +231,8 @@ class _Git:
     def check_not_rewritten(self, plugin: LockedPlugin, url: str) -> None:
         self._init(plugin)
         effective = self.effective(url)
-        if repository(effective) != repository(url):
+        expected = repository(url)
+        if expected is None or repository(effective) != expected:
             raise FetchError(
                 f"{plugin.name}: git's config sends {without_credentials(url)} to "
                 f"{without_credentials(effective)} "

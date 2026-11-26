@@ -4,7 +4,7 @@ kind: EntityType
 name: PlasmidVerification
 label: Plasmid verification
 label_plural: Plasmid verifications
-schema_version: 4
+schema_version: 5
 hrid: { prefix: VER }
 description: >-
   An assessment of evidence from one physical plasmid prep against its registered plasmid.
@@ -107,7 +107,6 @@ fields:
         description: The assigned reviewer signed the research assessment.
         set_by: [verification_reviewer]
         locks: true
-        on_edit: recorded
         signatures:
           - meaning: verification
             statement: >-
@@ -128,7 +127,6 @@ fields:
         description: The analyst signed the evidence and outcome for independent review.
         set_by: [verification_analyst]
         locks: true
-        on_edit: recorded
         signatures:
           - meaning: authorship
             statement: >-
@@ -146,7 +144,6 @@ fields:
         description: The assigned reviewer signed the independent assessment.
         set_by: [verification_reviewer]
         locks: true
-        on_edit: recorded
         signatures:
           - meaning: review
             statement: >-
@@ -169,7 +166,6 @@ fields:
         description: QA signed the release of this reviewed verification outcome.
         set_by: [qa]
         locks: true
-        on_edit: recorded
         signatures:
           - meaning: approval
             label: QA release

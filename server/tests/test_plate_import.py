@@ -13,12 +13,13 @@ import pytest
 from django.db import connection, transaction
 from django.utils import timezone
 from first_party_dependencies import PLUGINS, ROOT, build_order
+from scan_fixtures import clean_blob
 from test_plugin_migrations import database, iki, migrate, orm, sync
 
 from iki_server.accounts.models import User
 from iki_server.entities import services as entities
 from iki_server.entities.models import Entity
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.runs import catalog, queue, results
 from iki_server.runs import services as runs
@@ -52,9 +53,7 @@ def exercise_import(project: Project) -> None:
     assay = importlib.import_module("assays")
     source = PLATES / "tests" / "data" / "mars-96-series.csv"
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
-    blob = Blob.objects.create(
-        sha256=digest, size=source.stat().st_size, storage_uri=f"s3://test/{digest}"
-    )
+    blob = clean_blob(sha256=digest, size=source.stat().st_size, storage_uri=f"s3://test/{digest}")
     reader = File.objects.create(
         name=source.name, media_type="text/csv", project=project, blob=blob
     )

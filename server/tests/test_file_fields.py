@@ -5,13 +5,14 @@ from typing import Any
 import pytest
 from django.db import connection, transaction
 from django.db.utils import DatabaseError
+from scan_fixtures import clean_blob
 
 from iki_server.accounts.models import User
 from iki_server.core.ids import uuid7
 from iki_server.entities import access, schema, services, values
 from iki_server.entities.models import Entity
 from iki_server.files import services as files
-from iki_server.files.models import Blob, File, FileUse
+from iki_server.files.models import File, FileUse
 from iki_server.org.models import Project, ProjectMembership, ProjectRole, Team
 
 pytestmark = pytest.mark.django_db
@@ -44,9 +45,7 @@ def add_file(
     size: int = 1024,
     digit: str = "a",
 ) -> File:
-    blob, _ = Blob.objects.get_or_create(
-        sha256=digit * 64, defaults={"size": size, "storage_uri": f"s3://iki/{digit}"}
-    )
+    blob = clean_blob(sha256=digit * 64, size=size, storage_uri=f"s3://iki/{digit}")
     return File.objects.create(blob=blob, name=name, media_type=media_type, project=project)
 
 
@@ -78,7 +77,8 @@ def test_files_are_checked_against_the_fields_rules(lab: dict[str, Any]) -> None
     alice, project = lab["alice"], lab["first"]
     text = add_file(project, name="notes.txt", media_type="text/plain", digit="c")
     assert errors(alice, project, str(text.pk)) == [
-        "must be chemical/x-mmcif or chemical/x-pdb, and this file is text/plain."
+        "must be chemical/x-mmcif, chemical/x-pdb or Model coordinates, "
+        "and this file is text/plain."
     ]
     huge = add_file(project, size=3 * GiB + GiB // 10, digit="d")
     assert errors(alice, project, str(huge.pk)) == [
@@ -95,6 +95,7 @@ def test_files_are_checked_against_the_fields_rules(lab: dict[str, Any]) -> None
 def test_media_types_may_name_a_whole_kind() -> None:
     assert values.media_type_allowed("image/png", ["image/*"])
     assert values.media_type_allowed("application/json", ["application/json"])
+    assert values.media_type_allowed("application/vnd.sybyl.mol2", ["chemical/*"])
     assert not values.media_type_allowed("application/jsonl", ["application/json"])
     assert not values.media_type_allowed("text/png", ["image/*"])
 
@@ -138,5 +139,10 @@ def test_the_schema_says_a_field_takes_a_file() -> None:
     out = schema.field_schema(field)
     assert "readOnly" not in out
     assert out["x-iki-file"] is True
-    assert out["x-iki-media-types"] == ["chemical/x-mmcif", "chemical/x-pdb"]
+    assert {
+        "chemical/x-mmcif",
+        "chemical/x-pdb",
+        "chemical/x-acme-model",
+        "chemical/x-acme-coordinates",
+    } <= set(out["x-iki-media-types"])
     assert out["x-iki-max-size"] == 2 * GiB

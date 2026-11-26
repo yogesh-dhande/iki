@@ -1,36 +1,31 @@
 # Run a first dose-response plate assay
 
-Use the **Dose-response** starter to receive a sample, map a plate reader file to its wells,
-review an IC50 and return the signed result to the project that requested it. The example uses
-published apigenin and daidzein activity measurements against firefly luciferase. Follow each well
-from the normalized activity CSV to its signed result. [PubChem AID 1224835](https://pubchem.ncbi.nlm.nih.gov/bioassay/1224835).
-In the seeded development deployment, the **Research plate assays** and **QC plate assays**
-projects each contain a completed example.
+Choose the review flow for your assay project. You can then run a plate using
+your lab’s own materials and reader file, or follow the public Tox21 experiment
+below in dedicated training projects.
 
-## Set up the two projects
+## Configure your assay project
 
-Sign in as an admin of the assay service project with edit access to the requesting project.
-Use two active projects in the same registry with sharing enabled. If the service already takes
-requests, its intake settings must allow **Research request** or **QC request** for the selected flow from this requester. On a new
-service, the starter configures that intake. The deployment needs the `iki/plate_assays` plugin,
-its dependencies, the Samples plugin and its dependencies for the example material, and a worker bound to `iki/plate_assays.assay-tools`.
-[Deploy a plugin](../../deploy/config-template/README.md#how-a-change-reaches-a-deployment)
+Install `iki/plate_assays` with its declared dependencies and bind
+`iki/plate_assays.assay-tools` to a backend worker. As a project admin, open
+**Project settings**, choose **Set it up from a starter** and select
+**Dose-response plate assay**.
+Choose **Research** for one sign-off or **Regulated QC** for analyst submission,
+independent review and QA release. The analyst needs at least Editor access.
+A reviewer or QA signer needs at least Viewer access. Assign different people
+to the three regulated QC roles. [Deployment configuration](../../deploy/config-template/README.md)
 
-Use the project UUIDs for `ASSAY_PROJECT` and `REQUESTER_PROJECT`. For the role assignments,
-use each person's direct, active membership ID from `GET /api/v1/projects/{project_id}/members`.
-Give the coordinator and analyst at least Editor access. The reviewer and QA signer each need at
-least Viewer access. For Regulated QC, assign different people as analyst, reviewer and QA.
-The CLI uses your SDK sign-in or the `IKI_URL` and `IKI_TOKEN` environment variables.
+To apply the same choice from the CLI, set `ASSAY_PROJECT` to the project UUID.
+Use direct, active **membership IDs** from `GET /api/v1/projects/{project_id}/members`
+for the roles. The CLI uses your SDK sign-in or `IKI_URL` and `IKI_TOKEN`.
 [Signing in](../../sdk/python/README.md#signing-in)
 
 ```bash
 iki starter list --project "$ASSAY_PROJECT"
 
-FLOW=regulated_qc    # Set to research for one sign-off.
+FLOW=regulated_qc
 options=(
-  dose-response --version 1.2.0 --project "$ASSAY_PROJECT"
-  --requester-project "$REQUESTER_PROJECT" --flow "$FLOW"
-  --role "iki/lab_roles.coordinator=$COORDINATOR"
+  dose-response --version 2.0.0 --project "$ASSAY_PROJECT" --flow "$FLOW"
   --role "iki/plate_assays.analyst=$ANALYST"
   --role "iki/plate_assays.reviewer=$REVIEWER"
 )
@@ -38,15 +33,48 @@ if [[ "$FLOW" == regulated_qc ]]; then
   options+=(--role "iki/plate_assays.qa=$QA")
 fi
 iki starter preview "${options[@]}"
-iki starter apply "${options[@]}" --plan "$PLAN"    # The plan the preview printed.
 ```
 
-Preview shows the example records to create and roles to grant, and ends with its plan. Apply
-applies that plan: if what applying does changed since the preview, nothing is applied, and it
-prints what applying does now and its new plan, to review. Apply returns the IDs of the
-submitted request, its two compound tubes, and the assay project’s reagent sample, reagent tube, plate and reader file. Repeating the same setup reuses these IDs.
-To change flow, preview and apply again with the original requester. The original request retains its type. Use a new request of the matching type for subsequent fits. Existing results finish
-under their original flow. A fit still running when the flow changes may need to be run again.
+If the preview reports `Already applied`, setup is complete. If it lists changes,
+review them and set `PLAN` to the identifier it prints.
+
+```bash
+iki starter apply "${options[@]}" --plan "$PLAN"
+```
+
+Applying saves the recipe version, review flow and grants. The project
+can still be empty. Reapplying the same choice is safe. To change the flow
+for future fits, preview and apply the new choice. Existing results retain
+their review requirements. A fit already running may need to be run again.
+
+## Use your lab’s plate
+
+Create an **Assay plate**, enter its procedure and revision, and assign your
+samples, replicates, concentrations and controls on the **Plate map** tab.
+Attach the reader file, preview the well mapping and commit the measurements.
+Run **Fit a dose-response curve**, select the sample and endpoint, then review
+the curve and sign according to the project’s flow. If the assay is commissioned
+by another project, configure the service’s request intake and link the plate
+to the submitted request. [Run an assay](../../plugins/plate_assays/README.md#run-an-assay)
+
+## Load the worked Tox21 experiment
+
+The tutorial uses published apigenin and daidzein activity measurements against
+firefly luciferase. Stock volumes and custody events are practice data. The
+loader creates dedicated assay and requesting projects in your chosen team.
+From an Iki checkout, sign in as someone who can create those projects and
+supply the team UUID and **user IDs** of the participants. [Tutorial requirements and source data](../../examples/dose_response/README.md)
+
+```bash
+uv run python -m examples.dose_response --team "$TEAM_ID" --flow research \
+  --analyst "$ANALYST_USER_ID" --reviewer "$REVIEWER_USER_ID"
+```
+
+For regulated QC, use `--flow regulated_qc` and add `--qa "$QA_USER_ID"`.
+The assay projects are named **Research plate assays** and **QC plate assays**.
+The corresponding requesting projects receive the signed results. Both
+completed examples are also available after the development seed runs.
+[Published assay](https://pubchem.ncbi.nlm.nih.gov/bioassay/1224835)
 
 ## Receive the tubes and read the plate
 
@@ -83,9 +111,11 @@ values. Correcting the notes on a submitted or reviewed result requires a reason
 it to **Recorded** for fresh signatures. To change an exclusion, run a new fit on the committed
 read and review that result.
 
-In the requesting project, open **Requests → We sent** and select the same request. After the
-final signature, the **Results** section shows the released revision. Open the result and choose
+After the final signature, sign back in as the tutorial operator. In the requesting project,
+open **Requests → We sent** and select the same request. The **Results** section shows the
+released revision. Open the result and choose
 **Check signatures** to verify who signed each revision.
 
-Once both signed fits have been returned, a request reviewer or QA in the assay project can set
-the request to **Delivered**. If a compound still needs a result, the request names it.
+Once both signed fits have been returned, the Research reviewer or the Regulated QC QA signer
+can open the request in the tutorial assay project and set it to **Delivered**. If a compound
+still needs a result, the request names it.

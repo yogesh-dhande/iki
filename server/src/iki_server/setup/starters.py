@@ -1,13 +1,13 @@
-"""Recipes installed with active plugins and applied to projects (ADR 0198)."""
+"""Recipes installed with active plugins configure individual projects (ADRs 0198, 0223, 0240)."""
 
 import hashlib
 import json
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 from itertools import combinations
-from typing import Any, Protocol
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -20,17 +20,7 @@ from iki_server.org import lab_roles, permissions, services
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
-from iki_server.setup import dose_response
 from iki_server.setup.models import StarterApplication
-
-
-class Examples(Protocol):
-    def check_example(
-        self, project: Project, requester_project: Project, flow: str, *, by: User
-    ) -> None: ...
-    def seed_example(
-        self, project: Project, requester_project: Project, flow: str, *, by: User
-    ) -> dict[str, str]: ...
 
 
 @dataclass(frozen=True)
@@ -43,74 +33,151 @@ class Starter:
     setting: str
     result_base: str
     flows: dict[str, str]
-    requested_types: dict[str, str]
-    types: tuple[str, ...]
     roles: dict[str, ProjectRole]
     required_roles: dict[str, tuple[str, ...]]
     independent_roles: dict[str, tuple[str, ...]]
-    example_keys: tuple[str, ...]
-    examples: Examples
+    #: What the project's choice governs, as in "New dose-response fits use Research".
+    governs: str = "dose-response fits"
+    #: The type whose records pin the flow when an action opens them (ADR 0240). Records
+    #: made under one, such as a release case's certificate, follow its pinned flow, not
+    #: the project's current choice. Without one, new results must be the chosen flow's
+    #: result type.
+    pinned_by: str | None = None
+    #: The states each flow's records pass through, where the result type has one route
+    #: per flow in a single state field. Without them, a flow is its result type's.
+    flow_states: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+    @property
+    def types(self) -> tuple[str, ...]:
+        return (self.result_base, *self.flows.values())
 
 
 PLATE = "iki/plate_assays."
-COORDINATOR = "iki/lab_roles.coordinator"
 ANALYST, REVIEWER, QA = PLATE + "analyst", PLATE + "reviewer", PLATE + "qa"
 FLOW_LABELS = {"research": "Research", "regulated_qc": "Regulated QC"}
 
 DOSE_RESPONSE = Starter(
     id="dose-response",
-    version="1.2.0",
+    version="2.0.0",
     label="Dose-response plate assay",
-    description="Receive an example request, map a reader file to wells, fit a curve and return "
-    "the signed result to the requester.",
+    description="Choose the review flow for new dose-response fits and assign the assay roles.",
     plugin="iki/plate_assays",
     setting="review_flow",
     result_base=PLATE + "AssayResult",
     flows={"research": PLATE + "ResearchAssayResult", "regulated_qc": PLATE + "QCAssayResult"},
-    requested_types={
-        "research": PLATE + "RequestedResearchAssayResult",
-        "regulated_qc": PLATE + "RequestedQCAssayResult",
-    },
-    types=(
-        "iki/protein.Protein",
-        "iki/small_molecule.Compound",
-        "iki/lots.GenericLot",
-        "iki/samples.Sample",
-        "iki/inventory.Tube",
-        *dose_response.REQUEST_TYPES.values(),
-        PLATE + "AssayPlate",
-        PLATE + "PlateRead",
-        PLATE + "WellMeasurement",
-        PLATE + "AssayResult",
-        PLATE + "ResearchAssayResult",
-        PLATE + "QCAssayResult",
-        PLATE + "RequestedResearchAssayResult",
-        PLATE + "RequestedQCAssayResult",
-    ),
     roles={
-        COORDINATOR: ProjectRole.EDITOR,
         ANALYST: ProjectRole.EDITOR,
         REVIEWER: ProjectRole.VIEWER,
         QA: ProjectRole.VIEWER,
     },
     required_roles={
-        "research": (COORDINATOR, ANALYST, REVIEWER),
-        "regulated_qc": (COORDINATOR, ANALYST, REVIEWER, QA),
+        "research": (ANALYST, REVIEWER),
+        "regulated_qc": (ANALYST, REVIEWER, QA),
     },
     independent_roles={"regulated_qc": (ANALYST, REVIEWER, QA)},
-    example_keys=(
-        "request",
-        "protein",
-        "sample",
-        "tube",
-        "apigenin",
-        "daidzein",
-        "reader_file",
-        "plate",
-    ),
-    examples=dose_response,
 )
-CATALOG = (DOSE_RESPONSE,)
+
+# Release testing, stability and prep verification pin their flow on the record an action
+# opens: a case, a scheduled study, a verification (ADR 0240). A later choice governs only
+# records opened after it, and the ones in progress finish as they began.
+QC = "iki/qc_release."
+QC_ANALYST, QC_REVIEWER, QC_QA = QC + "analyst", QC + "reviewer", QC + "qa"
+LOT_RELEASE_TESTING = Starter(
+    id="lot-release-testing",
+    version="1.0.0",
+    label="Lot release testing",
+    description=(
+        "Choose how new release cases' investigations and certificates of analysis are "
+        "signed, and assign the release testing roles."
+    ),
+    plugin="iki/qc_release",
+    setting="review_flow",
+    result_base=QC + "ReleaseCertificate",
+    flows={"research": QC + "ResearchCertificate", "regulated_qc": QC + "QCCertificate"},
+    roles={
+        QC_ANALYST: ProjectRole.EDITOR,
+        QC_REVIEWER: ProjectRole.VIEWER,
+        QC_QA: ProjectRole.VIEWER,
+    },
+    # Release Testing QA approves the specifications in either flow.
+    required_roles={
+        "research": (QC_REVIEWER, QC_QA),
+        "regulated_qc": (QC_ANALYST, QC_REVIEWER, QC_QA),
+    },
+    independent_roles={"regulated_qc": (QC_ANALYST, QC_REVIEWER, QC_QA)},
+    governs="release cases",
+    pinned_by=QC + "ReleaseCase",
+)
+
+STABILITY = "iki/stability."
+COORDINATOR, ST_ANALYST, ST_REVIEWER, ST_QA = (
+    STABILITY + r for r in ("coordinator", "analyst", "reviewer", "qa")
+)
+STABILITY_STUDY = Starter(
+    id="stability-study",
+    version="1.0.0",
+    label="Stability study",
+    description=(
+        "Choose how measurements on newly scheduled studies are reviewed, and assign who "
+        "pulls, records, reviews and releases them."
+    ),
+    plugin="iki/stability",
+    setting="review_flow",
+    result_base=STABILITY + "Measurement",
+    flows={"research": STABILITY + "Measurement", "regulated_qc": STABILITY + "Measurement"},
+    flow_states={
+        "research": ("recorded", "signed"),
+        "regulated_qc": ("recorded", "submitted", "reviewed", "released"),
+    },
+    roles={
+        COORDINATOR: ProjectRole.EDITOR,
+        ST_ANALYST: ProjectRole.EDITOR,
+        ST_REVIEWER: ProjectRole.VIEWER,
+        ST_QA: ProjectRole.VIEWER,
+    },
+    required_roles={
+        "research": (COORDINATOR, ST_REVIEWER),
+        "regulated_qc": (COORDINATOR, ST_ANALYST, ST_REVIEWER, ST_QA),
+    },
+    independent_roles={"regulated_qc": (ST_ANALYST, ST_REVIEWER, ST_QA)},
+    governs="scheduled studies",
+    pinned_by=STABILITY + "Study",
+)
+
+LOTS = "iki/lots."
+VER_ANALYST, VER_REVIEWER, LOT_QA = (
+    LOTS + r for r in ("verification_analyst", "verification_reviewer", "qa")
+)
+PREP_VERIFICATION = Starter(
+    id="plasmid-prep-verification",
+    version="1.0.0",
+    label="Plasmid prep verification",
+    description=(
+        "Choose how new verifications of physical plasmid preps are reviewed, and assign who "
+        "submits, reviews and releases them."
+    ),
+    plugin="iki/lots",
+    setting="verification_flow",
+    result_base=LOTS + "PlasmidVerification",
+    flows={"research": LOTS + "PlasmidVerification", "regulated_qc": LOTS + "PlasmidVerification"},
+    flow_states={
+        "research": ("recorded", "signed_off"),
+        "regulated_qc": ("recorded", "submitted", "reviewed", "released"),
+    },
+    roles={
+        VER_ANALYST: ProjectRole.EDITOR,
+        VER_REVIEWER: ProjectRole.VIEWER,
+        LOT_QA: ProjectRole.VIEWER,
+    },
+    required_roles={
+        "research": (VER_REVIEWER,),
+        "regulated_qc": (VER_ANALYST, VER_REVIEWER, LOT_QA),
+    },
+    independent_roles={"regulated_qc": (VER_ANALYST, VER_REVIEWER, LOT_QA)},
+    governs="plasmid verifications",
+    pinned_by=LOTS + "PlasmidVerification",
+)
+CATALOG = (DOSE_RESPONSE, LOT_RELEASE_TESTING, STABILITY_STUDY, PREP_VERIFICATION)
 
 
 @cache
@@ -140,20 +207,12 @@ def effective_flow(project: Project, starter_id: str) -> str | None:
     )
 
 
-def list_starters(
-    project: Project | None = None, *, by: User | None = None
-) -> list[dict[str, Any]]:
+def list_starters(project: Project | None = None) -> list[dict[str, Any]]:
     current = (
-        {
-            a.starter: a
-            for a in StarterApplication.objects.filter(project=project).select_related(
-                "requester_project"
-            )
-        }
+        {a.starter: a for a in StarterApplication.objects.filter(project=project)}
         if project
         else {}
     )
-    may_manage = bool(by and project and permissions.can(by, Action.PROJECT_MANAGE, project))
     labels = lab_roles.labels()
     return [
         {
@@ -161,29 +220,23 @@ def list_starters(
             "version": s.version,
             "label": s.label,
             "description": s.description,
+            "governs": s.governs,
             "flows": [
                 {
                     "id": f,
                     "label": FLOW_LABELS[f],
                     "result_type": t,
+                    "states": list(s.flow_states[f]) if f in s.flow_states else None,
                     "required_roles": list(s.required_roles[f]),
                 }
-                for f, t in s.requested_types.items()
+                for f, t in s.flows.items()
             ],
             "types": list(s.types),
             "roles": [
                 {"id": r, "label": labels[r], "minimum_project_role": minimum.name.lower()}
                 for r, minimum in s.roles.items()
             ],
-            "applied": {
-                "version": a.version,
-                "flow": a.flow,
-                "requester_project": str(a.requester_project_id)
-                if may_manage and permissions.can(by, Action.PROJECT_EDIT, a.requester_project)
-                else None,
-            }
-            if (a := current.get(s.id))
-            else None,
+            "applied": {"version": a.version, "flow": a.flow} if (a := current.get(s.id)) else None,
         }
         for s in installed_starters().values()
     ]
@@ -268,7 +321,6 @@ def _identify(result: Mapping[str, Any], before: Mapping[str, str] | None) -> st
 
 @dataclass
 class _Plan:
-    starter: Starter
     application: StarterApplication | None
     members: dict[UUID, ProjectMembership]
     grants: dict[UUID, set[str]]
@@ -281,11 +333,9 @@ def _plan(
     version: str,
     flow: str,
     role_assignments: RoleAssignments,
-    requester_project: Project,
     by: User,
 ) -> _Plan:
     permissions.require(by, Action.PROJECT_MANAGE, project)
-    permissions.require(by, Action.PROJECT_EDIT, requester_project)
     if project.is_archived:
         raise Refused("Restore the assay project before applying a starter.", field="project")
     recipe = installed_starters().get(starter)
@@ -299,16 +349,6 @@ def _plan(
     if flow not in recipe.flows:
         raise Refused("Choose one of the starter's review flows.", field="flow")
     current = StarterApplication.objects.filter(project=project, starter=starter).first()
-    if current is not None and current.requester_project_id != requester_project.pk:
-        raise Refused(
-            "Use the original requester project to keep its example request and results together.",
-            field="requester_project",
-        )
-    new_examples = current is None or (
-        current.version != version and not set(recipe.example_keys).issubset(current.examples)
-    )
-    if new_examples:
-        recipe.examples.check_example(project, requester_project, flow, by=by)
     selected = {role: set(ids) for role, ids in role_assignments.items()}
     members = _members(project, recipe, flow, selected)
     held = {key: {g.role for g in m.lab_roles.all()} for key, m in members.items()}
@@ -325,21 +365,18 @@ def _plan(
         "starter": starter,
         "version": version,
         "project": str(project.pk),
-        "requester_project": str(requester_project.pk),
         "flow": flow,
-        "result_type": recipe.requested_types[flow],
+        "result_type": recipe.flows[flow],
         "changed": current is None
         or current.version != version
         or current.flow != flow
         or bool(grants),
         "role_assignments": assignments,
         "grants_to_add": missing,
-        "examples_to_create": list(recipe.example_keys) if new_examples else [],
-        "examples": dict(current.examples) if current is not None else {},
     }
     before = {"version": current.version, "flow": current.flow} if current is not None else None
     result["plan"] = _identify(result, before)
-    return _Plan(recipe, current, members, grants, result)
+    return _Plan(current, members, grants, result)
 
 
 def preview(
@@ -349,10 +386,9 @@ def preview(
     flow: str,
     role_assignments: RoleAssignments,
     *,
-    requester_project: Project,
     by: User,
 ) -> dict[str, Any]:
-    return _plan(project, starter, version, flow, role_assignments, requester_project, by).result
+    return _plan(project, starter, version, flow, role_assignments, by).result
 
 
 @transaction.atomic
@@ -363,7 +399,6 @@ def apply(
     flow: str,
     role_assignments: RoleAssignments,
     *,
-    requester_project: Project,
     by: User,
     plan: str,
 ) -> dict[str, Any]:
@@ -371,17 +406,10 @@ def apply(
     does has changed since (another Admin changed a grant, or applied it first), raises
     :class:`PlanChanged` before changing anything (ADR 0207). Applying a setup that's in
     place already changes nothing, whatever the plan."""
-    # Both intake and example writes involve the two projects. Ordered locking also
-    # serializes two first applications and a flow switch against new result records.
-    locked = {
-        p.pk: p
-        for p in Project.objects.select_for_update()
-        .filter(pk__in=[project.pk, requester_project.pk])
-        .order_by("pk")
-    }
-    project, requester_project = locked[project.pk], locked[requester_project.pk]
+    # Role changes, other applications and new result records take this project's lock.
+    project = Project.objects.select_for_update().get(pk=project.pk)
     permissions.forget(by)
-    planned = _plan(project, starter, version, flow, role_assignments, requester_project, by)
+    planned = _plan(project, starter, version, flow, role_assignments, by)
     result = planned.result
     if not result["changed"]:
         return result
@@ -394,16 +422,9 @@ def apply(
         held = {g.role for g in membership.lab_roles.all()}
         services.set_lab_roles(membership, held | roles, by=by)
     if current is None:
-        current = StarterApplication(
-            project=project, requester_project=requester_project, starter=starter
-        )
-    if result["examples_to_create"]:
-        current.examples = planned.starter.examples.seed_example(
-            project, requester_project, flow, by=by
-        )
+        current = StarterApplication(project=project, starter=starter)
     current.version, current.flow, current.applied_by = version, flow, by
     current.save()
-    result["examples"] = dict(current.examples)
     audit.record(
         "starter.applied",
         actor=by,
@@ -416,8 +437,6 @@ def apply(
             "role_assignments": result["role_assignments"],
             "grants_added": result["grants_to_add"],
             "plan": result["plan"],
-            "requester_project": str(requester_project.pk),
-            "examples": result["examples"],
         },
     )
     return result

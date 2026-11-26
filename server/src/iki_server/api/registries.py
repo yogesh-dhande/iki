@@ -47,6 +47,7 @@ from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, ProjectRef, RegistryRef, TeamRef, UserOut
 from iki_server.entities import access, entries, services
+from iki_server.entities.history import FieldNames
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid, ids_in, shape, to_json
 from iki_server.org import permissions, registries
@@ -563,17 +564,19 @@ def list_entry_revisions(
     me = caller(request)
     entry, curates = _entry(me, ref)
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
+    names = FieldNames.for_type(entry.type, entry=True)
     revisions = trail.applied(
         Revision.objects.filter(entity=entry),
+        names,
         disclosed=None if curates else services.disclosing(readable),
     ).select_related("user", "agent")
     result = page(revisions, params, key="number", newest_first=True)
     states = revision_states(result["items"])
     runs = _runs_of(me, result["items"])
     result["items"] = [
-        {**_revision(r, runs, states=states), "entry": True}
+        {**_revision(r, runs, states=states, names=names), "entry": True}
         if curates or services.discloses(r, readable)
-        else undisclosed(r)
+        else undisclosed(r, names)
         for r in result["items"]
     ]
     return result
@@ -607,10 +610,11 @@ def get_entry_revision(request: HttpRequest, ref: str, number: int) -> dict[str,
             wanted[kind] |= ids
     refs, files = _entry_references(me, entry, curates, wanted)
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
+    names = FieldNames.for_type(entry.type, entry=True)
     told = (
-        {**_revision(revision, _runs_of(me, [revision])), "entry": True}
+        {**_revision(revision, _runs_of(me, [revision]), names=names), "entry": True}
         if curates or services.discloses(revision, readable)
-        else undisclosed(revision)
+        else undisclosed(revision, names)
     )
     return {
         **told,

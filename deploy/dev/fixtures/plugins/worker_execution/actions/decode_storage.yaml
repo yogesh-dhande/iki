@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: decode_storage
+label: Decode storage codes
+description: Reads a storage label stamped with the HRID of the setup build that wrote it.
+inputs:
+  sample: { type: ExecutionSample, schema: ">=1" }
+effects:
+  updates: [{ input: sample, fields: [storage] }]
+runs_on: { tier: container, environment: reference }
+command: [python, ./scripts/decode.py, /data/storage-codes/codes.json]
+deterministic: true
+batchable: 50
+timeout: 5m

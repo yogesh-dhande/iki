@@ -3,10 +3,11 @@ apiVersion: iki/v1
 kind: EntityType
 name: CellCheck
 label: Cell bank check
-schema_version: 1
+schema_version: 3
 description: >-
-  An STR authentication or a mycoplasma result for one bank. A thaw can cite
-  the signed check that applied to it, even after the bank has been tested again.
+  One test of one bank, such as STR authentication, mycoplasma or sterility, with the
+  testing laboratory's result and report. A culture can cite the final check that
+  applied to it, even after the bank has been tested again.
 hrid: { prefix: CCK }
 fields:
   bank:
@@ -18,10 +19,21 @@ fields:
   kind:
     type: enum
     label: Test
-    values: [str_authentication, mycoplasma]
+    values:
+      [str_authentication, mycoplasma, sterility, species_identity, karyotype, viral_testing, other]
     required: true
     immutable: true
     indexed: true
+    description: >-
+      STR authentication or species identity compares the material with a reference.
+      Mycoplasma, sterility and viral testing look for contamination. Choose Other for
+      a test the lab names itself.
+  test:
+    type: string
+    label: Test name
+    max_length: 120
+    indexed: true
+    description: The lab's name for an Other test, such as "Endotoxin".
   checked_on:
     type: date
     label: Test date
@@ -29,8 +41,9 @@ fields:
   due_on:
     type: date
     label: Next check due
-    required: true
-    description: The repeat date assigned by the lab for this bank and test.
+    description: >-
+      The repeat date the lab assigned for this bank and test, if any. A culture
+      can cite the check only up to this date.
   method:
     type: string
     max_length: 240
@@ -38,12 +51,13 @@ fields:
     description: Method or report reference used by the testing laboratory.
   result:
     type: enum
-    values: [match, mismatch, positive, negative, inconclusive]
+    values: [match, mismatch, positive, negative, conforms, does_not_conform, inconclusive]
     required: true
     indexed: true
     description: >-
-      For STR, whether the tested profile matches its reference. For mycoplasma,
-      whether the test detected contamination. Either test may be inconclusive.
+      Match or mismatch against a reference, positive or negative for contamination,
+      or whether the result conforms to the lab's acceptance criterion. Any test may
+      be inconclusive.
   report:
     type: file
     media_types: [application/pdf, text/csv, text/plain, image/png, image/jpeg]
@@ -62,6 +76,20 @@ fields:
           before_release:
             check: state.from == "submitted" || state.from == "reviewed"
             message: A submitted or reviewed check can be returned for correction.
+      accepted:
+        label: Accepted
+        description: >-
+          Final as recorded, without an electronic signature, for a project whose
+          procedure needs none. The attached report is the evidence.
+        set_by: [recorder]
+        locks: true
+        guards:
+          recorded_check:
+            check: state.from == "recorded" && last.review.submitted == null
+            message: Accept a recorded check before any regulated submission.
+          report_attached:
+            check: record.report != null
+            message: Attach the testing laboratory's report before accepting the check.
       signed_off:
         label: Signed off
         description: The research signer attests to the recorded result.
@@ -79,7 +107,6 @@ fields:
         description: The analyst signed the result for independent review.
         set_by: [analyst]
         locks: true
-        on_edit: recorded
         signatures:
           - meaning: authorship
             statement: I recorded this bank check as observed.
@@ -91,7 +118,6 @@ fields:
         label: Independently reviewed
         set_by: [reviewer]
         locks: true
-        on_edit: recorded
         signatures:
           - meaning: review
         guards:
@@ -131,11 +157,19 @@ rules:
   result_for_test:
     label: Result belongs to the test
     check: >-
-      record.result == "inconclusive" ||
-      (record.kind == "str_authentication" && record.result in ["match", "mismatch"]) ||
-      (record.kind == "mycoplasma" && record.result in ["positive", "negative"])
-    message: Record match or mismatch for STR, positive or negative for mycoplasma, or inconclusive for either.
+      record.result == "inconclusive" || record.kind == "other" ||
+      (record.kind in ["str_authentication", "species_identity"] && record.result in ["match", "mismatch"]) ||
+      (record.kind in ["mycoplasma", "sterility", "viral_testing"] && record.result in ["positive", "negative"]) ||
+      (record.kind == "karyotype" && record.result in ["conforms", "does_not_conform"])
+    message: >-
+      Record match or mismatch for an identity test, positive or negative for a
+      contamination test, conforms or does not conform for a karyotype, or inconclusive.
     fields: [result]
+  named_other_test:
+    label: Other tests are named
+    check: '(record.kind == "other") == (record.test != null)'
+    message: Name the test for a check of kind Other, and only then.
+    fields: [test]
   existing_bank:
     label: Bank exists on test date
     check: record.checked_on >= record.bank.banked_on
@@ -143,8 +177,9 @@ rules:
     fields: [checked_on]
   next_check_after_test:
     label: Repeat date on or after test date
+    when: record.due_on != null
     check: record.due_on >= record.checked_on
     message: The next check is due on or after this test.
     fields: [due_on]
 display:
-  title: "{{ kind }} · {{ result }} ({{ checked_on }})"
+  title: "{{ test or kind }} · {{ result }} ({{ checked_on }})"

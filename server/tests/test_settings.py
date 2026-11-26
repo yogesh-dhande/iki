@@ -189,7 +189,7 @@ def test_local_plugins_need_a_development_server(tmp_path: Path) -> None:
 
 
 def test_plugins_from_a_mirror_the_deployment_doesnt_name_are_refused(tmp_path: Path) -> None:
-    mirror = "https://git.acme.example/mirrors/iki.git"
+    mirror = "https://git.acme.example:8443/Mirrors/iki.git"
     env = _plugins(
         tmp_path, f"IKI_VERSION = {__version__!r}\nLOCAL = False\nMIRRORS = [{mirror!r}]\n"
     )
@@ -199,11 +199,18 @@ def test_plugins_from_a_mirror_the_deployment_doesnt_name_are_refused(tmp_path: 
         f"The plugins were fetched from {mirror}, which this deployment doesn't name as a "
         "mirror of Iki's repository."
     ) in result.stderr
-    other = run_manage("check", env={**env, "IKI_PLUGIN_MIRRORS": "https://git.example/other"})
-    assert other.returncode != 0
-    # However its admin wrote it: ssh or https, with or without .git.
-    for named in (mirror, "git@git.acme.example:mirrors/iki", f"x,{mirror.removesuffix('.git')}"):
-        result = run_manage("check", env={**env, "IKI_PLUGIN_MIRRORS": named})
+    for other in (
+        "https://git.acme.example/8443/Mirrors/iki.git",
+        "https://git.acme.example:8443/mirrors/iki.git",
+        "ssh://git@git.acme.example:8443/Mirrors/iki.git",
+    ):
+        result = run_manage("check", env={**env, "IKI_PLUGIN_MIRRORS": other})
+        assert result.returncode != 0
+        assert f"The plugins were fetched from {mirror}" in result.stderr
+    for named in (mirror, "https://GIT.acme.example:8443/Mirrors/iki/"):
+        result = run_manage(
+            "check", env={**env, "IKI_PLUGIN_MIRRORS": f"https://git.example/other,{named}"}
+        )
         assert result.returncode == 0, (named, result.stderr)
 
 
@@ -276,6 +283,11 @@ def test_bucket_aliases_name_where_each_buckets_objects_are_now() -> None:
             "IKI_FILES_WORKER_ENDPOINT_URL is plain HTTP",
         ),
         ({"IKI_FILES_MAX_UPLOAD_SIZE": "lots"}, "IKI_FILES_MAX_UPLOAD_SIZE must be a size"),
+        ({"IKI_FILES_SCAN_MAX_SIZE": "-10"}, "IKI_FILES_SCAN_MAX_SIZE must be a size"),
+        ({"IKI_FILES_SCAN_OVERSIZE_POLICY": "ignore"}, "IKI_FILES_SCAN_OVERSIZE_POLICY must be"),
+        ({"IKI_FILES_SCANNER": ""}, "IKI_FILES_SCANNER must be a dotted path"),
+        ({"IKI_CLAMD_PORT": "70000"}, "IKI_CLAMD_PORT must name a TCP endpoint"),
+        ({"IKI_CLAMD_TIMEOUT_SECONDS": "0"}, "IKI_CLAMD_TIMEOUT_SECONDS must be positive"),
         ({"IKI_FILES_REGISTER_LOCATIONS": "lab-data/runs"}, "isn't a location such as"),
         ({"IKI_FILES_REGISTER_LOCATIONS": "s3://Lab_Data/"}, "isn't a location such as"),
         ({"IKI_FILES_REGISTER_LOCATIONS": "s3://lab/runs/../"}, "can't contain `..`"),

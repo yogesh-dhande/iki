@@ -110,7 +110,7 @@ def test_chart_renders_expected_resources() -> None:
 
 
 def test_every_pod_meets_pod_security_restricted() -> None:
-    specs = list(pod_specs(manifests()))
+    specs = list(pod_specs(manifests(FILES)))
     assert specs
     for name, spec in specs:
         psc = spec["securityContext"]
@@ -650,11 +650,16 @@ def test_webhook_networks_must_be_cidrs() -> None:
 FILES: dict[str, Any] = {"files": {"bucket": "iki-files", "prefix": "prod"}}
 
 
+def file_server_pods(docs: list[Manifest]) -> Iterator[tuple[str, Manifest]]:
+    # The scanner gets neither the bucket address nor storage credentials.
+    return ((name, pod) for name, pod in pod_specs(docs) if name != "Deployment/iki-clamd")
+
+
 def test_files_are_off_unless_a_bucket_is_set_and_then_reach_every_container() -> None:
-    for name, spec in pod_specs(manifests()):
+    for name, spec in file_server_pods(manifests()):
         env = {e["name"] for e in spec["containers"][0]["env"]}
         assert not {v for v in env if v.startswith(("IKI_FILES_", "AWS_"))}, name
-    for name, spec in pod_specs(manifests(FILES)):
+    for name, spec in file_server_pods(manifests(FILES)):
         variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
         assert variables["IKI_FILES_BUCKET"] == "iki-files", name
         assert variables["IKI_FILES_PREFIX"] == "prod", name
@@ -669,7 +674,7 @@ def test_files_are_off_unless_a_bucket_is_set_and_then_reach_every_container() -
 
 def test_cloud_storage_takes_no_key_and_gs_locations() -> None:
     values = {"files": {"bucket": "iki_files", "backend": "gcs"}}
-    for name, spec in pod_specs(manifests(values)):
+    for name, spec in file_server_pods(manifests(values)):
         variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
         assert variables["IKI_FILES_BACKEND"] == "gcs", name
         assert variables["IKI_FILES_BUCKET"] == "iki_files", name
@@ -677,7 +682,7 @@ def test_cloud_storage_takes_no_key_and_gs_locations() -> None:
     error = render({"files": {**values["files"], "credentials": {"existingSecret": "k"}}}, ok=False)
     assert "Google service account" in str(error)
     located = {"files": {**values["files"], "registerLocations": ["gs://lab-data/runs/"]}}
-    for name, spec in pod_specs(manifests(located)):
+    for name, spec in file_server_pods(manifests(located)):
         variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
         assert variables["IKI_FILES_REGISTER_LOCATIONS"] == "gs://lab-data/runs/", name
     error = render({"files": {**values["files"], "registerLocations": ["s3://lab"]}}, ok=False)
@@ -695,7 +700,7 @@ def test_storage_keys_come_only_from_a_secret() -> None:
             "credentials": {"existingSecret": "iki-s3"},
         }
     }
-    for name, spec in pod_specs(manifests(values)):
+    for name, spec in file_server_pods(manifests(values)):
         variables = {e["name"]: e for e in spec["containers"][0]["env"]}
         assert variables["AWS_ACCESS_KEY_ID"]["valueFrom"]["secretKeyRef"] == {
             "name": "iki-s3",
@@ -711,11 +716,99 @@ def test_storage_keys_come_only_from_a_secret() -> None:
         # Workers' name the public one too, unless they have their own.
         assert variables["IKI_FILES_WORKER_ENDPOINT_URL"]["value"] == "", name
     values["files"]["workerEndpoint"] = "https://s3.cluster.example.com"
-    for name, spec in pod_specs(manifests(values)):
+    for name, spec in file_server_pods(manifests(values)):
         variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
         assert variables["IKI_FILES_WORKER_ENDPOINT_URL"] == "https://s3.cluster.example.com", name
     assert "workerEndpoint" in str(
         render({"files": {"bucket": "iki", "workerEndpoint": "s3.cluster"}}, ok=False)
+    )
+
+
+def test_bundled_scanner_uses_pinned_signatures_and_serves_only_scan_clients() -> None:
+    docs = manifests(
+        merged(
+            FILES,
+            {
+                "files": {"scanner": {"clamd": {"privateMirror": "https://mirror.internal"}}},
+                "networkPolicy": {
+                    "egress": {"signatureUpdates": {"to": [{"ipBlock": {"cidr": "10.2.3.4/32"}}]}}
+                },
+            },
+        )
+    )
+    pod = named(docs, "Deployment", "iki-clamd")["spec"]["template"]["spec"]
+    assert pod["initContainers"][0]["securityContext"]["runAsUser"] == 1000
+    assert pod["serviceAccountName"] == "iki-clamd"
+    assert not named(docs, "ServiceAccount", "iki-clamd")["metadata"].get("annotations")
+    for container in [*pod["initContainers"], *pod["containers"]]:
+        assert re.fullmatch(
+            r"docker.io/clamav/clamav-debian@sha256:[a-f0-9]{64}", container["image"]
+        )
+        assert "env" not in container
+    config = named(docs, "ConfigMap", "iki-clamd")["data"]
+    assert "AlertExceedsMax yes" in config["clamd.conf"]
+    assert "AlertEncrypted yes" in config["clamd.conf"]
+    assert "MaxFileSize 104857600" in config["clamd.conf"]
+    assert "PrivateMirror https://mirror.internal" in config["freshclam.conf"]
+    assert "DatabaseMirror" not in config["freshclam.conf"]
+    for _, spec in file_server_pods(docs):
+        env = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
+        assert env["IKI_FILES_SCAN_MAX_SIZE"] == "104857600B"
+        assert env["IKI_FILES_SCAN_OVERSIZE_POLICY"] == "refuse"
+    service = named(docs, "Service", "iki-clamd")["spec"]
+    assert service["type"] == "ClusterIP"
+    clients = named(docs, "NetworkPolicy", "iki-scan-clients")["spec"]
+    assert clients["podSelector"]["matchExpressions"][0]["values"] == ["web", "tasks"]
+    scanner = named(docs, "NetworkPolicy", "iki-clamd")["spec"]
+    assert clients["egress"] == [
+        {
+            "to": [{"podSelector": scanner["podSelector"]}],
+            "ports": [{"protocol": "TCP", "port": 3310}],
+        }
+    ]
+    assert scanner["ingress"] == [
+        {
+            "from": [{"podSelector": clients["podSelector"]}],
+            "ports": [{"protocol": "TCP", "port": 3310}],
+        }
+    ]
+    dns, mirrors = scanner["egress"]
+    assert [port["port"] for port in dns["ports"]] == [53, 53]
+    assert mirrors == {
+        "to": [{"ipBlock": {"cidr": "10.2.3.4/32"}}],
+        "ports": [{"protocol": "TCP", "port": 443}],
+    }
+
+
+def test_external_scanner_replaces_clamd_and_has_explicit_egress() -> None:
+    rule = {
+        "to": [{"ipBlock": {"cidr": "10.2.3.4/32"}}],
+        "ports": [{"protocol": "TCP", "port": 443}],
+    }
+    docs = manifests(
+        merged(
+            FILES,
+            {
+                "files": {
+                    "scanner": {
+                        "adapter": "local.scan",
+                        "oversizePolicy": "allow",
+                        "clamd": {"enabled": False},
+                    }
+                },
+                "networkPolicy": {"egress": {"externalScanner": [rule]}},
+            },
+        )
+    )
+    assert all(doc["metadata"]["name"] != "iki-clamd" for doc in docs)
+    clients = named(docs, "NetworkPolicy", "iki-scan-clients")["spec"]
+    assert clients["egress"] == [rule]
+    tasks = named(docs, "Deployment", "iki-tasks")["spec"]["template"]["spec"]
+    env = {e["name"]: e.get("value") for e in tasks["containers"][0]["env"]}
+    assert env["IKI_FILES_SCANNER"] == "local.scan"
+    assert env["IKI_FILES_SCAN_OVERSIZE_POLICY"] == "allow"
+    assert "image" in str(
+        render({"files": {"scanner": {"clamd": {"image": "clamav:latest"}}}}, ok=False)
     )
 
 
@@ -751,7 +844,7 @@ def test_artifact_retention_is_checked_by_the_schema() -> None:
 
 def test_checkpoints_are_saved_as_often_as_set_and_no_more_than_once_a_minute() -> None:
     servers = 0
-    for name, spec in pod_specs(manifests()):
+    for name, spec in file_server_pods(manifests()):
         variables = {e["name"]: e.get("value") for e in spec["containers"][0].get("env", [])}
         if "IKI_SECRET_KEY" in variables:
             assert variables["IKI_RUNS_CHECKPOINT_INTERVAL"] == "10m", name
@@ -763,10 +856,10 @@ def test_checkpoints_are_saved_as_often_as_set_and_no_more_than_once_a_minute() 
 
 def test_register_locations_reach_every_container_and_are_checked() -> None:
     values = {"files": {"bucket": "iki", "registerLocations": ["s3://lab-data/runs/", "s3://cro"]}}
-    for name, spec in pod_specs(manifests(values)):
+    for name, spec in file_server_pods(manifests(values)):
         variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
         assert variables["IKI_FILES_REGISTER_LOCATIONS"] == "s3://lab-data/runs/,s3://cro", name
-    for name, spec in pod_specs(manifests(FILES)):
+    for name, spec in file_server_pods(manifests(FILES)):
         variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
         assert variables["IKI_FILES_REGISTER_LOCATIONS"] == "", name
     error = render({"files": {"bucket": "iki", "registerLocations": ["lab-data/runs"]}}, ok=False)
@@ -927,7 +1020,8 @@ def test_workers_never_reach_the_database_and_reach_only_dns_and_the_server() ->
         e["key"]: (e["operator"], e["values"])
         for e in policies["iki-egress"]["podSelector"]["matchExpressions"]
     }
-    assert selector["app.kubernetes.io/component"] == ("NotIn", ["worker"])
+    # Nor does the export sandbox, which reaches nothing (ADR 0230).
+    assert selector["app.kubernetes.io/component"] == ("NotIn", ["worker", "clamd", "sandbox"])
     worker = policies["iki-worker-egress"]
     assert worker["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == "worker"
     assert worker["policyTypes"] == ["Egress"]
@@ -1033,9 +1127,11 @@ def test_only_workers_reach_the_egress_proxy_and_only_it_reaches_the_internet() 
     assert to_proxy["ports"] == [{"protocol": "TCP", "port": 3128}]
     # The proxy reaches the database (to check credentials and keep what runs reached).
     shared = policies["iki-egress"]["podSelector"]["matchExpressions"]
-    assert {"key": "app.kubernetes.io/component", "operator": "NotIn", "values": ["worker"]} in (
-        shared
-    )
+    assert {
+        "key": "app.kubernetes.io/component",
+        "operator": "NotIn",
+        "values": ["worker", "clamd", "sandbox"],
+    } in shared
 
 
 def test_the_egress_proxy_calls_outside_apis_with_its_gateway_key() -> None:
@@ -1978,6 +2074,26 @@ DEV = CHART.parents[1] / "dev" / "values-dev.yaml"
 AWS_SERVER = egress(server={"to": [{"ipBlock": {"cidr": "198.51.100.20/32"}}]})
 
 
+@pytest.mark.parametrize("fixtures", [False, True], ids=["product", "fixtures"])
+def test_dev_fixture_services_and_secrets_are_opt_in(fixtures: bool) -> None:
+    values = _merged(DEV, DEV.parent / "fixtures" / "values.yaml") if fixtures else _merged(DEV)
+    docs = manifests(values)
+    secrets = set(_secrets_read(docs))
+    assert ("iki-dev-ca" in secrets) == fixtures
+    assert ("iki-run-secrets" in secrets) == fixtures
+
+    proxy = named(docs, "NetworkPolicy", "iki-egress-proxy")["spec"]["egress"]
+    peers = [peer for rule in proxy for peer in rule["to"]]
+    for service in ("fake-lims", "fake-foldcloud"):
+        peer = {"podSelector": {"matchLabels": {"app.kubernetes.io/name": service}}}
+        assert (peer in peers) == fixtures
+
+    run_namespaces = {role["metadata"]["namespace"] for role in by_kind(docs, "Role")}
+    assert "iki-runs" in run_namespaces
+    for namespace in ("iki-runs-shared", "iki-runs-bucket"):
+        assert (namespace in run_namespaces) == fixtures
+
+
 @pytest.mark.parametrize(
     "values",
     [
@@ -2173,3 +2289,291 @@ def test_bucket_aliases_reach_the_pods_as_old_equals_new() -> None:
         {"files": {"bucket": "iki-files", "bucketAliases": {"S3://old": "new-files"}}}, ok=False
     )
     assert "invalid propertyName 'S3://old'" in str(message)
+
+
+# --- The export sandbox (ADR 0230) ---------------------------------------------------------
+
+SANDBOX: dict[str, Any] = {"sandbox": {"enabled": True}}
+SANDBOX_URL = "tcp://iki-sandbox:8090"
+#: A cloud identity on every annotated service account: IRSA's and Workload Identity's.
+CLOUD_IDENTITY = {
+    "eks.amazonaws.com/role-arn": "arn:aws:iam::123456789012:role/iki-server",
+    "iam.gke.io/gcp-service-account": "iki-server@acme.iam.gserviceaccount.com",
+}
+
+
+def pod_labels(docs: list[Manifest], deployment: str) -> dict[str, str]:
+    labels: dict[str, str] = named(docs, "Deployment", deployment)["spec"]["template"]["metadata"][
+        "labels"
+    ]
+    return labels
+
+
+def sandbox_spec(docs: list[Manifest]) -> Manifest:
+    spec: Manifest = named(docs, "Deployment", "iki-sandbox")["spec"]["template"]["spec"]
+    return spec
+
+
+def env_names(docs: list[Manifest], kind: str, name: str) -> dict[str, Any]:
+    (spec,) = [spec for where, spec in pod_specs(docs) if where == f"{kind}/{name}"]
+    return {e["name"]: e.get("value") for c in spec["containers"] for e in c.get("env", [])}
+
+
+def ingress_of(docs: list[Manifest], namespace: str, labels: dict[str, str]) -> Reach:
+    """Every (peer, protocol, port) a pod accepts from, as egress_of reads egress."""
+    reach: Reach = set()
+    limited = False
+    for policy in by_kind(docs, "NetworkPolicy"):
+        spec = policy["spec"]
+        types = spec.get("policyTypes") or ["Ingress"]
+        if policy["metadata"].get("namespace", "iki") != namespace or "Ingress" not in types:
+            continue
+        if not selects(spec["podSelector"], labels):
+            continue
+        limited = True
+        for rule in spec.get("ingress", []):
+            peers = [json.dumps(p, sort_keys=True) for p in rule.get("from", [])] or ["*"]
+            ports = [(p.get("protocol", "TCP"), p.get("port", "*")) for p in rule.get("ports", [])]
+            reach |= {(peer, *port) for peer in peers for port in ports or [("*", "*")]}
+    assert limited, f"no policy limits the ingress of {labels} in {namespace}"
+    return reach
+
+
+def test_the_sandbox_is_off_unless_turned_on() -> None:
+    docs = manifests()
+    assert [d["metadata"]["name"] for d in docs if "sandbox" in d["metadata"]["name"]] == []
+    for name in ("iki-web", "iki-tasks"):
+        assert "IKI_EXPORT_SANDBOX" not in env_names(docs, "Deployment", name)
+
+
+def test_the_sandbox_renders_its_deployment_service_and_account() -> None:
+    docs = manifests(SANDBOX)
+    found = sorted(
+        f"{d['kind']}/{d['metadata']['name']}" for d in docs if "sandbox" in d["metadata"]["name"]
+    )
+    assert found == [
+        "Deployment/iki-sandbox",
+        "NetworkPolicy/iki-sandbox",
+        "NetworkPolicy/iki-sandbox-clients",
+        "PodDisruptionBudget/iki-sandbox",
+        "Service/iki-sandbox",
+        "ServiceAccount/iki-sandbox",
+    ]
+    deployment = named(docs, "Deployment", "iki-sandbox")
+    assert deployment["spec"]["replicas"] == 2
+    assert deployment["spec"]["strategy"]["rollingUpdate"]["maxUnavailable"] == 0
+    assert pod_labels(docs, "iki-sandbox")["app.kubernetes.io/component"] == "sandbox"
+    service = named(docs, "Service", "iki-sandbox")["spec"]
+    assert service["type"] == "ClusterIP"
+    assert service["selector"]["app.kubernetes.io/component"] == "sandbox"
+    assert service["ports"] == [
+        {"name": "export", "port": 8090, "targetPort": "export", "protocol": "TCP"}
+    ]
+    assert named(docs, "PodDisruptionBudget", "iki-sandbox")["spec"]["minAvailable"] == 1
+    off = manifests(merged(SANDBOX, {"sandbox": {"podDisruptionBudget": {"enabled": False}}}))
+    assert not [
+        d for d in by_kind(off, "PodDisruptionBudget") if d["metadata"]["name"] == "iki-sandbox"
+    ]
+
+
+def test_the_sandbox_runs_the_deployments_image_as_the_writer_launcher() -> None:
+    docs = manifests(merged(SANDBOX, {"image": {"digest": "sha256:" + "a" * 64}}))
+    (web,) = named(docs, "Deployment", "iki-web")["spec"]["template"]["spec"]["containers"]
+    (sandbox,) = sandbox_spec(docs)["containers"]
+    assert sandbox["image"] == web["image"]
+    assert sandbox["image"].endswith("@sha256:" + "a" * 64)
+    assert sandbox["command"] == [
+        "/opt/iki/venv/bin/python",
+        "-I",
+        "-m",
+        "iki_spec.writer_sandbox",
+    ]
+    assert sandbox["args"] == ["--port", "8090", "--health-port", "8091", "--concurrency", "4"]
+    assert {p["name"]: p["containerPort"] for p in sandbox["ports"]} == {
+        "export": 8090,
+        "health": 8091,
+    }
+    for probe, path in (
+        ("startupProbe", "/healthz/live"),
+        ("livenessProbe", "/healthz/live"),
+        ("readinessProbe", "/healthz/ready"),
+    ):
+        assert sandbox[probe]["httpGet"] == {"path": path, "port": "health"}, probe
+    assert sandbox["resources"]["requests"] == {"cpu": "100m", "memory": "256Mi"}
+    assert sandbox["resources"]["limits"] == {"memory": "768Mi"}
+    eight = manifests(merged(SANDBOX, {"sandbox": {"concurrency": 8}}))
+    assert sandbox_spec(eight)["containers"][0]["args"][-1] == "8"
+
+
+@pytest.mark.parametrize("concurrency", [0, 33, "4"])
+def test_the_sandboxs_concurrency_is_checked_by_the_schema(concurrency: Any) -> None:
+    assert "/sandbox/concurrency" in str(
+        render(merged(SANDBOX, {"sandbox": {"concurrency": concurrency}}), ok=False)
+    )
+
+
+def test_the_sandbox_holds_no_secret_token_environment_or_cloud_identity() -> None:
+    # Everything that puts a Secret, a token or an identity into the other pods, on.
+    values = merged(
+        SANDBOX,
+        WORKERS,
+        TO_STORAGE,
+        {
+            "serviceAccount": {"annotations": CLOUD_IDENTITY},
+            "database": {
+                **REQUIRED["database"],
+                "caSecret": {"name": "iki-db-ca", "key": "ca.crt"},
+            },
+            "webhooks": {"caSecret": {"name": "iki-webhook-ca", "key": "ca.crt"}},
+            "runSecrets": {"existingSecret": "iki-run-secrets"},
+            "email": {"existingSecret": "iki-email", "from": "Iki <iki@example.com>"},
+            "files": {"bucket": "iki-files", "credentials": {"existingSecret": "iki-s3"}},
+            "bundles": {"signingKey": {"existingSecret": "iki-bundle-key"}},
+        },
+    )
+    docs = manifests(values)
+    spec = sandbox_spec(docs)
+    assert spec["serviceAccountName"] == "iki-sandbox"
+    assert spec["automountServiceAccountToken"] is False
+    assert spec["enableServiceLinks"] is False
+    assert "volumes" not in spec
+    assert "initContainers" not in spec
+    (container,) = spec["containers"]
+    for key in ("env", "envFrom", "volumeMounts"):
+        assert key not in container, key
+    # Nothing in the pod names a Secret, in any form.
+    assert list(_secrets_read(spec)) == []
+    assert "secret" not in json.dumps(spec).lower()
+    # Its account has no token and no identity, while the server's accounts carry one.
+    account = named(docs, "ServiceAccount", "iki-sandbox")
+    assert account["automountServiceAccountToken"] is False
+    assert "annotations" not in account["metadata"]
+    assert named(docs, "ServiceAccount", "iki-web")["metadata"]["annotations"] == CLOUD_IDENTITY
+    # Nor any Kubernetes permissions.
+    for binding in [*by_kind(docs, "RoleBinding"), *by_kind(docs, "ClusterRoleBinding")]:
+        names = {s.get("name") for s in binding.get("subjects", [])}
+        assert "iki-sandbox" not in names, binding["metadata"]["name"]
+
+
+def test_the_sandbox_meets_pod_security_restricted() -> None:
+    docs = manifests(SANDBOX)
+    spec = sandbox_spec(docs)
+    psc = spec["securityContext"]
+    assert psc["runAsNonRoot"] is True
+    assert psc["runAsUser"] >= 10000
+    assert psc["seccompProfile"] == {"type": "RuntimeDefault"}
+    (container,) = spec["containers"]
+    assert container["securityContext"] == {
+        "allowPrivilegeEscalation": False,
+        "readOnlyRootFilesystem": True,
+        "privileged": False,
+        "capabilities": {"drop": ["ALL"]},
+    }
+
+
+def test_web_and_task_runners_and_only_they_know_where_the_sandbox_is() -> None:
+    docs = manifests(merged(SANDBOX, WORKERS))
+    for name in ("iki-web", "iki-tasks"):
+        assert env_names(docs, "Deployment", name)["IKI_EXPORT_SANDBOX"] == SANDBOX_URL, name
+    for where, spec in pod_specs(docs):
+        if where not in ("Deployment/iki-web", "Deployment/iki-tasks"):
+            names = {e["name"] for c in spec["containers"] for e in c.get("env", [])}
+            assert "IKI_EXPORT_SANDBOX" not in names, where
+
+
+def test_the_sandbox_reaches_nothing_and_only_web_and_tasks_reach_it() -> None:
+    values = merged(
+        SANDBOX,
+        WORKERS,
+        CONTAINERS,
+        {
+            "otel": {"endpoint": "http://collector:4318"},
+            "email": {"existingSecret": "iki-email", "from": "Iki <iki@example.com>"},
+            "files": {"bucket": "iki-files"},
+            "egressProxy": {"enabled": True},
+            "networkPolicy": {
+                "ingressFrom": [{"namespaceSelector": {"matchLabels": {"x": "y"}}}],
+                "egress": {
+                    "database": {"to": [{"ipBlock": {"cidr": "10.0.0.0/24"}}]},
+                    "otel": {"to": [{"podSelector": {"matchLabels": {"app": "collector"}}}]},
+                    "objectStorage": {"to": STORAGE_PEERS},
+                    "podIdentity": {"to": [{"ipBlock": {"cidr": "169.254.170.23/32"}}]},
+                },
+            },
+        },
+    )
+    docs = manifests(values)
+    sandbox = pod_labels(docs, "iki-sandbox")
+    # No egress at all: not DNS, the database, object storage or a cloud's identity agent.
+    assert egress_of(docs, "iki", sandbox) == set()
+    for policy in by_kind(docs, "NetworkPolicy"):
+        spec = policy["spec"]
+        here = policy["metadata"].get("namespace", "iki") == "iki"
+        if here and selects(spec["podSelector"], sandbox) and spec.get("egress"):
+            raise AssertionError(f"{policy['metadata']['name']} gives the sandbox egress")
+    # Exports only from web pods and task runners, and only to the export port.
+    web, tasks = pod_labels(docs, "iki-web"), pod_labels(docs, "iki-tasks")
+    selector = {
+        "app.kubernetes.io/name": "iki",
+        "app.kubernetes.io/instance": "iki",
+    }
+    clients = [
+        {"podSelector": {"matchLabels": {**selector, "app.kubernetes.io/component": c}}}
+        for c in ("web", "tasks")
+    ]
+    assert ingress_of(docs, "iki", sandbox) == reach(clients, ("TCP", 8090))
+    for other in ("iki-worker", "iki-egress-proxy", "iki-provisioner"):
+        labels = pod_labels(docs, other)
+        for peer in clients:
+            assert not selects(peer["podSelector"], labels), other
+    # Web pods and task runners reach it; nothing else in Iki does.
+    to_sandbox = reach(
+        [{"podSelector": {"matchLabels": {**selector, "app.kubernetes.io/component": "sandbox"}}}],
+        ("TCP", 8090),
+    )
+    for labels in (web, tasks):
+        assert to_sandbox <= egress_of(docs, "iki", labels)
+    maintenance = named(docs, "CronJob", "iki-maintenance")["spec"]["jobTemplate"]["spec"][
+        "template"
+    ]["metadata"]["labels"]
+    for labels in (
+        pod_labels(docs, "iki-worker"),
+        pod_labels(docs, "iki-egress-proxy"),
+        pod_labels(docs, "iki-provisioner"),
+        maintenance,
+    ):
+        assert not to_sandbox & egress_of(docs, "iki", labels), labels
+    assert not to_sandbox & egress_of(docs, "iki-runs", RUN_LABELS)
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        pytest.param(lambda: _merged(DEV, DEV.parent / "fixtures" / "values.yaml"), id="dev"),
+        pytest.param(
+            lambda: _merged(AWS / "values-production.yaml", AWS / "tests" / "helm-values.yaml"),
+            id="aws",
+        ),
+        pytest.param(
+            lambda: _merged(GCP / "values-production.yaml", GCP / "tests" / "helm-values.yaml"),
+            id="gcp",
+        ),
+    ],
+)
+def test_the_reference_values_leave_the_sandbox_with_no_way_out(values: Any) -> None:
+    docs = manifests(merged(values(), SANDBOX))
+    sandbox = pod_labels(docs, "iki-sandbox")
+    assert egress_of(docs, "iki", sandbox) == set()
+    assert "annotations" not in named(docs, "ServiceAccount", "iki-sandbox")["metadata"]
+    assert list(_secrets_read(sandbox_spec(docs))) == []
+    if identity := [
+        p for p in by_kind(docs, "NetworkPolicy") if p["metadata"]["name"] == "iki-pod-identity"
+    ]:
+        assert not selects(identity[0]["spec"]["podSelector"], sandbox)
+
+
+def test_the_dev_fixtures_run_the_sandbox_and_product_dev_doesnt() -> None:
+    assert not [d for d in manifests(_merged(DEV)) if d["metadata"]["name"] == "iki-sandbox"]
+    docs = manifests(_merged(DEV, DEV.parent / "fixtures" / "values.yaml"))
+    named(docs, "Deployment", "iki-sandbox")
+    assert env_names(docs, "Deployment", "iki-web")["IKI_EXPORT_SANDBOX"] == SANDBOX_URL

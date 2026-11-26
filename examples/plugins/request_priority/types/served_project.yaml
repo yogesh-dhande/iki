@@ -1,0 +1,60 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# The core's ranking, kept as its own records in its own project: one for each
+# project it serves. Its people propose ranks; a coordinator agrees each, which
+# locks it. Changing an agreed rank takes it back to Proposed, which only a
+# coordinator can do, so the ranking that counts is the coordinators'.
+apiVersion: iki/v1
+kind: EntityType
+name: ServedProject
+label: Project served
+label_plural: Projects served
+schema_version: 1
+description: A project the core serves, and where its requests stand in the queue.
+hrid: { prefix: SRV }
+fields:
+  project_slug:
+    type: string
+    required: true
+    unique: true
+    indexed: true
+    max_length: 100
+    pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+    label: Project slug
+    description: >-
+      The project's slug, as in its address in Iki (/projects/oncology-discovery/).
+      It never changes, though the project's name may.
+  project_name:
+    type: string
+    max_length: 200
+    label: Project name
+    description: The project's name, for people reading the ranking.
+  rank:
+    type: int
+    required: true
+    min: 1
+    max: 1000
+    label: Rank
+    description: 1 is served first. Projects may share a rank.
+  basis:
+    type: text
+    max_length: 2000
+    label: Why
+    description: What the rank rests on, such as the portfolio review that set it.
+  status:
+    type: state
+    label: Status
+    initial: proposed
+    states:
+      proposed:
+        label: Proposed
+        description: Not in force yet. A coordinator agrees it.
+        set_by: [iki/lab_roles.coordinator]
+      agreed:
+        label: Agreed
+        description: In force. Requests from the project take this rank.
+        set_by: [iki/lab_roles.coordinator]
+        locks: true
+        on_edit: proposed
+display:
+  title: "{{ project_name or project_slug }}"

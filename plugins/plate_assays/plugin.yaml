@@ -1,12 +1,12 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/plate_assays
-version: 0.7.0
+version: 0.8.1
 title: Plate assays
 description: Map endpoint reader files to a plate, fit the measured response and sign the result.
 license: Apache-2.0
 iki: ">=0.1"
-starters: { dose-response: "1.2.0" }
+starters: { dose-response: "2.0.0" }
 dependencies:
   iki/inventory: { types: { Tube: ">=1" } }
   iki/requests: { types: { Request: ">=1", ResearchRequest: ">=1", QCRequest: ">=1" } }

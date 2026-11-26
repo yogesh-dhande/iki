@@ -7,13 +7,16 @@ amount ledger.
 
 ## Order and receive
 
-1. Create a **Stock item** with its supplier, catalogue number, pack size,
-   stock unit and low-stock threshold. Choose the pack the lab orders, such
-   as a rack of 50. A case of 500 needs its own catalogue item. Count
-   consumables in units (`1`).
-   A stock item can also be measured by mass (mg) or volume (mL).
-2. Create a **Stock location** for each storage destination. Assign the project's
-   **Stock manager** role to the people who should receive low-stock alerts.
+1. Create a **Stock item** with its supplier, catalogue number, pack size and
+   stock unit. Choose the pack the lab orders, such as a rack of 50. A case of
+   500 needs its own catalogue item. Count consumables in units (`1`).
+   A stock item can also be measured by mass (mg) or volume (mL). Give it a
+   low-stock threshold if the lab reorders it when it runs low. Leave the
+   threshold empty for an item it doesn't reorder by level.
+2. Create a **Stock location** for a rack or shelf with numbered positions, or
+   a **Stock area** for a cabinet, shelf or cold room without them. Assign
+   the project's **Stock manager** role to the people who should receive
+   low-stock alerts.
 3. From the item, place a reorder for a whole number of packs. Record the
    supplier order reference. The reorder list shows packs ordered, received
    and outstanding.
@@ -27,6 +30,28 @@ amount ledger.
    lot's amount ledger and select the experiment under **Used in** when
    recording consumption.
 
+### Stock that arrives without an order
+
+From the item, **Receive without an order** records stock that no reorder
+line in Iki answers:
+
+- a supplier **delivery** ordered outside Iki, identified by the supplier's
+  delivery note and line, as an ordered delivery is. A line already received
+  against its order can't be received again without one;
+- a **transfer** from another lab, site or organization, identified by its
+  sender and the transfer document's reference and line;
+- **opening stock** already on hand when the lab starts counting it,
+  identified by the count sheet and its line.
+
+The lot records how it was received and from whom, and its ledger's first
+movement names the document. Everything after receipt, from QA release to
+withdrawal, is the same as for an ordered lot.
+
+A lab whose purchasing procedure requires every receipt to answer an order
+sets the deployment's `receipts_without_order` setting to `refused`. Its
+projects then receive stock only against a reorder line, as before. The
+default, `allowed`, offers both. [Receipts with and without an order](../../docs/adr/0245-stock-is-received-with-or-without-an-order.md)
+
 ## Read stock levels
 
 On-hand stock includes the physical balance of lots in the project. Available
@@ -34,6 +59,7 @@ stock counts stored material eligible for routine use. Checked-out,
 unplaced, expired and quarantined lots can have a physical balance. Inspect an item's lots to
 see its locations, remaining balances and eligibility. A low-stock alert
 uses the available balance and the item's threshold, including equality.
+An item without a threshold is never low.
 An item with a threshold and no usable stock can already need reordering.
 The hourly maintenance check notifies stock managers. After it observes a
 recovery above the threshold, a later drop can alert again.

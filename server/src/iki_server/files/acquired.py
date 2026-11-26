@@ -1,4 +1,5 @@
-"""When a file's data was acquired, as the file itself says (ADR 0177).
+"""What a file says about itself: when its data was acquired (ADR 0177), and which
+instrument, who and what recorded it (ADR 0224).
 
 An instrument stamps what it records: a sequencer the run's start, a cytometer the
 acquisition's, a camera the moment it took the image. In GxP work that stamp is part of
@@ -24,6 +25,14 @@ What's read, by format:
   file was last changed. An OME-TIFF's ``AcquisitionDate`` (its first Image's) comes first.
 - **SAM and BAM**: the earliest ``DT`` of the header's ``@RG`` lines. When every one
   states an offset they're compared as instants, otherwise as the wall-clock times given.
+- **CZI** (ZEISS microscopy): the document's ``Information/Image/AcquisitionDateAndTime``.
+
+The same readers read the facts of :mod:`iki_server.files.metadata` that each format
+defines: the instrument, its serial number, who operated it, the software and protocol
+it ran, and a SAM or BAM file's read groups. Each reader's section says which, and where
+its format's specification defines them. A fact the file doesn't state, or states twice
+differently, is unknown; one that's malformed is unknown without making the rest so, and
+the date and the facts are read independently of each other.
 
 ``at`` is no more precise than the file: a date, or a time to the second or to the
 fraction given, with an offset only when the file states one. RFC 3339's ``-00:00``
@@ -38,14 +47,22 @@ try again.
 
 from __future__ import annotations
 
+import csv
 import datetime as dt
+import functools
+import json
 import re
 import struct
 import zlib
-from collections.abc import Callable
-from dataclasses import dataclass
-from pathlib import PurePosixPath
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass, field
+from importlib import resources
 from typing import Protocol
+
+from iki_server.files import metadata
+from iki_server.files.metadata import Element, Fact, Facts
+
+__all__ = ["READERS", "SOURCES", "Acquired", "BytesSource", "Fact", "FileMetadata", "Readable"]
 
 
 @dataclass(frozen=True)
@@ -57,7 +74,7 @@ class Acquired:
     #: ISO 8601 as the file gives it, no more precise than it is: ``2026-03-14``,
     #: ``2026-03-14T09:21:07``, ``2026-03-14T09:21:07.25`` or ``2026-03-14T09:21:07+01:00``.
     at: str
-    #: The reader's key in :data:`SOURCES`.
+    #: The source of the date, as named in :data:`SOURCES`.
     source: str
 
 
@@ -88,7 +105,7 @@ class BytesSource:
         return self._data[offset : offset + length]
 
 
-#: Each reader's key, and what it reads, as people would say it.
+#: Where the date came from, as shown alongside the acquisition date.
 SOURCES: dict[str, str] = {
     "abif": "the ABIF trace’s run start (RUND and RUNT)",
     "fcs": "the FCS file’s acquisition start ($BEGINDATETIME, or $DATE and $BTIM)",
@@ -97,6 +114,7 @@ SOURCES: dict[str, str] = {
     "exif": "the image’s EXIF date taken (DateTimeOriginal)",
     "ome-tiff": "the OME-TIFF image’s acquisition date (AcquisitionDate)",
     "sam": "the earliest date of the alignments’ read groups (@RG DT)",
+    "czi": "the CZI image’s acquisition time (AcquisitionDateAndTime)",
 }
 
 #: What a reader may read of a file in all, and in how many reads: each is a ranged GET.
@@ -121,6 +139,18 @@ class _SourceError(Exception):
     def __init__(self, error: Exception) -> None:
         super().__init__(str(error))
         self.error = error
+
+
+def _guard[T](read: Callable[[], T]) -> T | None:
+    """What ``read`` reads, or None when the file doesn't clearly say: so one malformed
+    part of a file leaves the others known. Reading the source failing is still raised."""
+    try:
+        return read()
+    except _SourceError:
+        raise
+    except Exception:
+        # struct, zlib, XML, value and index errors on a malformed file all mean the same.
+        return None
 
 
 class _Exact(Protocol):
@@ -271,17 +301,24 @@ def _iso(source: str, text: str, *, date_only: bool) -> Acquired:
     )
 
 
-# ABIF: Applied Biosystems' Genetic Analysis Data File Format.
+# ABIF: Applied Biosystems' "Genetic Analysis Data File Format" (2009), which describes
+# each tag read below in its appendix. Biopython's ABI parser quotes the same descriptions:
+# https://github.com/biopython/biopython/blob/master/Bio/SeqIO/AbiIO.py
 
 #: A directory entry: name, number, element type, element size, number of elements,
 #: data size, data offset (or the data itself, when it's 4 bytes or fewer), data handle.
 _ABIF_ENTRY = struct.Struct(">4sihhiiii")
 _ABIF_MAX_ENTRIES = 65536
-_ABIF_DATE = 10
-_ABIF_TIME = 11
+_ABIF_CHAR, _ABIF_DATE, _ABIF_TIME, _ABIF_PSTRING, _ABIF_CSTRING = 2, 10, 11, 18, 19
+#: The longest of a string tag that's read: the facts are far shorter.
+_ABIF_TEXT = 1024
+
+#: An entry: its name, number, element type, element size, elements, data size, its
+#: 4-byte data field and the data offset that field gives.
+_AbifEntry = tuple[bytes, int, int, int, int, int, bytes, int]
 
 
-def _abif(file: _File) -> Acquired:
+def _abif_directory(file: _File) -> list[_AbifEntry]:
     header = file.exact(0, 6 + _ABIF_ENTRY.size)
     if header[:4] != b"ABIF":
         raise _UnreadableError
@@ -289,18 +326,25 @@ def _abif(file: _File) -> Acquired:
     if size != _ABIF_ENTRY.size or not 0 < count <= _ABIF_MAX_ENTRIES:
         raise _UnreadableError
     directory = file.exact(offset, count * size)
-    found: dict[bytes, bytes] = {}
+    entries: list[_AbifEntry] = []
     for start in range(0, len(directory), size):
         entry = directory[start : start + size]
-        name, number, kind, element, elements, length, _, _ = _ABIF_ENTRY.unpack(entry)
+        name, number, kind, element, elements, length, at, _ = _ABIF_ENTRY.unpack(entry)
+        # Data of 4 bytes or fewer is in the entry, where the offset would be.
+        entries.append((name, number, kind, element, elements, length, entry[20:24], at))
+    return entries
+
+
+def _abif_date(entries: list[_AbifEntry]) -> Acquired:
+    found: dict[bytes, bytes] = {}
+    for name, number, kind, element, elements, length, data, _ in entries:
         # Number 1 is the run's start; 2 is its end.
         if name not in (b"RUND", b"RUNT") or number != 1 or name in found:
             continue
         wanted = _ABIF_DATE if name == b"RUND" else _ABIF_TIME
         if (kind, element, elements, length) != (wanted, 4, 1, 4):
             raise _UnreadableError
-        # Data of 4 bytes or fewer is in the entry, where the offset would be.
-        found[name] = entry[20:24]
+        found[name] = data
     if b"RUND" not in found:
         raise _UnreadableError
     year, month, day = struct.unpack(">HBB", found[b"RUND"])
@@ -310,6 +354,72 @@ def _abif(file: _File) -> Acquired:
     if hundredths > 99:
         raise _UnreadableError
     return _acquired("abif", year, month, day, (hour, minute, second), f"{hundredths:02d}")
+
+
+def _abif_text(file: _File, entries: list[_AbifEntry], name: bytes, number: int) -> str:
+    """A string tag's text: a pString (its length, then its characters), a cString (to its
+    NUL) or a char array. The tag given twice is no answer."""
+    matching = [e for e in entries if e[0] == name and e[1] == number]
+    if len(matching) != 1:
+        raise _UnreadableError
+    _, _, kind, element, elements, length, field, offset = matching[0]
+    if (
+        kind not in (_ABIF_CHAR, _ABIF_PSTRING, _ABIF_CSTRING)
+        or element != 1
+        or length != elements
+        or not 0 < length <= _ABIF_TEXT
+    ):
+        raise _UnreadableError
+    data = field[:length] if length <= 4 else file.exact(offset, length)
+    if kind == _ABIF_PSTRING:
+        if data[0] > len(data) - 1:
+            raise _UnreadableError
+        data = data[1 : 1 + data[0]]
+    else:
+        data = data.split(b"\x00", 1)[0]
+    # ABIF's strings are ASCII; anything else isn't what the specification describes.
+    return data.decode("ascii")
+
+
+#: Where each ABIF fact is, in the order they're preferred.
+_ABIF_FACTS = (
+    ("instrument", b"HCFG", 3, "ABIF tag HCFG 3 (official instrument name)"),
+    ("instrument", b"MODL", 1, "ABIF tag MODL 1 (model number)"),
+    ("instrument_name", b"MCHN", 1, "ABIF tag MCHN 1 (instrument name and serial number)"),
+    ("software", b"SVER", 1, "ABIF tag SVER 1 (data collection software version)"),
+    ("protocol", b"RPrN", 1, "ABIF tag RPrN 1 (run protocol name)"),
+)
+
+
+def _abif_facts(file: _File, entries: list[_AbifEntry]) -> dict[str, Fact]:
+    """The instrument (HCFG 3, the official name such as ``3730xl``, else MODL 1, the model
+    number), the name it was given (MCHN 1, with its serial in it), the serial (HCFG 4's
+    ``SerialNumber``), the data collection software's version (SVER 1) and the run protocol
+    (RPrN 1). ABIF's ``User`` is who created the plate, not who ran it: not read."""
+    facts = Facts()
+    for key, name, number, stated_in in _ABIF_FACTS:
+        text = _guard(functools.partial(_abif_text, file, entries, name, number))
+        facts.add(key, text, stated_in)
+    parameters = _guard(lambda: _abif_text(file, entries, b"HCFG", 4))
+    if parameters is not None:
+        # Key-value pairs separated by semicolons, such as "UnitID=3;SerialNumber=1404-021;".
+        pairs = [part.partition("=") for part in parameters.split(";") if part.strip()]
+        serials = {
+            value.strip() for key, sep, value in pairs if sep and key.strip() == "SerialNumber"
+        }
+        if len(serials) == 1:
+            facts.add(
+                "serial", serials.pop(), "ABIF tag HCFG 4 (instrument parameters), SerialNumber"
+            )
+    return facts.found()
+
+
+def _abif(file: _File) -> FileMetadata:
+    entries = _abif_directory(file)
+    return FileMetadata(
+        acquired=_guard(lambda: _abif_date(entries)),
+        facts=_guard(lambda: _abif_facts(file, entries)) or {},
+    )
 
 
 # FCS: ISAC's Flow Cytometry Standard, 2.0 to 3.2.
@@ -351,7 +461,10 @@ def _fcs_keywords(text: bytes) -> dict[str, list[str]]:
     while at < len(text):
         match = token.match(text, at)
         if match is None:
-            tokens.append(text[at:])
+            # Writers pad TEXT out to its stated end after the last delimiter (Sysmex's
+            # CyFlow does, with spaces): padding is no token. Anything else is one.
+            if text[at:].strip(b" \x00\r\n"):
+                tokens.append(text[at:])
             break
         tokens.append(match.group(1).replace(delimiter * 2, delimiter))
         at = match.end()
@@ -375,14 +488,7 @@ def _one(keywords: dict[str, list[str]], name: str) -> str | None:
     return values[0]
 
 
-def _fcs(file: _File) -> Acquired:
-    header = file.exact(0, _FCS_HEADER)
-    if header[:6] not in _FCS_VERSIONS:
-        raise _UnreadableError
-    start, end = _offset_field(header[10:18]), _offset_field(header[18:26])
-    if start < _FCS_HEADER or end < start or end - start + 1 > _BUDGET // 2:
-        raise _UnreadableError
-    keywords = _fcs_keywords(file.exact(start, end - start + 1))
+def _fcs_date(keywords: dict[str, list[str]]) -> Acquired:
     begin = _one(keywords, "$BEGINDATETIME")
     if begin is not None:
         return _iso("fcs", begin, date_only=False)
@@ -403,6 +509,35 @@ def _fcs(file: _File) -> Acquired:
     return _acquired("fcs", year, month, day, (hour, minute, second), clock.group(4) or "")
 
 
+def _fcs_facts(version: bytes, keywords: dict[str, list[str]]) -> dict[str, Fact]:
+    """``$CYT`` (the type of flow cytometer), ``$CYTSN`` (its serial number, from FCS 3.0)
+    and ``$OP`` (the name of its operator), as FCS 3.1's optional keywords define them
+    (Spidlen et al., Cytometry A 77A:97, 2010, https://doi.org/10.1002/cyto.a.20825; FCS
+    3.2 keeps them, https://doi.org/10.1002/cyto.a.24225)."""
+    facts = Facts()
+    named = [("instrument", "$CYT"), ("serial", "$CYTSN"), ("operator", "$OP")]
+    for key, keyword in named:
+        if keyword == "$CYTSN" and version == b"FCS2.0":
+            continue
+        value = _guard(functools.partial(_one, keywords, keyword))
+        facts.add(key, value, f"FCS keyword {keyword}")
+    return facts.found()
+
+
+def _fcs(file: _File) -> FileMetadata:
+    header = file.exact(0, _FCS_HEADER)
+    if header[:6] not in _FCS_VERSIONS:
+        raise _UnreadableError
+    start, end = _offset_field(header[10:18]), _offset_field(header[18:26])
+    if start < _FCS_HEADER or end < start or end - start + 1 > _BUDGET // 2:
+        raise _UnreadableError
+    keywords = _fcs_keywords(file.exact(start, end - start + 1))
+    return FileMetadata(
+        acquired=_guard(lambda: _fcs_date(keywords)),
+        facts=_fcs_facts(header[:6], keywords),
+    )
+
+
 # mzML: HUPO-PSI's mass spectrometry format, and indexedmzML around it.
 
 _MZML_READ = 1024 * 1024
@@ -413,8 +548,7 @@ _TAG_REST = re.compile(r"""(?a)(?:[^>"']|"[^"]*"|'[^']*')*>""")
 _ATTRIBUTE = re.compile(r"""(?a)([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
 
 
-def _mzml(file: _File) -> Acquired:
-    text = file.read(0, _MZML_READ).decode("utf-8", "replace")
+def _mzml_date(text: str) -> Acquired:
     root = _MZML_ROOT.search(text)
     if root is None:
         raise _UnreadableError
@@ -429,6 +563,175 @@ def _mzml(file: _File) -> Acquired:
             value = match.group(2) if match.group(2) is not None else match.group(3)
             return _iso("mzml", value, date_only=False)
     raise _UnreadableError
+
+
+_MZML_NAMESPACE = "http://psi.hupo.org/ms/mzml"
+#: What's kept of an mzML document's header: its software and instrument configurations,
+#: and the parameter groups they refer to. Nothing in a run, which is where parsing ends.
+_MZML_KEPT = {
+    ("mzML",),
+    ("mzML", "referenceableParamGroupList"),
+    ("mzML", "referenceableParamGroupList", "referenceableParamGroup"),
+    ("mzML", "referenceableParamGroupList", "referenceableParamGroup", "cvParam"),
+    ("mzML", "softwareList"),
+    ("mzML", "softwareList", "software"),
+    ("mzML", "softwareList", "software", "cvParam"),
+    ("mzML", "instrumentConfigurationList"),
+    ("mzML", "instrumentConfigurationList", "instrumentConfiguration"),
+    *(
+        ("mzML", "instrumentConfigurationList", "instrumentConfiguration", child)
+        for child in ("cvParam", "referenceableParamGroupRef", "softwareRef")
+    ),
+}
+_INSTRUMENT_MODEL, _INSTRUMENT_SERIAL = "MS:1000031", "MS:1000529"
+
+
+@functools.cache
+def _psi_ms() -> dict[str, dict[str, list[str]]]:
+    """The PSI-MS terms under instrument model and software, each with its parents
+    there, as scripts/build_psi_ms_terms.py wrote them from a release of the vocabulary."""
+    terms = json.loads(
+        resources.files("iki_server.files").joinpath("psi_ms_terms.json").read_text()
+    )
+    return {"instrument_models": terms["instrument_models"], "software": terms["software"]}
+
+
+def _most_specific(accessions: set[str], terms: dict[str, list[str]]) -> str:
+    """The one term of those given that the others are broader than ("acquisition
+    software" and "Xcalibur" are Xcalibur), or no answer when there isn't one."""
+    broader: set[str] = set()
+    for accession in accessions:
+        stack = list(terms[accession])
+        while stack:
+            parent = stack.pop()
+            if parent not in broader:
+                broader.add(parent)
+                stack.extend(terms.get(parent, ()))
+    narrowest = accessions - broader
+    if len(narrowest) != 1:
+        raise _UnreadableError
+    return narrowest.pop()
+
+
+def _cv_params(element: Element, groups: dict[str, Element]) -> list[Element]:
+    """An element's cvParams, its own and those of the parameter groups it refers to."""
+    params = element.all("cvParam")
+    for ref in element.all("referenceableParamGroupRef"):
+        group = groups.get(ref.attributes.get("ref", ""))
+        if group is None:
+            raise _UnreadableError
+        params += group.all("cvParam")
+    return params
+
+
+def _cv_named(params: list[Element], terms: dict[str, list[str]]) -> tuple[str, str]:
+    """The most specific of the cvParams whose term is under ``terms``' root: its accession
+    and the name the file gives it."""
+    named: dict[str, set[str]] = {}
+    for param in params:
+        accession = param.attributes.get("accession", "")
+        if accession in terms:
+            named.setdefault(accession, set()).add(param.attributes.get("name", ""))
+    accession = _most_specific(set(named), terms)
+    if len(named[accession]) != 1:
+        raise _UnreadableError
+    return accession, named[accession].pop()
+
+
+def _mzml_facts(head: bytes) -> dict[str, Fact]:
+    """From the run's default instrument configuration (``defaultInstrumentConfigurationRef``,
+    which mzML 1.1 requires): the instrument model, the cvParam whose term is under
+    MS:1000031 ("instrument model"), or that term's own value; its serial number
+    (MS:1000529, an "instrument attribute"); and the software its ``softwareRef`` names,
+    with that software's version. mzML 1.1.0's schema and its CV mapping rules define each:
+    https://github.com/HUPO-PSI/mzML/blob/master/schema/schema_1.1/mzML1.1.0.xsd,
+    https://github.com/HUPO-PSI/mzML/blob/master/validator/src/main/resources/ms-mapping.xml.
+    An mzML file's contact is whom to ask about it, not who ran the instrument: not read."""
+
+    def keep(path: tuple[str, ...]) -> bool:
+        return (path[1:] if path[0] == "indexedmzML" else path) in _MZML_KEPT
+
+    def stop(path: tuple[str, ...], starting: bool) -> bool:
+        return starting and (path[1:] if path[0] == "indexedmzML" else path) == ("mzML", "run")
+
+    def keep_all(path: tuple[str, ...]) -> bool:
+        return path == ("indexedmzML",) or keep(path)
+
+    root, stopped = metadata.parse_xml([head], keep_all, stop=stop)
+    if root is not None and root.name == "indexedmzML":
+        root = root.one("mzML")
+    if root is None or not stopped or root.namespace != _MZML_NAMESPACE:
+        raise _UnreadableError
+    if not root.attributes.get("version", "").startswith("1.1"):
+        raise _UnreadableError
+    run = root.one("run")
+    configurations = (root.one("instrumentConfigurationList") or root).all(
+        "instrumentConfiguration"
+    )
+    wanted = run.attributes.get("defaultInstrumentConfigurationRef") if run else None
+    chosen = [c for c in configurations if c.attributes.get("id") == wanted]
+    if len(chosen) != 1:
+        raise _UnreadableError
+    configuration = chosen[0]
+    named = f"mzML instrument configuration “{wanted}”"
+    groups: dict[str, Element] = {}
+    for group in (root.one("referenceableParamGroupList") or root).all("referenceableParamGroup"):
+        groups.setdefault(group.attributes.get("id", ""), group)
+    params = _cv_params(configuration, groups)
+    terms = _psi_ms()
+    facts = Facts()
+
+    def model() -> tuple[str, str]:
+        accession, name = _cv_named(params, terms["instrument_models"])
+        return accession, name
+
+    found = _guard(model)
+    if found is not None:
+        facts.add("instrument", found[1], f"{named}, {found[0]}")
+    else:
+        # The term itself may be given, with the model as its value, for a model the
+        # vocabulary doesn't have.
+        stated = {
+            p.attributes.get("value", "")
+            for p in params
+            if p.attributes.get("accession") == _INSTRUMENT_MODEL
+        }
+        if len(stated) == 1:
+            facts.add("instrument", stated.pop(), f"{named}, {_INSTRUMENT_MODEL}")
+    serials = {
+        p.attributes.get("value", "")
+        for p in params
+        if p.attributes.get("accession") == _INSTRUMENT_SERIAL
+    }
+    if len(serials) == 1:
+        facts.add("serial", serials.pop(), f"{named}, {_INSTRUMENT_SERIAL}")
+
+    def software() -> str:
+        refs = configuration.all("softwareRef")
+        if len(refs) != 1:
+            raise _UnreadableError
+        ref = refs[0].attributes.get("ref", "")
+        matching = [
+            s
+            for s in (root.one("softwareList") or root).all("software")
+            if s.attributes.get("id") == ref
+        ]
+        if len(matching) != 1:
+            raise _UnreadableError
+        _, name = _cv_named(_cv_params(matching[0], groups), terms["software"])
+        version = metadata.clean_value(matching[0].attributes.get("version", ""))
+        return f"{name} {version}" if version else name
+
+    facts.add("software", _guard(software), f"mzML software that {named} names")
+    return facts.found()
+
+
+def _mzml(file: _File) -> FileMetadata:
+    head = file.read(0, _MZML_READ)
+    return FileMetadata(
+        acquired=_guard(lambda: _mzml_date(head.decode("utf-8", "replace"))),
+        facts=_guard(lambda: _mzml_facts(head)) or {},
+    )
 
 
 # JCAMP-DX: IUPAC's spectra exchange format, 4.24 and 5.01.
@@ -461,8 +764,7 @@ def _jcamp_labels(text: str) -> dict[str, str]:
     return labels
 
 
-def _jcamp(file: _File) -> Acquired:
-    labels = _jcamp_labels(file.read(0, _JCAMP_READ).decode("latin-1"))
+def _jcamp_date(labels: dict[str, str]) -> Acquired:
     if "LONGDATE" in labels:
         match = _JCAMP_LONGDATE.fullmatch(labels["LONGDATE"])
         if match is None:
@@ -492,6 +794,20 @@ def _jcamp(file: _File) -> Acquired:
         raise _UnreadableError
     clock = (int(time.group(1)), int(time.group(2)), int(time.group(3)))
     return _acquired("jcamp-dx", year, month, day, clock, time.group(4) or "")
+
+
+def _jcamp(file: _File) -> FileMetadata:
+    """The date, and the spectrometer: ``##SPECTROMETER/DATA SYSTEM``, which JCAMP-DX 4.24
+    defines as the spectrometer's and data system's manufacturer and model (McDonald and
+    Wilks, Applied Spectroscopy 42:151, 1988, https://doi.org/10.1366/0003702884428734).
+    JCAMP-DX defines no operator: ##OWNER is whose the data is."""
+    labels = _jcamp_labels(file.read(0, _JCAMP_READ).decode("latin-1"))
+    facts = Facts()
+    spectrometer = labels.get("SPECTROMETERDATASYSTEM")
+    # JCAMP-DX is ASCII: other bytes, read as Latin-1, could be anything.
+    if spectrometer is not None and spectrometer.isascii():
+        facts.add("instrument", spectrometer, "JCAMP-DX ##SPECTROMETER/DATA SYSTEM")
+    return FileMetadata(acquired=_guard(lambda: _jcamp_date(labels)), facts=facts.found())
 
 
 # TIFF, JPEG and EXIF; OME-TIFF.
@@ -542,17 +858,7 @@ def _text(view: _Exact, order: str, entry: _Entry, limit: int) -> str:
     return data.split(b"\x00", 1)[0].decode("utf-8", "replace").rstrip(" ")
 
 
-def _tiff(view: _Exact) -> Acquired:
-    header = view.exact(0, 8)
-    if header[:4] == b"II*\x00":
-        order = "<"
-    elif header[:4] == b"MM\x00*":
-        order = ">"
-    else:
-        # BigTIFF (43) and anything else.
-        raise _UnreadableError
-    (first,) = struct.unpack(order + "I", header[4:8])
-    ifd0 = _ifd(view, order, first)
+def _tiff_date(view: _Exact, order: str, ifd0: dict[int, _Entry]) -> Acquired:
     if _IMAGE_DESCRIPTION in ifd0:
         description = _text(view, order, ifd0[_IMAGE_DESCRIPTION], _OME_READ)
         if _OME_NAMESPACE in description:
@@ -581,12 +887,110 @@ def _tiff(view: _Exact) -> Acquired:
     return _acquired("exif", year, month, day, (hour, minute, second), fraction, offset)
 
 
+#: What's kept of OME-XML: the images' references, and what they refer to.
+_OME_KEPT = {
+    ("OME",),
+    ("OME", "Image"),
+    ("OME", "Image", "InstrumentRef"),
+    ("OME", "Image", "ExperimenterRef"),
+    ("OME", "Instrument"),
+    ("OME", "Instrument", "Microscope"),
+    ("OME", "Experimenter"),
+}
+
+
+def _by_id(elements: list[Element], wanted: str | None, key: str = "ID") -> Element:
+    """The one element whose ``key`` is ``wanted``."""
+    found = [e for e in elements if wanted and e.attributes.get(key) == wanted]
+    if len(found) != 1:
+        raise _UnreadableError
+    return found[0]
+
+
+def _person(names: list[str | None]) -> str | None:
+    given = [name.strip() for name in names if name and name.strip()]
+    return " ".join(given) if given else None
+
+
+def _ome_facts(description: str) -> dict[str, Fact]:
+    """The first Image's microscope, through its InstrumentRef: the Microscope's Model,
+    Manufacturer and SerialNumber; and its operator, through its ExperimenterRef: the
+    Experimenter's names, or else their UserName. The OME schema (2016-06) defines an
+    Experimenter as "a person who performed an imaging experiment":
+    https://www.openmicroscopy.org/Schemas/Documentation/Generated/OME-2016-06/ome.html"""
+    # The schema puts Experimenters and Instruments before Images, so parsing can end with
+    # the first Image: a plate's OME-XML can be longer than what's read of it.
+    root, _ = metadata.parse_xml(
+        [description.encode("utf-8")],
+        lambda path: path in _OME_KEPT,
+        stop=lambda path, starting: not starting and path == ("OME", "Image"),
+    )
+    if root is None or root.name != "OME" or _OME_NAMESPACE not in root.namespace:
+        raise _UnreadableError
+    images = root.all("Image")
+    if not images:
+        raise _UnreadableError
+    image = images[0]
+    facts = Facts()
+
+    def microscope() -> Element:
+        ref = image.one("InstrumentRef")
+        instrument = _by_id(root.all("Instrument"), ref.attributes.get("ID") if ref else None)
+        found = instrument.one("Microscope")
+        if found is None:
+            raise _UnreadableError
+        return found
+
+    scope = _guard(microscope)
+    if scope is not None:
+        for key, attribute in (
+            ("instrument", "Model"),
+            ("manufacturer", "Manufacturer"),
+            ("serial", "SerialNumber"),
+        ):
+            facts.add(key, scope.attributes.get(attribute), f"OME-XML Microscope {attribute}")
+
+    def experimenter() -> Element:
+        ref = image.one("ExperimenterRef")
+        return _by_id(root.all("Experimenter"), ref.attributes.get("ID") if ref else None)
+
+    person = _guard(experimenter)
+    if person is not None:
+        names = [person.attributes.get(n) for n in ("FirstName", "MiddleName", "LastName")]
+        if _person(names) is not None:
+            facts.add("operator", _person(names), "OME-XML Experimenter name")
+        else:
+            facts.add(
+                "operator", person.attributes.get("UserName"), "OME-XML Experimenter UserName"
+            )
+    return facts.found()
+
+
+def _tiff(view: _Exact) -> FileMetadata:
+    header = view.exact(0, 8)
+    if header[:4] == b"II*\x00":
+        order = "<"
+    elif header[:4] == b"MM\x00*":
+        order = ">"
+    else:
+        # BigTIFF (43) and anything else.
+        raise _UnreadableError
+    (first,) = struct.unpack(order + "I", header[4:8])
+    ifd0 = _ifd(view, order, first)
+    facts: dict[str, Fact] = {}
+    if _IMAGE_DESCRIPTION in ifd0:
+        description = _guard(lambda: _text(view, order, ifd0[_IMAGE_DESCRIPTION], _OME_READ))
+        if description is not None and _OME_NAMESPACE in description:
+            facts = _guard(lambda: _ome_facts(description)) or {}
+    return FileMetadata(acquired=_guard(lambda: _tiff_date(view, order, ifd0)), facts=facts)
+
+
 _JPEG_MAX_SEGMENTS = 64
 _JPEG_STANDALONE = {0x01, *range(0xD0, 0xD8)}
 _JPEG_SOS, _JPEG_EOI, _JPEG_APP1 = 0xDA, 0xD9, 0xE1
 
 
-def _jpeg(file: _File) -> Acquired:
+def _jpeg(file: _File) -> FileMetadata:
     position = 2
     for _ in range(_JPEG_MAX_SEGMENTS):
         marker = file.exact(position, 4)
@@ -614,7 +1018,7 @@ def _jpeg(file: _File) -> Acquired:
     raise _UnreadableError
 
 
-def _image(file: _File) -> Acquired:
+def _image(file: _File) -> FileMetadata:
     magic = file.exact(0, 4)
     if magic[:2] in (b"II", b"MM"):
         return _tiff(file)
@@ -702,9 +1106,7 @@ def _instant(acquired: Acquired) -> dt.datetime:
     return dt.datetime(year, month, day, hour, minute, second, micro, tzinfo=zone)
 
 
-def _sam(file: _File) -> Acquired:
-    first = file.read(0, _CHUNK)
-    lines = _bam_header(file, first) if first.startswith(_GZIP) else _sam_header(file, first)
+def _sam_date(lines: list[bytes]) -> Acquired:
     dates: list[Acquired] = []
     for line in lines:
         fields = line.decode("utf-8", "replace").rstrip("\r").split("\t")
@@ -724,57 +1126,262 @@ def _sam(file: _File) -> Acquired:
     return min(dates, key=lambda date: _HAS_OFFSET.sub("", date.at))
 
 
-# Which reader reads a file.
+_SAM_TAG = re.compile(r"(?a)[A-Za-z][A-Za-z0-9]")
 
-_Reader = Callable[[_File], Acquired]
 
-_BY_EXTENSION: dict[str, _Reader] = {
-    ".ab1": _abif,
-    ".abi": _abif,
-    ".fsa": _abif,
-    ".fcs": _fcs,
-    ".lmd": _fcs,
-    ".mzml": _mzml,
-    ".jdx": _jcamp,
-    ".dx": _jcamp,
-    ".jcamp": _jcamp,
-    ".tif": _image,
-    ".tiff": _image,
-    ".jpg": _image,
-    ".jpeg": _image,
-    ".sam": _sam,
-    ".bam": _sam,
+def _sam_read_groups(lines: list[bytes]) -> list[dict[str, str]]:
+    """Each ``@RG`` line's standard tags (SAM/BAM Format Specification, section 1.3:
+    https://samtools.github.io/hts-specs/SAMv1.pdf), all of them or none
+    (:func:`metadata.read_groups`). A header that isn't UTF-8, as the specification
+    requires, or a field that isn't ``TAG:VALUE``, makes it none."""
+    groups: list[dict[str, str] | None] = []
+    for line in lines:
+        fields = line.decode("utf-8").rstrip("\r").split("\t")
+        if fields[0] != "@RG":
+            continue
+        tags: list[tuple[str, str]] = []
+        for field_ in fields[1:]:
+            if len(field_) < 4 or field_[2] != ":" or not _SAM_TAG.fullmatch(field_[:2]):
+                raise _UnreadableError
+            tags.append((field_[:2], field_[3:]))
+        groups.append(metadata.read_group(tags))
+    return metadata.read_groups(groups)
+
+
+def _sam(file: _File) -> FileMetadata:
+    first = file.read(0, _CHUNK)
+    lines = _bam_header(file, first) if first.startswith(_GZIP) else _sam_header(file, first)
+    return FileMetadata(
+        acquired=_guard(lambda: _sam_date(lines)),
+        read_groups=tuple(_guard(lambda: _sam_read_groups(lines)) or ()),
+    )
+
+
+# CZI: ZEISS's ZISRAW file format. Its segments are as libCZI, ZEISS's reference reader,
+# declares them: https://github.com/ZEISS/libczi/blob/main/Src/libCZI/CziStructs.h
+
+_CZI_FILE = b"ZISRAWFILE".ljust(16, b"\x00")
+_CZI_METADATA = b"ZISRAWMETADATA".ljust(16, b"\x00")
+#: A segment's header (its ID, allocated and used sizes), then the file header's data,
+#: in which MetadataPosition is at 60; and the metadata segment's fixed data.
+_CZI_HEADER, _CZI_METADATA_POSITION, _CZI_METADATA_DATA = 32, 60, 256
+#: What's read of the metadata's XML: its Information comes first, and ends the reading.
+_CZI_XML = 3 * 1024 * 1024
+_CZI_READ = 512 * 1024
+_CZI_INFORMATION = ("ImageDocument", "Metadata", "Information")
+_CZI_KEPT = {
+    (),
+    ("User",),
+    *(("User", name) for name in ("DisplayName", "FirstName", "LastName", "UserName")),
+    ("Image",),
+    ("Image", "AcquisitionDateAndTime"),
+    ("Image", "MicroscopeRef"),
+    ("Instrument",),
+    ("Instrument", "Microscopes"),
+    ("Instrument", "Microscopes", "Microscope"),
+    ("Instrument", "Microscopes", "Microscope", "System"),
+    ("Instrument", "Microscopes", "Microscope", "Manufacturer"),
+    *(
+        ("Instrument", "Microscopes", "Microscope", "Manufacturer", name)
+        for name in ("Manufacturer", "Model", "SerialNumber")
+    ),
 }
 
-_BY_MEDIA_TYPE: dict[str, _Reader] = {
-    "application/x-abi": _abif,
-    "application/vnd.isac.fcs": _fcs,
-    "application/x-mzml": _mzml,
-    "chemical/x-jcamp-dx": _jcamp,
-    "image/tiff": _image,
-    "image/jpeg": _image,
-    "text/x-sam": _sam,
-    "application/x-bam": _sam,
-}
+
+def _czi_xml(file: _File) -> Element:
+    header = file.exact(0, _CZI_HEADER + _CZI_METADATA_POSITION + 8)
+    if header[:16] != _CZI_FILE:
+        raise _UnreadableError
+    at = _CZI_HEADER + _CZI_METADATA_POSITION
+    (position,) = struct.unpack("<q", header[at : at + 8])
+    if not _CZI_HEADER <= position <= file.size - _CZI_HEADER - _CZI_METADATA_DATA:
+        raise _UnreadableError
+    segment = file.exact(position, _CZI_HEADER + 8)
+    allocated, used = struct.unpack("<qq", segment[16:32])
+    xml_size, _ = struct.unpack("<ii", segment[32:40])
+    # A used size of 0 means the allocated size is all used.
+    room = (used or allocated) - _CZI_METADATA_DATA
+    start = position + _CZI_HEADER + _CZI_METADATA_DATA
+    if segment[:16] != _CZI_METADATA or not 0 < xml_size <= room or start + xml_size > file.size:
+        raise _UnreadableError
+    end = start + min(xml_size, _CZI_XML)
+
+    def chunks() -> Iterator[bytes]:
+        at = start
+        while at < end:
+            data = file.read(at, min(_CZI_READ, end - at))
+            if not data:
+                raise _UnreadableError
+            yield data
+            at += len(data)
+
+    def keep(path: tuple[str, ...]) -> bool:
+        if len(path) <= len(_CZI_INFORMATION):
+            return path == _CZI_INFORMATION[: len(path)]
+        return path[:3] == _CZI_INFORMATION and path[3:] in _CZI_KEPT
+
+    root, _ = metadata.parse_xml(
+        chunks(), keep, stop=lambda path, starting: not starting and path == _CZI_INFORMATION
+    )
+    information = root.one("Metadata") if root is not None else None
+    information = information.one("Information") if information is not None else None
+    if root is None or root.name != "ImageDocument" or information is None:
+        raise _UnreadableError
+    return information
 
 
-def read(name: str, media_type: str, source: Readable) -> Acquired | None:
-    """When the file's data was acquired, as the file says, or None.
+def _czi_date(information: Element) -> Acquired:
+    image = information.one("Image")
+    stated = image.text_of("AcquisitionDateAndTime") if image is not None else None
+    if stated is None:
+        raise _UnreadableError
+    return _iso("czi", stated, date_only=False)
 
-    Picks a reader by the file's extension (case-insensitive), else by its media type.
-    Never raises for what's in the file: a malformed or truncated file is None. An error
-    reading ``source`` itself is raised as it was."""
-    reader = _BY_EXTENSION.get(PurePosixPath(name).suffix.lower())
-    if reader is None:
-        reader = _BY_MEDIA_TYPE.get(media_type.split(";", 1)[0].strip().lower())
-    if reader is None:
-        return None
-    file = _File(source)
+
+def _czi_facts(information: Element) -> dict[str, Fact]:
+    """The microscope the image refers to (Image/MicroscopeRef): its Manufacturer's Model,
+    else its Name, else its System, and its Manufacturer's Manufacturer and SerialNumber;
+    and the operator, Information/User: its DisplayName, else its names, else its
+    UserName. Bio-Formats, the OME reader, makes that User the image's Experimenter, the
+    person who performed it. Document/UserName is whoever saved the document last, and the
+    Application what saved it: neither is read."""
+    facts = Facts()
+    image = information.one("Image")
+    ref = image.one("MicroscopeRef") if image is not None else None
+    microscopes = information.one("Instrument")
+    microscopes = microscopes.one("Microscopes") if microscopes is not None else None
+    microscope = _guard(
+        lambda: _by_id(
+            microscopes.all("Microscope") if microscopes else [],
+            ref.attributes.get("Id") if ref else None,
+            "Id",
+        )
+    )
+    if microscope is not None:
+        maker = microscope.one("Manufacturer")
+        if maker is not None:
+            facts.add("instrument", maker.text_of("Model"), "CZI Microscope Manufacturer/Model")
+        facts.add("instrument", microscope.attributes.get("Name"), "CZI Microscope Name")
+        facts.add("instrument", microscope.text_of("System"), "CZI Microscope System")
+        if maker is not None:
+            facts.add("manufacturer", maker.text_of("Manufacturer"), "CZI Microscope Manufacturer")
+            facts.add("serial", maker.text_of("SerialNumber"), "CZI Microscope SerialNumber")
+    user = information.one("User")
+    if user is not None:
+        facts.add("operator", user.text_of("DisplayName"), "CZI Information/User DisplayName")
+        names = _person([user.text_of("FirstName"), user.text_of("LastName")])
+        facts.add("operator", names, "CZI Information/User FirstName and LastName")
+        facts.add("operator", user.text_of("UserName"), "CZI Information/User UserName")
+    return facts.found()
+
+
+def _czi(file: _File) -> FileMetadata:
+    information = _czi_xml(file)
+    return FileMetadata(
+        acquired=_guard(lambda: _czi_date(information)),
+        facts=_guard(lambda: _czi_facts(information)) or {},
+    )
+
+
+# A plate reader's CSV export. BMG LABTECH's MARS writes the run's header above the data
+# when it exports a plate (MARS manual, sections 3.2 and 3.4:
+# https://medicine.umich.edu/sites/default/files/PHERAstar_data%20analysis.pdf): first
+# "User: …,Path: …,Test run no.: …", then "Test name: …,Date: …,Time: …". A test is MARS's
+# measurement protocol, and its user who ran it.
+
+_CSV_READ = 16 * 1024
+_CSV_DELIMITERS = (",", ";", "\t")
+
+
+def _mars_header(lines: list[str]) -> dict[str, str] | None:
+    """The MARS header's labelled cells, from the file's first two lines, or None when they
+    aren't one. Its date is in the PC's regional format (03/03/2016 could be either month
+    first or day first), so it's never read."""
+    for delimiter in _CSV_DELIMITERS:
+        try:
+            rows = list(csv.reader(lines, delimiter=delimiter, strict=True))
+        except csv.Error:
+            continue
+        if len(rows) != 2 or not rows[0] or not rows[1]:
+            continue
+        cells: dict[str, list[str]] = {}
+        for row in rows:
+            for cell in row:
+                label, colon, value = cell.partition(":")
+                if colon:
+                    cells.setdefault(label.strip(), []).append(value)
+        if (
+            rows[0][0].startswith("User:")
+            and rows[1][0].startswith("Test name:")
+            and "Test run no." in cells
+        ):
+            return {label: values[0] for label, values in cells.items() if len(values) == 1}
+    return None
+
+
+def _csv(file: _File) -> FileMetadata:
+    raw = b"\n".join(file.read(0, _CSV_READ).split(b"\n", 2)[:2])
     try:
-        return reader(file)
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        # MARS on Windows writes Windows-1252.
+        text = raw.decode("cp1252")
+    header = _mars_header([line.rstrip("\r") for line in text.split("\n")])
+    facts = Facts()
+    if header is not None:
+        facts.add("operator", header.get("User"), "BMG MARS export header, User")
+        facts.add("protocol", header.get("Test name"), "BMG MARS export header, Test name")
+    return FileMetadata(facts=facts.found())
+
+
+@dataclass(frozen=True)
+class FileMetadata:
+    """What a reader read of the file itself: when its data was acquired, its facts
+    (:mod:`iki_server.files.metadata`) and a SAM or BAM file's read groups."""
+
+    acquired: Acquired | None = None
+    facts: Mapping[str, Fact] = field(default_factory=dict)
+    read_groups: tuple[Mapping[str, str], ...] = ()
+
+
+Reader = Callable[[_File], FileMetadata]
+
+
+# Trusted implementations named by format declarations. File extensions and media types
+# belong to those declarations. A reader never imports or executes code from a plugin.
+READERS: dict[str, Reader] = {
+    "abif": _abif,
+    "fcs": _fcs,
+    "mzml": _mzml,
+    "jcamp-dx": _jcamp,
+    "image": _image,
+    "sam": _sam,
+    "czi": _czi,
+    "csv": _csv,
+}
+
+
+def read_metadata(reader: str | None, source: Readable) -> FileMetadata:
+    """Use the format's registered reader. Malformed bytes yield unknown metadata.
+    A storage error propagates so reading the object can be retried."""
+    if not reader or not source.size:
+        return FileMetadata()
+    read_file = READERS[reader]
+    try:
+        return read_file(_File(source))
     except _SourceError as failure:
         raise failure.error from None
     except Exception:
         # Whatever the bytes are, they don't clearly say: struct, zlib, value and index
         # errors on a malformed file all mean the same.
-        return None
+        return FileMetadata()
+
+
+def read(name: str, media_type: str, source: Readable) -> Acquired | None:
+    """Read the date for an existing file, by its original name or stored media type."""
+    from iki_server.entities import registry
+
+    formats = registry.file_formats()
+    named = next((fmt for fmt in formats.by_extension(name) if fmt.reader), None)
+    fmt = named or formats.by_media_type(media_type)
+    return read_metadata(fmt.reader if fmt else None, source).acquired

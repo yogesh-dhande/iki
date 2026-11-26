@@ -2,10 +2,12 @@
 than an agent, and conditions across state fields, each refusing with its message."""
 
 from dataclasses import replace
+from datetime import timedelta
 from typing import Any
 
 import pytest
 from api_client import problem
+from django.utils import timezone
 from org_world import World
 from test_api_entities import api_as
 from test_rules import BATCH, _bsl3, _proteins, change, made, purged
@@ -129,6 +131,8 @@ def test_a_guard_tracks_an_edit_across_a_field_rename(world: World) -> None:
         part=BATCH,
         name="well",
         to="plate",
+        # A deploy may have started before the edit it subsequently renamed.
+        made_at=timezone.now() - timedelta(days=1),
     )
     check = Guard(
         name="independent",

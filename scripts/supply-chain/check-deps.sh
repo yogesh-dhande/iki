@@ -7,18 +7,18 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
 licenses=$(grep -v '^\s*#' scripts/supply-chain/allowed-licenses.txt | grep -v '^\s*$' | paste -sd, -)
 lockfiles=(--lockfile uv.lock --lockfile pnpm-lock.yaml --lockfile worker/Cargo.lock)
-# What first-party plugins' environments install.
-for requirements in plugins/*/requirements.txt; do
+shopt -s nullglob
+# What the product and the separately run examples install.
+for requirements in {plugins,examples/plugins}/*/requirements.txt; do
   lockfiles+=(--lockfile "$requirements")
 done
 # And what their images install, when an image locks its own packages.
-for lock in plugins/*/images/*/uv.lock; do
-  [ -e "$lock" ] && lockfiles+=(--lockfile "$lock")
+for lock in {plugins,examples/plugins}/*/images/*/uv.lock; do
+  lockfiles+=(--lockfile "$lock")
 done
 
 echo "==> Plugin images install what they lock (requirements.txt is uv.lock, exported)"
-for lock in plugins/*/images/*/uv.lock; do
-  [ -e "$lock" ] || continue
+for lock in {plugins,examples/plugins}/*/images/*/uv.lock; do
   image=$(dirname "$lock")
   # Never coloured: uv colours its comments when FORCE_COLOR is set, as CI sets it.
   if ! (cd "$image" && uv export --frozen --no-emit-project --no-header --quiet --color never | diff -u requirements.txt - >&2); then

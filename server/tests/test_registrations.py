@@ -10,10 +10,13 @@ import pytest
 import requests
 from api_client import Api, problem
 from org_world import World, build_world
+from test_oauth import bearer, signed_in_token
 
 from iki_server.audit.models import AuditEvent
 from iki_server.files import services, storage
 from iki_server.files.models import Blob, Registration
+from iki_server.oauth import services as oauth
+from iki_server.org.models import ProjectMembership
 from iki_server.tasks.runner import Runner
 
 pytestmark = pytest.mark.django_db
@@ -99,6 +102,38 @@ def test_a_version_can_be_named_and_registering_it_again_is_immediate(
     assert Blob.objects.filter(storage_uri=uri).count() == 1
 
 
+def test_every_registration_checks_the_declared_type_against_its_pinned_bytes(
+    world: World, lab: dict[str, Any]
+) -> None:
+    from test_file_acquired import realistic_ab1
+
+    api = api_as(world)
+    uri, version = put(lab, "instrument", realistic_ab1())
+    bad = register(api, world, uri, media_type="text/csv").json()
+    run_tasks()
+    rejected = api.get(f"/registrations/{bad['id']}").json()
+    assert rejected["state"] == "failed" and rejected["file"] is None
+    assert "application/x-abi" in rejected["error"]
+    assert not Blob.objects.filter(storage_uri=uri).exists()
+
+    good = register(api, world, uri, version=version, media_type="application/octet-stream").json()
+    run_tasks()
+    done = api.get(f"/registrations/{good['id']}").json()
+    assert done["media_type"] == done["file"]["media_type"] == "application/x-abi"
+    assert done["file"]["acquired"]["source"] == "abif"
+    # What it states is read from the pinned version, as its date is (ADR 0224).
+    assert done["file"]["facts"]["instrument"] == {
+        "value": "3730",
+        "stated_in": "ABIF tag MODL 1 (model number)",
+    }
+
+    # The stored hash can be reused, but a second registration's claimed type is new.
+    conflict = register(api, world, uri, version=version, media_type="image/jpeg")
+    error = problem(conflict, 422, "validation_failed")["errors"][0]
+    assert error["pointer"] == "#/media_type" and "application/x-abi" in error["detail"]
+    assert Blob.objects.get(storage_uri=uri).files.count() == 1
+
+
 def test_only_approved_versioned_objects_can_be_registered(
     world: World, lab: dict[str, Any]
 ) -> None:
@@ -146,6 +181,53 @@ def test_registering_takes_editor_and_registrations_are_their_makers(
     assert api_as(world, "viewer").get("/registrations/locations").json() == {
         "locations": [f"s3://{LAB}/runs/", f"s3://{PLAIN}/"]
     }
+
+
+def test_registration_history_uses_the_tokens_current_projects(
+    world: World, lab: dict[str, Any]
+) -> None:
+    api = api_as(world)
+    uri, version = put(lab, "plate.csv", CSV)
+    ready = register(api, world, uri).json()
+    run_tasks()
+    other_uri, _ = put(lab, "second.csv", CSV)
+    failed = register(api, world, other_uri).json()
+    Registration.objects.filter(pk=failed["id"]).update(state="failed", error="Could not read file")
+
+    client, tokens = signed_in_token(world, scope="read")
+    token = tokens["access_token"]
+    ready_path = f"/registrations/{ready['id']}"
+    before = bearer(token, "GET", ready_path).json()
+    assert before["uri"] == uri and before["version"] == version
+    assert before["file"]["sha256"] == hashlib.sha256(CSV).hexdigest()
+    assert "scan" not in before and before["file"]["scan"]["state"] == "clean"
+    assert before["file"]["scan"]["decision_id"]
+    oauth.grant(
+        world.users["editor"],
+        client,
+        oauth.Grant(["read"], all_projects=False, projects=[world.archived]),
+    )
+
+    listed = {r["id"]: r for r in bearer(token, "GET", "/registrations").json()["items"]}
+    for job, state in ((ready, "ready"), (failed, "failed")):
+        status = bearer(token, "GET", f"/registrations/{job['id']}").json()
+        assert (
+            status
+            == listed[job["id"]]
+            == {
+                "id": job["id"],
+                "state": state,
+                "created_at": job["created_at"],
+                "file": None,
+                "error": "",
+            }
+        )
+    assert api.get(ready_path).json() == before
+
+    ProjectMembership.objects.filter(user=world.users["editor"], project=world.project).delete()
+    assert {r["id"]: r for r in api.get("/registrations").json()["items"]} == listed
+    for job_id, redacted in listed.items():
+        assert api.get(f"/registrations/{job_id}").json() == redacted
 
 
 def test_registrations_still_checking_after_a_day_fail(world: World, lab: dict[str, Any]) -> None:

@@ -23,6 +23,7 @@ from org_world import World, build_world
 
 from iki_server.files import gcs as backend
 from iki_server.files import storage
+from iki_server.files.management.commands import setup_storage
 from iki_server.files.models import Blob
 from iki_server.tasks.runner import Runner
 
@@ -201,6 +202,7 @@ def test_setup_storage_sets_cors_and_lifecycle_and_checks_versions_and_keys(buck
     assert bucket.cors[0] == theirs
     assert bucket.cors[1]["origin"] == ["https://iki.example.com"]
     assert bucket.cors[1]["method"] == ["GET", "PUT"]
+    assert bucket.cors[1]["responseHeader"] == ["content-type", "range", "content-range"]
     actions = [rule["action"]["type"] for rule in bucket.lifecycle]
     assert actions == ["AbortIncompleteMultipartUpload", "Delete"]
     assert all(r["condition"]["matchesPrefix"][0].endswith("/uploads/") for r in bucket.lifecycle)
@@ -212,6 +214,23 @@ def test_setup_storage_sets_cors_and_lifecycle_and_checks_versions_and_keys(buck
     assert not bucket.versioning
     out, _ = run("--enable-versioning")
     assert "Turned on versioning" in out and bucket.versioning
+
+
+def test_setup_storage_replaces_its_own_older_cors_rule_on_cloud_storage(bucket: Any) -> None:
+    """Cloud Storage applies the first rule that matches, so Iki's rule from before previews
+    read ranges (ADR 0227) is replaced, not shadowing the new one; others' rules stay."""
+    theirs = {"origin": ["https://bi.example.com"], "method": ["GET"]}
+    older = {
+        "origin": ["https://iki.example.com"],
+        "method": ["GET", "PUT"],
+        "responseHeader": ["content-type"],
+        "maxAgeSeconds": 3600,
+    }
+    bucket.cors = [theirs, older]
+    with pytest.raises(CommandError, match="CORS for browsers' uploads and reads"):
+        run("--check")
+    run()
+    assert bucket.cors == [theirs, setup_storage.gcs_cors_rule()]
 
 
 def test_cloud_storage_out_of_reach_is_a_503(world: World, gcs: FakeGcs, settings: Any) -> None:

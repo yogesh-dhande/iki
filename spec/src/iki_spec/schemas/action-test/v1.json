@@ -29,6 +29,12 @@
       "type": "boolean",
       "default": false
     },
+    "after": {
+      "description": "Expected values after the upgrade, by input name and sample position. Each object names the fields to check on that sample.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "array", "items": { "type": "object" } }
+    },
     "params": {
       "description": "Its params' values, as a person would give them. A file param names one of `files` as `{\"$file\": \"name\"}`.",
       "type": "object"
@@ -53,6 +59,16 @@
               "type": "string"
             },
             "values": { "type": "object" },
+            "request": {
+              "description": "For a request (ADR 0132): the project that asked, and the service it was sent to, as the server gives them (ADR 0232). The service is the test's project, `service`, unless given; null for a request not sent yet.",
+              "type": "object",
+              "required": ["asking_project"],
+              "additionalProperties": false,
+              "properties": {
+                "asking_project": { "$ref": "#/$defs/project" },
+                "service": { "oneOf": [{ "$ref": "#/$defs/project" }, { "type": "null" }] }
+              }
+            },
             "included": {
               "description": "For an input that includes references (ADR 0105): the entities each names, by reference. Each gets an ID, which the reference holds; one left out is an empty list.",
               "type": "object",
@@ -106,7 +122,19 @@
       }
     }
   },
+  "if": { "required": ["after"] },
+  "then": { "required": ["upgrade"], "properties": { "upgrade": { "const": true } } },
   "$defs": {
+    "project": {
+      "type": "object",
+      "required": ["slug", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "slug": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
     "hrid": {
       "description": "Its HRID, if the command reads it. Made from the type's prefix unless given.",
       "type": "string",

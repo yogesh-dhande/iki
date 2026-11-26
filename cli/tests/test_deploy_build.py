@@ -11,10 +11,19 @@ import pytest
 
 from iki_cli import fetch
 from iki_cli.main import main
-from iki_spec import modules
+from iki_spec import modules, naming
 
-PLUGINS = Path(__file__).parents[2] / "spec" / "tests" / "plugins"
+ROOT = Path(__file__).parents[2]
+PLUGINS = ROOT / "spec" / "tests" / "plugins"
 URL = "https://git.example/acme/plugins.git"
+
+# These files travel with a lab's source checkout. Its runtime has no use for them.
+AUTHOR_INPUTS = (
+    ".github/workflows/check.yml",
+    "examples/sample.txt",
+    "tests/data/original.csv",
+    "tests/data/fixture.wasm.sha256",
+)
 
 
 def git(repo: Path, *args: str) -> str:
@@ -38,6 +47,20 @@ def upstream(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Path, s
         assert main(["plugin", "makemigrations", str(repo / "plugins/dna"), "--no-input"]) == 0
         protein = ["plugin", "makemigrations", str(repo / "plugins/protein")]
         assert main([*protein, "--with", str(repo / "plugins/dna"), "--no-input"]) == 0
+    protein_dir = repo / "plugins/protein"
+    for relative in (
+        *AUTHOR_INPUTS,
+        "data/dictionary.json",
+        "data/NOTICE",
+        "lab-resources/examples/standards.csv",
+        "web/chromatogram.js",
+        "images/blank.png",
+        "setup/install.sh",
+    ):
+        path = protein_dir / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(relative)
+    (protein_dir / "setup/install.sh").chmod(0o755)
     git(repo, "add", ".")
     git(repo, "-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-qm", "plugins")
     yield repo, git(repo, "rev-parse", "HEAD")
@@ -215,9 +238,23 @@ def test_builds_what_workers_need_from_the_same_commits(
     assert main([*command, "--workers", str(bundle)]) == 0
     assert f"Wrote what workers need to {bundle}." in capsys.readouterr().out
     assert sorted(p.name for p in bundle.iterdir()) == ["build-environments.sh", "plugins"]
-    # Each plugin's code, exported at its commit.
-    script = bundle / "plugins" / "acme__protein" / "scripts" / "relax.py"
-    assert script.read_bytes() == (repo / "plugins/protein/scripts/relax.py").read_bytes()
+    # The image and a worker downloading the server's archive get identical runtime files.
+    source = repo / "plugins/protein"
+    expected = set(git(repo, "ls-tree", "-r", "--name-only", f"{sha}:plugins/protein").splitlines())
+    assert set(AUTHOR_INPUTS) <= expected
+    expected -= set(AUTHOR_INPUTS)
+    staged = bundle / "plugins/acme__protein"
+    assert {
+        path.relative_to(staged).as_posix() for path in staged.rglob("*") if path.is_file()
+    } == expected
+    with tarfile.open(out / "iki_installed_plugins/bundles" / f"acme__protein-{sha}.tar.gz") as tar:
+        assert set(tar.getnames()) == expected
+        for name in sorted(expected):
+            member = tar.extractfile(name)
+            assert member is not None
+            assert member.read() == (source / name).read_bytes() == (staged / name).read_bytes()
+        assert tar.getmember("setup/install.sh").mode == 0o755
+        assert (staged / "setup/install.sh").stat().st_mode & 0o100
     manifest = json.loads((bundle / "plugins" / "plugins.json").read_text())
     requirements = (repo / "plugins/protein/requirements.txt").read_bytes()
     definition = {
@@ -257,6 +294,46 @@ def test_builds_what_workers_need_from_the_same_commits(
     (bundle / "notes.txt").write_text("mine")
     assert main([*command, "--workers", str(bundle)]) == 1
     assert "holds files a build didn't write (notes.txt)" in capsys.readouterr().err
+
+
+def test_deploy_validates_the_runtime_tree_before_emitting_artifacts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    directory = tmp_path / "lab"
+    (directory / "tests").mkdir(parents=True)
+    (directory / "environments").mkdir()
+    (directory / "plugin.yaml").write_text(
+        "apiVersion: iki/v1\nkind: Plugin\nname: acme/assay\nversion: 1.0.0\n"
+    )
+    (directory / "tests/requirements.txt").write_text("")
+    manifest = directory / "environments/assay.yaml"
+    manifest.write_text(
+        (PLUGINS / "protein/environments/protein-tools.yaml")
+        .read_text()
+        .replace("requirements.txt", "tests/requirements.txt")
+    )
+    (tmp_path / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        "  - {name: acme/assay, local: lab, state: active}\n"
+    )
+    server, worker = tmp_path / "server", tmp_path / "worker"
+    assert (
+        main(
+            [
+                "deploy",
+                "build",
+                str(tmp_path),
+                "--allow-local",
+                "-o",
+                str(server),
+                "--workers",
+                str(worker),
+            ]
+        )
+        == 1
+    )
+    assert "tests/requirements.txt" in capsys.readouterr().err
+    assert not server.exists() and not worker.exists()
 
 
 def test_git_cant_be_sent_to_other_transports(
@@ -462,6 +539,96 @@ def test_migrations_must_be_complete(
     assert "run `iki plugin makemigrations`, commit the migration, and pin that commit" in err
 
 
+@pytest.mark.parametrize(
+    ("repository", "state", "mirrors", "official"),
+    [
+        (naming.IKI_REPOSITORY, "active", [], True),
+        (
+            "https://mirror.example/iki.git",
+            "detached",
+            ["--mirror", "https://mirror.example/iki.git"],
+            True,
+        ),
+        (URL, "active", [], False),
+    ],
+)
+@pytest.mark.usefixtures("allow_file")
+def test_building_a_pinned_recipe(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    repository: str,
+    state: str,
+    mirrors: list[str],
+    official: bool,
+) -> None:
+    # A lab can copy a recipe, rename it and keep its directory layout. Only Iki's
+    # repository and its configured mirrors reserve examples/plugins for teaching.
+    repo = tmp_path / "repository"
+    git(tmp_path, "init", "--quiet", "--initial-branch=main", str(repo))
+    path = "examples/plugins/reader_check"
+    recipe = repo / path
+    shutil.copytree(ROOT / "deploy/live/plugins/live_check", recipe)
+    manifest = recipe / "plugin.yaml"
+    manifest.write_text(manifest.read_text().replace("acme/live_check", "acme/reader_check"))
+    git(repo, "add", ".")
+    git(repo, "-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-qm", "recipe")
+    sha = git(repo, "rev-parse", "HEAD")
+    (tmp_path / "gitconfig").write_text(f'[url "file://{repo}"]\n\tinsteadOf = {repository}\n')
+    (tmp_path / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        f"  - name: acme/reader_check\n    git: {repository}\n"
+        f"    path: {path}\n    sha: {sha}\n    state: {state}\n"
+    )
+
+    server, workers = tmp_path / "server", tmp_path / "workers"
+    command = [
+        "deploy",
+        "build",
+        str(tmp_path),
+        "-o",
+        str(server),
+        "--workers",
+        str(workers),
+        *mirrors,
+    ]
+    if official:
+        assert main(command) == 1
+        diagnostic = capsys.readouterr().err
+        assert "acme/reader_check" in diagnostic and "--test-only" in diagnostic
+        assert not server.exists() and not workers.exists()
+        command.append("--test-only")
+    assert main(command) == 0, capsys.readouterr().err
+    registry = server / "iki_installed_plugins"
+    (entry,) = json.loads((registry / "lock.json").read_text())["plugins"]
+    assert (entry["name"], entry["sha"], entry["state"]) == ("acme/reader_check", sha, state)
+    assert (registry / "bundles" / f"acme__reader_check-{sha}.tar.gz").is_file()
+    assert (workers / "plugins/acme__reader_check/plugin.yaml").is_file()
+
+
+def test_building_an_official_local_fixture_requires_both_switches(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    checkout = tmp_path / "iki"
+    git(tmp_path, "init", "--quiet", "--initial-branch=main", str(checkout))
+    git(checkout, "remote", "add", "origin", naming.IKI_REPOSITORY)
+    fixture = Path("deploy/live/plugins/live_check")
+    live_check = checkout / fixture
+    shutil.copytree(ROOT / fixture, live_check)
+    (tmp_path / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        f"  - {{name: acme/live_check, local: {live_check}, state: detached}}\n"
+    )
+    server, workers = tmp_path / "server", tmp_path / "workers"
+    build = ["deploy", "build", str(tmp_path), "-o", str(server), "--workers", str(workers)]
+    for flag, needed in (("--allow-local", "--test-only"), ("--test-only", "--allow-local")):
+        assert main([*build, flag]) == 1
+        assert needed in capsys.readouterr().err
+        assert not server.exists() and not workers.exists()
+    assert main([*build, "--allow-local", "--test-only"]) == 0, capsys.readouterr().err
+    assert (server / "iki_plugin_acme__live_check").is_dir()
+    assert (workers / "plugins/acme__live_check/plugin.yaml").is_file()
+
+
 def test_local_plugins_are_for_development(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -641,11 +808,11 @@ def test_a_plugin_with_a_symbolic_link_is_refused(tmp_path: Path) -> None:
     (plugin / "plugin.yaml").write_text("x")
     (plugin / "secrets").symlink_to("/etc/passwd")
     with pytest.raises(ValueError, match="secrets is a symbolic link"):
-        workers.bundle(plugin, tmp_path / "out.tar.gz")
+        workers.bundle("acme/plugin", plugin, tmp_path / "out.tar.gz")
     (plugin / "secrets").unlink()
-    first = workers.bundle(plugin, tmp_path / "a.tar.gz")
+    first = workers.bundle("acme/plugin", plugin, tmp_path / "a.tar.gz")
     (plugin / "plugin.yaml").touch()  # a new time changes nothing
-    assert workers.bundle(plugin, tmp_path / "b.tar.gz") == first
+    assert workers.bundle("acme/plugin", plugin, tmp_path / "b.tar.gz") == first
 
 
 def test_the_images_runs_use_are_those_bound_to_container_templates(tmp_path: Path) -> None:

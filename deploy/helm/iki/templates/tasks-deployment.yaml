@@ -53,6 +53,9 @@ spec:
               value: {{ .Values.tasks.concurrency | quote }}
             - name: IKI_TASKS_GRACE_SECONDS
               value: {{ .Values.tasks.graceSeconds | quote }}
+            {{- if .Values.sandbox.enabled }}
+            {{- include "iki.sandboxEnv" . | nindent 12 }}
+            {{- end }}
           ports:
             - name: health
               containerPort: 8001

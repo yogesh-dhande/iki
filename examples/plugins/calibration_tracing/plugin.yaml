@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: acme/calibration_tracing
+version: 0.1.0
+title: Automatic calibration impact tracing
+description: Open impact cases for affected measurements when a project marks an instrument's calibration as failed.
+license: Apache-2.0
+iki: ">=0.1"
+dependencies:
+  iki/equipment:
+    types:
+      { Instrument: ">=1", EquipmentService: ">=2", InstrumentUse: ">=2", CalibrationImpact: ">=2" }

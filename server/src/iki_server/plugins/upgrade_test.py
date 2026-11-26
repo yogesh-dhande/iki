@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from iki_server.plugins.operations import same_value
 from iki_spec.builtin import using_core
 from iki_spec.model import Field, included_reference
 
@@ -92,11 +93,16 @@ def _before(state: dict[str, Any]) -> None:
     made = []
     for sample in state["samples"]:
         entity = _make(user, project, sample)
-        history = [
-            _as_json(entity, services.values_at(entity, n)) for n in range(1, entity.revision + 1)
-        ]
+        history = [services.values_and_entry_at(entity, n) for n in range(1, entity.revision + 1)]
         made.append(
-            {**_read(entity), "from": sample["from"], "units": _units(entity), "history": history}
+            {
+                **_read(entity),
+                "from": sample["from"],
+                "units": _units(entity),
+                "history": [_as_json(entity, values) for values, _ in history],
+                "entry_revisions": [entry[1] if entry else None for _, entry in history],
+                "after": sample.get("after", {}),
+            }
         )
     state["made"] = made
     # What migrations do to kept history from here is what the samples' is read through.
@@ -173,7 +179,12 @@ def _units(entity: Any) -> dict[str, str]:  # noqa: ANN401 - an Entity
     """The unit each quantity is kept in, as a migration converting it says it was."""
     from iki_server.entities.values import shape
 
-    return {n: f.unit for n, f in shape(entity.type).fields().items() if f.unit}
+    units = {}
+    for name, field in shape(entity.type).fields().items():
+        measured = field.items if field.type == "list" and field.items is not None else field
+        if measured.unit:
+            units[name] = measured.unit
+    return units
 
 
 def _read(entity: Any) -> dict[str, Any]:  # noqa: ANN401 - an Entity
@@ -210,7 +221,8 @@ def _history(state: dict[str, Any], sample: dict[str, Any], entity: Any, when: s
     fields = shape(entity.type).fields()
     for number, then in enumerate(sample.get("history", ()), start=1):
         try:
-            now = _as_json(entity, services.values_at(entity, number))
+            entry_revision = sample["entry_revisions"][number - 1]
+            now = _as_json(entity, services.values_at(entity, number, entry_revision))
         except Exception as error:
             state["problems"].append(
                 f"{sample['hrid']}'s revision {number} can't be read{when}: {error}"
@@ -225,7 +237,15 @@ def _history(state: dict[str, Any], sample: dict[str, Any], entity: Any, when: s
             )
             continue
         expected = kept["values"]
-        lost = sorted(n for n in expected if n in fields and now.get(n) != expected[n])
+        lost = sorted(
+            n for n in expected if n in fields and not same_value(now.get(n), expected[n])
+        )
+        for name in now.keys() - expected.keys():
+            if now[name] is not None and not same_value(now[name], _initial_value(fields[name])):
+                state["problems"].append(
+                    f"{sample['hrid']}'s earlier revision {number} gained {name} "
+                    f"{json.dumps(now[name])}{when}."
+                )
         for name in lost:
             state["problems"].append(
                 f"{sample['hrid']}'s revision {number} ({sample['from']}) held {name} "
@@ -233,8 +253,21 @@ def _history(state: dict[str, Any], sample: dict[str, Any], entity: Any, when: s
             )
 
 
+def _initial_value(field: Field) -> Any:  # noqa: ANN401 - JSON
+    from iki_server.entities.values import is_list_table
+
+    if field.has_default:
+        return field.default
+    if field.type == "state":
+        return field.initial
+    return [] if is_list_table(field) else None
+
+
 def _after(state: dict[str, Any]) -> None:
-    from iki_server.entities.models import Entity
+    from iki_server.entities.history import FieldNames, history_changes
+    from iki_server.entities.models import Entity, RevisionKind
+    from iki_server.entities.values import shape
+    from iki_server.signatures import proof
 
     for sample in state.get("made", ()):
         entity = Entity.objects.filter(pk=sample["id"]).first()
@@ -242,13 +275,60 @@ def _after(state: dict[str, Any]) -> None:
             state["problems"].append(f"{sample['hrid']} ({sample['from']}) is gone.")
             continue
         now = _read(entity)
-        if (now["revision"], now["revisions"]) != (sample["revision"], sample["revisions"]):
+        revisions = list(entity.revisions.filter(number__gt=sample["revision"]).order_by("number"))
+        expected_numbers = range(sample["revision"] + 1, now["revision"] + 1)
+        if (
+            now["revisions"] != sample["revisions"] + len(revisions)
+            or now["revision"] < sample["revision"]
+            or [r.number for r in revisions] != list(expected_numbers)
+            or any(
+                r.kind not in (RevisionKind.MIGRATED, RevisionKind.STATE_CHANGED)
+                or r.via != "system"
+                or r.user_id
+                or not r.reason
+                for r in revisions
+            )
+        ):
             state["problems"].append(
-                f"{sample['hrid']} ({sample['from']}) was at revision {sample['revision']} with "
-                f"{sample['revisions']} in its history, and is now at {now['revision']} with "
-                f"{now['revisions']}."
+                f"{entity.hrid} has unexplained changes to its revision trail."
             )
         _history(state, sample, entity, "")
+        changes = [c.change() for c in history_changes(entity, state["history_seen"])]
+        try:
+            before = proof.migrated(
+                {"values": sample["values"], "units": sample["units"]}, changes
+            )["values"]
+        except proof.Unexplained as exc:
+            state["problems"].append(f"{entity.hrid}: {exc}")
+            continue
+        fields = shape(entity.type).fields()
+        names = FieldNames.for_type(entity.type)
+        attributed = {n for r in revisions for n in names.changed(r)}
+        if entity.entry is not None:
+            entry_names = FieldNames.for_type(entity.type, entry=True)
+            entry_changes = entity.entry.revisions.filter(
+                number__gt=sample["entry_revisions"][-1], kind=RevisionKind.MIGRATED
+            )
+            attributed.update(n for r in entry_changes for n in entry_names.changed(r))
+        declared = sample["after"]
+        for name, value in declared.items():
+            if name not in fields or not same_value(value, now["values"].get(name)):
+                state["problems"].append(
+                    f"{entity.hrid}'s after expects {name} {json.dumps(value)}, "
+                    f"and the record holds {json.dumps(now['values'].get(name))}."
+                )
+        for name, value in now["values"].items():
+            expected = before[name] if name in before else _initial_value(fields[name])
+            if same_value(value, expected):
+                continue
+            if name not in attributed:
+                state["problems"].append(
+                    f"{entity.hrid}'s {name} changed without a migration revision."
+                )
+            if name not in declared:
+                state["problems"].append(
+                    f"Declare {entity.hrid}'s expected {name} in after on an upgrade fixture."
+                )
 
 
 def _rollback(state: dict[str, Any]) -> None:
@@ -260,7 +340,7 @@ def _rollback(state: dict[str, Any]) -> None:
             state["problems"].append(f"{sample['hrid']} is gone after the rollback.")
             continue
         back = _read(entity)["values"]
-        lost = sorted(name for name, value in sample["values"].items() if back.get(name) != value)
+        lost = sorted(n for n, v in sample["values"].items() if not same_value(back.get(n), v))
         if lost:
             state["problems"].append(
                 f"After the rollback, {sample['hrid']} ({sample['from']}) doesn't have the "

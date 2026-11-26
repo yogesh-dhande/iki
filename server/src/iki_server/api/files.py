@@ -7,35 +7,43 @@ To add a file:
 2. ``PUT`` each part's bytes to its URL. Parts can go in parallel, and in
    any order. URLs last an hour: ``POST /uploads/{id}/parts`` gives new ones.
 3. ``POST /uploads/{id}/complete``. Iki checks the bytes against the SHA-256
-   (state ``checking``), then the upload is ``ready``, with its ``file``.
+   (state ``checking``) and scans them for malware (``scanning``). A completed
+   upload is ``ready``, with its ``file``. Its ``scan.usable`` says whether
+   it can be downloaded or attached to a record.
    ``upload.finished`` arrives on ``/events`` when it's done.
 
 Or, for a file already in an approved bucket, ``POST /registrations`` with
-its ``s3://`` URI: Iki pins its current version and reads it to learn its
-SHA-256, then the registration is ``ready``, with its ``file``.
+its ``s3://`` URI: Iki pins its current version, reads it to learn its
+SHA-256 and scans it. The registration then has its ``file`` and scan.
 ``registration.finished`` arrives on ``/events``.
 """
 
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, Required, TypedDict
 from uuid import UUID
 
+from django.db.models import Count, F, Window
+from django.db.models.functions import RowNumber
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
-from iki_server.api.common import caller, project
+from iki_server.api.common import caller, project, require
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.runs import RunStatusName
-from iki_server.api.schemas import AgentOut, Page, ProjectRef, UserOut, agent_out
-from iki_server.entities import access
+from iki_server.api.schemas import AgentOut, FileScanOut, Page, ProjectRef, UserOut, agent_out
+from iki_server.audit import log as audit
+from iki_server.entities import access, registry
 from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity
 from iki_server.entities.values import shape, to_json
-from iki_server.files import acquired, listing, services, storage
+from iki_server.files import acquired, listing, scan_state, services, storage
+from iki_server.files import metadata as stated
 from iki_server.files.models import (
+    BlobScan,
     File,
     Registration,
     RegistrationState,
@@ -43,7 +51,9 @@ from iki_server.files.models import (
     UploadKind,
     UploadState,
 )
+from iki_server.files.scan_state import require_usable
 from iki_server.org import permissions
+from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 
@@ -66,6 +76,101 @@ class AcquiredOut(Schema):
     source_label: str = Field(description="Where that came from, as people would say it.")
 
 
+class StatedOut(Schema):
+    value: str = Field(description="As the file gives it.")
+    stated_in: str = Field(
+        description="Where in the file it's stated, such as ``FCS keyword $CYT``, to check it by."
+    )
+
+
+class FileFactsOut(Schema):
+    """What the file says about where its data came from (ADR 0224), read when it was
+    added once its scan let it be used: a held file's bytes aren't parsed. Each is null when
+    the file doesn't say, or doesn't say clearly."""
+
+    instrument: StatedOut | None = Field(
+        description="The instrument's model, such as Aurora or Orbitrap Eclipse."
+    )
+    manufacturer: StatedOut | None = Field(description="Who made the instrument.")
+    serial: StatedOut | None = Field(description="The instrument's serial number.")
+    instrument_name: StatedOut | None = Field(
+        description="The name the instrument was given, such as an AB1 trace's MCHN."
+    )
+    operator: StatedOut | None = Field(description="Who operated the instrument.")
+    software: StatedOut | None = Field(
+        description="The software that recorded the data, and its version where given."
+    )
+    protocol: StatedOut | None = Field(
+        description="The instrument's protocol, such as a plate reader's test."
+    )
+
+
+class HeldCopyOut(Schema):
+    """Where held bytes are: a project's file, or a run's or a bundle's own upload."""
+
+    kind: Literal["file", "artifact", "checkpoint", "bundle"] = Field(
+        description="A project's ``file``; or a run's ``artifact`` or ``checkpoint``, or a "
+        "``bundle`` to import, each kept apart from the project's files."
+    )
+    file: UUID | None = Field(
+        description="The project file, for a ``file``, if you can read it: its page opens."
+    )
+    name: str
+    media_type: str
+    project: ProjectRef
+    run: str | None = Field(description="The run's ID, for an artifact or a checkpoint.")
+    created_by: UserOut | None = Field(description="Who added it.")
+    agent: AgentOut | None = Field(description="The agent that added it for them, if one did.")
+    created_at: datetime
+
+
+class QuarantineReleaseOut(Schema):
+    by: UserOut = Field(description="The Quarantine Admin who released it.")
+    at: datetime
+    reason: str = Field(description="Why they found the finding false, as they gave it.")
+
+
+class QuarantineOut(Schema):
+    id: UUID = Field(description="The decision ID for releasing a confirmed false positive.")
+    sha256: str
+    size: int = Field(description="Bytes.")
+    state: Literal["infected", "not_scanned"]
+    scanner: str
+    signature_version: str
+    scanned_at: datetime
+    reason: str = Field(
+        description="What was found (the signature's name), or why an inspection could not "
+        "finish: ``too_large``, ``unsupported_source``, ``clamd_stream_limit``, or the "
+        "scanner's own reason, such as ``Heuristics.Encrypted.Zip``."
+    )
+    releasable: bool = Field(
+        description="An infected finding not yet released. An incomplete inspection never is: "
+        "it found nothing to call false (ADR 0217)."
+    )
+    release: QuarantineReleaseOut | None = Field(description="Its release, once released.")
+    files: list[HeldCopyOut] = Field(
+        description="Where the bytes are, oldest first: the first few in a list, every one in "
+        "a decision's own."
+    )
+    file_count: int = Field(description="How many places the bytes are, listed or not.")
+
+
+class QuarantineFilters(PageParams):
+    status: Literal["held", "released"] = Field(
+        "held", description="Held now, or infected findings released as false positives."
+    )
+    state: Literal["infected", "not_scanned"] | None = Field(
+        None, description="Only malware findings, or only inspections that couldn't finish."
+    )
+    q: str = Field(
+        "", max_length=255, description="Part of a file's name, or the start of its SHA-256."
+    )
+
+
+class ReleaseQuarantineIn(Schema):
+    reason: str = Field(min_length=1, max_length=2000, description="Why the finding is false.")
+
+
 class FileOut(Schema):
     id: UUID
     name: str
@@ -79,9 +184,14 @@ class FileOut(Schema):
     )
     created_at: datetime
     external: bool = Field(description="Registered where it already was, rather than uploaded.")
+    scan: FileScanOut = Field(description="The deployment's malware scan of the file's bytes.")
     acquired: AcquiredOut | None = Field(
         description="When its data was acquired (ADR 0177): as its format records it, or as "
         "whoever added it said. Null if neither says: never when it was added."
+    )
+    facts: FileFactsOut = Field(
+        description="Its instrument, serial number, operator, software and protocol, where "
+        "its format records them (ADR 0224)."
     )
 
 
@@ -129,7 +239,31 @@ class SampleOut(Schema):
     )
 
 
+class ReadGroupOut(TypedDict, total=False):
+    """A SAM or BAM file's @RG line: the SAM specification's tags it gives (section 1.3),
+    by their two-letter names, such as ID, SM (sample), LB (library) and PU (platform unit)."""
+
+    ID: Required[str]
+    BC: str
+    CN: str
+    DS: str
+    DT: str
+    FO: str
+    KS: str
+    LB: str
+    PG: str
+    PI: str
+    PL: str
+    PM: str
+    PU: str
+    SM: str
+
+
 class FileDetailOut(FileRowOut):
+    read_groups: list[ReadGroupOut] = Field(
+        description="A SAM or BAM file's read groups, each @RG line as it gives it (ADR "
+        "0224): every one, or none when any can't be read as the specification defines."
+    )
     origin: FileOriginOut
     samples: list[SampleOut] = Field(description="The samples it belongs to that you can read.")
 
@@ -163,8 +297,27 @@ class UsingRunOut(Schema):
 
 
 class FormatOut(Schema):
+    id: str | None = Field(description="The declared format ID, when installed.")
+    label: str
     media_type: str
     count: int
+
+
+class FileSignatureOut(Schema):
+    offset: int
+    hex: str
+
+
+class InstalledFormatOut(Schema):
+    id: str
+    label: str
+    canonical: str
+    media_types: list[str] = Field(description="The canonical media type followed by its aliases.")
+    extensions: list[str]
+    signatures: list[FileSignatureOut]
+    reader: str | None
+    viewer: str | None
+    parsers: list[str] = Field(description="Installed actions whose file inputs accept the format.")
 
 
 class FileCountOut(Schema):
@@ -178,23 +331,34 @@ class PartOut(Schema):
     url: str = Field(description="PUT the part's bytes here. It works for an hour.")
 
 
-class UploadOut(Schema):
+class UploadStatusOut(Schema):
+    """Your job status when the file is outside your current access."""
+
     id: UUID
-    project: UUID
+    state: Literal["pending", "checking", "scanning", "ready", "failed", "cancelled", "expired"]
+    created_at: datetime
+    expires_at: datetime = Field(description="Unfinished then, it's cancelled.")
+    file: FileOut | None = Field(description="The file it became, once ready and readable.")
+    error: str = Field(description="Why it failed, if you can still read the details.")
+
+
+class UploadOut(UploadStatusOut):
+    project: UUID | None = Field(description="Where it was added. Null if you can't see it.")
     name: str
     media_type: str
     size: int
     sha256: str
-    state: Literal["pending", "checking", "ready", "failed", "cancelled", "expired"]
     part_size: int
     part_count: int
-    file: FileOut | None = Field(description="The file it became, once ready.")
-    error: str = Field(description="Why it failed.")
-    created_at: datetime
-    expires_at: datetime = Field(description="Unfinished then, it's cancelled.")
+
+
+# Preserve the published OpenAPI component name as the items gain a status-only form.
+class Page_UploadOut_(Page[UploadOut | UploadStatusOut]):  # noqa: N801
+    pass
 
 
 class StartedOut(UploadOut):
+    project: UUID
     parts: list[PartOut] = Field(description="Every part, with where to send it.")
 
 
@@ -240,31 +404,46 @@ class RegistrationIn(Schema):
     )
 
 
-class RegistrationOut(Schema):
+class RegistrationStatusOut(Schema):
+    """Your job status when the file is outside your current access."""
+
     id: UUID
-    project: UUID
+    state: Literal["checking", "scanning", "ready", "failed"]
+    created_at: datetime
+    file: FileOut | None = Field(description="The file it became, once ready and readable.")
+    error: str = Field(description="Why it failed, if you can still read the details.")
+
+
+class RegistrationOut(RegistrationStatusOut):
+    project: UUID | None = Field(description="Where it was added. Null if you can't see it.")
     name: str
     media_type: str
     uri: str
     version: str = Field(description="The object version the file is pinned to.")
     size: int
-    state: Literal["checking", "ready", "failed"]
-    file: FileOut | None = Field(description="The file it became, once ready.")
-    error: str = Field(description="Why it failed.")
-    created_at: datetime
+
+
+class Page_RegistrationOut_(Page[RegistrationOut | RegistrationStatusOut]):  # noqa: N801
+    pass
 
 
 class LocationsOut(Schema):
     locations: list[str] = Field(description="Where files may be registered, such as s3://lab/.")
 
 
+_FILE_QUERY = (
+    "Part of its name, or of what it states (its instrument, serial number, operator, "
+    "software, protocol or read groups), in any case."
+)
+
+
 class FileFilters(PageParams):
     project: UUID | None = Field(None, description="Its files; every one you can read if left out.")
-    q: str = Field("", max_length=255, description="Part of its name, in any case.")
+    q: str = Field("", max_length=255, description=_FILE_QUERY)
     format: list[str] = Field(
         default_factory=list,
         max_length=50,
-        description="Media types, such as application/x-abi, or image/* for any image.",
+        description="Format IDs, media types such as application/x-abi, or image/* for any image.",
     )
     acquired_from: date | None = Field(None, description="Acquired on this day or later.")
     acquired_to: date | None = Field(None, description="Acquired on this day or earlier.")
@@ -292,7 +471,7 @@ class FileFilters(PageParams):
 
 class FacetParams(Schema):
     project: UUID | None = None
-    q: str = Field("", max_length=255)
+    q: str = Field("", max_length=255, description=_FILE_QUERY)
     acquired_from: date | None = None
     acquired_to: date | None = None
     sample: str | None = Field(None, max_length=64)
@@ -311,6 +490,7 @@ def _storage() -> None:
 
 
 def _file_out(user: User, files: list[File]) -> list[dict[str, Any]]:
+    scans = scan_state.statuses_for_blobs({f.blob_id for f in files})
     projects = {
         p.pk: p
         for p in permissions.visible_projects(user).filter(pk__in={f.project_id for f in files})
@@ -327,7 +507,9 @@ def _file_out(user: User, files: list[File]) -> list[dict[str, Any]]:
             "agent": agent_out(f.agent),
             "created_at": f.created_at,
             "external": f.blob.registered_external,
+            "scan": scans[f.blob_id],
             "acquired": _acquired_out(f),
+            "facts": {key: f.facts.get(key) for key in stated.FACTS},
         }
         for f in files
     ]
@@ -349,48 +531,54 @@ def _acquired_out(f: File) -> dict[str, Any] | None:
     }
 
 
-def _upload_out(user: User, upload: Upload) -> dict[str, Any]:
-    file = None
-    if upload.file_id is not None:
-        found = File.objects.select_related("blob", "created_by", "agent").get(pk=upload.file_id)
-        file = _file_out(user, [found])[0]
-    return {
-        "id": upload.pk,
-        "project": upload.project_id,
-        "name": upload.name,
-        "media_type": upload.media_type,
-        "size": upload.size,
-        "sha256": upload.sha256,
-        "state": upload.state,
-        "part_size": upload.part_size,
-        "part_count": storage.part_count(upload.size, upload.part_size),
-        "file": file,
-        "error": upload.error,
-        "created_at": upload.created_at,
-        "expires_at": upload.expires_at,
-    }
-
-
-def _registration_out(user: User, registration: Registration) -> dict[str, Any]:
-    file = None
-    if registration.file_id is not None:
-        found = File.objects.select_related("blob", "created_by", "agent").get(
-            pk=registration.file_id
-        )
-        file = _file_out(user, [found])[0]
-    return {
-        "id": registration.pk,
-        "project": registration.project_id,
-        "name": registration.name,
-        "media_type": registration.media_type,
-        "uri": registration.storage_uri,
-        "version": registration.object_version,
-        "size": registration.size,
-        "state": registration.state,
-        "file": file,
-        "error": registration.error,
-        "created_at": registration.created_at,
-    }
+def _job_statuses(
+    user: User, jobs: Sequence[Upload | Registration], *, created_in: Project | None = None
+) -> list[dict[str, Any]]:
+    """The maker keeps the status. Details follow the file, or its project until it exists."""
+    files = services.readable(user).filter(pk__in={job.file_id for job in jobs if job.file_id})
+    file_rows = _file_out(user, list(files.select_related("blob", "created_by", "agent")))
+    by_file = {f["id"]: f for f in file_rows}
+    before_file = {job.project_id for job in jobs if job.file_id is None}
+    readable_projects = set(
+        access.readable_projects(user).filter(pk__in=before_file).values_list("pk", flat=True)
+    )
+    # Starting a job already authorized adding the file in this project on this request.
+    # Polls and history always use current read access, including access through a record.
+    rows = []
+    for job in jobs:
+        file = by_file.get(job.file_id)
+        row = {
+            "id": job.pk,
+            "state": job.state,
+            "created_at": job.created_at,
+            "file": file,
+            "error": "",
+        }
+        if isinstance(job, Upload):
+            row["expires_at"] = job.expires_at
+        just_created = created_in is not None and job.project_id == created_in.pk
+        if (
+            just_created
+            or file is not None
+            or (job.file_id is None and job.project_id in readable_projects)
+        ):
+            row.update(
+                project=job.project_id if just_created or file is None or file["project"] else None,
+                name=job.name,
+                media_type=job.media_type,
+                size=job.size,
+                error=job.error,
+            )
+            if isinstance(job, Upload):
+                row.update(
+                    sha256=job.sha256,
+                    part_size=job.part_size,
+                    part_count=storage.part_count(job.size, job.part_size),
+                )
+            else:
+                row.update(uri=job.storage_uri, version=job.object_version)
+        rows.append(row)
+    return rows
 
 
 def _invalid(error: Refused) -> Exception:
@@ -425,12 +613,171 @@ def _file(user: User, file_id: UUID) -> File:
     return found
 
 
+# --- Quarantine ----------------------------------------------------------------------------------
+
+
+#: Places a list shows for each decision; its own page shows every one.
+_LISTED_COPIES = 3
+
+_COPY_KINDS = {
+    UploadKind.FILE: "file",
+    UploadKind.ARTIFACT: "artifact",
+    UploadKind.CHECKPOINT: "checkpoint",
+    UploadKind.BUNDLE: "bundle",
+}
+
+
+def _quarantine_out(
+    user: User, decisions: Sequence[BlobScan], *, every: bool
+) -> list[dict[str, Any]]:
+    """Each decision with where its bytes are: the files sharing a blob, or the run's or
+    bundle's own upload. A Quarantine Admin needn't read the projects (ADR 0217): a file's
+    ``file`` is given only to someone who can."""
+    blobs = [d.blob_id for d in decisions if d.blob_id is not None]
+    counts = dict(
+        File.objects.filter(blob_id__in=blobs)
+        .order_by()
+        .values("blob_id")
+        .annotate(n=Count("pk"))
+        .values_list("blob_id", "n")
+    )
+    shown = File.objects.filter(blob_id__in=blobs).select_related("project", "created_by", "agent")
+    if not every:
+        first = Window(RowNumber(), partition_by=[F("blob_id")], order_by=F("pk").asc())
+        shown = shown.annotate(nth=first).filter(nth__lte=_LISTED_COPIES)
+    files = list(shown.order_by("pk"))
+    readable = set(
+        services.readable(user).filter(pk__in=[f.pk for f in files]).values_list("pk", flat=True)
+    )
+    by_blob: dict[UUID, list[dict[str, Any]]] = {}
+    for f in files:
+        by_blob.setdefault(f.blob_id, []).append(
+            {
+                "kind": "file",
+                "file": f.pk if f.pk in readable else None,
+                "name": f.name,
+                "media_type": f.media_type,
+                "project": f.project,
+                "run": None,
+                "created_by": f.created_by,
+                "agent": agent_out(f.agent),
+                "created_at": f.created_at,
+            }
+        )
+    uploads = {
+        u.pk: u
+        for u in Upload.objects.filter(
+            pk__in=[d.upload_id for d in decisions if d.upload_id is not None]
+        ).select_related(
+            "project", "created_by", "agent", "run_artifact__run", "run_checkpoint__run"
+        )
+    }
+    rows = []
+    for decision in decisions:
+        if decision.blob_id is not None:
+            copies = by_blob.get(decision.blob_id, [])
+            count = counts.get(decision.blob_id, 0)
+            source: Any = decision.blob
+        elif decision.upload_id is not None:
+            upload = uploads[decision.upload_id]
+            kept = getattr(upload, "run_artifact", None) or getattr(upload, "run_checkpoint", None)
+            copies = [
+                {
+                    "kind": _COPY_KINDS[UploadKind(upload.kind)],
+                    "file": None,
+                    "name": upload.name,
+                    "media_type": upload.media_type,
+                    "project": upload.project,
+                    "run": kept.run.hrid if kept is not None else None,
+                    "created_by": upload.created_by,
+                    "agent": agent_out(upload.agent),
+                    "created_at": upload.created_at,
+                }
+            ]
+            count = 1
+            source = upload
+        else:
+            # iki_scan_one_source: every decision names its blob or its upload.
+            raise ValueError(f"Scan decision {decision.pk} has no source.")
+        release = getattr(decision, "release", None)
+        rows.append(
+            {
+                "id": decision.pk,
+                "sha256": source.sha256,
+                "size": source.size,
+                "state": decision.state,
+                "scanner": decision.scanner,
+                "signature_version": decision.signature_version,
+                "scanned_at": decision.scanned_at,
+                "reason": decision.reason,
+                "releasable": decision.state == "infected" and release is None,
+                "release": (
+                    {"by": release.actor, "at": release.released_at, "reason": release.reason}
+                    if release is not None
+                    else None
+                ),
+                "files": copies,
+                "file_count": count,
+            }
+        )
+    return rows
+
+
+@router.get("/quarantine", response=Page[QuarantineOut], summary="List quarantined files")
+def list_quarantine(request: HttpRequest, filters: Query[QuarantineFilters]) -> dict[str, Any]:
+    """For Quarantine Admins. Newest first, across the deployment: what's held now, or with
+    ``status=released``, the infected findings released as false positives. Each entry
+    identifies the held bytes, the finding, and where the bytes are: several project files
+    can share one source, and so its scan."""
+    me = caller(request)
+    require(me, Action.QUARANTINE_MANAGE)
+    found = scan_state.quarantine(
+        released=filters.status == "released", state=filters.state or "", q=filters.q
+    )
+    result = page(found, filters, newest_first=True)
+    items = _quarantine_out(me, result["items"], every=False)
+    return {"items": items, "next_cursor": result["next_cursor"]}
+
+
+@router.get("/quarantine/{decision_id}", response=QuarantineOut, summary="Read a quarantined file")
+def read_quarantine(request: HttpRequest, decision_id: UUID) -> dict[str, Any]:
+    """For Quarantine Admins: a held decision, or a released one, with every place its
+    bytes are."""
+    me = caller(request)
+    require(me, Action.QUARANTINE_MANAGE)
+    return _quarantine_out(me, [_reviewed(decision_id)], every=True)[0]
+
+
+def _reviewed(decision_id: UUID) -> BlobScan:
+    decision = scan_state.reviewed(decision_id)
+    if decision is None:
+        raise Problem(404, "No such quarantined file.")
+    return decision
+
+
+@router.post(
+    "/quarantine/{decision_id}/release",
+    response=QuarantineOut,
+    summary="Release an infected file after reviewing its finding",
+)
+def release_quarantine(
+    request: HttpRequest, decision_id: UUID, payload: ReleaseQuarantineIn
+) -> dict[str, Any]:
+    """For Quarantine Admins. The given reason and the reviewer are recorded with the
+    release and in the audit log. Every file covered by this decision becomes usable and
+    keeps its original finding. An incomplete inspection can't be released."""
+    me = caller(request)
+    require(me, Action.QUARANTINE_MANAGE)
+    scan_state.release(decision_id, actor=me, reason=payload.reason)
+    return _quarantine_out(me, [_reviewed(decision_id)], every=True)[0]
+
+
 # --- Uploads -------------------------------------------------------------------------------------
 
 
 @router.post("/uploads", response={201: StartedOut}, summary="Start adding a file")
 def start_upload(request: HttpRequest, payload: UploadIn) -> Status[dict[str, Any]]:
-    """Answers with the parts to send. An empty file needs none, and is ready at once."""
+    """Answers with the parts to send. An empty file needs none."""
     me = caller(request)
     target = project(me, payload.project, Action.PROJECT_EDIT)
     _storage()
@@ -447,24 +794,27 @@ def start_upload(request: HttpRequest, payload: UploadIn) -> Status[dict[str, An
     except Refused as error:
         raise _invalid(error) from None
     upload.refresh_from_db()
+    status = _job_statuses(me, [upload], created_in=target)[0]
     parts = services.parts(upload) if upload.state == UploadState.PENDING else []
-    return Status(201, {**_upload_out(me, upload), "parts": parts})
+    return Status(201, {**status, "parts": parts})
 
 
-@router.get("/uploads", response=Page[UploadOut], summary="Your uploads")
+@router.get("/uploads", response=Page_UploadOut_, summary="Your uploads")
 def list_uploads(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
     """Newest first."""
     me = caller(request)
     mine = Upload.objects.filter(created_by=me, kind=UploadKind.FILE)
     result = page(mine, params, newest_first=True)
-    result["items"] = [_upload_out(me, u) for u in result["items"]]
+    result["items"] = _job_statuses(me, result["items"])
     return result
 
 
-@router.get("/uploads/{upload_id}", response=UploadOut, summary="One of your uploads")
+@router.get(
+    "/uploads/{upload_id}", response=UploadOut | UploadStatusOut, summary="One of your uploads"
+)
 def get_upload(request: HttpRequest, upload_id: UUID) -> dict[str, Any]:
     me = caller(request)
-    return _upload_out(me, _upload(me, upload_id))
+    return _job_statuses(me, [_upload(me, upload_id)])[0]
 
 
 @router.post(
@@ -479,16 +829,18 @@ def sign_parts(request: HttpRequest, upload_id: UUID, payload: PartsIn) -> list[
 
 @router.post(
     "/uploads/{upload_id}/complete",
-    response={202: UploadOut, 200: UploadOut},
+    response={202: UploadOut | UploadStatusOut, 200: UploadOut | UploadStatusOut},
     summary="Finish an upload",
 )
 def complete_upload(request: HttpRequest, upload_id: UUID) -> Status[dict[str, Any]]:
     """Once every part has arrived. Iki then checks the bytes (202), and the upload becomes
-    ready, or fails if they don't match its SHA-256. Finishing it again changes nothing."""
+    ready after its malware scan, or fails if its bytes don't match the SHA-256.
+    Finishing it again returns its current state."""
     me = caller(request)
     _storage()
     upload = services.complete(_upload(me, upload_id))
-    return Status(202 if upload.state == UploadState.CHECKING else 200, _upload_out(me, upload))
+    waiting = upload.state in (UploadState.CHECKING, UploadState.SCANNING)
+    return Status(202 if waiting else 200, _job_statuses(me, [upload])[0])
 
 
 @router.delete("/uploads/{upload_id}", response={204: None}, summary="Cancel an upload")
@@ -519,8 +871,8 @@ def registration_locations(request: HttpRequest) -> dict[str, Any]:
 )
 def register_file(request: HttpRequest, payload: RegistrationIn) -> Status[dict[str, Any]]:
     """Pins one version of an object in an approved, versioned bucket. Iki reads it to learn
-    its SHA-256 (202), then it's ready. An object version registered before is ready at once
-    (201)."""
+    its SHA-256 and scan it (202). A version with a completed registration can be reused
+    immediately (201). Its file says whether it is usable."""
     me = caller(request)
     target = project(me, payload.project, Action.PROJECT_EDIT)
     _storage()
@@ -538,21 +890,25 @@ def register_file(request: HttpRequest, payload: RegistrationIn) -> Status[dict[
         raise _invalid(error) from None
     registration.refresh_from_db()
     ready = registration.state == RegistrationState.READY
-    return Status(201 if ready else 202, _registration_out(me, registration))
+    return Status(201 if ready else 202, _job_statuses(me, [registration], created_in=target)[0])
 
 
-@router.get("/registrations", response=Page[RegistrationOut], summary="Your registrations")
+@router.get(
+    "/registrations",
+    response=Page_RegistrationOut_,
+    summary="Your registrations",
+)
 def list_registrations(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
     """Newest first."""
     me = caller(request)
     result = page(Registration.objects.filter(created_by=me), params, newest_first=True)
-    result["items"] = [_registration_out(me, r) for r in result["items"]]
+    result["items"] = _job_statuses(me, result["items"])
     return result
 
 
 @router.get(
     "/registrations/{registration_id}",
-    response=RegistrationOut,
+    response=RegistrationOut | RegistrationStatusOut,
     summary="One of your registrations",
 )
 def get_registration(request: HttpRequest, registration_id: UUID) -> dict[str, Any]:
@@ -560,7 +916,7 @@ def get_registration(request: HttpRequest, registration_id: UUID) -> dict[str, A
     found = Registration.objects.filter(pk=registration_id, created_by=me).first()
     if found is None:
         raise Problem(404, "No such registration of yours.")
-    return _registration_out(me, found)
+    return _job_statuses(me, [found])[0]
 
 
 # --- Files ---------------------------------------------------------------------------------------
@@ -600,14 +956,16 @@ def _media_types(given: list[str], parameter: str) -> list[str]:
     out = []
     for each in given:
         text = each.strip().lower()
-        if text.endswith("/*") and services.MEDIA_KIND.fullmatch(text[:-2]):
+        if text in registry.file_formats().formats or (
+            text.endswith("/*") and services.MEDIA_KIND.fullmatch(text[:-2])
+        ):
             out.append(text)
             continue
         try:
             out.append(services.clean_media_type(text))
         except Refused:
             raise _unknown(
-                parameter, f"{each!r} isn't a media type, nor a family such as image/*."
+                parameter, "Give an installed format ID, media type or family such as image/*."
             ) from None
     return out
 
@@ -641,9 +999,9 @@ def _rows_out(me: User, files: list[File]) -> list[dict[str, Any]]:
 @router.get("/files", response=FilePageOut, summary="Files you can read")
 def list_files(request: HttpRequest, filters: Query[FileFilters]) -> dict[str, Any]:
     """A project's files, or every file you can read: those added to the projects, and
-    those their records hold (ADR 0177). Found by part of the name, format, when acquired,
-    sample and run; newest first unless ``sort`` says otherwise. Each says how many records
-    and runs you can read use it."""
+    those their records hold (ADR 0177). Found by part of the name or of what the file
+    states (ADR 0224), format, when acquired, sample and run; newest first unless ``sort``
+    says otherwise. Each says how many records and runs you can read use it."""
     me = caller(request)
     scope = _scope(me, filters.project)
     try:
@@ -671,11 +1029,44 @@ def count_files(request: HttpRequest, params: Query[FacetParams]) -> dict[str, A
 
 @router.get("/files/formats", response=list[FormatOut], summary="The formats of files")
 def file_formats(request: HttpRequest, params: Query[FacetParams]) -> list[dict[str, Any]]:
-    """The media types of the files ``GET /files`` would list, whatever its ``format``,
-    with how many of each: what its Format filter offers."""
+    """Format labels and counts for readable files matching the other filters. Aliases
+    count together. A file of an undeclared type keeps its media type as its label."""
     me = caller(request)
     found = listing.formats(me, _scope(me, params.project), _filters(me, params))
-    return [{"media_type": m, "count": n} for m, n in found]
+    catalog = registry.file_formats()
+    out = []
+    for media_type, count in found:
+        fmt = catalog.by_media_type(media_type)
+        out.append(
+            {
+                "id": fmt.id if fmt else None,
+                "label": fmt.label if fmt else media_type,
+                "media_type": media_type,
+                "count": count,
+            }
+        )
+    return out
+
+
+@router.get("/formats", response=list[InstalledFormatOut], summary="The installed file formats")
+def installed_formats(request: HttpRequest) -> list[dict[str, Any]]:
+    """Core and plugin formats, in recognition order for shared filename extensions."""
+    caller(request)
+    catalog = registry.file_formats()
+    return [
+        {
+            "id": fmt.id,
+            "label": fmt.label,
+            "canonical": fmt.canonical,
+            "media_types": fmt.media_types,
+            "extensions": fmt.extensions,
+            "signatures": fmt.signatures,
+            "reader": fmt.reader,
+            "viewer": fmt.viewer,
+            "parsers": catalog.parsers(fmt.id),
+        }
+        for fmt in catalog.formats.values()
+    ]
 
 
 def _run_ref(run: Any) -> dict[str, Any]:  # noqa: ANN401 - an ActionRun
@@ -738,6 +1129,7 @@ def get_file(request: HttpRequest, file_id: UUID) -> dict[str, Any]:
     titles = _titles([e for e, _ in samples])
     return {
         **_rows_out(me, [found])[0],
+        "read_groups": found.read_groups,
         "origin": _origin(me, found),
         "samples": [
             {
@@ -815,40 +1207,46 @@ def file_runs(request: HttpRequest, file_id: UUID, params: Query[PageParams]) ->
     return result
 
 
-@router.get("/files/{file_id}/content", response={302: None}, summary="Download a file")
-def download_file(request: HttpRequest, file_id: UUID) -> HttpResponse:
-    """Redirects to a signed URL that works for five minutes. It downloads the file under
-    its name, rather than opening it in the browser."""
-    me = caller(request)
-    found = _file(me, file_id)
-    _storage()
-    blob = found.blob
-    url = storage.download_url(blob.storage_uri, blob.object_version, found.name, found.media_type)
-    response = HttpResponse(status=302)
-    response["Location"] = url
-    response["Cache-Control"] = "no-store"
-    return response
-
-
 class ContentUrlOut(Schema):
     url: str = Field(description="A signed URL that reads the file, for five minutes.")
     expires_at: datetime
     sha256: str = Field(description="What the bytes it reads hash to: check them against it.")
 
 
+def _download_link(me: User, file_id: UUID) -> ContentUrlOut:
+    found = _file(me, file_id)
+    require_usable(found.blob)
+    _storage()
+    blob = found.blob
+    expires_at = timezone.now().replace(microsecond=0) + timedelta(
+        seconds=storage.DOWNLOAD_URL_SECONDS
+    )
+    url = storage.download_url(blob.storage_uri, blob.object_version, found.name, found.media_type)
+    audit.record(
+        "file.download_link_issued",
+        actor=me,
+        target=found,
+        project=found.project,
+        data={"sha256": blob.sha256, "expires_at": expires_at.isoformat()},
+    )
+    return ContentUrlOut(url=url, expires_at=expires_at, sha256=blob.sha256)
+
+
+@router.get("/files/{file_id}/content", response={302: None}, summary="Download a file")
+def download_file(request: HttpRequest, file_id: UUID) -> HttpResponse:
+    """Redirects to a signed URL that works for five minutes. It downloads the file under
+    its name, rather than opening it in the browser."""
+    link = _download_link(caller(request), file_id)
+    response = HttpResponse(status=302)
+    response["Location"] = link.url
+    response["Cache-Control"] = "no-store"
+    return response
+
+
 @router.get("/files/{file_id}/content-url", response=ContentUrlOut, summary="A link to read a file")
-def file_content_url(request: HttpRequest, file_id: UUID) -> dict[str, Any]:
+def file_content_url(request: HttpRequest, file_id: UUID, response: HttpResponse) -> ContentUrlOut:
     """For pages that read a file themselves, such as the structure viewer: the store
     lets Iki's pages read it from the link (CORS), which ``/content``'s redirect can't
     offer, since a redirect to another origin hides who's asking."""
-    me = caller(request)
-    found = _file(me, file_id)
-    _storage()
-    blob = found.blob
-    return {
-        "url": storage.download_url(
-            blob.storage_uri, blob.object_version, found.name, found.media_type
-        ),
-        "expires_at": timezone.now() + timedelta(seconds=storage.DOWNLOAD_URL_SECONDS),
-        "sha256": blob.sha256,
-    }
+    response["Cache-Control"] = "no-store"
+    return _download_link(caller(request), file_id)

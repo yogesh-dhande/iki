@@ -1,0 +1,9 @@
+apiVersion: iki/v1
+kind: EntityType
+name: StockArea
+label: Stock area
+extends: StockStore
+schema_version: 1
+hrid: { prefix: SAR }
+description: A cabinet, shelf or cold room that holds receipt lots without numbered positions.
+display: { title: "{{ name }}" }

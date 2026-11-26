@@ -1,8 +1,9 @@
 /**
- * A project's starters (ADR 0198): the recipes installed to set an assay service up. Its
- * Admins choose a review flow, drawn as the flow its results follow (ADR 0199), the project
- * that asks it, and who holds each lab role; preview what that changes; then apply it. Its
- * other members read what's installed and what's applied.
+ * A project's starters (ADRs 0198 and 0240): the recipes installed to set a service or
+ * procedure up, such as an assay or lot release testing. Its Admins choose a review flow,
+ * drawn as the flow its results follow (ADR 0199), and the members who hold each lab role.
+ * They preview the changes before applying them. Its other members read what's installed
+ * and what's applied.
  */
 
 import { ApiError } from "@ikisci/sdk";
@@ -10,17 +11,16 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useMemo, useState, type SubmitEvent } from "react";
 
-import { membersQuery, problemOf, projectsQuery, useApiMutation, type Project } from "../api";
+import { membersQuery, problemOf, useApiMutation, type Project } from "../api";
 import { typeFlowQuery } from "../flow";
 import { FlowDiagram, useRoleLabels } from "../flow-diagram";
 import { usePageTitle } from "../layout";
 import { useForm } from "../forms";
 import { StaleNote } from "../observations";
-import { intakeQuery, listed } from "../requests";
+import { listed } from "../requests";
 import {
   applyStarter,
   eligible,
-  exampleLabel,
   flowSummary,
   independentEnough,
   planChanges,
@@ -29,7 +29,9 @@ import {
   STARTERS,
   startersQuery,
   type Member,
+  routeOf,
   type Starter,
+  type StarterFlow,
   type StarterPlan,
   type StarterSetup,
 } from "../starters";
@@ -40,7 +42,6 @@ import {
   Loading,
   ProblemAlert,
   RadioField,
-  SelectField,
   useMessages,
 } from "../ui";
 import { useProject } from "./project-overview";
@@ -54,9 +55,8 @@ export function ProjectStarters() {
       <section className="card card-wide starter-intro">
         <h2 className="section-title">Starters</h2>
         <p className="muted">
-          A starter sets {project.name} up as a service from what’s installed: the review flow its
-          results follow, the project that asks it, who holds each lab role, and an example to
-          practise on. Applying one again with another flow changes only what new work follows.
+          A starter chooses the review flow for new work in {project.name}, such as assay results or
+          lot release testing, and assigns the lab roles needed to run it.
         </p>
         <p>
           <Link to="/projects/$slug/settings/" params={{ slug: project.slug }}>
@@ -118,18 +118,20 @@ function StarterCard({ starter, project }: { starter: Starter; project: Project 
         <div className="starter-flow" key={flow.id}>
           <h3 className="starter-flow-title">{flow.label}</h3>
           <p>{flowSummary(flow)}</p>
-          <ResultFlow type={flow.result_type} />
+          <ResultFlow flow={flow} />
         </div>
       ))}
     </section>
   );
 }
 
-/** The flow a starter's result type follows, drawn. */
-function ResultFlow({ type }: { type: string }) {
+/** The flow a starter's result type follows, drawn: only this flow's route, where the type
+ * has one per flow (ADR 0240). */
+function ResultFlow({ flow: chosen }: { flow: StarterFlow }) {
+  const type = chosen.result_type;
   const flow = useQuery(typeFlowQuery(type));
   const roles = useRoleLabels();
-  const field = flow.data?.fields[0];
+  const field = routeOf(flow.data?.fields[0], chosen.states);
   if (flow.isPending) return <Loading label="Loading its flow" />;
   if (!field) return null;
   return (
@@ -158,12 +160,10 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
   const { say } = useMessages();
   const applied = starter.applied;
   const members = useQuery(membersQuery(project.id));
-  const projects = useQuery(projectsQuery);
-  const intake = useQuery(intakeQuery(project.id));
   const [flowId, setFlowId] = useState(applied?.flow ?? starter.flows[0]?.id ?? "research");
   const flow = starter.flows.find((f) => f.id === flowId) ?? starter.flows[0];
   const resultFlow = useQuery(typeFlowQuery(flow?.result_type ?? ""));
-  const [requester, setRequester] = useState(applied?.requester_project ?? "");
+  const route = routeOf(resultFlow.data?.fields[0], flow?.states);
   // Who's chosen for each role: until the Admin chooses, whoever holds it already.
   const [picked, setPicked] = useState<Record<string, string[]> | null>(null);
   const [plan, setPlan] = useState<{ key: string; plan: StarterPlan } | null>(null);
@@ -183,18 +183,11 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
   }, [members.data, starter.roles]);
   const chosen = picked ?? held;
   const required = flow?.required_roles ?? [];
-  const signers = signingRoles(resultFlow.data?.fields[0]).filter((r) => required.includes(r));
+  const signers = signingRoles(route).filter((r) => required.includes(r));
   const independent = independentEnough(signers, chosen);
   const missing = required.filter((r) => !(chosen[r] ?? []).length);
-  // The original requester stays (ADR 0198): its example request and results stay together.
-  const locked = applied !== null;
-  const cannotSwitch = applied !== null && applied.requester_project === null;
-  const requesters = (projects.data ?? []).filter(
-    (p) => p.id !== project.id && !p.archived && p.can.edit,
-  );
   const setup: StarterSetup = {
     project: project.id,
-    requester_project: requester,
     version: starter.version,
     flow: flow?.id ?? "research",
     role_assignments: Object.fromEntries(required.map((r) => [r, [...(chosen[r] ?? [])].sort()])),
@@ -207,7 +200,7 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
   const apply = useApiMutation(
     ({ setup: s, plan: reviewed }: { setup: StarterSetup; plan: string }) =>
       applyStarter(starter.id, s, reviewed),
-    [STARTERS, ["projects"], ["entities"]],
+    [STARTERS, membersQuery(project.id).queryKey],
   );
   const problem =
     (apply.error ?? preview.error) ? problemOf(apply.error ?? preview.error) : undefined;
@@ -223,11 +216,8 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (cannotSwitch) return;
     const checks: Record<string, string | false> = {
-      requester: !requester && "Choose the project that asks for the example assay.",
       independent:
-        Boolean(requester) &&
         !missing.length &&
         !independent &&
         `Choose ${String(signers.length)} different people for ${listed(signers.map(label))}: each signs a different step, and someone who signed one can’t sign the next. One person may hold several roles, so long as each step can have its own signer.`,
@@ -264,7 +254,7 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
         onSuccess: (result) => {
           setPlan({
             key,
-            plan: { ...result, changed: false, grants_to_add: {}, examples_to_create: [] },
+            plan: { ...result, changed: false, grants_to_add: {} },
           });
           say(
             result.changed
@@ -280,14 +270,6 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
     const minimum = roleOf(role)?.minimum_project_role ?? "viewer";
     return eligible(members.data ?? [], minimum);
   };
-  const intakeEmpty =
-    intake.data &&
-    !intake.data.types.length &&
-    !intake.data.projects.length &&
-    !intake.data.from_registry;
-  const requesterName =
-    projects.data?.find((p) => p.id === requester)?.name ?? "the requesting project";
-
   return (
     <section className="card card-wide starter" aria-labelledby={`${id}-title`}>
       <div className="section-header">
@@ -316,51 +298,21 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
         {flow ? (
           <div className="starter-flow">
             <h3 className="starter-flow-title">How a {flow.label} result moves</h3>
-            <ResultFlow type={flow.result_type} />
+            <ResultFlow flow={flow} />
           </div>
         ) : null}
         {applied && flow && applied.flow !== flow.id ? (
           <div className="alert alert-warning" role="note">
             <p>
-              Switching to {flow.label} changes what new fits create. Results already recorded keep
-              the flow they started in, with its signatures: a QC result already submitted still
-              needs its independent review and QA release, and a research result waiting for its
-              sign-off still needs only that.
+              New {starter.governs} will use the {flow.label} flow. Existing ones keep their current
+              review and signature requirements.
             </p>
           </div>
         ) : null}
 
-        <h3 className="starter-step">The project that asks</h3>
-        {locked ? (
-          cannotSwitch ? (
-            <p className="field-help">
-              It was set up with a requesting project you can’t edit. Only someone who can edit that
-              project can apply it again, as its example request and results stay with it.
-            </p>
-          ) : (
-            <p className="field-help">
-              {requesterName}, as when it was first applied. It stays the same, so its example
-              request and results stay together.
-            </p>
-          )
-        ) : (
-          <SelectField
-            label="Requesting project"
-            value={requester}
-            onChange={setRequester}
-            help="It sends the example analysis request, and gets the signed result back. You need to be able to edit it."
-            error={form.errors["requester"]}
-            options={[
-              { value: "", label: "Choose a project" },
-              ...requesters.map((p) => ({ value: p.id, label: p.name })),
-            ]}
-          />
-        )}
-
         <h3 className="starter-step">Who does what</h3>
         <p className="field-help starter-help">
-          People with their own membership of {project.name}. Each lab role needs a project role at
-          least as high as it says; add people in{" "}
+          Choose members of {project.name} for each lab role. To add someone, open{" "}
           <Link to="/projects/$slug/members/" params={{ slug: project.slug }}>
             Members
           </Link>
@@ -426,18 +378,13 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
             flowLabel={starter.flows.find((f) => f.id === previewed.flow)?.label ?? previewed.flow}
             label={label}
             memberName={nameOf}
-            intake={
-              intakeEmpty && !applied
-                ? `${project.name} takes no requests yet: applying lets it take analysis requests from ${requesterName}, and from no other project.`
-                : null
-            }
           />
         ) : null}
         <div className="actions">
           <Button
             type="submit"
             variant="primary"
-            disabled={cannotSwitch || (previewed !== null && !previewed.changed)}
+            disabled={previewed !== null && !previewed.changed}
             busy={preview.isPending || apply.isPending}
             busyText={preview.isPending ? "Previewing…" : "Applying…"}
           >
@@ -460,19 +407,17 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
   );
 }
 
-/** What applying will do: the grants it adds, the examples it makes, the intake it sets. */
+/** The flow and role grants the admin is about to apply. */
 function Plan({
   plan,
   flowLabel,
   label,
   memberName,
-  intake,
 }: {
   plan: StarterPlan;
   flowLabel: string;
   label: (role: string) => string;
   memberName: (membership: string) => string;
-  intake: string | null;
 }) {
   const grants = Object.entries(plan.grants_to_add).flatMap(([role, ids]) =>
     ids.map((member) => `${memberName(member)} becomes ${label(role)}`),
@@ -481,28 +426,15 @@ function Plan({
     <div className="starter-plan" role="status" aria-label="What applying will do">
       <h3 className="starter-step">What applying will do</h3>
       {!plan.changed ? (
-        <p>Nothing: it’s set up this way already.</p>
+        <p>This starter is already configured with these choices.</p>
       ) : (
         <ul>
           <li>New results follow the {flowLabel} flow.</li>
           {grants.map((g) => (
             <li key={g}>{g}.</li>
           ))}
-          {plan.examples_to_create.length ? (
-            <li>
-              It makes an example to practise on:{" "}
-              {listed(plan.examples_to_create.map(exampleLabel))}.
-            </li>
-          ) : null}
-          {intake ? <li>{intake}</li> : null}
         </ul>
       )}
-      {Object.keys(plan.examples).length ? (
-        <p className="muted">
-          Its example records are there already, and stay:{" "}
-          {listed(Object.keys(plan.examples).map(exampleLabel))}.
-        </p>
-      ) : null}
     </div>
   );
 }

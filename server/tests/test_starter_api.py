@@ -1,7 +1,6 @@
-"""A starter crosses two projects. Its setup must be authorized in each (ADR 0198)."""
+"""A starter configures the assay project with its administrator’s permission."""
 
 from typing import Any
-from uuid import uuid4
 
 import pytest
 from api_client import Api, problem
@@ -18,46 +17,42 @@ def world() -> World:
     return build_world()
 
 
-def choice(world: World, requester: Project, operation: str = "apply") -> dict[str, Any]:
+def choice(world: World, operation: str = "apply") -> dict[str, Any]:
     """A setup, and for applying it, the plan its preview would have returned."""
     return {
-        "version": "1.0.0",
+        "version": "2.0.0",
         "flow": "research",
         "project": str(world.project.pk),
-        "requester_project": str(requester.pk),
         "role_assignments": {},
         **({"plan": "0" * 64} if operation == "apply" else {}),
     }
 
 
 @pytest.mark.parametrize("operation", ["preview", "apply"])
-def test_setup_requires_access_to_the_requester(world: World, operation: str) -> None:
-    requester = Project.objects.create(team=world.team, name="Assay requester")
+def test_only_an_assay_admin_can_configure_it(world: World, operation: str) -> None:
     path = f"/starters/dose-response/{operation}"
-    api = Api(world.browser("admin"))
-    body = choice(world, requester, operation)
-    problem(api.post(path, body), 404, "not_found")
-    grant = ProjectMembership.objects.create(
-        project=requester, user=world.users["admin"], role=ProjectRole.VIEWER
-    )
-    problem(api.post(path, body), 403, "forbidden")
-    grant.role = ProjectRole.EDITOR
-    grant.save(update_fields=["role"])
-    # The editor now reaches the catalog. The fixture deployment has no dose-response starter.
-    problem(api.post(path, body), 404, "not_found")
+    body = choice(world, operation)
+    problem(Api(world.browser("outsider")).post(path, body), 404, "not_found")
+    problem(Api(world.browser("editor")).post(path, body), 403, "forbidden")
+    # Only the project Admin reaches the catalog; the fixture deployment has no plate plugin.
+    problem(Api(world.browser("admin")).post(path, body), 404, "not_found")
 
 
-def test_scope_limited_to_service_project_cannot_apply_elsewhere(world: World) -> None:
-    requester = Project.objects.create(team=world.team, name="Assay requester")
-    ProjectMembership.objects.create(
-        project=requester, user=world.users["admin"], role=ProjectRole.EDITOR
-    )
-    body = choice(world, requester)
+def test_a_token_needs_write_scope_in_the_selected_project(world: World) -> None:
     path = "/starters/dose-response/apply"
+    body = choice(world)
     _, read_only = signed_in_token(world, "admin", scope="read")
     problem(bearer(read_only["access_token"], "POST", path, body), 403, "insufficient_scope")
+    other = Project.objects.create(team=world.team, name="Second assay project")
+    ProjectMembership.objects.create(
+        project=other, user=world.users["admin"], role=ProjectRole.ADMIN
+    )
     _, scoped = signed_in_token(world, "admin", scope="read write", projects=[world.project])
-    problem(bearer(scoped["access_token"], "POST", path, body), 404, "not_found")
+    problem(
+        bearer(scoped["access_token"], "POST", path, {**body, "project": str(other.pk)}),
+        404,
+        "not_found",
+    )
 
 
 @pytest.mark.parametrize(
@@ -66,6 +61,7 @@ def test_scope_limited_to_service_project_cannot_apply_elsewhere(world: World) -
         ("flow", "release"),
         ("project", "somewhere"),
         ("role_assignments", {"iki/plate_assays.reviewer": ["a name"]}),
+        ("requester_project", "removed"),
         ("undeclared", True),
     ],
 )
@@ -73,6 +69,6 @@ def test_setup_rejects_unusable_payload_before_application(
     world: World, field: str, value: Any
 ) -> None:
     api = Api(world.browser("admin"))
-    body = {**choice(world, world.project), "requester_project": str(uuid4()), field: value}
+    body = {**choice(world), field: value}
     error = problem(api.post("/starters/dose-response/apply", body), 422, "validation_failed")
     assert error["errors"][0]["pointer"].startswith(f"#/{field}")

@@ -311,7 +311,7 @@ class WorkflowRun(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     hrid = models.CharField(max_length=32, unique=True, db_comment="Such as WF-000123.")
-    #: The workflow's qualified name, such as ``protein.translate_and_characterize``.
+    #: The workflow's qualified name, in ``namespace/plugin.workflow`` form.
     workflow = models.CharField(max_length=200)
     plugin_version = models.CharField(max_length=100)
     plugin_sha = models.CharField(max_length=40, blank=True, default="")
@@ -1327,6 +1327,12 @@ class Job(models.Model):
     resumes = models.ForeignKey(
         "RunPark", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
+    #: When it found a file it reads still being scanned (ADR 0234), and the files that
+    #: were: no worker leases it, nor is a machine started for it, until their scans
+    #: are done. ``scan_wait_ended_at`` says when they were, whether clean or held.
+    scan_wait_started_at = models.DateTimeField(null=True, blank=True)
+    scan_wait_ended_at = models.DateTimeField(null=True, blank=True)
+    scan_wait_files = ArrayField(models.UUIDField(), default=list, blank=True)
 
     class Meta:
         db_table = "iki_job"
@@ -1374,9 +1380,23 @@ class Job(models.Model):
                 name="iki_job_leased",
                 condition=Q(lease_expires_at__isnull=False),
             ),
+            # Attempts waiting for their files' scans, which a scan's decision looks for.
+            models.Index(
+                fields=["scan_wait_started_at"],
+                name="iki_job_waiting_for_scan",
+                condition=Q(scan_wait_started_at__isnull=False, scan_wait_ended_at__isnull=True),
+            ),
         ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(fields=["run", "attempt"], name="iki_job_attempt"),
+            models.CheckConstraint(
+                condition=Q(scan_wait_ended_at__isnull=True)
+                | Q(
+                    scan_wait_started_at__isnull=False,
+                    scan_wait_started_at__lte=models.F("scan_wait_ended_at"),
+                ),
+                name="iki_job_scan_wait_order",
+            ),
             models.CheckConstraint(condition=Q(state__in=JobState.values), name="iki_job_state"),
             models.CheckConstraint(condition=Q(tier__in=RUN_TIERS), name="iki_job_tier"),
             models.CheckConstraint(condition=Q(attempt__gte=1), name="iki_job_attempt_min"),
@@ -1389,6 +1409,15 @@ class Job(models.Model):
 
     def __str__(self) -> str:
         return f"{self.run_id} attempt {self.attempt}"
+
+    @property
+    def waiting_for_scan(self) -> bool:
+        return self.scan_wait_started_at is not None and self.scan_wait_ended_at is None
+
+
+def not_waiting_for_scan() -> Q:
+    """Jobs that aren't waiting for a file's scan (ADR 0234): those a worker may lease."""
+    return Q(scan_wait_started_at__isnull=True) | Q(scan_wait_ended_at__isnull=False)
 
 
 class SlurmJob(models.Model):

@@ -8,9 +8,14 @@ method, in their recorded reporting units.
 
 ## Configure the workflow
 
-Install the plugin with Lots and Inventory. At deployment, choose
-`review_flow: research` (the default) or `review_flow: regulated_qc` in its
-settings. The schedule pins this choice for the life of its study.
+Install the plugin with Lots and Inventory. A project's Admin chooses Research
+or Regulated QC in **Project settings → Starters → Stability study**, and
+assigns the roles below there. Research needs a coordinator and a reviewer;
+Regulated QC also needs an analyst and QA, three different signers. A project
+that hasn't chosen uses the deployment's `review_flow` setting (`research` by
+default). Scheduling pins the flow on the study for the life of its
+measurements, so a later choice applies to studies scheduled after it
+([ADR 0240](../../docs/adr/0240-a-project-chooses-its-release-stability-and-verification-review.md)).
 
 - A **Stability coordinator** receives the pull assignments, makes each draw and
   reconciles late or missed pulls.
@@ -33,7 +38,8 @@ permissions of study material when planning the windows.
    tube and volume to each condition and month. A tube may supply several
    months within its assigned condition. Each other condition needs its own
    tube. Scheduling checks the material declared by the lot type against the
-   material on the study. List the attributes to measure,
+   material on the study. For a strain isolate, choose the same isolate lot as
+   both the material and the lot. List the attributes to measure,
    the method and its revision, and the reporting unit. Use a new linked study
    record when the protocol changes.
 2. In **Schedule**, run **Schedule stability pulls**. The run generates each
@@ -56,7 +62,7 @@ permissions of study material when planning the windows.
 
 ## Published design example
 
-[Study design](data/study-design.yaml) includes the ICH Q1A(R2) general-case
+[Study design](../../examples/stability-study/study-design.yaml) includes the ICH Q1A(R2) general-case
 long-term condition of 25 °C ± 2 °C and 60% RH ± 5% RH and the accelerated condition
 of 40 °C ± 2 °C and 75% RH ± 5% RH. Its partial time-point sequence illustrates
 the frequency in §§2.1.6–2.1.7.1. The example windows are synthetic. A lab supplies

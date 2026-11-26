@@ -5,13 +5,14 @@ from pathlib import Path
 import pytest
 from first_party_dependencies import PLUGINS, build_order
 from org_world import build_world
+from scan_fixtures import clean_blob
 from test_plugin_migrations import database, iki, migrate, orm, sync
 from test_signatures import ready, signed
 
-from iki_server.entities import search, services
+from iki_server.entities import search, services, states
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
-from iki_server.files.models import Blob, File, FileUse
+from iki_server.files.models import File, FileUse
 from iki_server.files.services import EMPTY_SHA256
 from iki_server.graph import queries
 from iki_server.org.models import LabRoleGrant, ProjectMembership
@@ -45,7 +46,13 @@ def exercise_history() -> None:
     world = build_world()
     editor = world.users["editor"]
     membership = ProjectMembership.objects.get(project=world.project, user=editor)
-    LabRoleGrant.objects.create(membership=membership, role=PREFIX + "research_signer")
+    # The editor records every check, signs research checks off, accepts unsigned ones
+    # and submits regulated ones. Others review and release them independently.
+    for role in ("research_signer", "recorder", "analyst"):
+        LabRoleGrant.objects.create(membership=membership, role=PREFIX + role)
+    for who, role in (("viewer", "reviewer"), ("admin", "qa")):
+        member = ProjectMembership.objects.get(project=world.project, user=world.users[who])
+        LabRoleGrant.objects.create(membership=member, role=PREFIX + role)
     ready(world)
 
     def make(entity_type: str, **values: object) -> Entity:
@@ -132,7 +139,7 @@ def exercise_history() -> None:
         "str_check": str(authentication.pk),
         "mycoplasma_check": str(mycoplasma.pk),
     }
-    with pytest.raises(Invalid, match="signed STR check"):
+    with pytest.raises(Invalid, match="final STR check"):
         make("CellCulture", **thaw_values)
     for test in (authentication, mycoplasma, unrelated):
         signed(world, "editor", str(test.pk), "signed_off", field="review")
@@ -142,7 +149,7 @@ def exercise_history() -> None:
         {"event_on": "2026-01-05"},
         {"event_on": "2026-02-02"},
     ]:
-        with pytest.raises(Invalid, match="signed STR check"):
+        with pytest.raises(Invalid, match="final STR check"):
             make("CellCulture", **{**thaw_values, **overrides})
     thaw = make("CellCulture", **thaw_values)
     with pytest.raises(Invalid, match="thaw record"):
@@ -163,8 +170,42 @@ def exercise_history() -> None:
         name="synthetic-observation.csv",
         media_type="text/csv",
         project=world.project,
-        blob=Blob.objects.create(sha256=EMPTY_SHA256, size=0, storage_uri="s3://iki/synthetic"),
+        blob=clean_blob(sha256=EMPTY_SHA256, size=0, storage_uri="s3://iki/synthetic"),
     )
+
+    # The same bank tested under the two other procedures: an STR result accepted
+    # with its report and no signature, without a repeat date, and a mycoplasma
+    # result submitted, independently reviewed and released by QA.
+    accepted = make(
+        "CellCheck",
+        bank=str(working.pk),
+        kind="str_authentication",
+        result="match",
+        method="Synthetic outside report",
+        checked_on="2026-01-08",
+    )
+    released = check(working, "mycoplasma", "negative")
+    branch_values = {
+        **passage_values,
+        "event_on": "2026-03-02",
+        "str_check": str(accepted.pk),
+        "mycoplasma_check": str(released.pk),
+    }
+    with pytest.raises(Invalid, match="final STR check"):
+        make("CellCulture", **branch_values)
+    with pytest.raises(states.GuardRefused, match="report"):
+        states.set_state(
+            editor, accepted, "review", "accepted", expected_revision=accepted.revision
+        )
+    services.update(editor, accepted, {"report": str(data.pk)}, expected_revision=accepted.revision)
+    accepted.refresh_from_db()
+    states.set_state(editor, accepted, "review", "accepted", expected_revision=accepted.revision)
+    for who, state in (("editor", "submitted"), ("viewer", "reviewed"), ("admin", "released")):
+        signed(world, who, str(released.pk), state, field="review")
+    with pytest.raises(Invalid, match="final mycoplasma check"):
+        make("CellCulture", **branch_values)
+    branch = make("CellCulture", **{**branch_values, "event_on": "2026-01-10"})
+    assert branch.pk != passage.pk
     sample = make(
         "CellSample",
         name="Example observation",

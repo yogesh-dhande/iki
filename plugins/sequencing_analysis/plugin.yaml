@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/sequencing_analysis
-version: 0.1.1
+version: 0.1.2
 title: Sequencing analysis
 description: Import VCF, RNA-seq counts and AIRR rearrangements with provenance and signed review.
 license: Apache-2.0

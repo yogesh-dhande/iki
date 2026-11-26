@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Environment
+name: tools
+tiers: [container]
+resources: { cpu: 0.25, memory: 256Mi }
+image: docker.io/library/python:3.13-alpine@sha256:1e1f6334529d1fb26a2ef619d7cffb30a7c7d7cc1cc7338ebee283a58d1aeaca

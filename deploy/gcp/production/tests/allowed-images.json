@@ -4,6 +4,7 @@
   "europe-west1-docker.pkg.dev/iki-test-project/iki-test-worker/**",
   "ghcr.io/yogesh-dhande/iki-server*",
   "ghcr.io/yogesh-dhande/iki-worker*",
+  "docker.io/clamav/clamav-debian@sha256:cb2b6fa0bf480a3c243117204b751f062c5350569d088dc269ebeef6b4331823",
   "ghcr.io/external-secrets/external-secrets*",
   "mirror.gcr.io/library/postgres:17",
   "ghcr.io/yogesh-dhande/iki-*"

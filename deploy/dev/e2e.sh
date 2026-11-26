@@ -5,13 +5,18 @@ set -euo pipefail
 
 CONTEXT=kind-iki
 NS=iki
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 kc() { kubectl --context "$CONTEXT" -n "$NS" "$@"; }
 pass() { printf '\033[1;32m  ok\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31mFAIL\033[0m %s\n' "$*" >&2; exit 1; }
 secret() { kc get secret "$1" -o "jsonpath={.data.$2}" | base64 -d; }
 
 PIDS=()
-cleanup() { for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done; }
+cleanup() {
+  if (( ${#PIDS[@]} )); then
+    for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
+  fi
+}
 trap cleanup EXIT
 
 forward() { # forward <target> <local-port> <remote-port>
@@ -24,7 +29,18 @@ forward() { # forward <target> <local-port> <remote-port>
   fail "port-forward to $1 did not come up"
 }
 
-echo "Iki dev cluster end-to-end checks"
+locks=("$here/plugins.lock.yaml")
+sso_args=(--check)
+case ${IKI_DEV_FIXTURES:-0} in
+  0) profile=product ;;
+  1)
+    profile=fixtures
+    locks+=("$here/fixtures/plugins.lock.yaml")
+    sso_args+=(--fixtures --lims-port 18091 --foldcloud-port 18092)
+    ;;
+  *) fail "IKI_DEV_FIXTURES must be 0 or 1" ;;
+esac
+echo "Iki dev cluster end-to-end checks ($profile)"
 
 # Wait for every rollout in progress, so logs, execs and port-forwards hit the current
 # pods: a dependency's new image (SeaweedFS's, say) replaces its pod too, and a forward to
@@ -49,7 +65,39 @@ if ! nc -z 127.0.0.1 8333 2>/dev/null; then forward svc/seaweedfs 8333 8333; fi
 forward svc/otel-lgtm 13200 3200
 forward svc/mailpit 18025 8025
 forward svc/webhook-receiver 18090 8080
-forward svc/fake-lims 18091 8080
+if [[ "$profile" == fixtures ]]; then
+  forward svc/fake-lims 18091 8080
+  forward svc/fake-foldcloud 18092 8080
+else
+  services=$(kc get service fake-lims fake-foldcloud --ignore-not-found -o name)
+  [[ -z "$services" ]] || fail "product cluster runs fixture services: $services"
+fi
+
+# Check the running images against the selected source pins before the seed makes records.
+expected=$(uv run --quiet python - "${locks[@]}" <<'PYTHON'
+import sys
+from pathlib import Path
+
+import yaml
+
+names = [
+    pin["name"]
+    for path in sys.argv[1:]
+    for pin in yaml.safe_load(Path(path).read_text())["plugins"]
+    if pin["state"] != "purged"
+]
+print("\n".join(sorted(names)))
+PYTHON
+)
+check_image_plugins() {
+  local names
+  names=$(kc exec "$1" -c "$2" -- cat "$3" |
+    jq -r '[.plugins[] | select(.state != "purged") | .name] | sort[]')
+  [[ "$names" == "$expected" ]] || fail "$2 plugin names differ from the $profile lock: $names"
+}
+check_image_plugins "pod/$web_pod" web /opt/iki/plugins/iki_installed_plugins/lock.json
+check_image_plugins deploy/iki-worker worker /opt/iki/plugins/plugins.json
+pass "the running server and worker include the plugins pinned for $profile"
 
 # --- Iki web ------------------------------------------------------------------
 ready=$(curl -fsS http://127.0.0.1:18000/healthz/ready)
@@ -155,6 +203,112 @@ if worker_probe keycloak.iki.localhost 8080; then fail "a worker pod reached Key
 if worker_probe iki-db-rw 5432; then fail "a worker pod reached Postgres; workers never reach the database"; fi
 pass "workers reach the server and object storage, and not the identity provider or the database"
 
+# --- Export sandbox (ADR 0230) ------------------------------------------------------
+# The fixture build has a plugin writer (acme/liquid_handling's Tecan worklist), so
+# it runs the sandbox. Its pod must hold nothing and reach nothing; sso.py exports a
+# file through it.
+if [[ "$profile" == fixtures ]]; then
+  forward deploy/iki-sandbox 18191 8091
+  sandbox_ready=$(curl -sS -w ' HTTP %{http_code}' http://127.0.0.1:18191/healthz/ready)
+  [[ "$sandbox_ready" == *" HTTP 200" ]] || fail "the sandbox isn't ready: $sandbox_ready"
+  pass "the sandbox is ready: every writer module in the image loaded and passed its checks"
+
+  # Addresses read from outside, so the sandbox's missing DNS can't make a probe pass.
+  cluster_ip() { kubectl --context "$CONTEXT" -n "$1" get service "$2" -o 'jsonpath={.spec.clusterIP}'; }
+  pod_ip() { kc get pods -l "$1" -o 'jsonpath={.items[0].status.podIP}'; }
+  api_endpoint=$(kubectl --context "$CONTEXT" -n default get endpointslices \
+    -l kubernetes.io/service-name=kubernetes -o 'jsonpath={.items[0].endpoints[0].addresses[0]}:{.items[0].ports[0].port}')
+  db_ip=$(cluster_ip "$NS" iki-db-rw)
+  targets=(
+    "$db_ip:5432"
+    "$(pod_ip cnpg.io/cluster=iki-db):5432"
+    "$(cluster_ip "$NS" iki-web):8000"
+    "$(pod_ip app.kubernetes.io/component=web):8000"
+    "$(cluster_ip "$NS" seaweedfs):8333"
+    "$(cluster_ip "$NS" iki-egress-proxy):3128"
+    "$(cluster_ip kube-system kube-dns):53"
+    "$(cluster_ip default kubernetes):443"
+    "$api_endpoint"
+    "169.254.169.254:80"
+    "1.1.1.1:443"
+  )
+  for target in "${targets[@]}"; do
+    [[ "$target" =~ ^[0-9a-f.:]+:[0-9]+$ ]] || fail "couldn't read an address to probe from the sandbox: '$target'"
+  done
+  # The same probe reaches Postgres from a web pod, so a refusal below is the policy's.
+  probe "$db_ip" 5432 || fail "web pod cannot reach Postgres at $db_ip:5432 (the probe's control)"
+  isolation=$(kc exec deploy/iki-sandbox -c sandbox -- /opt/iki/venv/bin/python -I -c '
+import os
+import socket
+import sys
+import threading
+
+problems = []
+if os.path.exists("/var/run/secrets/kubernetes.io/serviceaccount"):
+    problems.append("a service account token is mounted")
+# The server image sets IKI_STATIC_ROOT (a path) for every container; nothing else.
+IMAGE = {"IKI_STATIC_ROOT"}
+
+
+def unwanted(names):
+    return sorted(
+        n for n in names
+        if (n.startswith(("IKI_", "AWS_", "GOOGLE_")) or "DATABASE" in n) and n not in IMAGE
+    )
+
+
+with open("/proc/1/environ", "rb") as f:
+    launcher = [e.split(b"=", 1)[0].decode() for e in f.read().split(b"\0") if e]
+if unwanted(os.environ):
+    problems.append(f"the container has {unwanted(os.environ)}")
+# The launcher re-executes itself with nothing in its environment at all.
+if launcher:
+    problems.append(f"the sandbox process has {sorted(launcher)}")
+found = {}
+
+
+def look_up():
+    try:
+        found["address"] = [a[4][0] for a in socket.getaddrinfo("kubernetes.default.svc", 443)]
+    except OSError as error:
+        found["error"] = error
+
+
+lookup = threading.Thread(target=look_up, daemon=True)
+lookup.start()
+lookup.join(30)
+for address in found.get("address", ()):
+    problems.append(f"DNS resolved kubernetes.default.svc to {address}")
+for target in sys.argv[1:]:
+    host, port = target.rsplit(":", 1)
+    s = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET)
+    s.settimeout(3)
+    try:
+        if s.connect_ex((host, int(port))) == 0:
+            problems.append(f"connected to {target}")
+    except OSError:
+        pass
+    finally:
+        s.close()
+print("\n".join(problems) or "isolated")
+sys.exit(1 if problems else 0)
+' "${targets[@]}" 2>&1) || fail "the sandbox isn't isolated: $isolation"
+  [[ "$isolation" == isolated ]] || fail "the sandbox's isolation check said: $isolation"
+  pass "the sandbox has no service account token and no IKI_, DATABASE, AWS_ or GOOGLE_ variables"
+  pass "the sandbox resolves no names and reaches nothing: Postgres, web, S3, the egress proxy, DNS, the Kubernetes API (${targets[7]}, $api_endpoint), the metadata service, the internet"
+
+  sandbox_ip=$(pod_ip app.kubernetes.io/component=sandbox)
+  probe iki-sandbox 8090 || fail "web pod cannot reach the sandbox"
+  tasks_probe iki-sandbox 8090 || fail "task runners cannot reach the sandbox"
+  if probe "$sandbox_ip" 8091; then fail "web pod reached the sandbox's health port; only exports are open"; fi
+  if worker_probe iki-sandbox 8090; then fail "a worker pod reached the sandbox; only web pods and task runners do"; fi
+  if worker_probe "$sandbox_ip" 8090; then fail "a worker pod reached the sandbox's pod directly"; fi
+  pass "web pods and task runners reach the sandbox's export port; workers don't, nor anyone its health port"
+else
+  sandbox=$(kc get deploy iki-sandbox --ignore-not-found -o name)
+  [[ -z "$sandbox" ]] || fail "product cluster runs the export sandbox: $sandbox"
+fi
+
 # --- Keycloak -------------------------------------------------------------------
 issuer=$(curl -fsS http://127.0.0.1:18080/realms/iki/.well-known/openid-configuration | jq -r .issuer)
 [ "$issuer" = "http://keycloak.iki.localhost:8080/realms/iki" ] || fail "unexpected issuer: $issuer"
@@ -162,8 +316,8 @@ pass "Keycloak serves the iki realm (issuer $issuer)"
 
 # --- Sign-in ----------------------------------------------------------------------
 # The real wizard and Keycloak's real login page, driven like a browser.
-uv run --quiet python "$(dirname "${BASH_SOURCE[0]}")/sso.py" --check \
-  --iki-port 18000 --keycloak-port 18080 --mailpit-port 18025 --webhook-port 18090 --lims-port 18091 --web "pod/$web_pod"
+uv run --directory "$here/../.." --quiet python -m deploy.dev.sso "${sso_args[@]}" \
+  --iki-port 18000 --keycloak-port 18080 --mailpit-port 18025 --webhook-port 18090 --web "pod/$web_pod"
 
 # --- SeaweedFS (S3) ---------------------------------------------------------------
 anon=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18333/)

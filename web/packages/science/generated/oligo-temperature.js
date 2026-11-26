@@ -1918,7 +1918,7 @@ function asmFunc(imports) {
  initActiveSegments(imports);
  var FUNCTION_TABLE = [null, $16, $16, $22, $28];
  function __wasm_memory_size() {
-  return buffer.byteLength / 65536 | 0;
+  return buffer.byteLength >> 16;
  }
 
  function __wasm_memory_grow(pagesToAdd) {
@@ -1926,7 +1926,7 @@ function asmFunc(imports) {
   var oldPages = __wasm_memory_size() | 0;
   var newPages = oldPages + pagesToAdd | 0;
   if ((oldPages < newPages) && (newPages < 65536)) {
-   var newBuffer = new ArrayBuffer(Math_imul(newPages, 65536));
+   var newBuffer = new ArrayBuffer(newPages << 16);
    var newHEAP8 = new Int8Array(newBuffer);
    newHEAP8.set(HEAP8);
    HEAP8 = new Int8Array(newBuffer);

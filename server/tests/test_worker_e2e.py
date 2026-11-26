@@ -614,7 +614,7 @@ def test_a_run_keeps_the_files_its_action_keeps_whether_it_succeeds_or_not(
     assert body["status"] == status, log_of(run.json())
     kept = editor.get(f"/runs/{body['hrid']}/artifacts").json()
     assert [(k["path"], k["state"], k["media_type"]) for k in kept] == [
-        ("alignment.fasta", "kept", "text/x-fasta"),
+        ("alignment.fasta", "kept", "chemical/seq-na-fasta"),
         ("alignment.txt", "kept", "text/plain"),
     ]
     got = editor.get(f"/runs/{body['hrid']}/artifacts/{kept[1]['id']}/content")
@@ -730,7 +730,9 @@ def _bundled_record(out: Path) -> dict[str, Any]:
         "version": loaded.plugin.version,
         "sha": BUNDLED_SHA,
         "state": "active",
-        "bundle": bundles.bundle(directory, out / f"acme__protein-{BUNDLED_SHA}.tar.gz"),
+        "bundle": bundles.bundle(
+            "acme/protein", directory, out / f"acme__protein-{BUNDLED_SHA}.tar.gz"
+        ),
         "environments": bundles.environments(loaded.plugin, directory),
     }
     return {"plugins": [protein]}

@@ -1,0 +1,12 @@
+apiVersion: iki/v1
+kind: EntityType
+name: ClientRank
+label: Client rank
+schema_version: 1
+description: Where a core ranks a project it serves (ADR 0232), by the project's slug.
+hrid: { prefix: CLR }
+fields:
+  project_slug: { type: string, required: true, max_length: 100 }
+  rank: { type: int, required: true }
+display:
+  title: "{{ project_slug }}"

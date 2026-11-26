@@ -11,12 +11,9 @@ import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 
 import { formatSize } from "./entities";
 import { FILES } from "./files";
-import { media } from "./media";
+import { useMedia } from "./media";
 import { Button, useMessages } from "./ui";
 import { upload, uploadError, type Progress } from "./uploads";
-
-/** Formats whose files say when their data was acquired, which Iki reads (ADR 0177). */
-export const SELF_DATED = "AB1, FCS, mzML, JCAMP-DX, EXIF images, OME-TIFF, SAM and BAM";
 
 /** Today, in the person's own calendar: no day after it can be when data was acquired. */
 function today(): string {
@@ -27,6 +24,7 @@ function today(): string {
 
 /** How far an upload has got, as one line. */
 export function UploadStatus({ name, progress }: { name: string; progress: Progress }) {
+  if (progress.phase === "scanning") return <>Scanning {name} for malware…</>;
   if (progress.phase === "checking") return <>Iki is checking {name}’s bytes…</>;
   const percent = progress.total ? Math.floor((progress.done / progress.total) * 100) : 100;
   return (
@@ -50,6 +48,9 @@ export function AcquiredField({
   error?: string | undefined;
 }) {
   const id = useId();
+  const dated = useMedia()
+    .formats.filter((f) => f.reader)
+    .map((f) => f.label);
   return (
     <div className={error ? "field field-invalid" : "field"}>
       <label htmlFor={id}>
@@ -74,8 +75,11 @@ export function AcquiredField({
         }}
       />
       <p className="field-help" id={`${id}-help`}>
-        {SELF_DATED} files record it themselves, and Iki reads it from them instead. For others,
-        give the day here, or it stays unknown. It’s never taken from when it’s added.
+        Iki uses the date in the file when its format records one.{" "}
+        {dated.length
+          ? `Formats Iki checks include ${new Intl.ListFormat("en").format(dated)}. `
+          : ""}
+        For other files, give the day here or leave it unknown.
       </p>
     </div>
   );
@@ -193,7 +197,7 @@ export function UploadFiles({
               show(i, { state: "sending", progress });
             },
             controller.signal,
-            media.of(file),
+            undefined,
             acquiredAt,
           );
           show(i, { state: "added" });

@@ -66,6 +66,7 @@ from iki_server.entities import (
     states,
     unique,
 )
+from iki_server.entities.history import FieldNames
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
 from iki_server.entities.people import Namer
 from iki_server.entities.values import (
@@ -1500,7 +1501,9 @@ def changes(entity: Entity, revision: Revision) -> dict[str, tuple[Any, Any]]:
     before = values_at(entity, revision.number - 1, removed=True) if revision.number > 1 else {}
     return {
         name: (before.get(name), after.get(name))
-        for name in revision.changed_fields
+        for name in FieldNames.for_type(entity.type, entry=entity.registry_id is not None).changed(
+            revision
+        )
         if name in after
     }
 
@@ -1509,6 +1512,7 @@ def changes(entity: Entity, revision: Revision) -> dict[str, tuple[Any, Any]]:
 SETTING = (
     RevisionKind.CREATED,
     RevisionKind.EDITED,
+    RevisionKind.MIGRATED,
     RevisionKind.CURATED,
     RevisionKind.STATE_CHANGED,
 )
@@ -1528,9 +1532,10 @@ def provenance(entity: Entity) -> dict[str, Revision]:
             .select_related("user")
             .order_by("-number")
         )
-    for revisions in sources:
+    for i, revisions in enumerate(sources):
+        names = FieldNames.for_type(entity.type, entry=i == 1 or entity.registry_id is not None)
         for revision in revisions:
-            for name in revision.changed_fields:
+            for name in names.changed(revision):
                 out.setdefault(name, revision)
     return out
 
@@ -1539,7 +1544,7 @@ def discloses(revision: Revision, projects: Iterable[Any]) -> bool:
     """Whether a reader of ``projects`` is told who made a revision and when. A registry
     entry's revisions are told in full only to the project they were made through, and a
     registrar's to every holder (ADR 0115): others learn only that a value was set."""
-    if revision.kind in (RevisionKind.CURATED, RevisionKind.SUPERSEDED):
+    if revision.kind in (RevisionKind.CURATED, RevisionKind.SUPERSEDED, RevisionKind.MIGRATED):
         return True
     entity = Entity.objects.filter(pk=revision.entity_id).values_list("registry_id", flat=True)
     if entity.first() is None:
@@ -1550,7 +1555,7 @@ def discloses(revision: Revision, projects: Iterable[Any]) -> bool:
 def disclosing(projects: Iterable[Any]) -> Q:
     """Which of a registry entry's revisions a reader of ``projects`` is told who made, as
     :func:`discloses` says of one: for filtering by who made them."""
-    return Q(kind__in=(RevisionKind.CURATED, RevisionKind.SUPERSEDED)) | Q(
+    return Q(kind__in=(RevisionKind.CURATED, RevisionKind.SUPERSEDED, RevisionKind.MIGRATED)) | Q(
         project_id__in=list(projects)
     )
 
@@ -1758,13 +1763,14 @@ def _state_data(entity: Entity, revision: Revision) -> dict[str, Any]:
     return {"state": state_change(entity.type, revision)}
 
 
-def state_change(type_name: str, revision: Revision) -> dict[str, Any]:
+def state_change(
+    type_name: str, revision: Revision, names: FieldNames | None = None
+) -> dict[str, Any]:
     """A state change's field and states, each by name and label."""
-    found = (
-        shape(type_name).fields().get(revision.state_field)
-        if type_name in registry.types()
-        else None
+    field = (names or FieldNames.for_type(type_name)).current(
+        revision.state_field, revision.history_seen
     )
+    found = shape(type_name).fields().get(field) if type_name in registry.types() else None
 
     def state(name: str) -> dict[str, Any] | None:
         if not name:
@@ -1774,8 +1780,8 @@ def state_change(type_name: str, revision: Revision) -> dict[str, Any]:
 
     return {
         "field": {
-            "name": revision.state_field,
-            "label": found.label if found is not None else revision.state_field,
+            "name": field,
+            "label": found.label if found is not None else field,
         },
         "from": state(revision.state_from),
         "to": state(revision.state_to),

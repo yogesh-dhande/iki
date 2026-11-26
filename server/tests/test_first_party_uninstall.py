@@ -2,24 +2,28 @@
 
 from pathlib import Path
 
+from first_party_dependencies import PRODUCT_PLUGINS, ROOT
 from test_plugin_migrations import database, django, iki, migrate, query, sync
 
-from iki_spec import naming
+from iki_spec import first_party, naming
 
 __all__ = ["database"]
-
-ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_all_first_party_migrations_reverse_after_sync(tmp_path: Path, database: str) -> None:
     out = tmp_path / "build"
     # Action-only plugins can be installed without adding any database tables.
-    plugins = {
-        name: ROOT / "plugins" / naming.short_name(name)
-        for name in sorted(naming.FIRST_PARTY - {naming.CORE})
-    }
-    built = iki("plugin", "build", *plugins.values(), "--output", out, cwd=ROOT)
+    built = iki("plugin", "build", *PRODUCT_PLUGINS.values(), "--output", out, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
+    # The retired provider and LIMS connector keep their mirror history, while a
+    # product build installs neither the old apps nor the lab examples that replaced them.
+    for old, example in (
+        ("iki/example_models", "acme/hosted_models"),
+        ("iki/lims_connector_example", "acme/lims_connector"),
+    ):
+        assert first_party.trees(old)
+        for name in (old, example):
+            assert not (out / naming.package(name)).exists()
     migrate(out, database)
     sync(out, database)
     # This rule names the FK that the initial cell-lines migration removes
@@ -33,7 +37,9 @@ def test_all_first_party_migrations_reverse_after_sync(tmp_path: Path, database:
     ) == [("iki_rule__thaw_once",)]
 
     labels = sorted(
-        naming.app_label(name) for name, path in plugins.items() if (path / "migrations").is_dir()
+        naming.app_label(name)
+        for name, path in PRODUCT_PLUGINS.items()
+        if (path / "migrations").is_dir()
     )
     migration_apps = "SELECT DISTINCT app FROM django_migrations WHERE app = ANY(%s) ORDER BY app"
     assert [app for (app,) in query(database, migration_apps, labels)] == labels

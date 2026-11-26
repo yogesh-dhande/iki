@@ -8,7 +8,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { queryClient } from "./api";
-import { entity, KINASE, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
+import { entity, KINASE, NO_FACTS, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import {
   columnName,
   columnsWith,
@@ -24,7 +24,7 @@ import {
   type SheetColumn,
   type SheetImport,
 } from "./spreadsheets";
-import { answer, calls, page, problem, respond, type Sent } from "./test-server";
+import { answer, calls, CLEAN_SCAN, page, problem, respond, type Sent } from "./test-server";
 
 // jsdom lays nothing out; the grid draws the rows that fit in its scrolling region.
 const sizes = { clientHeight: 600, clientWidth: 1000, offsetHeight: 600, offsetWidth: 1000 };
@@ -329,10 +329,34 @@ describe("where an import starts", () => {
       "step",
     );
     const input = screen.getByLabelText("Upload a workbook");
-    expect(input.getAttribute("accept")).toContain(".xlsx");
+    await waitFor(() => {
+      expect(input.getAttribute("accept")?.split(",")).toEqual(
+        expect.arrayContaining([".xlsx", ".xlsm", ".csv", ".tsv", ".txt"]),
+      );
+    });
     await user.upload(input, new File(["a,b\n1,2\n"], "plates.csv", { type: "text/csv" }));
     expect(await screen.findByText("Choose what its rows are first.")).toBeTruthy();
     expect(calls("POST")).toEqual([]);
+  });
+
+  it("uploads a delimited spreadsheet with its registered media type", async () => {
+    withTypes();
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer("POST /api/v1/uploads", problem(503, "unavailable", "Storage is resting."));
+    const { user } = await renderApp(
+      `/projects/kinase-atlas/entities/import/?type=${PROTEIN.name}`,
+    );
+    const input = screen.getByLabelText("Upload a workbook");
+    await waitFor(() => {
+      expect(input.getAttribute("accept")).toContain(".tsv");
+    });
+    await user.upload(input, new File(["name\tlot\nExample\t1\n"], "inventory.tsv"));
+    await waitFor(() => {
+      expect(calls("POST", "/api/v1/uploads")[0]?.body).toMatchObject({
+        name: "inventory.tsv",
+        media_type: "text/tab-separated-values",
+      });
+    });
   });
 
   it("imports a workbook the project has already, picked from its Files", async () => {
@@ -350,11 +374,15 @@ describe("where an import starts", () => {
       created_at: "2026-11-11T09:00:00Z",
       external: false,
       acquired: null,
+      facts: NO_FACTS,
+      scan: CLEAN_SCAN,
       used_by: { records: 0, runs: 0 },
     };
     answer("GET /api/v1/files", page([workbook]));
     answer("GET /api/v1/files/count", { total: 1, more_than_total: false });
-    answer("GET /api/v1/files/formats", [{ media_type: workbook.media_type, count: 1 }]);
+    answer("GET /api/v1/files/formats", [
+      { id: "iki/core.xlsx", label: "Excel", media_type: workbook.media_type, count: 1 },
+    ]);
     answer(`POST /api/v1/projects/${KINASE.id}/spreadsheet-imports`, respond(201, sheet()));
     answer(`GET ${BASE}`, sheet());
     const { router, user } = await renderApp(
@@ -363,7 +391,7 @@ describe("where an import starts", () => {
     await user.click(screen.getByRole("button", { name: "Or choose one already in Kinase Atlas" }));
     const picker = await screen.findByRole("dialog", { name: "Choose a file for the import" });
     expect(
-      within(picker).getByText("It takes Excel (.xlsx) or CSV (.csv) files, up to 100 MiB."),
+      await within(picker).findByText(/It takes .*\.xlsx.*\.xlsm.*\.csv.*\.tsv.*\.txt.*100 MiB/),
     ).toBeTruthy();
     // Only workbooks are listed.
     await waitFor(() => {
@@ -371,8 +399,11 @@ describe("where an import starts", () => {
       expect(asked?.get("project")).toBe(KINASE.id);
       expect(asked?.get("max_size")).toBe(String(100 * 1024 * 1024));
       expect(asked?.getAll("accepts").sort()).toEqual([
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "text/csv",
+        "iki/core.csv",
+        "iki/core.text",
+        "iki/core.tsv",
+        "iki/core.xlsm",
+        "iki/core.xlsx",
       ]);
     });
     await user.click(await within(picker).findByRole("radio", { name: "kinases.xlsx" }));

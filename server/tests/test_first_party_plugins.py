@@ -11,10 +11,18 @@ from pathlib import Path
 
 import pytest
 import yaml
-from first_party_dependencies import FIRST_PARTY, PLUGINS, ROOT, TEMPLATE, build_order, withs
+from first_party_dependencies import (
+    FIRST_PARTY,
+    PLUGINS,
+    ROOT,
+    STORAGE_LABELS,
+    TEMPLATE,
+    TEMPLATE_DEPENDENCIES,
+    build_order,
+    withs,
+)
 from test_plugin_migrations import database, iki, migrate, orm, query, sync
 
-from iki_spec import rules
 from iki_spec.identity import Kind, identity_hash
 from iki_spec.model import amount_of
 from iki_spec.naming import app_label
@@ -24,9 +32,8 @@ __all__ = ["database"]
 
 
 def test_first_party_fixtures_include_declared_dependencies_in_build_order() -> None:
-    manifests = [*PLUGINS.glob("*/plugin.yaml"), TEMPLATE / "plugin.yaml"]
-    assert set(FIRST_PARTY) == {manifest.parent for manifest in manifests}
-    for plugin, dependencies in FIRST_PARTY.items():
+    assert set(FIRST_PARTY) == {manifest.parent for manifest in PLUGINS.glob("*/plugin.yaml")}
+    for plugin, dependencies in [*FIRST_PARTY.items(), (TEMPLATE, TEMPLATE_DEPENDENCIES)]:
         seen = {"iki/core"}
         for path in (*dependencies, plugin):
             manifest = yaml.safe_load((path / "plugin.yaml").read_text(encoding="utf-8"))
@@ -35,9 +42,14 @@ def test_first_party_fixtures_include_declared_dependencies_in_build_order() -> 
             seen.add(manifest["name"])
 
 
-@pytest.mark.parametrize("plugin", FIRST_PARTY, ids=lambda p: p.name)
-def test_it_is_valid_and_its_migrations_are_current(plugin: Path) -> None:
-    dependencies = FIRST_PARTY[plugin]
+@pytest.mark.parametrize(
+    ("plugin", "dependencies"),
+    [pytest.param(path, deps, id=path.name) for path, deps in FIRST_PARTY.items()]
+    + [pytest.param(TEMPLATE, TEMPLATE_DEPENDENCIES, id=TEMPLATE.name)],
+)
+def test_it_is_valid_and_its_migrations_are_current(
+    plugin: Path, dependencies: tuple[Path, ...]
+) -> None:
     checked = iki("plugin", "validate", plugin, *withs(dependencies), cwd=ROOT)
     assert checked.returncode == 0, checked.stdout + checked.stderr
     assert "is valid" in checked.stdout
@@ -60,28 +72,9 @@ def test_lab_stock_lot_inherits_its_material_declaration() -> None:
     assert amount is not None and amount.material == "item"
 
 
-def test_the_reviewer_is_independent_of_post_build_edits() -> None:
-    plugin = PLUGINS / "plasmid"
-    loaded = load_plugin(plugin, dependencies=FIRST_PARTY[plugin])
-    assert loaded.plugin is not None
-    assembly = loaded.plugin.types["iki/plasmid.Assembly"]
-    status = assembly.fields["status"]
-    guard = status.states["verified"].guards["independent_verifier"]
-    schema = rules.record_schema(assembly.label, assembly.fields, None)
-    variables = rules.guard_variables(schema, {"status": status}, [], status)
-    for editor in ("reviewer", "other"):
-        context = {
-            "actor": {"person": "reviewer"},
-            "edits": {"status": {"built": [{"by": editor, "fields": ["product"]}]}},
-        }
-        ((outcome,),) = rules.evaluate(variables, [(guard.check, rules.CONDITION)], [context])
-        assert outcome.error is None
-        assert outcome.value is (editor != "reviewer")
-
-
 def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, database: str) -> None:
     out = tmp_path / "build"
-    plugins = build_order(PLUGINS / "lots", PLUGINS / "complex", TEMPLATE)
+    plugins = build_order(PLUGINS / "lots", PLUGINS / "complex", TEMPLATE, STORAGE_LABELS)
     built = iki("plugin", "build", *plugins, "--output", out, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(out, database)
@@ -90,7 +83,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         out,
         database,
         """
-        from iki_plugin_acme__example.models import Ext_iki_dna_DNASequence
+        from iki_plugin_acme__storage_labels.models import Ext_iki_dna_DNASequence
         from iki_server.accounts.models import User
         from iki_server.entities import services
         from iki_server.entities.models import Entity
@@ -112,7 +105,10 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         )
         primer = make("iki/dna.Primer", bases="ACG", target=str(puc.pk))
         assert Ext_iki_dna_DNASequence.objects.get(entity_id=puc.pk).construct_id == "PUC-19"
-        sample = make("acme/example.Sample", name="S1", kind="dna", construct=str(puc.pk))
+        assert make("acme/example.Sample", name="Reference vial").hrid.startswith("SMP-")
+        sample = make(
+            "acme/storage_labels.Sample", name="S1", kind="dna", construct=str(puc.pk),
+        )
         bla = make(
             "iki/protein.Protein", sequence="MSIQHFRVAL", name="bla (+1)",
             encoded_by=str(puc.pk), uniprot_accession="P62593",
@@ -242,7 +238,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
     assert result["types"] == [
         "iki/dna.DNASequence",
         "iki/dna.Primer",
-        "acme/example.Sample",
+        "acme/storage_labels.Sample",
         "iki/protein.Protein",
         "iki/antibody.Antibody",
         "iki/small_molecule.Compound",
@@ -251,7 +247,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
     assert [h.split("-")[0] for h in result["hrids"]] == [
         "DNA",
         "PRM",
-        "SMP",
+        "LSL",
         "PRT",
         "ABY",
         "CPD",

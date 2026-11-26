@@ -1,0 +1,102 @@
+* Block Type = 96-Well Block (0.2mL)
+* Calibration Background is expired  = Yes
+* Calibration Background performed on = 10-13-2010
+* Calibration HRM MELTDOCTOR is expired = No
+* Calibration HRM MELTDOCTOR performed on = 10-13-2010
+* Calibration Pure Dye FAM is expired = No
+* Calibration Pure Dye FAM performed on = 10-13-2010
+* Calibration Pure Dye MELTDOCTOR is expired = No
+* Calibration Pure Dye MELTDOCTOR performed on = 10-13-2010
+* Calibration Pure Dye ROX is expired = No
+* Calibration Pure Dye ROX performed on = 10-13-2010
+* Calibration Pure Dye SYBR is expired = No
+* Calibration Pure Dye SYBR performed on = 10-13-2010
+* Calibration Pure Dye VIC is expired = No
+* Calibration Pure Dye VIC performed on = 10-13-2010
+* Calibration RNaseP is expired  = Yes
+* Calibration RNaseP performed on = 10-15-2010
+* Calibration ROI is expired  = Yes
+* Calibration ROI performed on = 10-13-2010
+* Calibration Uniformity is expired  = Yes
+* Calibration Uniformity performed on = 10-13-2010
+* Chemistry = TAQMAN
+* Date Created = 2014-09-10 04:11:57 AM EDT
+* Experiment Barcode = 
+* Experiment Comment = NA
+* Experiment File Name = C:\Program Files (x86)\Applied BioSystems\QuantStudio Real-Time PCR Software\examples\QS7Flex\QS7_96-Well Relative Standard Curve Example 2.eds
+* Experiment Name = QuantStudio96-Well Relative Standard Curve Example 2
+* Experiment Run End Time = 2010-10-20 12:11:26 PM EDT
+* Experiment Type = Relative Standard Curve
+* Instrument Name = 278880034
+* Instrument Serial Number = 278880034
+* Instrument Type = QuantStudio(TM) 7 Flex System
+* Passive Reference = ROX
+* Quantification Cycle Method = Ct
+* Signal Smoothing On = true
+* Stage/ Cycle where Analysis is performed = Stage 2, Step 2
+* User Name = NA
+
+[Sample Setup]
+Well	Well Position	Sample Name	Sample Color	Biogroup Name	Biogroup Color	Target Name	Target Color	Task	Reporter	Quencher	Quantity	Comments
+1	A1					RNaseP	"RGB(176,23,31)"	NTC	FAM	NFQ-MGB		
+2	A2					RNaseP	"RGB(176,23,31)"	STANDARD	FAM	NFQ-MGB	312.500	
+3	A3					RNaseP	"RGB(176,23,31)"	STANDARD	FAM	NFQ-MGB	625.000	
+4	A4					RNaseP	"RGB(176,23,31)"	STANDARD	FAM	NFQ-MGB	1,250.000	
+5	A5					RNaseP	"RGB(176,23,31)"	STANDARD	FAM	NFQ-MGB	2,500.000	
+6	A6					RNaseP	"RGB(176,23,31)"	STANDARD	FAM	NFQ-MGB	5,000.000	
+7	A7					IPC	"RGB(0,0,255)"	NTC	VIC	NFQ-MGB		
+8	A8					IPC	"RGB(0,0,255)"	STANDARD	VIC	NFQ-MGB	156.250	
+9	A9					IPC	"RGB(0,0,255)"	STANDARD	VIC	NFQ-MGB	312.500	
+10	A10					IPC	"RGB(0,0,255)"	STANDARD	VIC	NFQ-MGB	625.000	
+11	A11					IPC	"RGB(0,0,255)"	STANDARD	VIC	NFQ-MGB	1,250.000	
+12	A12					IPC	"RGB(0,0,255)"	STANDARD	VIC	NFQ-MGB	2,500.000	
+13	B1					RNaseP	"RGB(176,23,31)"	NTC	FAM	NFQ-MGB		
+14	B2					RNaseP	"RGB(176,23,31)"	STANDARD	FAM	NFQ-MGB	312.500	
+15	B3					RNaseP	"RGB(176,23,31)"	STANDARD	FAM	NFQ-MGB	625.000	
+16	B4					RNaseP	"RGB(176,23,31)"	STANDARD	FAM	NFQ-MGB	1,250.000	
+[Amplification Data]
+Well	Cycle	Target Name	Rn	Delta Rn
+1	1	RNaseP	0.632	-0.004
+1	2	RNaseP	0.634	-0.004
+1	3	RNaseP	0.636	-0.003
+2	1	RNaseP	0.612	0.000
+2	2	RNaseP	0.613	-0.000
+2	3	RNaseP	0.614	-0.000
+3	1	RNaseP	0.616	-0.000
+3	2	RNaseP	0.617	-0.001
+3	3	RNaseP	0.618	-0.001
+4	1	RNaseP	0.599	-0.001
+4	2	RNaseP	0.600	-0.001
+4	3	RNaseP	0.602	-0.000
+5	1	RNaseP	0.596	-0.002
+5	2	RNaseP	0.598	-0.002
+5	3	RNaseP	0.600	-0.000
+6	1	RNaseP	0.608	-0.003
+6	2	RNaseP	0.611	-0.003
+6	3	RNaseP	0.614	-0.001
+7	1	IPC	1.240	-0.003
+7	2	IPC	1.240	-0.004
+7	3	IPC	1.242	-0.003
+8	1	IPC	1.249	-0.003
+8	2	IPC	1.250	-0.002
+8	3	IPC	1.252	-0.002
+[Multicomponent Data]
+Well	Well Position	Cycle	FAM	ROX	VIC
+[Results]
+Well	Well Position	Omit	Sample Name	Target Name	Task	Reporter	Quencher	RQ	RQ Min	RQ Max	CT	Ct Mean	Ct SD	Quantity	Normalized Quantity	Normalized Quantity Standard Error	Quantity Mean	Quantity SD	Efficiency	Y-Intercept	R(superscript 2)	Slope	Automatic Ct Threshold	Ct Threshold	Automatic Baseline	Baseline Start	Baseline End	Comments	Amp Score	Cq Conf	HIGHSD	OUTLIERRG
+1	A1	false		RNaseP	NTC	FAM	NFQ-MGB				Undetermined								103.644	39.494	0.999	-3.238	true	0.131	true	1	40		0.000	0.000	N	N
+2	A2	false		RNaseP	STANDARD	FAM	NFQ-MGB				31.404	31.382	0.021	312.500					103.644	39.494	0.999	-3.238	true	0.131	true	1	40		1.235	0.959	N	N
+3	A3	false		RNaseP	STANDARD	FAM	NFQ-MGB				30.469	30.469	0.021	625.000					103.644	39.494	0.999	-3.238	true	0.131	true	1	40		1.228	0.958	N	N
+4	A4	false		RNaseP	STANDARD	FAM	NFQ-MGB				29.439	29.496	0.051	1,250.000					103.644	39.494	0.999	-3.238	true	0.131	true	1	40		1.233	0.965	N	N
+5	A5	false		RNaseP	STANDARD	FAM	NFQ-MGB				28.498	28.494	0.028	2,500.000					103.644	39.494	0.999	-3.238	true	0.131	true	1	40		1.230	0.963	N	N
+6	A6	false		RNaseP	STANDARD	FAM	NFQ-MGB				27.506	27.496	0.012	5,000.000					103.644	39.494	0.999	-3.238	true	0.131	true	1	40		1.233	0.957	N	N
+7	A7	false		IPC	NTC	VIC	NFQ-MGB				Undetermined								77.042	43.542	0.969	-4.031	false	0.060	true	1	40		0.000	0.000	N	N
+8	A8	false		IPC	STANDARD	VIC	NFQ-MGB				34.631	34.935	0.552	156.250					77.042	43.542	0.969	-4.031	false	0.060	true	1	40		0.941	0.853	Y	N
+9	A9	false		IPC	STANDARD	VIC	NFQ-MGB				33.120	33.224	0.090	312.500					77.042	43.542	0.969	-4.031	false	0.060	true	1	40		0.945	0.879	N	N
+10	A10	false		IPC	STANDARD	VIC	NFQ-MGB				32.612	32.276	0.296	625.000					77.042	43.542	0.969	-4.031	false	0.060	true	1	40		0.947	0.859	N	N
+11	A11	false		IPC	STANDARD	VIC	NFQ-MGB				30.821	30.888	0.114	1,250.000					77.042	43.542	0.969	-4.031	false	0.060	true	1	40		0.951	0.940	N	N
+12	A12	false		IPC	STANDARD	VIC	NFQ-MGB				29.982	30.036	0.087	2,500.000					77.042	43.542	0.969	-4.031	false	0.060	true	1	40		0.941	0.956	N	N
+13	B1	false		RNaseP	NTC	FAM	NFQ-MGB				Undetermined								103.644	39.494	0.999	-3.238	true	0.131	true	1	40		0.000	0.000	N	N
+14	B2	false		RNaseP	STANDARD	FAM	NFQ-MGB				31.362	31.382	0.021	312.500					103.644	39.494	0.999	-3.238	true	0.131	true	1	40		1.232	0.966	N	N
+15	B3	false		RNaseP	STANDARD	FAM	NFQ-MGB				30.448	30.469	0.021	625.000					103.644	39.494	0.999	-3.238	true	0.131	true	1	40		1.233	0.962	N	N
+16	B4	false		RNaseP	STANDARD	FAM	NFQ-MGB				29.508	29.496	0.051	1,250.000					103.644	39.494	0.999	-3.238	true	0.131	true	1	40		1.231	0.968	N	N

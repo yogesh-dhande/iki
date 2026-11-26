@@ -6,26 +6,29 @@ The `iki` command-line tool for plugin authors and deployments: the
 
 ## `iki starter`
 
-Use `iki starter list --project "$SERVICE"` to see which starter versions and review
-flows are installed and which one the service project uses. Supply the service and
-requesting project UUIDs, and a membership UUID from the service project for each lab
-role. Repeat `--role` to assign a role to more than one member.
+Use `iki starter list --project "$SERVICE"` to see the installed recipes and the
+service project's current selection. The dose-response starter configures the
+assay review flow and grants the roles needed to run it. Supply the service
+project UUID and a membership UUID from that project for each role. Repeat
+`--role` to assign a role to more than one member.
 
 ```sh
-iki starter preview dose-response --version 1.2.0 --flow regulated_qc \
-  --project "$SERVICE" --requester-project "$REQUESTER" \
-  --role "iki/lab_roles.coordinator=$COORDINATOR" \
+iki starter preview dose-response --version 2.0.0 --flow regulated_qc \
+  --project "$SERVICE" \
   --role "iki/plate_assays.analyst=$ANALYST" \
   --role "iki/plate_assays.reviewer=$REVIEWER" \
   --role "iki/plate_assays.qa=$QA"
 ```
 
-The preview ends with its plan. Run `iki starter apply` with the same arguments and
-`--plan` set to it to apply what you reviewed. If what applying does has changed since,
-because another Admin changed a grant or applied it first, nothing is applied: the
-command prints what applying does now, and its new plan, to review. All three
-commands use the SDK's sign-in, or `IKI_URL` and `IKI_TOKEN`. Use `--url` to select
-a deployment and `--json` to print the complete API response.
+When the preview lists changes, review the result type and proposed grants.
+Run `iki starter apply` with the same arguments and `--plan` set to the printed
+plan ID. If the plan changes, the CLI prints the current plan for review. If
+preview reports `Already applied`, setup is complete.
+
+To run the worked Tox21 experiment, follow the
+[assay tutorial](../docs/guides/first-dose-response-assay.md).
+The starter commands use the SDK's sign-in or `IKI_URL` and `IKI_TOKEN`.
+Use `--url` to select a deployment and `--json` to print the full response.
 
 ## `iki plugin validate`
 
@@ -182,6 +185,42 @@ is still there with its history. Last, it deploys the earlier commit again,
 as a rollback, and checks the samples' values came back. The database is
 dropped at the end.
 
+For a backfill, define a function in the migration file that reads one row
+and returns a mapping of field names to new column values. An empty mapping skips
+the row. Foreign-key columns take IDs. Keep state transitions in the generated
+state operations. Add the dependency on `("iki_entities", "0027_migrated_revisions")`.
+
+```python
+from django.db import migrations
+from iki_server.plugins.operations import MigrateValues
+
+
+def fill_notes(row):
+    return {"notes": row.name} if row.notes is None else {}
+
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ("acme__lab", "0002_notes"),
+        ("iki_entities", "0027_migrated_revisions"),
+    ]
+    operations = [
+        MigrateValues(
+            "Sample",
+            fill_notes,
+            version="1.1.0",
+            migration="0003_fill",
+            reason="Copy the sample label into the notes.",
+        ),
+    ]
+```
+
+Save this example as `0003_fill.py`. Its changes appear in provenance with
+their system revision and reason. A `backwards` callback can supply values to
+restore. This example is one-way. In a marked upgrade fixture with one
+`sample` input whose name was S1, write `after: { sample: [{ notes: S1 }] }`.
+A newly added field taking its manifest default needs no expectation.
+
 Before it migrates anything, it compares each type then and now
 ([ADR 0095](../docs/adr/0095-a-plugin-says-which-iki-it-works-with-and-versions-its-changes.md)).
 If what a type's entities may hold changed, such as a field added or a
@@ -270,8 +309,16 @@ another version built.
 | `--images FILE`                | Also list the images its container-tier runs use, for its build to approve.    |
 | `--environments-dir DIRECTORY` | Where the worker image builds environments (default `/opt/iki/envs`).          |
 | `--allow-local`                | Accept `local:` plugins, for development. Servers refuse them unless told to.  |
+| `--test-only`                  | Accept Iki's example, template and fixture sources for CI and live tests.      |
 | `--mirror URL`                 | Fetch Iki's own plugins from this mirror of Iki's repository. Repeatable.      |
 | `--cache DIRECTORY`            | Where to keep fetched repositories (default `~/.cache/iki/git`).               |
+
+By default, the build checks every active and detached pin against the teaching
+and fixture directories in Iki's repository and its configured mirrors. To deploy
+a recipe, copy it to your repository, give it your lab's plugin identity and pin
+the reviewed commit. CI and live tests can use official fixtures with
+`--test-only`. For a fixture from a local checkout, pass both `--test-only` and
+`--allow-local`.
 
 `--images` includes the applicable deployment-supplied digest for each
 container template whose environment requests an image. The list is for
@@ -300,7 +347,11 @@ agree on what each run's code is
   packages its requirements file or lockfile pins, by hash.
 
 The worker image's Dockerfile copies `plugins/` to `/opt/iki/plugins` and
-runs the script.
+runs the script. The staged plugin files are the same files a self-hosted worker
+downloads in the server's plugin archive. Both include environment setup, runtime
+data and redistribution notices. Keep action fixtures in `tests/` and teaching
+files in `examples/` at the plugin root. Run them from the source checkout.
+[Runtime distribution](../docs/adr/0219-plugin-archives-and-worker-images-use-the-same-runtime-files.md)
 
 ```console
 $ iki --version

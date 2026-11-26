@@ -75,10 +75,8 @@ found.first()  # the first, or None
 found.to_pandas(limit=1000)  # a DataFrame, indexed by HRID
 
 abl1 = iki.entities.get("PRT-000123")
-# By a unique field, such as the ID a LIMS gives its record: one per project, at most.
-[protein] = iki.entities.lookup(
-    "iki/protein.Protein", "lims_id", "LIMS-0042", project="kinase-atlas"
-)
+# Look up a tube by its unique barcode in an Inventory project.
+tubes = iki.entities.lookup("iki/inventory.Tube", "barcode", "TUBE-0042", project="kinase-atlas")
 
 made = iki.entities.create(
     "iki/protein.Protein",
@@ -125,14 +123,14 @@ for release in iki.entities.request("QCR-000007")["result_releases"]:
 # a record locks whom it names too.
 iki.entities.update("SAM-000013", {"reviewer": "ana@example.com"}, revision=4)
 client = iki.client()  # uses the current sign-in
-for item in client.work.mine(type="iki/samples.Sample"):  # yours now, soonest due first
+for item in client.work.mine(type="iki/samples.ReviewedSample"):  # yours now, soonest due first
     print(item["entity"]["hrid"], item["fields"], item["due"])
 for item in client.work.open():  # nobody's yet, and open to your lab roles
     record = item["entity"]
     iki.entities.take(record["hrid"], item["fields"][0], revision=record["revision"])
 # Many at once, each its own revision; what can't change is skipped, with why.
 bos = {"field": "analyst", "op": "eq", "value": "bo@example.com"}
-late = list(iki.entities.search("iki/samples.Sample", where=bos))
+late = list(iki.entities.search("iki/samples.ReviewedSample", where=bos))
 iki.entities.assign(late, "analyst", "ana@example.com", reason="Bo is away")["skipped"]
 mine = {"field": "assigned", "op": "eq", "value": "{{ me }}"}  # whoever searches
 
@@ -143,8 +141,8 @@ for signature in iki.signatures.list("SAM-000012", verify=True)["items"]:
 # What you were told (ADR 0129), how you're told of each kind, and what you watch.
 for n in client.notifications.list(unread=True):
     print(n["title"], [r["hrid"] for r in n["records"]])
-client.notifications.choose({"iki/samples.Sample.in_review": "in_app"})
-client.notifications.choose({"iki/samples.Sample.in_review": "off"}, project="stability")
+client.notifications.choose({"iki/samples.ReviewedSample.in_review": "in_app"})
+client.notifications.choose({"iki/samples.ReviewedSample.in_review": "off"}, project="stability")
 client.notifications.watch("SAM-000013")  # or "muted", or "default"
 
 # Requests between projects (ADR 0132): sent to a core that takes them, for good,
@@ -172,7 +170,7 @@ iki.entities.graph("PRT-000123", up=2, down=1)  # a few steps each way, to draw
 # In a search, with any other condition: every sample drawn from a tube whose results are still pending.
 from_tube = {"field": "downstream", "op": "of", "value": "TUB-000001"}
 open_results = {"not": {"field": "state", "op": "eq", "value": "reviewed"}}
-iki.entities.search("iki/samples.Sample", where={"all": [from_tube, open_results]})
+iki.entities.search("iki/samples.ReviewedSample", where={"all": [from_tube, open_results]})
 
 # What plugins' rules caught (ADR 0127): what a rule holds for review, and what breaks a
 # rule it was saved before, by the rule's name, or by any with is_set. Each says why.
@@ -240,27 +238,34 @@ iki.runs.cancel("RUN-000045", reason="Wrong pH")
 
 An action that sends data to an outside API, such as a hosted model, says
 what it sends and where in its `apis`. Starting it needs your agreement, as
-`consent`, and an Org Admin's approval of the API for the project
-([ADR 0130](../../docs/adr/0130-outside-apis-are-approved-per-project-and-called-through-the-proxy.md)):
+`consent`, and an Org Admin's approval of the API for the project. [ADR 0130](../../docs/adr/0130-outside-apis-are-approved-per-project-and-called-through-the-proxy.md)
+
+This example assumes a test deployment with the
+[hosted-model author example](../../examples/plugins/hosted_models/README.md)
+and its fictional FoldCloud service. For a lab-owned provider, use the
+action name from its manifest.
 
 ```python
 try:
     run = iki.run(
-        "iki/example_models.predict_structure",
+        "acme/hosted_models.predict_structure",
         project="kinase-atlas",
         inputs={"protein": "PRT-000123"},
     )
 except iki.ConsentRequired as refused:
     for statement in refused.statements:
-        print(statement["statement"])  # "This sends your data to FoldCloud (...)..."
+        print(statement["statement"])
+    if input("Send the listed data? [y/N] ").strip().lower() != "y":
+        raise SystemExit("Run cancelled")
     run = iki.run(
-        "iki/example_models.predict_structure",
+        "acme/hosted_models.predict_structure",
         project="kinase-atlas",
         inputs={"protein": "PRT-000123"},
         consent=refused.apis,
     )
 except iki.NotApproved as refused:
     print(refused.detail, refused.approvers)  # who can approve it, in Iki's web app
+    raise
 
 for call in iki.runs.api_calls(run):  # the model and version that answered, and hashes
     print(call["model"], call["version"], call["response_sha256"])
@@ -268,14 +273,99 @@ for call in iki.runs.api_calls(run):  # the model and version that answered, and
 
 ## Files
 
+### Find a file and see what used it
+
+`iki.files.list` returns a `Results[FileRowOut]` iterable that fetches pages
+as needed. Use `.first()` to read one match. `iki.files.count` takes the same
+filters and returns a `FileCountOut`. Its `total` stops at 1,000 and
+`more_than_total` tells you whether there are further matches.
+
+```python
+from iki.file_types import FileFilters
+
+filters: FileFilters = {
+    "project": "plate-assays",  # your project's slug or UUID
+    "q": "plate",
+    "format": ["text/csv"],
+    "acquired_from": "2026-03-14",
+    "acquired_to": "2026-03-14",
+}
+count = iki.files.count(**filters)
+first = iki.files.list(**filters, sort="name").first()
+if first is not None:
+    file = iki.files.get(first["id"])
+    print(file["name"], file["size"], file["sha256"], file["used_by"])
+    for record in file["records"]["items"]:
+        print(record["hrid"], record["spans"])
+    for run in file["runs"]["items"]:
+        print(run["hrid"], run["roles"])
+```
+
+`q` matches part of the name, or of what the file states about itself (its
+instrument, serial number, operator, software, protocol or read groups), ignoring
+case. `format` accepts an installed
+format ID such as `iki/core.csv`, a media type, a family such as `image/*`, or
+a list of these. Both acquisition dates are inclusive and accept Python
+dates or ISO date strings. `sample` and `run`
+take an ID or HRID. Use `accepts` and `max_size` (bytes) to match a field
+or action parameter. Omit `project` to include every file you can read.
+`list` accepts `sort` (`newest`, `oldest`, `name`, `name_desc`, `acquired`
+or `acquired_oldest`) and `page_size` (1–100). The default order is newest
+added first. `acquired` puts the latest acquisition first. Both acquisition
+sorts put unknown dates last.
+
+`get` returns an `iki.file_types.FileWithUses` dictionary with the file's
+`facts`, `read_groups`, `origin`, readable `samples` and the two **Used by** pages.
+`facts` holds what the file's format says of where its data came from, read when the
+file was added: `instrument`, `manufacturer`, `serial`, `instrument_name`, `operator`,
+`software` and `protocol`, each `None` or a `value` with where in the file it's stated
+(`stated_in`, such as `FCS keyword $CYT`). A SAM or BAM file's `read_groups` are its
+`@RG` lines' standard tags, such as `ID`, `SM` and `LB`. For a registration,
+`origin["uri"]` and `origin["version"]` identify the object. Each page has
+its own `next_cursor`. Pass these to `get(file_id, records_cursor=...,
+runs_cursor=...)` to continue the corresponding page. Set `page_size` to
+limit each page. An unreadable or unknown file raises `iki.NotFound`.
+
+### Register an object in place
+
+Use `register` with the `write` scope and Editor access to the destination
+project. Use an object under a prefix your administrator approved in
+`IKI_FILES_REGISTER_LOCATIONS`. Its bucket must keep versions and the object
+must have a version. Iki pins the current version by default. Supply
+`version=` to select a particular one. Later writes to the key leave the
+registered file pinned to the selected version.
+
+```python
+registered = iki.files.register(
+    "s3://lab-data/runs/plate-7.csv",
+    project="plate-assays",
+    media_type="text/csv",
+    acquired="2026-03-14",
+)
+print(registered["id"], registered["sha256"])
+```
+
+Registration waits for Iki to hash the pinned version and record its malware
+scan decision. The returned `FileOut` includes `scan["state"]` and
+`scan["usable"]`. A quarantined version keeps its metadata and finding.
+Pass `name=` to override the object's filename, `timeout=` to
+limit the wait in seconds and `poll=` to set the polling interval.
+Unapproved locations and unversioned objects raise `iki.Invalid`.
+
+### Upload and download
+
 Upload a path to a project where you can edit. The SDK computes the file's
 SHA-256, sends each part directly to object storage, and waits for Iki to
-verify the stored bytes. It returns a `FileOut` with the file's ID, name,
-size, media type and SHA-256.
+verify the stored bytes and record a malware scan decision. The returned
+`FileOut` includes the file's ID, name, size, media type, SHA-256 and scan
+decision. A deployment can allow oversize files while recording their scan
+state as `not_scanned`.
 
 ```python
 project = "kinase-atlas"
-coordinates = iki.files.upload("abl.pdb", project=project, media_type="chemical/x-pdb")
+coordinates = iki.files.upload("abl.pdb", project=project)
+if not coordinates["scan"]["usable"]:
+    raise RuntimeError(f"Held file: {coordinates['scan']['reason']}")
 
 # An entity's file field takes the ID.
 structure = iki.entities.create(
@@ -289,13 +379,28 @@ run = iki.run("iki/protein.import_structure", project=project, params={"file": c
 You can also pass an open binary file or stream. The SDK reads from its
 current position and leaves it open. It restores the position of a seekable
 stream and uses a temporary file for a stream it can read only once.
-Give an unnamed stream a filename with `name=`. For scientific formats,
-set `media_type=` to a type the field or action accepts.
+Give an unnamed stream a filename with `name=`. Iki recognizes registered
+formats from their bytes and filenames. You can supply a media type explicitly,
+for example `media_type="chemical/seq-aa-fasta"` for a protein `.fasta` file.
 
 Uploading requires project Editor access and the `write` scope. A reader
 who tries to upload gets `iki.Forbidden`. If Iki rejects the bytes during
 verification, `iki.IkiError` includes its reason. Pass `timeout=` in
-seconds to raise `iki.TimedOut` if verification takes longer.
+seconds to raise `iki.TimedOut` if verification and scanning take longer.
+Iki goes on checking the file. The error's `pending` names the upload or
+registration, and `iki.files.wait(pending)` waits for it again later, so a
+script run again doesn't send the file a second time:
+
+```python
+waiting = Path("run.txt.pending.json")
+try:
+    if waiting.exists():
+        run_file = iki.files.wait(json.loads(waiting.read_text()), timeout=600)
+    else:
+        run_file = iki.files.upload("run.txt", project=project, timeout=600)
+except iki.TimedOut as error:
+    waiting.write_text(json.dumps(error.pending))  # {"upload": "…"}: try again later
+```
 
 ```python
 entity = iki.entities.get("STR-000007")

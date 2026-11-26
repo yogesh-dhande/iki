@@ -10,7 +10,7 @@
  * 3. Each part PUT straight to storage, a few at a time, with progress. A
  *    part that fails is sent again; one whose URL expired is signed again.
  * 4. `POST /uploads/{id}/complete`, then Iki reads the bytes back to check
- *    them against the hash, and the upload becomes a file.
+ *    them against the hash, then scans them before they can be used.
  *
  * Cancelling stops the transfers and cancels the upload, so storage keeps
  * nothing.
@@ -21,15 +21,26 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
 import { whileWorking } from "./activity";
-import { iki } from "./api";
-import { media } from "./media";
+import { iki, queryClient } from "./api";
+import { FormatError, formatsQuery } from "./media";
 
 export type UploadedFile = Schemas["FileOut"];
 
 export type Progress =
   | { phase: "hashing"; done: number; total: number }
   | { phase: "sending"; done: number; total: number }
-  | { phase: "checking" };
+  | { phase: "checking" }
+  | { phase: "scanning" };
+
+export function progressLabel(progress: Progress, name: string): string {
+  const verb = {
+    hashing: "Reading",
+    sending: "Uploading",
+    checking: "Checking",
+    scanning: "Scanning",
+  };
+  return verb[progress.phase] + " " + name;
+}
 
 const SLICE = 1024 * 1024;
 /** Parts in flight at once: enough to fill a lab's uplink, few enough for a laptop's. */
@@ -112,7 +123,7 @@ function put(
   });
 }
 
-/** Uploads the file to the project, as `mediaType` (by default, what its name says), its
+/** Uploads the file to the project, recognized against the installed formats, its
  * data acquired `acquiredAt` (a day, or "" if the person didn't say: the file's own wins,
  * where its format records one, ADR 0177). The person waits on it, so they count as
  * active while it runs, however long it takes (ADR 0153). */
@@ -121,10 +132,16 @@ export function upload(
   projectId: string,
   onProgress: (progress: Progress) => void,
   signal?: AbortSignal,
-  mediaType: string = media.of(file),
+  allowed: readonly string[] = [],
   acquiredAt = "",
 ): Promise<UploadedFile> {
-  return whileWorking(() => uploadNow(file, projectId, onProgress, signal, mediaType, acquiredAt));
+  return whileWorking(async () => {
+    onProgress({ phase: "hashing", done: 0, total: file.size });
+    const media = await queryClient.query(formatsQuery);
+    const mediaType = await media.identify(file, allowed);
+    aborted(signal);
+    return uploadNow(file, projectId, onProgress, signal, mediaType, acquiredAt);
+  });
 }
 
 async function uploadNow(
@@ -135,7 +152,6 @@ async function uploadNow(
   mediaType: string,
   acquiredAt: string,
 ): Promise<UploadedFile> {
-  onProgress({ phase: "hashing", done: 0, total: file.size });
   const hash = await sha256Of(
     file,
     (done) => {
@@ -157,7 +173,8 @@ async function uploadNow(
     }),
   );
   try {
-    if (started.state === "ready" && started.file) return started.file;
+    if (started.state === "ready") return checked(started.file);
+    if (started.state !== "pending") return await finished(started.id, onProgress, signal);
     await sendParts(
       file,
       started.parts,
@@ -179,7 +196,7 @@ async function uploadNow(
       }),
     );
     onProgress({ phase: "checking" });
-    return await finished(started.id, signal);
+    return await finished(started.id, onProgress, signal);
   } catch (error) {
     if (signal?.aborted) {
       // Nothing half-sent is kept.
@@ -252,7 +269,11 @@ export async function sendParts(
 }
 
 /** Waits for Iki to check the bytes. Large files take a while: it reads them back. */
-async function finished(uploadId: string, signal: AbortSignal | undefined): Promise<UploadedFile> {
+async function finished(
+  uploadId: string,
+  onProgress: (progress: Progress) => void,
+  signal: AbortSignal | undefined,
+): Promise<UploadedFile> {
   for (let delay = timing.poll; ; delay = Math.min(delay * 1.5, timing.maxPoll)) {
     const current = unwrap(
       await iki.GET("/api/v1/uploads/{upload_id}", {
@@ -261,17 +282,34 @@ async function finished(uploadId: string, signal: AbortSignal | undefined): Prom
         params: { path: { upload_id: uploadId } },
       }),
     );
-    if (current.state === "ready" && current.file) return current.file;
-    if (current.state !== "checking" && current.state !== "pending") {
+    if (current.state === "ready") return checked(current.file);
+    if (current.state === "scanning") {
+      onProgress({ phase: "scanning" });
+    } else if (current.state !== "checking" && current.state !== "pending") {
       throw new UploadFailed(current.error || `The upload ${current.state}.`);
     }
     await wait(delay, signal);
   }
 }
 
+function checked(file: UploadedFile | null): UploadedFile {
+  if (file === null) {
+    throw new UploadFailed("The upload finished. You no longer have access to the file.");
+  }
+  if (!file.scan.usable) {
+    if (file.scan.state === "infected") {
+      throw new UploadFailed(`Iki quarantined ${file.name}. A Quarantine Admin can review it.`);
+    }
+    throw new UploadFailed(
+      `Iki could not scan ${file.name}. This deployment holds unscanned files.`,
+    );
+  }
+  return file;
+}
+
 /** What went wrong, in words, for any error an upload throws. */
 export function uploadError(error: unknown): string {
-  if (error instanceof UploadFailed) return error.message;
+  if (error instanceof UploadFailed || error instanceof FormatError) return error.message;
   if (error instanceof ApiError) return error.problem.errors?.[0]?.detail ?? error.problem.detail;
   return "The upload failed. Check your connection, then try again.";
 }

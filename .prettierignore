@@ -28,6 +28,8 @@ server/src/iki_plugin_iki__core/
 
 # Vendored unchanged, so it can be compared with its upstream release.
 deploy/aws/modules/access/policies/
+# What Biopython's own tests expect of the AB1 preview samples, copied from them.
+server/tests/data/previews/biopython-abi-expected.json
 # What ANARCI said, recorded byte for byte by server/tests/data/record_anarci.py.
 server/tests/data/anarci.json
 # What every module gave for 21,360 oligos, recorded by
@@ -40,6 +42,7 @@ plugins/small_molecule/components/depiction.js
 spec/src/iki_spec/first_party_trees.json
 # Built by plugins/oligo/data/build_monomers.py.
 plugins/oligo/data/monomers.json
+examples/plugins/oligo_design/data/monomers.json
 # Single-file component frame produced by pnpm bundle:plugins.
 plugins/equipment/components/booking-calendar.js
 plugins/plasmid/components/plasmid-map.js

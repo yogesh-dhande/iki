@@ -94,6 +94,20 @@ INSTALLED_APPS = [
 # directory rather than a pinned commit (`iki deploy build --allow-local`) are
 # for development, so the server only accepts them when told to.
 IKI_ALLOW_LOCAL_PLUGINS: bool = env.bool("IKI_ALLOW_LOCAL_PLUGINS", default=False)
+# Where plugins' export writers run (ADR 0230): the export sandbox's Service,
+# tcp://host:port, which the chart sets on web and task pods. `local` runs each writer
+# in a child process of the server itself, for development servers and tests only, so it
+# needs IKI_ALLOW_LOCAL_PLUGINS. Empty: no sandbox, and a plugin's format can't be exported.
+IKI_EXPORT_SANDBOX: str = env.str("IKI_EXPORT_SANDBOX", default="")
+if IKI_EXPORT_SANDBOX == "local" and not IKI_ALLOW_LOCAL_PLUGINS:
+    raise environ.ImproperlyConfigured(
+        "IKI_EXPORT_SANDBOX=local runs plugins' writers in the server's own pod, which is only "
+        "for development: set IKI_ALLOW_LOCAL_PLUGINS=true too, or give the sandbox's address."
+    )
+if IKI_EXPORT_SANDBOX not in ("", "local") and not IKI_EXPORT_SANDBOX.startswith("tcp://"):
+    raise environ.ImproperlyConfigured(
+        f"IKI_EXPORT_SANDBOX is tcp://host:port, or local; not {IKI_EXPORT_SANDBOX}."
+    )
 # The mirrors of Iki's repository this deployment fetches Iki's own plugins from
 # (ADR 0114), as its admin set them (the chart's plugins.mirrors). The server
 # refuses plugins a build fetched from any other.
@@ -262,7 +276,8 @@ if IKI_RUNS_VM_CLOUD == "gcp" and IKI_RUNS_VM_OWNER:
 
 def _named_mirror(url: str, named: list[str]) -> bool:
     """Whether ``url`` is one of ``named``, however each is written."""
-    return any(repository(url) == repository(m) for m in named)
+    remote = repository(url)
+    return remote is not None and any(remote == repository(m) for m in named)
 
 
 if find_spec("iki_installed_plugins") is not None:
@@ -772,6 +787,33 @@ except ValueError as _error:
     raise environ.ImproperlyConfigured(
         f"IKI_FILES_MAX_UPLOAD_SIZE must be a size such as 100GiB: {_error}"
     ) from None
+
+# Only deployment configuration supplies the scan adapter's import path (ADR 0216).
+IKI_FILES_SCANNER: str = env.str("IKI_FILES_SCANNER", default="iki_server.files.scanner.clamd")
+if len(IKI_FILES_SCANNER) > 255 or not re.fullmatch(
+    r"(?:[A-Za-z_]\w*\.)+[A-Za-z_]\w*", IKI_FILES_SCANNER
+):
+    raise environ.ImproperlyConfigured("IKI_FILES_SCANNER must be a dotted path to a scan adapter.")
+IKI_CLAMD_HOST: str = env.str("IKI_CLAMD_HOST", default="localhost")
+IKI_CLAMD_PORT: int = env.int("IKI_CLAMD_PORT", default=3310)
+IKI_CLAMD_TIMEOUT_SECONDS: int = env.int("IKI_CLAMD_TIMEOUT_SECONDS", default=120)
+if not IKI_CLAMD_HOST or not 1 <= IKI_CLAMD_PORT <= 65535:
+    raise environ.ImproperlyConfigured(
+        "IKI_CLAMD_HOST and IKI_CLAMD_PORT must name a TCP endpoint."
+    )
+if IKI_CLAMD_TIMEOUT_SECONDS < 1:
+    raise environ.ImproperlyConfigured("IKI_CLAMD_TIMEOUT_SECONDS must be positive.")
+try:
+    IKI_FILES_SCAN_MAX_BYTES: int = _parse_size(
+        env.str("IKI_FILES_SCAN_MAX_SIZE", default="100MiB")
+    )
+except ValueError as _error:
+    raise environ.ImproperlyConfigured(
+        f"IKI_FILES_SCAN_MAX_SIZE must be a size such as 100MiB: {_error}"
+    ) from None
+IKI_FILES_SCAN_OVERSIZE_POLICY: str = env.str("IKI_FILES_SCAN_OVERSIZE_POLICY", default="refuse")
+if IKI_FILES_SCAN_OVERSIZE_POLICY not in ("refuse", "allow"):
+    raise environ.ImproperlyConfigured("IKI_FILES_SCAN_OVERSIZE_POLICY must be refuse or allow.")
 # Runs' artifacts (ADR 0068): kept as long as their action says, or
 # IKI_FILES_ARTIFACT_RETENTION if it doesn't, and never less than
 # IKI_FILES_ARTIFACT_MIN_RETENTION.

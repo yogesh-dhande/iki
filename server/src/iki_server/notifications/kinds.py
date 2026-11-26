@@ -5,7 +5,7 @@ when their app loads. A kind's key never changes once released: people's
 choices are stored against it.
 
 Each notification a type declares (ADR 0129) is a kind too, keyed by its type and name
-(``iki/samples.Sample.in_review``), read from the installed plugins: :func:`get` and
+(``iki/samples.ReviewedSample.in_review``), read from the installed plugins: :func:`get` and
 :func:`every` find them beside core's.
 """
 

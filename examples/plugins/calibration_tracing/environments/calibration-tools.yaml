@@ -1,0 +1,7 @@
+apiVersion: iki/v1
+kind: Environment
+name: calibration-tools
+label: Calibration tracing
+tiers: [backend]
+resources: { cpu: 0.25, memory: 256Mi }
+python: { version: "3.12", requirements: requirements.txt }

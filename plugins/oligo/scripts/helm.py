@@ -283,14 +283,14 @@ def read(text: str) -> Helm:
                 raise HelmError(f"“{raw}” isn't a connection, such as RNA1,CHEM1,1:R1-1:R2.")
             left, right = parts[2].split("-", 1)
             ends = []
-            for polymer, end in ((parts[0], left), (parts[1], right)):
+            for polymer_id, end in ((parts[0], left), (parts[1], right)):
                 m = _END.match(end)
                 if m is None:
                     raise HelmError(
                         f"The connection {raw} has an end that isn't one monomer's position and "
                         "attachment point, such as 3:R2: a molecule needs each bond known."
                     )
-                ends.append(End(polymer, int(m.group(1)), m.group(2)))
+                ends.append(End(polymer_id, int(m.group(1)), m.group(2)))
             connections.append(Connection(ends[0], ends[1]))
     helm = Helm(polymers, connections)
     for c in connections:

@@ -35,6 +35,33 @@ def write(directory: Path, name: str, text: str) -> None:
 HEADER = "apiVersion: iki/v1\nkind: ActionTest\n"
 
 
+def test_after_names_one_expected_value_map_per_upgrade_sample(
+    protein: tuple[Path, Plugin, dict[str, EntityType]],
+) -> None:
+    directory, plugin, types = protein
+    fixture = (
+        HEADER + "action: compute_properties\ninputs: { protein: [{values: {sequence: MKV}}] }\n"
+    )
+    write(directory, "backfill.yaml", fixture + "after: { protein: [{}] }\n")
+    loaded = action_tests.load_tests(directory, plugin, types)
+    assert any(p.code == "schema" for p in loaded.problems)
+    write(
+        directory,
+        "backfill.yaml",
+        fixture + "upgrade: true\nafter: { protein: [], missing: [{}] }\n",
+    )
+    loaded = action_tests.load_tests(directory, plugin, types)
+    assert [p.code for p in loaded.problems] == ["upgrade-after", "upgrade-after"]
+    write(
+        directory,
+        "backfill.yaml",
+        fixture + "upgrade: true\nafter: { protein: [{ molecular_weight: 0 }] }\n",
+    )
+    loaded = action_tests.load_tests(directory, plugin, types)
+    assert loaded.ok, loaded.problems
+    assert loaded.tests[0].after == {"protein": [{"molecular_weight": 0}]}
+
+
 def test_fixtures_are_checked_against_the_plugin(
     protein: tuple[Path, Plugin, dict[str, EntityType]],
 ) -> None:
@@ -130,6 +157,23 @@ def test_the_run_input_is_the_servers(
     assert first["schema_version"] == plugin.types["acme/protein.Protein"].schema_version
     assert [p["entity"] for p in packed["pack"]] == [first["id"], second["id"]]
     assert [p["hrid"] for p in packed["pack"]] == ["RUN-000001", "RUN-000002"]
+
+
+@pytest.mark.parametrize(
+    ("params", "expected"),
+    [({}, "global"), ({"mode": None}, "global"), ({"mode": "local"}, "local")],
+)
+def test_run_input_applies_the_action_parameter_default(
+    protein: tuple[Path, Plugin, dict[str, EntityType]],
+    params: dict[str, str | None],
+    expected: str,
+) -> None:
+    directory, plugin, types = protein
+    test = action_tests.ActionTest(
+        name="align", file="tests/align.yaml", action=plugin.actions["align_pair"], params=params
+    )
+    made = action_tests.run_input(test, plugin, types, directory, {}, directory)
+    assert made["params"] == {"mode": expected}
 
 
 def test_an_input_gives_what_its_references_name(
@@ -345,3 +389,52 @@ def test_creates_are_checked_as_the_server_checks_them(
     assert [p.detail for p in outputs.check_creates(action, made[:2], every)] == [
         "`topology` isn't its registry entry's, so there's nothing to fill."
     ]
+
+
+def test_a_request_gives_its_sides_as_the_server_does(
+    protein: tuple[Path, Plugin, dict[str, EntityType]], tmp_path: Path
+) -> None:
+    """A request's `request` names the project that asked; its service is the test's
+    project unless given (ADR 0232). An input from the project is given as any other."""
+    directory, plugin, types = protein
+    write(
+        directory,
+        "rank.yaml",
+        HEADER
+        + "action: rank_requests\n"
+        + "inputs:\n  requests:\n"
+        + "    - values: { title: Purity }\n"
+        + "      request: { asking_project: { slug: oncology, name: Oncology } }\n"
+        + "    - values: { title: Mass }\n"
+        + "      request:\n"
+        + "        asking_project: { slug: methods, name: Methods }\n"
+        + "        service: null\n"
+        + "  ranks:\n    - values: { project_slug: oncology, rank: 1 }\n",
+    )
+    loaded = action_tests.load_tests(directory, plugin, types)
+    assert loaded.ok, loaded.problems
+    work = tmp_path / "work"
+    work.mkdir()
+    made = action_tests.run_input(loaded.tests[0], plugin, types, directory, {}, work)
+    first, second = made["inputs"]["requests"]
+    assert first["request"]["asking_project"]["slug"] == "oncology"
+    assert first["request"]["service"]["slug"] == "service"
+    assert first["request"]["asking_project"]["id"] != first["request"]["service"]["id"]
+    assert second["request"]["service"] is None
+    assert made["inputs"]["ranks"][0]["values"] == {"project_slug": "oncology", "rank": 1}
+
+
+def test_only_a_request_has_sides(
+    protein: tuple[Path, Plugin, dict[str, EntityType]],
+) -> None:
+    directory, plugin, types = protein
+    write(
+        directory,
+        "sides.yaml",
+        HEADER
+        + "action: compute_properties\n"
+        + "inputs:\n  protein:\n    - values: { sequence: MKV }\n"
+        + "      request: { asking_project: { slug: oncology, name: Oncology } }\n",
+    )
+    loaded = action_tests.load_tests(directory, plugin, types)
+    assert [p.code for p in loaded.problems] == ["not-a-request"]

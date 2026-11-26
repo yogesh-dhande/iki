@@ -355,6 +355,56 @@
           "type": "string",
           "pattern": "^(https?://.+)?$"
         },
+        "scanner": {
+          "type": "object",
+          "properties": {
+            "adapter": {
+              "type": "string",
+              "pattern": "^[A-Za-z_]\\w*(\\.[A-Za-z_]\\w*)+$"
+            },
+            "maxBytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "oversizePolicy": {
+              "enum": ["refuse", "allow"]
+            },
+            "clamd": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "image": {
+                  "type": "string",
+                  "pattern": "^[^\\s@]+@sha256:[a-f0-9]{64}$"
+                },
+                "host": {
+                  "type": "string"
+                },
+                "port": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "timeoutSeconds": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "privateMirror": {
+                  "type": "string",
+                  "pattern": "^(https?://[A-Za-z0-9][A-Za-z0-9.\\-:/]*)?$"
+                },
+                "resources": {
+                  "type": "object"
+                },
+                "updaterResources": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
         "bucketAliases": {
           "type": "object",
           "propertyNames": {
@@ -552,6 +602,34 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 3600
+        }
+      }
+    },
+    "sandbox": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "podDisruptionBudget": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minAvailable": {
+              "type": ["integer", "string"]
+            }
+          }
         }
       }
     },

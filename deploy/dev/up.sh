@@ -17,19 +17,32 @@ CNPG_CHART="oci://ghcr.io/cloudnative-pg/charts/cloudnative-pg:0.29.1@sha256:324
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
+fixtures=${IKI_DEV_FIXTURES:-0}
+case "$fixtures" in
+  0|1) ;;
+  *) die "IKI_DEV_FIXTURES must be 0 (product) or 1 (CI fixtures)." ;;
+esac
+
 for tool in docker kind kubectl helm tilt openssl; do
   command -v "$tool" >/dev/null || die "$tool is not installed (see deploy/dev/README.md)"
 done
 docker info >/dev/null 2>&1 || die "Docker is not running"
 
+kc() { kubectl --context "$CONTEXT" "$@"; }
 if kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
+  # Removing installed plugins would leave their data behind (ADR 0034).
+  if [[ "$fixtures" == 0 ]]; then
+    lims=$(kc -n "$NAMESPACE" get deployment fake-lims --ignore-not-found -o name)
+    if [[ -n "$lims" ]]; then
+      die "This cluster has the CI fixture plugins installed. Use IKI_DEV_FIXTURES=1 to keep working with its data, or use a fresh kind cluster for product-only development."
+    fi
+  fi
   log "Reusing kind cluster '$CLUSTER'"
 else
   log "Creating kind cluster '$CLUSTER'"
   kind create cluster --config "$HERE/kind-config.yaml" --wait 120s
 fi
 kubectl config use-context "$CONTEXT" >/dev/null
-kc() { kubectl --context "$CONTEXT" "$@"; }
 
 log "Installing the CloudNativePG operator"
 helm upgrade --install cnpg "$CNPG_CHART" \
@@ -39,6 +52,7 @@ helm upgrade --install cnpg "$CNPG_CHART" \
 
 kc apply -f "$HERE/manifests/namespace.yaml" >/dev/null
 
+# The provisioner lists snapshots during each reconciliation, even with no setup builds.
 # Volume snapshots (the CSI host-path driver), for managed volumes: server-side
 # apply, since the CRDs are too big for the last-applied annotation.
 log "Installing the CSI host-path driver and snapshot controller"
@@ -52,14 +66,17 @@ kc apply --server-side --force-conflicts -f "$HERE/manifests/csi-hostpath.yaml" 
 kc -n kube-system rollout status statefulset/csi-hostpathplugin --timeout=180s >/dev/null
 kc -n kube-system rollout status deploy/snapshot-controller --timeout=180s >/dev/null
 
-# The shared file system's and bucket's directories for Iki
-# (manifests/shared-filesystem.yaml, manifests/bucket.yaml): on the node,
-# writable by runs' user, as a deployment's administrator makes them.
-log "Making the shared file system's and bucket's directories for Iki"
-for d in iki-shared iki-bucket; do
-  docker exec "${CLUSTER}-control-plane" sh -c \
-    "mkdir -p /var/local/$d/iki && chown 10001:10001 /var/local/$d/iki && chmod 0750 /var/local/$d/iki"
-done
+if [[ "$fixtures" == 1 ]]; then
+  kc apply -f "$HERE/fixtures/namespaces.yaml" >/dev/null
+  # The shared file system's and bucket's directories for Iki
+  # (manifests/shared-filesystem.yaml, manifests/bucket.yaml): on the node,
+  # writable by runs' user, as a deployment's administrator makes them.
+  log "Making the shared file system's and bucket's directories for Iki"
+  for d in iki-shared iki-bucket; do
+    docker exec "${CLUSTER}-control-plane" sh -c \
+      "mkdir -p /var/local/$d/iki && chown 10001:10001 /var/local/$d/iki && chmod 0750 /var/local/$d/iki"
+  done
+fi
 
 # Keycloak's URL is http://keycloak.iki.localhost:8080 for browsers (which
 # resolve *.localhost to loopback, where Tilt forwards the port) and for pods
@@ -121,57 +138,60 @@ if ! kc -n "$NAMESPACE" get secret seaweedfs-s3 >/dev/null 2>&1; then
     --from-literal=s3.json="$s3_json"
 fi
 
-# A certificate authority for the dev cluster's fake services that runs reach
-# over HTTPS (the fake LIMS, manifests/fake-lims.yaml, and the fake FoldCloud,
-# manifests/fake-foldcloud.yaml): runs check TLS end to end, through the egress
-# proxy, as they would a lab's LIMS with a certificate from its internal CA.
-# Workers and the egress proxy trust iki-dev-ca's bundle: the public CAs
-# (certifi's, from the project's environment) and this one.
-if ! kc -n "$NAMESPACE" get secret fake-lims-tls >/dev/null 2>&1 ||
-  ! kc -n "$NAMESPACE" get secret fake-foldcloud-tls >/dev/null 2>&1; then
-  log "Generating the dev CA and the fake services' certificates"
-  certs=$(mktemp -d)
-  trap 'rm -rf "$certs"' EXIT
-  printf 'basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\n' >"$certs/ca.ext"
-  openssl req -new -newkey rsa:2048 -nodes -subj "/CN=Iki dev CA" \
-    -keyout "$certs/ca.key" -out "$certs/ca.csr" 2>/dev/null
-  openssl x509 -req -in "$certs/ca.csr" -signkey "$certs/ca.key" -days 3650 \
-    -extfile "$certs/ca.ext" -out "$certs/ca.crt" 2>/dev/null
-  for service in fake-lims fake-foldcloud; do
-    printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:%s.iki.svc\nauthorityKeyIdentifier=keyid\n' \
-      "$service" >"$certs/$service.ext"
-    openssl req -new -newkey rsa:2048 -nodes -subj "/CN=$service.iki.svc" \
-      -keyout "$certs/$service.key" -out "$certs/$service.csr" 2>/dev/null
-    openssl x509 -req -in "$certs/$service.csr" -CA "$certs/ca.crt" -CAkey "$certs/ca.key" \
-      -CAcreateserial -days 825 -extfile "$certs/$service.ext" -out "$certs/$service.crt" 2>/dev/null
-  done
-  public=$(cd "$HERE/../.." && uv run --quiet python -c "import certifi; print(certifi.where())")
-  cat "$public" "$certs/ca.crt" >"$certs/bundle.pem"
-  # Created, not applied: the bundle is too big for apply's annotation.
-  kc -n "$NAMESPACE" delete secret iki-dev-ca --ignore-not-found >/dev/null
-  kc -n "$NAMESPACE" create secret generic iki-dev-ca \
-    --from-file=bundle.pem="$certs/bundle.pem" >/dev/null
-  for service in fake-lims fake-foldcloud; do
-    kc -n "$NAMESPACE" delete secret "$service-tls" --ignore-not-found >/dev/null
-    kc -n "$NAMESPACE" create secret tls "$service-tls" \
-      --cert="$certs/$service.crt" --key="$certs/$service.key" >/dev/null
-  done
-fi
-# The secrets plugins' actions declare (runSecrets): the example LIMS connector's
-# token, which the fake LIMS checks too, and the example models plugin's API
-# key and webhook secret, which the fake FoldCloud checks and signs with.
-ensure_secret iki-run-secrets --from-literal=iki__lims_connector_example.LIMS_TOKEN="$(rand 32 32)"
-ensure_run_secret() {
-  local key="$1" value="$2"
-  if [ -z "$(kc -n "$NAMESPACE" get secret iki-run-secrets -o "jsonpath={.data.${key//./\\.}}")" ]; then
-    log "Adding $key to iki-run-secrets"
-    kc -n "$NAMESPACE" patch secret iki-run-secrets --type merge \
-      -p "{\"stringData\":{\"$key\":\"$value\"}}" >/dev/null
+if [[ "$fixtures" == 1 ]]; then
+  # A certificate authority for the dev cluster's fake services that runs reach
+  # over HTTPS (the fake LIMS and the fake FoldCloud, fixtures/fake-lims.yaml and
+  # fixtures/fake-foldcloud.yaml): runs check TLS end to end, through the egress
+  # proxy, as they would a lab's LIMS with a certificate from its internal CA.
+  # Workers and the egress proxy trust iki-dev-ca's bundle: the public CAs
+  # (certifi's, from the project's environment) and this one.
+  if ! kc -n "$NAMESPACE" get secret fake-lims-tls >/dev/null 2>&1 ||
+    ! kc -n "$NAMESPACE" get secret fake-foldcloud-tls >/dev/null 2>&1; then
+    log "Generating the dev CA and the fake services' certificates"
+    certs=$(mktemp -d)
+    trap 'rm -rf "$certs"' EXIT
+    printf 'basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\n' >"$certs/ca.ext"
+    openssl req -new -newkey rsa:2048 -nodes -subj "/CN=Iki dev CA" \
+      -keyout "$certs/ca.key" -out "$certs/ca.csr" 2>/dev/null
+    openssl x509 -req -in "$certs/ca.csr" -signkey "$certs/ca.key" -days 3650 \
+      -extfile "$certs/ca.ext" -out "$certs/ca.crt" 2>/dev/null
+    for service in fake-lims fake-foldcloud; do
+      printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:%s.iki.svc\nauthorityKeyIdentifier=keyid\n' \
+        "$service" >"$certs/$service.ext"
+      openssl req -new -newkey rsa:2048 -nodes -subj "/CN=$service.iki.svc" \
+        -keyout "$certs/$service.key" -out "$certs/$service.csr" 2>/dev/null
+      openssl x509 -req -in "$certs/$service.csr" -CA "$certs/ca.crt" -CAkey "$certs/ca.key" \
+        -CAcreateserial -days 825 -extfile "$certs/$service.ext" -out "$certs/$service.crt" 2>/dev/null
+    done
+    public=$(cd "$HERE/../.." && uv run --quiet python -c "import certifi; print(certifi.where())")
+    cat "$public" "$certs/ca.crt" >"$certs/bundle.pem"
+    # Created, not applied: the bundle is too big for apply's annotation.
+    kc -n "$NAMESPACE" delete secret iki-dev-ca --ignore-not-found >/dev/null
+    kc -n "$NAMESPACE" create secret generic iki-dev-ca \
+      --from-file=bundle.pem="$certs/bundle.pem" >/dev/null
+    for service in fake-lims fake-foldcloud; do
+      kc -n "$NAMESPACE" delete secret "$service-tls" --ignore-not-found >/dev/null
+      kc -n "$NAMESPACE" create secret tls "$service-tls" \
+        --cert="$certs/$service.crt" --key="$certs/$service.key" >/dev/null
+    done
   fi
-}
-ensure_run_secret iki__example_models.FOLDCLOUD_API_KEY "$(rand 32 32)"
-ensure_run_secret iki__example_models.FOLDCLOUD_WEBHOOK_SECRET \
-  "whsec_$(openssl rand -base64 32)"
+  # The secrets plugins' actions declare (runSecrets): the example LIMS connector's
+  # token, which the fake LIMS checks too, and the example models plugin's API
+  # key and webhook secret, which the fake FoldCloud checks and signs with.
+  ensure_secret iki-run-secrets
+  ensure_run_secret() {
+    local key="$1" value="$2"
+    if [ -z "$(kc -n "$NAMESPACE" get secret iki-run-secrets -o "jsonpath={.data.${key//./\\.}}")" ]; then
+      log "Adding $key to iki-run-secrets"
+      kc -n "$NAMESPACE" patch secret iki-run-secrets --type merge \
+        -p "{\"stringData\":{\"$key\":\"$value\"}}" >/dev/null
+    fi
+  }
+  ensure_run_secret acme__lims_connector.LIMS_TOKEN "$(rand 32 32)"
+  ensure_run_secret acme__hosted_models.FOLDCLOUD_API_KEY "$(rand 32 32)"
+  ensure_run_secret acme__hosted_models.FOLDCLOUD_WEBHOOK_SECRET \
+    "whsec_$(openssl rand -base64 32)"
+fi
 # The egress proxy's key for calling outside APIs (egressProxy.gatewayKey, ADR 0130).
 if ! kc -n "$NAMESPACE" get secret iki-egress-gateway >/dev/null 2>&1; then
   log "Generating the egress proxy's gateway key"

@@ -161,6 +161,16 @@ archives stay under their original run IDs.
 For a focused `uv run pytest`, set `IKI_BROWSER_ARTIFACTS` to a fresh directory
 to keep the individual trace files there, or use the wrapper to get an archive.
 
+## Contributing a plugin example
+
+Put a worked procedure that a lab will customize under `examples/plugins/`.
+Document its use case, what to change for a lab, and how to copy, test and
+deploy the renamed plugin. Give it tests that exercise the procedure and
+list it in the [author examples index](examples/plugins/README.md). CI checks
+these examples with their declared dependencies separately from the
+first-party plugins. A test of a platform feature belongs with that
+feature's tests.
+
 ## Dependencies
 
 - Lockfiles (`uv.lock`, `pnpm-lock.yaml`, `worker/Cargo.lock`) are committed and

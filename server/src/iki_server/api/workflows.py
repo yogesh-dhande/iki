@@ -99,7 +99,7 @@ class WorkflowStepOut(Schema):
 
 
 class WorkflowOut(Schema):
-    name: str = Field(description="Qualified, such as `protein.translate_and_characterize`.")
+    name: str = Field(description="Workflow name in `namespace/plugin.workflow` form.")
     plugin: str
     label: str
     description: str | None

@@ -29,7 +29,8 @@ import { machineTime, money } from "../costs";
 import { ENTITIES, formatSize, typeLabel, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
 import { useReadableProjects } from "../lists";
-import { media } from "../media";
+import { useMedia } from "../media";
+import { PreviewButton } from "../previews/preview-places";
 import { consentFor, destinations, SendsOutside, type Statement } from "../outside-apis";
 import {
   actionLabel,
@@ -604,6 +605,43 @@ function ReproduceRun({ run }: { run: Run }) {
   );
 }
 
+/** A run waiting for the files it reads to be scanned for malware (ADR 0234): which, since
+ * when, and what happens once they are. */
+function ScanWaitNote({ run, wait }: { run: Run; wait: NonNullable<Run["waiting_for_scan"]> }) {
+  const count = wait.files.length + wait.others;
+  const one = count === 1;
+  return (
+    <div className="alert alert-info" role="status">
+      <p className="alert-title">Waiting for a malware scan</p>
+      <p>
+        {one ? "A file it reads" : `${String(count)} files it reads`}
+        {wait.files.length ? (
+          <>
+            {" ("}
+            {wait.files.map((file, index) => (
+              <span key={file.id}>
+                {index ? ", " : null}
+                <Link to="/files/$id/" params={{ id: file.id }}>
+                  {file.name}
+                </Link>
+              </span>
+            ))}
+            {wait.others ? `, and ${String(wait.others)} you can’t read` : null})
+          </>
+        ) : null}{" "}
+        {one ? "is" : "are"} being scanned, since <RelativeTime value={wait.since} />. No worker
+        takes the run until {one ? "it’s" : "they’re"} found clean; then it starts by itself. If{" "}
+        {one ? "it’s" : "one is"} quarantined, the run fails, saying why.
+      </p>
+      <p>
+        <Link to="/files/" search={{ run: run.hrid }}>
+          Files it reads or made
+        </Link>
+      </p>
+    </div>
+  );
+}
+
 /** For a run that reused another's results: which, and a way to run it after all. */
 function ReusedNote({ run }: { run: Run }) {
   const { say } = useMessages();
@@ -989,12 +1027,19 @@ function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trig
         ) : (
           "an entity you can’t read"
         )}{" "}
-        {trigger.event === "entity.created" ? "was created" : "changed"}{" "}
+        {trigger.event === "entity.created"
+          ? "was created"
+          : trigger.event === "request.received"
+            ? "arrived from the project that asked"
+            : "changed"}{" "}
         {trigger.revision !== null ? (
           <span className="muted">(revision {trigger.revision})</span>
         ) : null}
-        . It runs as {run.requested_by.name}
-        {trigger.editor ? ", whose edit prompted the recheck." : ", who turned the trigger on."}
+        .{" "}
+        {trigger.event === "request.received"
+          ? // Nobody here sent it (ADR 0232): its run is a service account's.
+            `It runs as ${run.requested_by.name} on ${trigger.enabled_by?.name ?? "an Admin"}’s authority, who turned the trigger on.`
+          : `It runs as ${run.requested_by.name}${trigger.editor ? ", whose edit prompted the recheck." : ", who turned the trigger on."}`}
       </dd>
     </>
   );
@@ -1033,6 +1078,26 @@ function approvalText(approval: Approval) {
   }
 }
 
+/** When an attempt waited for its files' scans (ADR 0234), for its history. */
+function scanWaitNote(wait: NonNullable<Attempt["scan_wait"]>, finished: string | null) {
+  const what = wait.files === 1 ? "a file it reads" : `${String(wait.files)} files it reads`;
+  // One cancelled as it waited stopped waiting when it ended.
+  const ended = wait.ended_at ?? finished;
+  if (!ended) {
+    return (
+      <>
+        Waiting for {what} to be scanned for malware, since <RelativeTime value={wait.started_at} />
+      </>
+    );
+  }
+  return (
+    <>
+      Waited {duration(wait.started_at, ended)} for {what} to be scanned for malware, until{" "}
+      <Time value={ended} />
+    </>
+  );
+}
+
 function duration(from: string, to: string): string {
   const seconds = Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 1000));
   if (seconds < 60) return `${String(seconds)} s`;
@@ -1060,6 +1125,7 @@ function ParamValue({
   items?: string | null | undefined;
   value: unknown;
 }) {
+  const media = useMedia(type === "file");
   if (type === "list" && items === "file" && Array.isArray(value)) {
     return (
       <ul className="param-files">
@@ -1081,7 +1147,8 @@ function ParamValue({
         </a>{" "}
         <span className="muted">
           {formatSize(file.size)} · {media.named(file.media_type)}
-        </span>
+        </span>{" "}
+        <PreviewButton id={value} name={file.name} mediaType={file.media_type} />
       </span>
     );
   }
@@ -1386,6 +1453,9 @@ function AttemptRow({
             </span>
           </div>
         ) : null}
+        {attempt.scan_wait ? (
+          <p className="row-meta">{scanWaitNote(attempt.scan_wait, attempt.finished_at)}</p>
+        ) : null}
         {attempt.error && !(latest && runError) ? (
           <p className="row-reason">{attempt.error.message}</p>
         ) : null}
@@ -1551,7 +1621,9 @@ export function RunPage() {
       {run.approval?.state === "pending" ? (
         <ApprovalRequest run={run} approval={run.approval} />
       ) : null}
-      {run.waiting ? (
+      {run.waiting_for_scan ? (
+        <ScanWaitNote run={run} wait={run.waiting_for_scan} />
+      ) : run.waiting ? (
         <div className="alert alert-info" role="status">
           <p>Waiting to start: {run.waiting}</p>
         </div>
@@ -1997,6 +2069,12 @@ function RunArtifacts({ runRef, artifacts }: { runRef: string; artifacts: Artifa
                   <div className="muted">
                     SHA-256 <code title={artifact.sha256}>{artifact.sha256.slice(0, 12)}…</code>
                   </div>
+                  {artifact.scan?.usable && artifact.scan.state === "not_scanned" ? (
+                    <div className="muted">Not scanned: too large</div>
+                  ) : null}
+                  {artifact.scan?.released ? (
+                    <div className="muted">Released from quarantine</div>
+                  ) : null}
                 </td>
                 {several ? <td>{artifact.attempt}</td> : null}
                 <td>{formatSize(artifact.size)}</td>
@@ -2021,6 +2099,9 @@ function ArtifactKept({ artifact }: { artifact: Artifact }) {
       </span>
     );
   }
+  if (artifact.state === "scanning") return <span className="muted">Scanning…</span>;
+  if (artifact.state === "quarantined") return <>Quarantined</>;
+  if (artifact.state === "not_scanned") return <>Not scanned</>;
   if (artifact.state === "uploading") return <span className="muted">Uploading…</span>;
   if (artifact.state === "failed") return <span className="muted">Didn’t finish uploading</span>;
   // The organization may keep it longer, as a legal hold does (ADR 0092).

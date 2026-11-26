@@ -95,6 +95,11 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
         help="Accept plugins from local directories (development only).",
     )
     build.add_argument(
+        "--test-only",
+        action="store_true",
+        help="Accept Iki's example, template and test plugin sources for a CI or live test.",
+    )
+    build.add_argument(
         "--mirror",
         action="append",
         default=[],
@@ -144,17 +149,17 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
     file: Path = args.deployment
     if file.is_dir():
         file = file / FILENAME
-    result = load_lock(file)
-    if result.lock is None or not result.ok:
-        write_problems(err, result.problems, file.parent, {str(file): file})
-        return 1
-    lock = result.lock
     mirrors: list[str] = list(dict.fromkeys(args.mirror))
     for url in mirrors:
         why = fetching.check_mirror(url, fetching.PROTOCOLS)
         if why is not None:
             err.write(f"error: --mirror {why}.\n")
             return 1
+    result = load_lock(file, mirrors=mirrors, test_only=args.test_only)
+    if result.lock is None or not result.ok:
+        write_problems(err, result.problems, file.parent, {str(file): file})
+        return 1
+    lock = result.lock
     if lock.has_local and not args.allow_local:
         names = ", ".join(p.name for p in lock.plugins if p.local is not None)
         err.write(
@@ -167,6 +172,23 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
         fetched = _fetch_all(lock, workspace / "sources", args.cache, mirrors, out, err)
         if fetched is None:
             return 1
+        # Validate the files runners will actually receive, including every entry point,
+        # environment input and component module named in a manifest.
+        for item in fetched:
+            label = naming.app_label(item.entry.name)
+            try:
+                prepared = workers.prepared_source(
+                    item.entry.name,
+                    item.directory,
+                    workspace / "worker-code" / label,
+                    pinned=item.entry.sha is not None,
+                )
+                runtime = workspace / "runtime" / label
+                workers.stage_runtime(item.entry.name, prepared, runtime)
+            except ValueError as error:
+                err.write(f"error: {item.label}: {error}\n")
+                return 1
+            item.directory = runtime
         purged = {p.name for p in lock.plugins if p.state == "purged"}
         if (
             not _nothing_needs(purged, fetched, err)
@@ -182,13 +204,6 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
             return 1
         bundles = workspace / "bundles"
         try:
-            for item in fetched:
-                item.directory = workers.prepared_source(
-                    item.entry.name,
-                    item.directory,
-                    workspace / "worker-code" / naming.app_label(item.entry.name),
-                    pinned=item.entry.sha is not None,
-                )
             made = _bundles(fetched, bundles)
         except ValueError as error:
             err.write(f"error: {error}.\n")
@@ -445,6 +460,7 @@ def _bundles(fetched: list[_Fetched], output: Path) -> dict[str, dict[str, Any]]
         output.mkdir(exist_ok=True)
         try:
             packed = workers.bundle(
+                item.entry.name,
                 item.directory,
                 output / f"{naming.app_label(item.entry.name)}-{item.entry.sha or LOCAL}.tar.gz",
                 pinned=item.entry.sha is not None,

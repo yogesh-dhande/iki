@@ -16,13 +16,13 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 
 from iki_spec import naming
+from iki_spec.formats import FormatRegistry
 from iki_spec.model import (
     BUILTIN_TYPES,
+    AnyExport,
     EntityType,
-    Export,
     Extension,
     Plugin,
-    ReportExport,
     Viewer,
     plugin_from_dict,
 )
@@ -38,6 +38,12 @@ def plugins() -> dict[str, Plugin]:
             plugin = plugin_from_dict(data["plugin"])
             out[plugin.name] = plugin
     return out
+
+
+@cache
+def file_formats() -> FormatRegistry:
+    """The formats and file parsers in this deployment's compiled manifests."""
+    return FormatRegistry(plugins().values())
 
 
 @cache
@@ -94,7 +100,7 @@ def viewers(entity_type: EntityType) -> tuple[Viewer, ...]:
     return next((t.viewers for t in [entity_type, *ancestors(entity_type)] if t.viewers), ())
 
 
-def exports(entity_type: EntityType) -> tuple[Export | ReportExport, ...]:
+def exports(entity_type: EntityType) -> tuple[AnyExport, ...]:
     """The files Iki writes of ``entity_type``'s records (ADR 0171): its own or the nearest
     parent's."""
     return next((t.exports for t in [entity_type, *ancestors(entity_type)] if t.exports), ())

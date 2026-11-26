@@ -63,6 +63,7 @@ function waits(trigger: ProjectTrigger): boolean {
 /** "Each new protein", "A change to a protein's organism or sequence": what fires it. */
 function firedBy(trigger: ProjectTrigger, typeLabel: string, type: EntityType | undefined): string {
   if (trigger.on === "schedule") return `Each time its schedule comes round`;
+  if (trigger.on === "request.received") return `Each ${typeLabel} another project sends`;
   if (trigger.on === "entity.created") return `Each new ${typeLabel}`;
   if (trigger.on === "entity.registered") return `Each ${typeLabel} new to the registry`;
   if (trigger.on === "entity.state_changed") {
@@ -125,10 +126,11 @@ export function ProjectTriggers() {
     <>
       <p className="muted">
         A trigger runs one of a plugin’s actions by itself when entities in {project.name} are
-        created or change, or on a schedule. It’s off until one of the project’s Admins turns it on,
-        and its runs are launched as that Admin, or for a schedule as the service account they
-        choose; those on the container and VM tiers wait for the Admin’s approval. What a triggered
-        run changes never fires a trigger, so triggers can’t set each other off.
+        created or change, when another project sends it a request, or on a schedule. It’s off until
+        one of the project’s Admins turns it on, and its runs are launched as that Admin, or for a
+        schedule or a request as the service account they choose; those on the container and VM
+        tiers wait for the Admin’s approval. What a triggered run changes never fires a trigger, so
+        triggers can’t set each other off.
       </p>
       {triggers.isPending ? <Loading label="Loading triggers…" /> : null}
       {triggers.error ? <ProblemAlert problem={problemOf(triggers.error)} /> : null}
@@ -210,6 +212,9 @@ function TriggerRow({
 }) {
   const [asking, setAsking] = useState<"enable" | "disable" | null>(null);
   const scheduled = trigger.on === "schedule";
+  // On a schedule or a request's arrival, nobody here made it happen: its runs are a
+  // service account's, on the Admin's authority (ADR 0081, ADR 0232).
+  const byAccount = trigger.runs_as_account;
   const [reason, setReason] = useState("");
   const [runAs, setRunAs] = useState(trigger.run_as?.id ?? trigger.run_as_choices[0]?.id ?? "");
   const { say } = useMessages();
@@ -220,7 +225,7 @@ function TriggerRow({
         verb === "enable"
           ? await iki.POST("/api/v1/projects/{project_id}/triggers/{name}/enable", {
               params,
-              body: scheduled ? { run_as: runAs } : {},
+              body: byAccount ? { run_as: runAs } : {},
             })
           : await iki.POST("/api/v1/projects/{project_id}/triggers/{name}/disable", {
               params,
@@ -237,7 +242,7 @@ function TriggerRow({
   };
   const onAsSomeoneElse = trigger.enabled && trigger.can.enable;
   const account = trigger.run_as_choices.find((c) => c.id === runAs);
-  const enableLabel = !onAsSomeoneElse ? "Turn on" : scheduled ? "Change" : "Run as me";
+  const enableLabel = !onAsSomeoneElse ? "Turn on" : byAccount ? "Change" : "Run as me";
   return (
     <li className="row">
       <div className="row-main">
@@ -250,7 +255,8 @@ function TriggerRow({
             </>
           ) : (
             <>
-              {fires} in {project.name} starts a run of {trigger.action_label}
+              {fires} {trigger.on === "request.received" ? "to" : "in"} {project.name} starts a run
+              of {trigger.action_label}
             </>
           )}
           {waits(trigger) ? `, on the ${trigger.tier ?? ""} tier: each waits for approval` : ""}.
@@ -296,7 +302,7 @@ function TriggerRow({
         title={
           !onAsSomeoneElse
             ? `Turn on “${trigger.label}”?`
-            : scheduled
+            : byAccount
               ? `Change who “${trigger.label}” runs as?`
               : `Run “${trigger.label}” as you?`
         }
@@ -310,7 +316,7 @@ function TriggerRow({
             onSuccess: () => {
               close();
               say(
-                scheduled
+                byAccount
                   ? `“${trigger.label}” is on, and runs as ${account?.name ?? "the service account"}.`
                   : trigger.recheck
                     ? `“${trigger.label}” is on for each editor.`
@@ -329,6 +335,23 @@ function TriggerRow({
               {trigger.action_label} starts in {project.name}, as the service account you choose, on
               your authority. One never starts while the last is still running, and each is told
               when the last that succeeded was for, to carry on from there.
+            </p>
+            <SelectField
+              label="Runs as"
+              value={runAs}
+              options={trigger.run_as_choices.map((c) => ({ value: c.id, label: c.name }))}
+              onChange={setRunAs}
+            />
+          </>
+        ) : byAccount ? (
+          <>
+            <p>
+              {fires} will start a run of {trigger.action_label} in {project.name}, as the service
+              account you choose, on your authority, and recorded as started by this trigger.
+              Another project sent the request, so the run isn’t anyone’s here.
+              {relatedText(trigger)
+                ? ` Each run is also given what you can read in ${project.name} of: ${relatedText(trigger)}.`
+                : ""}
             </p>
             <SelectField
               label="Runs as"
@@ -362,7 +385,7 @@ function TriggerRow({
         )}
         {!trigger.recheck && (
           <p>
-            If {scheduled ? "you or the service account lose" : "you lose"} the role to run it here,
+            If {byAccount ? "you or the service account lose" : "you lose"} the role to run it here,
             Iki turns it off and tells the project’s Admins.
           </p>
         )}
@@ -399,8 +422,13 @@ function TriggerRow({
           </>
         )}
         <p>
-          {scheduled ? "Its schedule stops" : "Changes from now on start nothing"}. Runs it already
-          started carry on, and an Admin can turn it on again.
+          {`${
+            scheduled
+              ? "Its schedule stops"
+              : byAccount
+                ? "Requests sent from now on start nothing"
+                : "Changes from now on start nothing"
+          }. Runs it already started carry on, and an Admin can turn it on again.`}
         </p>
       </ConfirmDialog>
     </li>
@@ -457,7 +485,11 @@ function Firings({ project, triggers }: { project: Project; triggers: ProjectTri
                       <Link to="/entities/$ref/" params={{ ref: f.entity.hrid }}>
                         {f.entity.hrid}
                       </Link>{" "}
-                      {f.event === "entity.created" ? "was created" : "changed"}
+                      {f.event === "entity.created"
+                        ? "was created"
+                        : f.event === "request.received"
+                          ? "arrived"
+                          : "changed"}
                     </>
                   ) : f.event === "schedule" ? (
                     <>

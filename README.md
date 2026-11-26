@@ -29,8 +29,10 @@ server.
 | `worker/`          | Rust workspace: the `iki-worker` agent and `iki-protocol` wire types |
 | `deploy/`          | Helm chart, dev cluster, AWS modules, and a deployment's config repo |
 | `plugins/`         | Iki's first-party plugins, such as `dna`                             |
-| `plugin-template/` | Where a lab's own plugin starts: example types, migrations, CI       |
+| `plugin-template/` | A lab’s first record type, action, migration and smoke test          |
 | `docs/adr/`        | Architecture Decision Records                                        |
+
+For lab-specific procedures, see the [plugin examples and copy instructions](examples/plugins/README.md).
 
 ## Development
 
@@ -54,13 +56,14 @@ make help    # list all tasks
 ```
 
 To run the whole stack on a local Kubernetes cluster (Postgres, S3, Keycloak,
-Grafana), see [deploy/dev/README.md](deploy/dev/README.md): `make dev-up`.
+Grafana), run `make dev-up`. Use `make dev-e2e` to seed and check the product plugins.
+The [dev cluster guide](deploy/dev/README.md) also covers the fixture cluster for integration tests.
 
 To work on an Iki plugin with a coding agent, use the skills to
 [write](plugin-template/.agents/skills/iki-write-plugin/SKILL.md),
 [test](plugin-template/.agents/skills/iki-test-plugin/SKILL.md), or
 [upgrade](plugin-template/.agents/skills/iki-upgrade-plugin/SKILL.md) it.
-They ship with the [plugin template](plugin-template/README.md) as well.
+They ship with the [plugin template](plugin-template/README.md). For a worked example of a storage codebook, workflow and labels, see the [storage labels plugin](examples/plugins/storage_labels/README.md).
 
 ## Contributing
 

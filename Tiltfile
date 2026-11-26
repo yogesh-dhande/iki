@@ -7,6 +7,19 @@ update_settings(k8s_upsert_timeout_secs=300)
 if k8s_context() != 'kind-iki':
     fail("Tilt must run against the kind-iki cluster. Run `make dev-up` first.")
 
+fixtures = os.getenv('IKI_DEV_FIXTURES', '0')
+if fixtures not in ['0', '1']:
+    fail('IKI_DEV_FIXTURES must be 0 (product) or 1 (CI fixtures).')
+
+plugin_deps = [
+    'deploy/dev/build-plugins.sh', 'deploy/dev/plugins.lock.yaml',
+    'deploy/dev/compute.yaml', 'deploy/dev/settings', 'plugins',
+]
+chart_values = ['deploy/dev/values-dev.yaml']
+if fixtures == '1':
+    plugin_deps += ['deploy/dev/fixtures', 'examples/plugins/hosted_models', 'examples/plugins/lims_connector', 'examples/plugins/liquid_handling']
+    chart_values.append('deploy/dev/fixtures/values.yaml')
+
 # --- Dependencies -------------------------------------------------------------
 
 k8s_yaml([
@@ -17,11 +30,15 @@ k8s_yaml([
     'deploy/dev/manifests/otel-lgtm.yaml',
     'deploy/dev/manifests/mailpit.yaml',
     'deploy/dev/manifests/webhook-receiver.yaml',
-    'deploy/dev/manifests/fake-lims.yaml',
-    'deploy/dev/manifests/fake-foldcloud.yaml',
-    'deploy/dev/manifests/shared-filesystem.yaml',
-    'deploy/dev/manifests/bucket.yaml',
 ])
+if fixtures == '1':
+    k8s_yaml([
+        'deploy/dev/fixtures/namespaces.yaml',
+        'deploy/dev/fixtures/fake-lims.yaml',
+        'deploy/dev/fixtures/fake-foldcloud.yaml',
+        'deploy/dev/manifests/shared-filesystem.yaml',
+        'deploy/dev/manifests/bucket.yaml',
+    ])
 
 k8s_kind('Cluster', api_version='postgresql.cnpg.io/v1', pod_readiness='wait')
 k8s_resource(
@@ -50,20 +67,21 @@ k8s_resource(
     labels=['deps'],
     links=[link('http://localhost:8090/requests', 'Webhooks received')],
 )
-k8s_resource(
-    'fake-lims',
-    objects=['fake-lims:configmap'],
-    port_forwards=['8091:8080'],
-    labels=['deps'],
-    links=[link('http://localhost:8091/requests', 'Fake LIMS requests')],
-)
-k8s_resource(
-    'fake-foldcloud',
-    objects=['fake-foldcloud:configmap'],
-    port_forwards=['8092:8080'],
-    labels=['deps'],
-    links=[link('http://localhost:8092/requests', 'Fake FoldCloud requests')],
-)
+if fixtures == '1':
+    k8s_resource(
+        'fake-lims',
+        objects=['fake-lims:configmap'],
+        port_forwards=['8091:8080'],
+        labels=['deps'],
+        links=[link('http://localhost:8091/requests', 'Fake LIMS requests')],
+    )
+    k8s_resource(
+        'fake-foldcloud',
+        objects=['fake-foldcloud:configmap'],
+        port_forwards=['8092:8080'],
+        labels=['deps'],
+        links=[link('http://localhost:8092/requests', 'Fake FoldCloud requests')],
+    )
 # Iki's Grafana dashboard (ADR 0098), from the chart's own file, for otel-lgtm to load.
 watch_file('deploy/helm/iki/files/dashboards')
 k8s_yaml(local(
@@ -85,8 +103,8 @@ k8s_resource(
 # the way a deployment builds its own image.
 custom_build(
     'iki-server',
-    'deploy/dev/build-server.sh $EXPECTED_REF',
-    deps=[
+    'IKI_DEV_FIXTURES=' + fixtures + ' deploy/dev/build-server.sh $EXPECTED_REF',
+    deps=plugin_deps + [
         'pyproject.toml', 'uv.lock', 'LICENSE', 'NOTICE', 'server', 'cli', 'codegen',
         'spec/pyproject.toml', 'spec/README.md', 'spec/LICENSE', 'spec/NOTICE', 'spec/backend',
         'spec/src',
@@ -101,13 +119,7 @@ custom_build(
         # The plugins' modules, built in the same stage and checked against their digests.
         'scripts/build-plasmid-tools-wasm.sh', 'scripts/build-oligo-checks-wasm.sh',
         'plugins/plasmid/data/plasmid-tools.wasm.sha256', 'plugins/dna/data/oligo-checks.wasm.sha256',
-        # The plugins and how they're added.
-        'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'deploy/dev/build-server.sh',
-        'deploy/plugins.Dockerfile',
-        # Which machines run each environment, which the build checks and bakes in.
-        'deploy/dev/compute.yaml',
-        # First-party plugins the dev lockfile installs from their directories.
-        'plugins', 'plugin-template',
+        'deploy/dev/build-server.sh', 'deploy/plugins.Dockerfile',
     ],
     ignore=[
         'server/tests', 'cli/tests', 'codegen/tests', '**/__pycache__', '**/node_modules',
@@ -116,14 +128,16 @@ custom_build(
         # What deploy/dev/build-wasm.sh writes.
         '**/iki_spec/iki_wasm*', '**/oligo-measurement.wasm', '**/iki_spec/dna-annotation.wasm',
         '**/iki_spec/rust-standard-library.html', '**/iki_spec/modules/*.wasm',
+        # Plugins' export writers: their Rust builds, and the modules built from them.
+        '**/writers/*/target', '**/writers/*.wasm',
     ],
 )
 
 # The worker image, then the dev cluster's plugins and their environments on top.
 custom_build(
     'iki-worker',
-    'deploy/dev/build-worker.sh $EXPECTED_REF',
-    deps=[
+    'IKI_DEV_FIXTURES=' + fixtures + ' deploy/dev/build-worker.sh $EXPECTED_REF',
+    deps=plugin_deps + [
         'worker/Cargo.toml', 'worker/Cargo.lock', 'worker/rust-toolchain.toml',
         'worker/crates', 'worker/.cargo', 'worker/Dockerfile', 'deploy/worker.Dockerfile',
         'deploy/dev/build-worker.sh', 'deploy/dev/build-wasm.sh', 'scripts/build-wasm-image.sh',
@@ -131,13 +145,12 @@ custom_build(
         'scripts/verify-server-wasm.sh', 'server/iki_wasm.wasm.sha256',
         'scripts/build-plasmid-tools-wasm.sh', 'scripts/build-oligo-checks-wasm.sh',
         # What `iki deploy build --workers` reads and runs.
-        'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'plugins', 'plugin-template',
         'cli', 'spec/src',
     ],
     ignore=[
         '**/__pycache__', '**/iki_spec/iki_wasm*', '**/oligo-measurement.wasm',
         '**/iki_spec/dna-annotation.wasm', '**/iki_spec/rust-standard-library.html',
-        '**/iki_spec/modules/*.wasm',
+        '**/iki_spec/modules/*.wasm', '**/writers/*/target', '**/writers/*.wasm',
     ],
 )
 
@@ -145,9 +158,14 @@ k8s_yaml(helm(
     'deploy/helm/iki',
     name='iki',
     namespace='iki',
-    values=['deploy/dev/values-dev.yaml'],
+    values=chart_values,
 ))
 
+k8s_resource(
+    'iki-clamd',
+    objects=['iki-clamd:configmap', 'iki-clamd:networkpolicy', 'iki-clamd:serviceaccount'],
+    labels=['deps'],
+)
 k8s_resource('iki-migrate', resource_deps=['iki-db'], labels=['iki'])
 k8s_resource(
     'iki-web',
@@ -160,6 +178,18 @@ k8s_resource(
     ],
 )
 k8s_resource('iki-tasks', resource_deps=['iki-migrate', 'otel-lgtm'], labels=['iki'])
+if fixtures == '1':
+    # Runs the fixture plugins' export writers (ADR 0230); nothing reaches it but web
+    # pods and task runners, and it reaches nothing.
+    k8s_resource(
+        'iki-sandbox',
+        objects=[
+            'iki-sandbox:serviceaccount',
+            'iki-sandbox:networkpolicy',
+            'iki-sandbox-clients:networkpolicy',
+        ],
+        labels=['iki'],
+    )
 k8s_resource(
     'iki-egress-proxy',
     objects=['iki-egress-proxy:serviceaccount', 'iki-egress-proxy:networkpolicy'],

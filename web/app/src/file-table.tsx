@@ -14,6 +14,7 @@ import { FieldInput } from "./entity-inputs";
 import { formatSize, typesQuery, type FieldDef } from "./entities";
 import {
   acquiredText,
+  factsLine,
   fileCountQuery,
   fileFormatsQuery,
   filesQuery,
@@ -24,7 +25,8 @@ import {
   type FileSort,
   type Takes,
 } from "./files";
-import { media } from "./media";
+import { formatsQuery } from "./media";
+import { scanFlag } from "./quarantine";
 import { SearchBox, ToolbarSelect } from "./pages/entity-filters";
 import { Button, Loading, ProblemAlert, RelativeTime } from "./ui";
 
@@ -96,10 +98,14 @@ export function FileTable({
   actions?: ReactNode;
   caption: string;
 }) {
+  const catalog = useQuery(formatsQuery);
+  const media = catalog.data;
   const unknown = Boolean(across?.slug && !projectId);
-  const files = useInfiniteQuery({ ...filesQuery(projectId, filter, takes), enabled: !unknown });
-  const count = useQuery({ ...fileCountQuery(projectId, filter, takes), enabled: !unknown });
-  const formats = useQuery({ ...fileFormatsQuery(projectId, filter, takes), enabled: !unknown });
+  const requestTakes = takes && media ? { ...takes, accepts: media.choices(takes.accepts) } : takes;
+  const enabled = !unknown && (!takes?.accepts.length || Boolean(media));
+  const files = useInfiniteQuery({ ...filesQuery(projectId, filter, requestTakes), enabled });
+  const count = useQuery({ ...fileCountQuery(projectId, filter, requestTakes), enabled });
+  const formats = useQuery({ ...fileFormatsQuery(projectId, filter, requestTakes), enabled });
   const types = useQuery(typesQuery).data ?? [];
   const samples = types.filter((t) => t.sample && !t.abstract).map((t) => t.name);
   const items = files.data?.pages.flatMap((p) => p.items) ?? [];
@@ -116,15 +122,16 @@ export function FileTable({
   const set = (change: Partial<FileFilter>) => {
     onFilter({ ...filter, ...change });
   };
-  const chosenFormat = filter.format.join(",");
+  // Existing links use media types. IDs and aliases select the same facet.
+  const chosenFormat = filter.format.map((type) => media?.get(type)?.canonical ?? type).join(",");
   const formatOptions = [
     { value: "", label: "Any" },
     ...(formats.data ?? []).map((f) => ({
       value: f.media_type,
-      label: `${media.named(f.media_type)} (${f.count.toLocaleString()})`,
+      label: `${f.label} (${f.count.toLocaleString()})`,
     })),
     ...(chosenFormat && !(formats.data ?? []).some((f) => f.media_type === chosenFormat)
-      ? [{ value: chosenFormat, label: filter.format.map((f) => media.named(f)).join(", ") }]
+      ? [{ value: chosenFormat, label: filter.format.map((f) => media?.named(f) ?? f).join(", ") }]
       : []),
   ];
   const total = count.data
@@ -139,7 +146,7 @@ export function FileTable({
       <div className="list-toolbar">
         <SearchBox
           value={filter.q}
-          placeholder="Search files by name"
+          placeholder="Search by name, instrument or operator"
           onSearch={(q) => {
             set({ q });
           }}
@@ -267,14 +274,15 @@ export function FileTable({
         </div>
       ) : null}
       {unknown ? <p className="empty">There’s no project {across?.slug} you can read.</p> : null}
+      {catalog.error ? <ProblemAlert problem={problemOf(catalog.error)} /> : null}
       {files.error ? <ProblemAlert problem={problemOf(files.error)} /> : null}
-      {files.isPending && !unknown ? <Loading label="Loading files…" /> : null}
+      {files.isPending && !unknown && !catalog.error ? <Loading label="Loading files…" /> : null}
       {files.isSuccess && items.length === 0 ? (
         <p className="muted empty">
           {searched
-            ? "No files match. Try another part of the name, or fewer filters."
+            ? "No files match. Try another part of the name or instrument, or fewer filters."
             : takes?.accepts.length
-              ? `No ${media.either(takes.accepts)} files here yet. Upload one instead.`
+              ? `No ${media?.either(takes.accepts) ?? takes.accepts.join(", ")} files here yet. Upload one instead.`
               : projectId
                 ? "No files yet. Files uploaded to this project, or held by its records, are listed here."
                 : "No files you can read yet."}
@@ -313,6 +321,7 @@ export function FileTable({
                 <FileRowView
                   key={file.id}
                   file={file}
+                  formatLabel={media?.named(file.media_type) ?? file.media_type}
                   pick={pick}
                   projectName={
                     across && !projectId
@@ -342,10 +351,12 @@ export function FileTable({
 
 function FileRowView({
   file,
+  formatLabel,
   pick,
   projectName,
 }: {
   file: FileRow;
+  formatLabel: string;
   pick: Picking | undefined;
   projectName: string | undefined;
 }) {
@@ -353,7 +364,11 @@ function FileRowView({
   const held = pick?.held.has(file.id) ?? false;
   const chosen = held || (pick?.chosen.has(file.id) ?? false);
   const full = Boolean(pick?.multiple && pick.room !== undefined && pick.chosen.size >= pick.room);
-  const locked = held || (!chosen && full);
+  // Nothing can use a file its malware scan holds, or hasn't finished (ADR 0216).
+  const flag = scanFlag(file.scan);
+  const unusable = !file.scan.usable && !chosen;
+  const locked = held || unusable || (!chosen && full);
+  const stated = factsLine(file.facts);
   return (
     <tr
       className={chosen ? "file-row-chosen" : undefined}
@@ -382,23 +397,27 @@ function FileRowView({
           />
         </td>
       ) : null}
-      <td className="list-fill" title={file.name}>
-        <span className="list-fill-text">
-          {pick ? (
-            <label htmlFor={id} className="list-name file-name">
-              {file.name}
-              {held ? <span className="muted"> (chosen)</span> : null}
-            </label>
-          ) : (
-            <Link className="list-name file-name" to="/files/$id/" params={{ id: file.id }}>
-              {file.name}
-            </Link>
-          )}
+      <td className="list-fill" title={stated ? `${file.name}\n${stated}` : file.name}>
+        <span className={flag ? "list-fill-flagged" : undefined}>
+          <span className="list-fill-text">
+            {pick ? (
+              <label htmlFor={id} className="list-name file-name">
+                {file.name}
+                {held ? <span className="muted"> (chosen)</span> : null}
+              </label>
+            ) : (
+              <Link className="list-name file-name" to="/files/$id/" params={{ id: file.id }}>
+                {file.name}
+              </Link>
+            )}
+            {stated ? <span className="cell-meta">{stated}</span> : null}
+          </span>
+          {flag ? <span className={`badge ${flag.tone}`}>{flag.text}</span> : null}
         </span>
       </td>
       {projectName !== undefined ? <td className="muted">{projectName}</td> : null}
       <td className="muted" title={file.media_type}>
-        {media.named(file.media_type)}
+        {formatLabel}
       </td>
       <td className="list-table-end muted">{formatSize(file.size)}</td>
       <td className={file.acquired ? undefined : "muted"}>

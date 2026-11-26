@@ -22,6 +22,7 @@ from typing import IO, TYPE_CHECKING, Any
 from django.conf import settings
 
 from iki_server.accounts.models import Kind, User
+from iki_server.api.problems import Problem
 from iki_server.audit import log as audit
 from iki_server.audit.models import Agent
 from iki_server.bundles import keys
@@ -32,6 +33,7 @@ from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Part, Shape, shape
 from iki_server.files import storage
 from iki_server.files.models import Blob, File
+from iki_server.files.scan_state import statuses_for_blobs
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action, can
 from iki_server.runs import output_refs
@@ -89,6 +91,7 @@ class Exported:
     size: int
     counts: dict[str, int]
     references: set[uuid.UUID]
+    scanned_blobs: set[uuid.UUID]
 
 
 @dataclass
@@ -145,7 +148,7 @@ def write(
         # files before the files' contents are, which take longer: a change committed
         # meanwhile can't put one revision's metadata beside another's values.
         with snapshot():
-            paths, blobs, manifest, references = _collect(
+            paths, blobs, manifest, references, scanned_blobs = _collect(
                 project, list(picked), by, reason, selection, signing, bundle_id, work
             )
         document = json.dumps(manifest, indent=2, ensure_ascii=False).encode() + b"\n"
@@ -163,7 +166,7 @@ def write(
             out.unlink(missing_ok=True)
             raise
     sha, size = _digest(out)
-    exported = Exported(bundle_id, sha, size, manifest["counts"], references)
+    exported = Exported(bundle_id, sha, size, manifest["counts"], references, scanned_blobs)
     audit.record(
         "bundle.exported",
         actor=by,
@@ -191,7 +194,7 @@ def _collect(
     signing: Ed25519PrivateKey,
     bundle_id: uuid.UUID,
     work: Path,
-) -> tuple[dict[str, Path], list[Blob], dict[str, Any], set[uuid.UUID]]:
+) -> tuple[dict[str, Path], list[Blob], dict[str, Any], set[uuid.UUID], set[uuid.UUID]]:
     """What goes, read and written to the members' files in `work`: their paths, the
     blobs whose contents go, and the manifest."""
     found = _find(project, picked)
@@ -238,6 +241,12 @@ def _collect(
         raise ExportError("A signature in this bundle needs verified reference history.") from error
     if not access.all_references_readable(by, references):
         raise ExportError("This bundle refers to a record you can't read.")
+    scanned_blobs = {f.blob_id for f in files}
+    try:
+        for scan in statuses_for_blobs(scanned_blobs).values():
+            scan.require_usable()
+    except Problem as error:
+        raise ExportError(error.detail) from error
     withdrawals = [w for s in signed if (w := _withdrawal_of(s)) is not None]
     people = (
         {by.pk}
@@ -320,7 +329,7 @@ def _collect(
             *({"path": _blob_path(b.sha256), "sha256": b.sha256, "size": b.size} for b in blobs),
         ],
     }
-    return paths, blobs, manifest, references
+    return paths, blobs, manifest, references, scanned_blobs
 
 
 # --- What goes ----------------------------------------------------------------------------------
@@ -616,6 +625,9 @@ def _file(f: File) -> dict[str, Any]:
             if f.acquired_on is not None
             else None
         ),
+        # What it states about its instrument and read groups, as read when added (ADR 0224).
+        "facts": f.facts,
+        "read_groups": f.read_groups,
     }
 
 

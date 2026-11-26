@@ -298,7 +298,8 @@ main.app-main {
   margin-bottom: 1.25rem;
 }
 
-label {
+label,
+.field-label {
   display: block;
   font-weight: 600;
   margin-bottom: 0.3rem;
@@ -1679,6 +1680,57 @@ main.admin-main {
 
 .dialog-body .actions {
   margin-bottom: 0;
+}
+
+/* --- Exporting records as one file (ADR 0229) ------------------------------ */
+
+.export-progress {
+  display: grid;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.export-progress progress {
+  width: 100%;
+  height: 0.6rem;
+  accent-color: var(--accent);
+}
+
+.export-progress p,
+.export-result p {
+  margin: 0 0 0.5rem;
+}
+
+.export-result {
+  margin-bottom: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.export-result ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.export-notes li + li {
+  margin-top: 0.25rem;
+}
+
+.export-recent {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.export-recent ul {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+}
+
+.export-recent li + li {
+  margin-top: 0.3rem;
 }
 
 /* Choices a search lists in a dialog, such as a quota's team or project: a height of their
@@ -5057,6 +5109,54 @@ input[type="file"]::file-selector-button {
   font-weight: 500;
 }
 
+/* A file its malware scan holds, flagged beside its name: the name is cut short, never
+   the flag (ADR 0216). */
+.list-fill-flagged {
+  display: flex;
+  align-items: center;
+  gap: calc(6rem / 13);
+}
+
+.list-fill-flagged .list-fill-text {
+  min-width: 0;
+}
+
+.list-fill-flagged .badge {
+  flex: none;
+}
+
+/* --- Quarantine (ADR 0217) -------------------------------------------------------------------- */
+
+/* Each cell's second line beneath its first: a file's size, a finding's signature, who. */
+.quarantine-rows .cell-meta {
+  display: block;
+  margin-left: 0;
+}
+
+.quarantine-rows td {
+  padding-top: calc(6rem / 13);
+  padding-bottom: calc(6rem / 13);
+  vertical-align: top;
+}
+
+.quarantine-history {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.quarantine-history > li {
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--border);
+}
+
+.quarantine-history code,
+.quarantine-rows code {
+  overflow-wrap: anywhere;
+}
+
 /* --- Importing a spreadsheet (ADR 0178) ------------------------------------------------------ */
 
 /* Its heading, under the project's: the workbook, where the import is, and Discard. */
@@ -5483,8 +5583,13 @@ input[type="file"]::file-selector-button {
   list-style: none;
 }
 
-.file-used-by {
+.file-used-by,
+.file-read-groups {
   margin-top: 1.5rem;
+}
+
+.file-read-groups > p {
+  margin: 0 0 0.5rem;
 }
 
 .file-used-heading {
@@ -5527,6 +5632,435 @@ input[type="file"]::file-selector-button {
 .file-acquired-input {
   width: auto;
   max-width: 100%;
+}
+
+/* --- File previews (ADR 0226) ---------------------------------------------------------- */
+
+/* Sanger traces' colours, as trace viewers draw them; G, black in print, is light on dark. */
+.preview,
+.preview-dialog {
+  --trace-a: var(--iki-light, #1e8a3c) var(--iki-dark, #4cc46c);
+  --trace-c: var(--iki-light, #1f5fbf) var(--iki-dark, #6ea8ff);
+  --trace-g: var(--iki-light, #1d1d1f) var(--iki-dark, #d9d9de);
+  --trace-t: var(--iki-light, #c62828) var(--iki-dark, #ff6b6b);
+  --plot-line: var(--accent);
+  --plot-grid: var(--border);
+  --plot-text: var(--muted);
+}
+
+.preview {
+  margin-top: 1.5rem;
+}
+
+.preview-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.75rem;
+}
+
+.preview-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin: 0 0 0.75rem;
+}
+
+.preview-toolbar label {
+  margin-right: 0.375rem;
+  font-weight: 500;
+}
+
+.preview-toolbar select,
+.preview-toolbar input {
+  width: auto;
+}
+
+.preview-page-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.preview-page-field label {
+  margin: 0;
+}
+
+.preview-page-input {
+  width: 5.5rem;
+}
+
+.preview-note {
+  margin: 0.5rem 0 0;
+  font-size: var(--text-sm);
+}
+
+.preview-problems {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.preview-none {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 1rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.preview-none > p {
+  flex: 1 1 20rem;
+  margin: 0;
+}
+
+/* A PDF's page, white as paper in either theme, on the surface around it. */
+.preview-pdf-frame {
+  max-height: min(80vh, 60rem);
+  overflow: auto;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.preview-pdf-frame:focus-visible,
+.preview-image-frame:focus-visible,
+.preview-scroll:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.preview-pdf-page {
+  position: relative;
+  margin: 0 auto;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.preview-pdf-page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* pdf.js's text layer (its pdf_viewer.css): the page's text, transparent, over its canvas,
+   so it can be selected and read aloud. */
+.preview-pdf-text {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.preview-pdf-text :is(span, br) {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.preview-pdf-text > :not(.markedContent),
+.preview-pdf-text .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.preview-pdf-text .markedContent {
+  display: contents;
+}
+
+.preview-pdf-text ::selection {
+  background: color-mix(in srgb, AccentColor, transparent 50%);
+  color: transparent;
+}
+
+.preview-pdf-text .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  user-select: none;
+}
+
+.preview-pdf-failed {
+  margin: 0;
+}
+
+.preview-image-frame {
+  max-height: min(80vh, 60rem);
+  overflow: auto;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* A checkerboard behind transparent pixels. */
+  background: repeating-conic-gradient(var(--surface-2) 0 25%, var(--surface) 0 50%) 0 0 / 16px 16px;
+}
+
+.preview-image-frame img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  image-rendering: auto;
+}
+
+.preview-grid {
+  max-height: min(70vh, 40rem);
+}
+
+.preview-grid .data-grid-cell {
+  font-variant-numeric: tabular-nums;
+}
+
+.preview-grid-number {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface-2);
+  text-align: right;
+  font-size: var(--text-sm);
+}
+
+/* A plot or a trace scrolls sideways; its canvas stays in view while the track scrolls. */
+.preview-scroll {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.preview-track {
+  position: relative;
+}
+
+.preview-canvas {
+  position: sticky;
+  left: 0;
+  display: block;
+}
+
+.preview-plot {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  touch-action: none;
+}
+
+.preview-plot:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.preview-plot canvas {
+  display: block;
+  width: 100%;
+}
+
+.preview-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.5rem;
+  margin: 0 0 0.75rem;
+  font-size: var(--text-sm);
+}
+
+.preview-facts dt {
+  color: var(--muted);
+}
+
+.preview-facts div {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.preview-facts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.preview-data {
+  margin-top: 0.75rem;
+}
+
+.preview-data table {
+  font-variant-numeric: tabular-nums;
+}
+
+.preview-bases {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.preview-legend {
+  display: inline-flex;
+  gap: 0.625rem;
+  font-family: var(--mono);
+  font-weight: 700;
+}
+
+.preview-legend-a {
+  color: var(--trace-a);
+}
+
+.preview-legend-c {
+  color: var(--trace-c);
+}
+
+.preview-legend-g {
+  color: var(--trace-g);
+}
+
+.preview-legend-t {
+  color: var(--trace-t);
+}
+
+/* A preview opened from a record or a run: as wide as the screen allows. */
+.dialog.preview-dialog {
+  max-width: min(80rem, 100%);
+}
+
+.preview-dialog-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.preview-dialog-head .section-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.preview-dialog-head .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+/* The TIFF viewer (ADR 0227): a frame its canvas fills, dragged to pan and zoomed in place.
+   Nothing here animates the view, so prefers-reduced-motion has nothing to stop. */
+.tiff-zoom {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.tiff-zoom-level {
+  min-width: 4.5rem;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.tiff-contrast-label {
+  font-weight: 500;
+}
+
+.tiff-range-input {
+  width: 8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tiff-range-error {
+  flex-basis: 100%;
+  color: var(--error);
+  font-size: var(--text-sm);
+}
+
+.tiff-frame {
+  position: relative;
+  height: min(70vh, 40rem);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  overscroll-behavior: contain;
+}
+
+.tiff-frame:active {
+  cursor: grabbing;
+}
+
+.tiff-frame:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.tiff-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* How to zoom with the wheel, shown over the image when a scroll passes it by. */
+.tiff-hint {
+  position: absolute;
+  right: 0;
+  bottom: 1rem;
+  left: 0;
+  width: fit-content;
+  max-width: calc(100% - 2rem);
+  margin: 0 auto;
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--text) 85%, transparent);
+  color: var(--surface);
+  font-size: var(--text-sm);
+  pointer-events: none;
+}
+
+@media (forced-colors: active) {
+  .tiff-hint {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+}
+
+.tiff-status {
+  min-height: 1.5em;
+  margin: 0.5rem 0 0;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.tiff-problem {
+  margin: 0.25rem 0 0;
+  font-size: var(--text-sm);
 }
 
 /* --- Storage (ADR 0180) ---------------------------------------------------------------- */
@@ -6798,4 +7332,229 @@ button.scan-choice:disabled {
 .starter-plan ul {
   margin: 0;
   padding-left: 1.25rem;
+}
+
+/* A type's records edited as a sheet (ADR 0228): a spreadsheet's grid of cells, each
+   changed one marked, each with a problem in red (amber when it reads two ways), and the
+   active cell outlined. */
+.record-sheet-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(8rem / 13);
+  margin: 0 0 calc(8rem / 13);
+}
+
+.record-sheet-title {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.record-sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(6rem / 13);
+}
+
+.record-sheet-locale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: calc(4rem / 13) calc(16rem / 13);
+  margin: 0 0 calc(4rem / 13);
+}
+
+.record-sheet-locale .field {
+  margin: 0;
+}
+
+.record-sheet-help {
+  max-width: 60rem;
+  margin: 0 0 calc(8rem / 13);
+  font-size: var(--text-sm);
+}
+
+.record-sheet-status {
+  min-height: 1.4em;
+  margin: 0 0 calc(6rem / 13);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.record-sheet-scroll {
+  position: relative;
+  max-height: min(70vh, 48rem);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.record-sheet-grid {
+  font-size: 1rem;
+}
+
+.record-sheet-grid:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: -3px;
+}
+
+.record-sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.record-sheet-body {
+  position: relative;
+}
+
+.record-sheet-row {
+  display: grid;
+  /* The sheet's ROW_HEIGHT (record-sheet.tsx), which draws rows as they scroll in. */
+  height: 34px;
+}
+
+.record-sheet-head .record-sheet-row {
+  height: 32px;
+}
+
+.record-sheet-body .record-sheet-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.record-sheet-row.is-new {
+  background: var(--accent-soft);
+}
+
+.record-sheet-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 calc(8rem / 13);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: cell;
+  user-select: none;
+}
+
+.record-sheet-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.record-sheet-cell.is-id {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}
+
+.record-sheet-head .record-sheet-cell.is-id {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.record-sheet-cell.is-readonly {
+  color: var(--muted);
+  cursor: default;
+}
+
+.record-sheet-cell.is-changed {
+  background: var(--accent-soft);
+  font-weight: 500;
+}
+
+.record-sheet-cell.is-selected {
+  background: var(--focus-ring);
+}
+
+.record-sheet-cell.is-invalid {
+  background: var(--error-bg);
+  box-shadow: inset 0 -2px 0 var(--error);
+  color: var(--error);
+}
+
+.record-sheet-cell.is-ambiguous {
+  background: var(--warning-bg);
+  box-shadow: inset 0 -2px 0 var(--warning);
+  color: var(--warning);
+}
+
+.record-sheet-cell:focus {
+  outline: none;
+}
+
+.record-sheet-cell.is-active,
+.record-sheet-cell:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.record-sheet-input {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  margin: 0 calc(-8rem / 13);
+  padding: 0 calc(7rem / 13);
+  border: 2px solid var(--focus);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.record-sheet-problems {
+  margin-top: calc(12rem / 13);
+}
+
+.record-sheet-problems ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.record-sheet-problems li {
+  margin: 0 0 calc(4rem / 13);
+}
+
+.record-sheet-jump {
+  padding: calc(4rem / 13) 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.dialog:has(.record-sheet-review) {
+  max-width: min(48rem, calc(100vw - 2rem));
+}
+
+.record-sheet-review {
+  max-height: 40vh;
+  margin: 0 0 calc(12rem / 13);
+  overflow: auto;
+}
+
+.record-sheet-review ins {
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.record-sheet-review del {
+  color: var(--muted);
 }

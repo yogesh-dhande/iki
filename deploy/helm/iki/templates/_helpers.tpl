@@ -238,6 +238,18 @@ volumes machines there get (ADR 0075). The rest is the provisioner's alone. */}}
   value: {{ .workerEndpoint | quote }}
 - name: IKI_FILES_MAX_UPLOAD_SIZE
   value: {{ .maxUploadSize | quote }}
+- name: IKI_FILES_SCANNER
+  value: {{ .scanner.adapter | quote }}
+- name: IKI_FILES_SCAN_MAX_SIZE
+  value: {{ printf "%dB" (int64 .scanner.maxBytes) | quote }}
+- name: IKI_FILES_SCAN_OVERSIZE_POLICY
+  value: {{ .scanner.oversizePolicy | quote }}
+- name: IKI_CLAMD_HOST
+  value: {{ .scanner.clamd.host | default (printf "%s-clamd" (include "iki.fullname" $ctx)) | quote }}
+- name: IKI_CLAMD_PORT
+  value: {{ .scanner.clamd.port | quote }}
+- name: IKI_CLAMD_TIMEOUT_SECONDS
+  value: {{ .scanner.clamd.timeoutSeconds | quote }}
 - name: IKI_FILES_ARTIFACT_RETENTION
   value: {{ .artifactRetention | quote }}
 - name: IKI_FILES_ARTIFACT_MIN_RETENTION
@@ -333,6 +345,14 @@ cluster's (ADR 0133), with no admission controller in front of its nodes. */}}
 - name: OTEL_EXPORTER_OTLP_ENDPOINT
   value: {{ $ctx.Values.otel.endpoint | quote }}
 {{- end }}
+{{- end -}}
+
+{{/*
+Where web pods and task runners send plugins' exports (ADR 0230). Only with sandbox.enabled.
+*/}}
+{{- define "iki.sandboxEnv" -}}
+- name: IKI_EXPORT_SANDBOX
+  value: {{ printf "tcp://%s-sandbox:8090" (include "iki.fullname" .) | quote }}
 {{- end -}}
 
 {{- define "iki.volumeMounts" -}}

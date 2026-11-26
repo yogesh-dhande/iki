@@ -351,8 +351,6 @@ class AppliedMappingOut(TypedDict):
 
 class AppliedStarterOut(TypedDict):
     flow: Literal['research', 'regulated_qc']
-    #: Original requester for an assay project Admin who may edit that project.
-    requester_project: str | None
     version: str
 
 
@@ -451,6 +449,14 @@ class AttemptPackOut(TypedDict):
     reported_as: str
     #: How many runs of its batch its job ran at once, this one too.
     runs: int
+
+
+class AttemptScanWaitOut(TypedDict):
+    #: When the files' scans were done, whether they were found usable or one was held. None while it waits, and for one cancelled as it waited.
+    ended_at: str | None
+    #: How many of the files it reads it waited for.
+    files: int
+    started_at: str
 
 
 class AttemptSlurmOut(TypedDict):
@@ -907,6 +913,17 @@ class ComponentPersonOut(TypedDict):
     name: str
 
 
+class CompoundExportOut(TypedDict):
+    #: The fields an SDF can carry as data, in order, which it carries unless `fields` names fewer: those of a kind SD holds as text (not files, people or JSON).
+    data: list[str]
+    #: What it writes. `compound`: a compound's structure, as a Molfile, and as an SDF with its fields as data (ADR 0229).
+    export: Literal['compound']
+    #: The files it's written as.
+    formats: list[FileFormatOut]
+    #: The text field holding its Molfile.
+    structure: str
+
+
 #: A condition on a field, or a group of them: exactly one of ``field`` (with ``op`` and
 #: ``value``), ``all``, ``any`` or ``not``.
 Condition = TypedDict(
@@ -1250,7 +1267,7 @@ class EgressOut(TypedDict):
 
 
 class EnableIn(TypedDict):
-    #: For a scheduled trigger: the service account its runs are launched as, one of its `run_as_choices`.
+    #: For a trigger whose runs are launched as a service account (on a schedule, or as a request arrives): the account, one of its `run_as_choices`.
     run_as: NotRequired[str | None]
 
 
@@ -1410,7 +1427,7 @@ class EntityTypeOut(TypedDict):
     #: The date or datetime field saying when its records are due (ADR 0122), which My work sorts by.
     due: NotRequired[str | None]
     #: The files Iki writes of its records (ADR 0171), from `/entities/{ref}/export`: its own, or its nearest parent's.
-    exports: NotRequired[list[FileExportOut | SignedReportExportOut]]
+    exports: NotRequired[list[FileExportOut | ProteinExportOut | CompoundExportOut | SignedReportExportOut | PluginExportOut]]
     extends: str | None
     fields: list[FieldOut]
     hrid_prefix: str | None
@@ -1630,12 +1647,30 @@ class ExportOut(TypedDict):
 
 
 class ExportParams(TypedDict):
+    #: An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`).
+    fields: NotRequired[list[str] | None]
     #: Which file, as its type's `exports` list them.
-    format: Literal['genbank', 'fasta', 'signed-report-html', 'signed-report-json']
+    format: str
     #: Whose record of a registry entry, as for reading it (ADR 0115).
     project: NotRequired[str | None]
     #: Which revision, as it was then. Its latest if left out.
     revision: NotRequired[int | None]
+
+
+class ExportSearchIn(TypedDict):
+    """The records a table shows, as ``POST /entities/search`` finds them."""
+    archived: NotRequired[bool | None]
+    collection: NotRequired[str | None]
+    #: Only the type itself, not its subtypes.
+    exact_type: NotRequired[bool]
+    #: Entities that belong to this project.
+    project: NotRequired[str | None]
+    q: NotRequired[str | None]
+    run: NotRequired[str | None]
+    sort: NotRequired[SortIn | None]
+    #: This type and its subtypes.
+    type: NotRequired[str | None]
+    where: NotRequired[Condition | None]
 
 
 class FacetParams(TypedDict):
@@ -1645,6 +1680,7 @@ class FacetParams(TypedDict):
     format: NotRequired[list[str]]
     max_size: NotRequired[int | None]
     project: NotRequired[str | None]
+    #: Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.
     q: NotRequired[str]
     run: NotRequired[str | None]
     sample: NotRequired[str | None]
@@ -1694,6 +1730,8 @@ class FieldOut(TypedDict):
     role_label: str | None
     #: A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise.
     row: NotRequired[RowOut | None]
+    #: Text: true when a search finds its words with `matches`, which reads its first 100,000 characters (ADR 0233); false for machine text, such as a Molfile, which a search reads with `contains` only. Null for other kinds of field.
+    searchable: NotRequired[bool | None]
     #: State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}. A correction can also return it to the current state's `on_edit` destination. Empty otherwise.
     states: list[StateOut]
     #: References: the types they may refer to, any one of them or one of its subtypes (ADR 0136); `iki/core.Entity` for any entity. For a list, its items'. Empty otherwise.
@@ -1745,14 +1783,20 @@ class FileDetailOut(TypedDict):
     created_by: UserOut | None
     #: Registered where it already was, rather than uploaded.
     external: bool
+    #: Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224).
+    facts: FileFactsOut
     id: str
     media_type: str
     name: str
     origin: FileOriginOut
     #: Where it was added. Null if you can't see it.
     project: ProjectRef | None
+    #: A SAM or BAM file's read groups, each @RG line as it gives it (ADR 0224): every one, or none when any can't be read as the specification defines.
+    read_groups: list[ReadGroupOut]
     #: The samples it belongs to that you can read.
     samples: list[SampleOut]
+    #: The deployment's malware scan of the file's bytes.
+    scan: FileScanOut
     sha256: str
     #: Bytes.
     size: int
@@ -1770,6 +1814,27 @@ class FileExportOut(TypedDict):
     sequence: str
 
 
+class FileFactsOut(TypedDict):
+    """What the file says about where its data came from (ADR 0224), read when it was
+added once its scan let it be used: a held file's bytes aren't parsed. Each is null when
+the file doesn't say, or doesn't say clearly.
+    """
+    #: The instrument's model, such as Aurora or Orbitrap Eclipse.
+    instrument: StatedOut | None
+    #: The name the instrument was given, such as an AB1 trace's MCHN.
+    instrument_name: StatedOut | None
+    #: Who made the instrument.
+    manufacturer: StatedOut | None
+    #: Who operated the instrument.
+    operator: StatedOut | None
+    #: The instrument's protocol, such as a plate reader's test.
+    protocol: StatedOut | None
+    #: The instrument's serial number.
+    serial: StatedOut | None
+    #: The software that recorded the data, and its version where given.
+    software: StatedOut | None
+
+
 class FileFilters(TypedDict):
     #: Only files a field or param takes: its media types, as `format`.
     accepts: NotRequired[list[str]]
@@ -1779,7 +1844,7 @@ class FileFilters(TypedDict):
     acquired_to: NotRequired[str | None]
     #: From the previous page's next_cursor.
     cursor: NotRequired[str | None]
-    #: Media types, such as application/x-abi, or image/* for any image.
+    #: Format IDs, media types such as application/x-abi, or image/* for any image.
     format: NotRequired[list[str]]
     #: Items per page.
     limit: NotRequired[int]
@@ -1787,7 +1852,7 @@ class FileFilters(TypedDict):
     max_size: NotRequired[int | None]
     #: Its files; every one you can read if left out.
     project: NotRequired[str | None]
-    #: Part of its name, in any case.
+    #: Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.
     q: NotRequired[str]
     #: A run, by ID or HRID: the files it read or made.
     run: NotRequired[str | None]
@@ -1802,12 +1867,16 @@ class FileFormatOut(TypedDict):
     description: str
     #: Its file name's, such as gb.
     extension: str
-    #: What `/entities/{ref}/export` takes.
-    format: Literal['genbank', 'fasta', 'signed-report-html', 'signed-report-json']
+    #: What `/entities/{ref}/export` takes: one of Iki's formats, such as `genbank`, or a plugin's writer's qualified ID (ADR 0230).
+    format: str
     #: Its name, such as GenBank.
     label: str
+    #: `file`: many records make one file of it, from `POST /entity-exports` (ADR 0229); `one`: it holds one record; `zip`: one record each, so many records make a ZIP of them.
+    many: Literal['file', 'one', 'zip']
     #: Its media type, such as chemical/seq-na-genbank.
     media_type: str
+    #: The plugin whose writer writes it, in the export sandbox (ADR 0230); null for Iki's own.
+    plugin: str | None
 
 
 class FileOriginOut(TypedDict):
@@ -1830,11 +1899,15 @@ class FileOut(TypedDict):
     created_by: UserOut | None
     #: Registered where it already was, rather than uploaded.
     external: bool
+    #: Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224).
+    facts: FileFactsOut
     id: str
     media_type: str
     name: str
     #: Where it was added. Null if you can't see it.
     project: ProjectRef | None
+    #: The deployment's malware scan of the file's bytes.
+    scan: FileScanOut
     sha256: str
     #: Bytes.
     size: int
@@ -1862,15 +1935,42 @@ class FileRowOut(TypedDict):
     created_by: UserOut | None
     #: Registered where it already was, rather than uploaded.
     external: bool
+    #: Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224).
+    facts: FileFactsOut
     id: str
     media_type: str
     name: str
     #: Where it was added. Null if you can't see it.
     project: ProjectRef | None
+    #: The deployment's malware scan of the file's bytes.
+    scan: FileScanOut
     sha256: str
     #: Bytes.
     size: int
     used_by: UsedByCountOut
+
+
+class FileScanOut(TypedDict):
+    #: The immutable scan decision, once recorded.
+    decision_id: str | None
+    #: The finding or reason the file could not be scanned.
+    reason: str
+    #: A Quarantine Admin released this infected decision.
+    released: bool
+    #: When the decision was recorded.
+    scanned_at: str | None
+    #: Scanner identity, when known.
+    scanner: str
+    #: Signatures used by the scanner, when available.
+    signature_version: str
+    state: Literal['pending', 'clean', 'infected', 'not_scanned']
+    #: Whether the scan decision allows this file to be used.
+    usable: bool
+
+
+class FileSignatureOut(TypedDict):
+    hex: str
+    offset: int
 
 
 class FiredEntityOut(TypedDict):
@@ -1896,7 +1996,7 @@ class FiringOut(TypedDict):
     #: The visible entity whose change fired it.
     entity: FiredEntityOut | None
     error: FiringErrorOut | None
-    event: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'schedule']
+    event: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'request.received', 'schedule']
     fired_at: str | None
     id: str
     label: str
@@ -1936,6 +2036,9 @@ FlowTransitionOut = TypedDict(
 
 class FormatOut(TypedDict):
     count: int
+    #: The declared format ID, when installed.
+    id: str | None
+    label: str
     media_type: str
 
 
@@ -2058,6 +2161,24 @@ class HandOverIn(TypedDict):
     reason: NotRequired[str]
     record: str
     to: str
+
+
+class HeldCopyOut(TypedDict):
+    """Where held bytes are: a project's file, or a run's or a bundle's own upload."""
+    #: The agent that added it for them, if one did.
+    agent: AgentOut | None
+    created_at: str
+    #: Who added it.
+    created_by: UserOut | None
+    #: The project file, for a ``file``, if you can read it: its page opens.
+    file: str | None
+    #: A project's ``file``; or a run's ``artifact`` or ``checkpoint``, or a ``bundle`` to import, each kept apart from the project's files.
+    kind: Literal['file', 'artifact', 'checkpoint', 'bundle']
+    media_type: str
+    name: str
+    project: ProjectRef
+    #: The run's ID, for an artifact or a checkpoint.
+    run: str | None
 
 
 class HeldOut(TypedDict):
@@ -2374,7 +2495,7 @@ class ImportOut(TypedDict):
     size: int
     #: Where it's from, once it's been read.
     source: ImportSource | None
-    state: Literal['uploading', 'planning', 'planned', 'refused', 'applying', 'applied', 'failed', 'discarded']
+    state: Literal['uploading', 'scanning', 'quarantined', 'not_scanned', 'planning', 'planned', 'refused', 'applying', 'applied', 'failed', 'discarded']
     #: The trusted deployment its signature is from.
     trusted_as: str
     #: Its archive's upload.
@@ -2460,7 +2581,7 @@ class ImportStartedOut(TypedDict):
     size: int
     #: Where it's from, once it's been read.
     source: ImportSource | None
-    state: Literal['uploading', 'planning', 'planned', 'refused', 'applying', 'applied', 'failed', 'discarded']
+    state: Literal['uploading', 'scanning', 'quarantined', 'not_scanned', 'planning', 'planned', 'refused', 'applying', 'applied', 'failed', 'discarded']
     #: The trusted deployment its signature is from.
     trusted_as: str
     #: Its archive's upload.
@@ -2516,11 +2637,27 @@ class InboxFilters(TypedDict):
 class InputOut(TypedDict):
     cardinality: Literal['one', 'many']
     description: str | None
+    #: Not chosen: each run is given every record of its type the project owns and hasn't archived (ADR 0232). Launching it with any is refused.
+    from_project: NotRequired[bool]
     label: str
     max: int | None
     name: str
     optional: bool
     type: str
+
+
+class InstalledFormatOut(TypedDict):
+    canonical: str
+    extensions: list[str]
+    id: str
+    label: str
+    #: The canonical media type followed by its aliases.
+    media_types: list[str]
+    #: Installed actions whose file inputs accept the format.
+    parsers: list[str]
+    reader: str | None
+    signatures: list[FileSignatureOut]
+    viewer: str | None
 
 
 class IntakeIn(TypedDict):
@@ -2757,6 +2894,8 @@ class MeCan(TypedDict):
     manage_compute: bool
     #: People, teams, sign-in and apps settings.
     manage_org: bool
+    #: Review held file scans and release false positives.
+    manage_quarantine: bool
     #: The organization's webhooks.
     manage_webhooks: bool
     read_audit: bool
@@ -2786,7 +2925,7 @@ class MeOut(TypedDict):
     imported_from: str
     kind: Literal['person', 'service']
     name: str
-    org_roles: list[Literal['org_admin', 'compute_admin', 'auditor']]
+    org_roles: list[Literal['org_admin', 'compute_admin', 'auditor', 'quarantine_admin']]
 
 
 class MessageOut(TypedDict):
@@ -2993,7 +3132,7 @@ class NotificationOut(TypedDict):
     count: int
     created_at: str
     id: str
-    #: What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.Sample.in_review.
+    #: What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.ReviewedSample.in_review.
     kind: str
     #: What people's settings call its kind.
     kind_label: str
@@ -3080,11 +3219,11 @@ class OrgParams(TypedDict):
 
 
 class OrgRolesIn(TypedDict):
-    roles: list[Literal['org_admin', 'compute_admin', 'auditor']]
+    roles: list[Literal['org_admin', 'compute_admin', 'auditor', 'quarantine_admin']]
 
 
 class OrgRolesOut(TypedDict):
-    roles: list[Literal['org_admin', 'compute_admin', 'auditor']]
+    roles: list[Literal['org_admin', 'compute_admin', 'auditor', 'quarantine_admin']]
 
 
 class OriginFileOut(TypedDict):
@@ -3279,8 +3418,20 @@ class PageProjectOut(TypedDict):
     next_cursor: str | None
 
 
+class PageQuarantineOut(TypedDict):
+    items: list[QuarantineOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
+
+
+class PageRecordExportOut(TypedDict):
+    items: list[RecordExportOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
+
+
 class PageRegistrationOut(TypedDict):
-    items: list[RegistrationOut]
+    items: list[RegistrationOut | RegistrationStatusOut]
     #: Pass as cursor for the next page; null at the end.
     next_cursor: str | None
 
@@ -3364,7 +3515,7 @@ class PageTeamRef(TypedDict):
 
 
 class PageUploadOut(TypedDict):
-    items: list[UploadOut]
+    items: list[UploadOut | UploadStatusOut]
     #: Pass as cursor for the next page; null at the end.
     next_cursor: str | None
 
@@ -3463,6 +3614,8 @@ class ParamOut(TypedDict):
     role_label: str | None
     #: A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise.
     row: NotRequired[RowOut | None]
+    #: Text: true when a search finds its words with `matches`, which reads its first 100,000 characters (ADR 0233); false for machine text, such as a Molfile, which a search reads with `contains` only. Null for other kinds of field.
+    searchable: NotRequired[bool | None]
     #: State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}. A correction can also return it to the current state's `on_edit` destination. Empty otherwise.
     states: list[StateOut]
     #: References: the types they may refer to, any one of them or one of its subtypes (ADR 0136); `iki/core.Entity` for any entity. For a list, its items'. Empty otherwise.
@@ -3580,6 +3733,17 @@ class PluginCandidateIn(TypedDict):
     plugin: dict[str, Any]
 
 
+class PluginExportOut(TypedDict):
+    #: What it writes. `plugin`: a plugin's format, by its writer (ADR 0230).
+    export: Literal['plugin']
+    #: The field each of the writer's roles reads.
+    fields: dict[str, str]
+    #: The file it's written as; none when this deployment can't write it.
+    formats: list[FileFormatOut]
+    #: The writer, by its qualified ID.
+    writer: str
+
+
 class PluginFindingOut(TypedDict):
     blocking: bool
     #: Number of affected records. A sampled count is a lower bound.
@@ -3680,7 +3844,7 @@ class ProjectChangeOut(TypedDict):
     entry: NotRequired[bool]
     #: The holds this revision opened (ADR 0127), by breaking a rule that holds, each with its review once it's reviewed. Kept after the review.
     holds: NotRequired[list[HeldOut]]
-    kind: Literal['created', 'edited', 'archived', 'restored', 'curated', 'superseded', 'moved', 'state_changed']
+    kind: Literal['created', 'edited', 'migrated', 'archived', 'restored', 'curated', 'superseded', 'moved', 'state_changed']
     number: int
     reason: str
     #: The run that made it, when `via` is `run` and you can read the run's project. For a registry entry's revision, the run that made it through a record.
@@ -3833,7 +3997,7 @@ class ProjectTriggerOut(TypedDict):
     disabled_reason: str
     enabled: bool
     enabled_at: str | None
-    #: Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a scheduled one's are. Null if nobody ever has.
+    #: Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a service account's are. Null if nobody ever has.
     enabled_by: PersonRef | None
     #: For `entity.state_changed`: the state field it watches. Empty otherwise.
     field: str
@@ -3847,18 +4011,20 @@ class ProjectTriggerOut(TypedDict):
     name: str
     #: On a schedule, while it's on: when it next runs.
     next_run_at: str | None
-    #: What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.
-    on: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'schedule']
+    #: What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, a request of its type sent to the project as a service (ADR 0232), or its schedule.
+    on: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'request.received', 'schedule']
     params: dict[str, Any]
     plugin: str
     #: Recheck an edited record on the editor’s authority.
     recheck: NotRequired[bool]
     #: Other inputs it gives the entities related to the one that fired it (ADR 0123), by input: each, every one of the input's type in the project that way of it. All of them or none: past the most an input takes, it fails.
     related: dict[str, RelatedOut]
-    #: On a schedule: the service account its runs are launched as.
+    #: On a schedule or a request's arrival: the service account its runs are launched as.
     run_as: PersonRef | None
-    #: On a schedule, for the project's Admins: the service accounts it may run as, members who can run its action here.
+    #: For one whose runs are launched as a service account, for the project's Admins: the accounts it may run as, members who can run its action here.
     run_as_choices: list[PersonRef]
+    #: Its runs are launched as a service account the Admin who turns it on chooses, on their authority: on a schedule, or as a request arrives, since nobody in the project made it happen (ADR 0081, ADR 0232).
+    runs_as_account: NotRequired[bool]
     #: On a schedule: when it runs, in cron's five fields. Empty otherwise.
     schedule: str
     #: For `entity.state_changed`: it fires only when the field is set to one of these. Empty for any of its states.
@@ -3873,6 +4039,15 @@ class ProjectTriggerOut(TypedDict):
     why_not_enable: str | None
 
 
+class ProteinExportOut(TypedDict):
+    #: What it writes. `protein`: a protein's residues, as FASTA (ADR 0229).
+    export: Literal['protein']
+    #: The files it's written as.
+    formats: list[FileFormatOut]
+    #: The protein sequence field it's written from.
+    sequence: str
+
+
 class PutAwayIn(TypedDict):
     line: str
     #: Null: its next free one.
@@ -3883,12 +4058,57 @@ class PutAwayIn(TypedDict):
     to_mode: NotRequired[ScanMode]
 
 
+class QuarantineFilters(TypedDict):
+    #: From the previous page's next_cursor.
+    cursor: NotRequired[str | None]
+    #: Items per page.
+    limit: NotRequired[int]
+    #: Part of a file's name, or the start of its SHA-256.
+    q: NotRequired[str]
+    #: Only malware findings, or only inspections that couldn't finish.
+    state: NotRequired[Literal['infected', 'not_scanned'] | None]
+    #: Held now, or infected findings released as false positives.
+    status: NotRequired[Literal['held', 'released']]
+
+
+class QuarantineOut(TypedDict):
+    #: How many places the bytes are, listed or not.
+    file_count: int
+    #: Where the bytes are, oldest first: the first few in a list, every one in a decision's own.
+    files: list[HeldCopyOut]
+    #: The decision ID for releasing a confirmed false positive.
+    id: str
+    #: What was found (the signature's name), or why an inspection could not finish: ``too_large``, ``unsupported_source``, ``clamd_stream_limit``, or the scanner's own reason, such as ``Heuristics.Encrypted.Zip``.
+    reason: str
+    #: An infected finding not yet released. An incomplete inspection never is: it found nothing to call false (ADR 0217).
+    releasable: bool
+    #: Its release, once released.
+    release: QuarantineReleaseOut | None
+    scanned_at: str
+    scanner: str
+    sha256: str
+    signature_version: str
+    #: Bytes.
+    size: int
+    state: Literal['infected', 'not_scanned']
+
+
+class QuarantineReleaseOut(TypedDict):
+    at: str
+    #: The Quarantine Admin who released it.
+    by: UserOut
+    #: Why they found the finding false, as they gave it.
+    reason: str
+
+
 class QueryIn(TypedDict):
     """A search, as ``POST /entities/search`` takes it, without its project or paging."""
     archived: NotRequired[bool | None]
     exact_type: NotRequired[bool]
     q: NotRequired[str | None]
     sort: NotRequired[SortIn | None]
+    #: Further sorts, in order, for what `sort` ties (ADR 0232).
+    then: NotRequired[list[SortIn]]
     type: NotRequired[str | None]
     where: NotRequired[Condition | None]
 
@@ -3949,6 +4169,26 @@ class QuotaScopeOut(TypedDict):
     team: str | None
     #: A project's team's ID; null for a team.
     team_id: str | None
+
+
+class ReadGroupOut(TypedDict):
+    """A SAM or BAM file's @RG line: the SAM specification's tags it gives (section 1.3),
+by their two-letter names, such as ID, SM (sample), LB (library) and PU (platform unit).
+    """
+    BC: NotRequired[str]
+    CN: NotRequired[str]
+    DS: NotRequired[str]
+    DT: NotRequired[str]
+    FO: NotRequired[str]
+    ID: str
+    KS: NotRequired[str]
+    LB: NotRequired[str]
+    PG: NotRequired[str]
+    PI: NotRequired[str]
+    PL: NotRequired[str]
+    PM: NotRequired[str]
+    PU: NotRequired[str]
+    SM: NotRequired[str]
 
 
 class ReadIn(TypedDict):
@@ -4099,6 +4339,50 @@ class ReconciliationOut(TypedDict):
     status: Literal['open', 'completed', 'cancelled']
 
 
+class RecordExportIn(TypedDict):
+    #: The records, by UUID or HRID, in the file's order. Or give `search`.
+    entities: NotRequired[list[str]]
+    #: An SDF's data: the fields it carries, in order. Every one all its records' types can carry, if left out.
+    fields: NotRequired[list[str] | None]
+    #: A format every record's type exports, as its `exports` list them, of which many records make one file (`many: file`), or a ZIP of one file each (`many: zip`).
+    format: str
+    #: For an HRID naming a registry entry's record in several projects: this project's (ADR 0115).
+    project: NotRequired[str | None]
+    #: Every record this search finds, in its order, up to 10,000: a table's whole result.
+    search: NotRequired[ExportSearchIn | None]
+
+
+class RecordExportOut(TypedDict):
+    #: How many records it holds.
+    count: int
+    created_at: str
+    #: How many of them are written so far.
+    done: int
+    #: Why it failed, if it did.
+    error: str
+    #: When its file is deleted. Files of records in a project under a legal hold are kept until the hold is released.
+    expires_at: str | None
+    #: The fields an SDF carries as data.
+    fields: list[str]
+    file_name: str
+    finished_at: str | None
+    format: str
+    id: str
+    #: What the file couldn't hold of each record, by HRID, as the file says it where the format has a place: GenBank's COMMENT, an SDF's IKI_NOTES. FASTA has none, so its notes are only here.
+    notes: dict[str, list[str]]
+    #: Records that couldn't be written, by HRID, and why: the export failed, so no file holds fewer records than were asked for.
+    refused: dict[str, str]
+    #: What was picked, in words.
+    selection: str
+    #: The file's SHA-256, once it's ready.
+    sha256: str
+    #: The file's size in bytes, once it's ready.
+    size: int | None
+    state: Literal['queued', 'writing', 'ready', 'failed', 'expired']
+    #: Which code wrote it: Iki's `builtin` and `version`; or a plugin's writer's `plugin`, `writer`, `commit`, `module_sha256` and `abi` (ADR 0230).
+    writer: dict[str, str]
+
+
 class RefOut(TypedDict):
     archived: bool
     #: The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
@@ -4144,19 +4428,31 @@ class RegistrationIn(TypedDict):
 
 class RegistrationOut(TypedDict):
     created_at: str
-    #: Why it failed.
+    #: Why it failed, if you can still read the details.
     error: str
-    #: The file it became, once ready.
+    #: The file it became, once ready and readable.
     file: FileOut | None
     id: str
     media_type: str
     name: str
-    project: str
+    #: Where it was added. Null if you can't see it.
+    project: str | None
     size: int
-    state: Literal['checking', 'ready', 'failed']
+    state: Literal['checking', 'scanning', 'ready', 'failed']
     uri: str
     #: The object version the file is pinned to.
     version: str
+
+
+class RegistrationStatusOut(TypedDict):
+    """Your job status when the file is outside your current access."""
+    created_at: str
+    #: Why it failed, if you can still read the details.
+    error: str
+    #: The file it became, once ready and readable.
+    file: FileOut | None
+    id: str
+    state: Literal['checking', 'scanning', 'ready', 'failed']
 
 
 class RegistryCan(TypedDict):
@@ -4246,6 +4542,11 @@ class RelatedOut(TypedDict):
     direction: Literal['downstream', 'upstream']
     #: The kinds of edge it walks; empty for all.
     edges: list[Literal['reference', 'run', 'file', 'aliquot', 'transfer', 'used']]
+
+
+class ReleaseQuarantineIn(TypedDict):
+    #: Why the finding is false.
+    reason: str
 
 
 class ReproduceIn(TypedDict):
@@ -4383,7 +4684,7 @@ class RevisionDetailOut(TypedDict):
     files: dict[str, FileRef]
     #: The holds this revision opened (ADR 0127), by breaking a rule that holds, each with its review once it's reviewed. Kept after the review.
     holds: NotRequired[list[HeldOut]]
-    kind: Literal['created', 'edited', 'archived', 'restored', 'curated', 'superseded', 'moved', 'state_changed']
+    kind: Literal['created', 'edited', 'migrated', 'archived', 'restored', 'curated', 'superseded', 'moved', 'state_changed']
     number: int
     #: The people its values and changes name, by ID (ADR 0122).
     people: NotRequired[dict[str, PersonOut]]
@@ -4417,7 +4718,7 @@ class RevisionOut(TypedDict):
     entry: NotRequired[bool]
     #: The holds this revision opened (ADR 0127), by breaking a rule that holds, each with its review once it's reviewed. Kept after the review.
     holds: NotRequired[list[HeldOut]]
-    kind: Literal['created', 'edited', 'archived', 'restored', 'curated', 'superseded', 'moved', 'state_changed']
+    kind: Literal['created', 'edited', 'migrated', 'archived', 'restored', 'curated', 'superseded', 'moved', 'state_changed']
     number: int
     reason: str
     #: The run that made it, when `via` is `run` and you can read the run's project. For a registry entry's revision, the run that made it through a record.
@@ -4549,12 +4850,14 @@ class RunArtifactOut(TypedDict):
     name: str
     #: Where the command wrote it, relative to its output directory.
     path: str
+    #: The scan decision for a verified upload.
+    scan: FileScanOut | None
     #: Of its bytes, as hex.
     sha256: str
     #: Bytes.
     size: int
-    #: `kept` while it can be downloaded; `deleted` once its retention is over (its record stays); `failed` if its upload didn't finish.
-    state: Literal['uploading', 'kept', 'failed', 'deleted']
+    #: Whether the artifact can be downloaded, is still uploading or scanning, is held, or has expired.
+    state: Literal['uploading', 'scanning', 'quarantined', 'not_scanned', 'kept', 'failed', 'deleted']
 
 
 class RunAttemptOut(TypedDict):
@@ -4580,6 +4883,8 @@ class RunAttemptOut(TypedDict):
     queued_at: str
     #: The checkpoint an earlier attempt saved that this one resumed from.
     resumed_from: CheckpointOut | None
+    #: When it waited for files it reads to be scanned for malware (ADR 0234).
+    scan_wait: AttemptScanWaitOut | None
     #: The secrets its worker was given, by name (ADR 0054).
     secrets: list[str]
     #: When a Slurm cluster ran it: its Slurm job (ADR 0133).
@@ -4806,8 +5111,10 @@ class RunOut(TypedDict):
     #: The project's trigger that launched it, if one did, and the change or schedule that fired it (ADR 0080).
     trigger: TriggerFiredOut | None
     via: str
-    #: Why a queued run hasn't started: a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).
+    #: Why a queued run hasn't started: a file it reads is being scanned (`waiting_for_scan`), a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).
     waiting: str | None
+    #: While files it reads are being scanned for malware (ADR 0234): no worker takes it until they're found usable, and it fails, saying why, if one is held. Its attempts' `scan_wait` say when it waited.
+    waiting_for_scan: RunScanWaitOut | None
     #: The workflow run it's a step of, if any (ADR 0079).
     workflow: WorkflowStepRefOut | None
 
@@ -4825,6 +5132,15 @@ class RunRefOut(TypedDict):
     action: str
     hrid: str
     id: str
+
+
+class RunScanWaitOut(TypedDict):
+    #: The files it still waits for that you can read, by name.
+    files: list[ScanWaitFileOut]
+    #: How many more it waits for, that you can't read.
+    others: int
+    #: When it began waiting.
+    since: str
 
 
 RunStatus = Literal['awaiting_approval', 'queued', 'running', 'succeeded', 'failed', 'cancelled', 'timed_out', 'rejected', 'declined', 'parked']
@@ -5007,6 +5323,11 @@ class ScanResolveOut(TypedDict):
     status: Literal['one', 'ambiguous', 'none']
 
 
+class ScanWaitFileOut(TypedDict):
+    id: str
+    name: str
+
+
 class ScansIn(TypedDict):
     #: Defaults to empty. Required when replacing an earlier observation.
     reason: NotRequired[str | None]
@@ -5047,6 +5368,8 @@ class SearchCsvParams(TypedDict):
     run: NotRequired[str | None]
     #: A field to sort by.
     sort: NotRequired[str | None]
+    #: Further sorts, in order, for what `sort` ties: each a field, with `-` first for descending, as `-priority`.
+    then: NotRequired[list[str]]
     #: This type and its subtypes.
     type: NotRequired[str | None]
     #: Conditions on the type's fields, as JSON: what `POST /entities/search` takes as `where`.
@@ -5103,6 +5426,8 @@ class SearchIn(TypedDict):
     #: What this run (its ID or HRID) wrote, or found already written: a spreadsheet import's records, say.
     run: NotRequired[str | None]
     sort: NotRequired[SortIn | None]
+    #: Further sorts, in order, for what `sort` ties: a core's queue by its ranking, then priority, then when each is needed (ADR 0232). Blanks are last in each.
+    then: NotRequired[list[SortIn]]
     #: This type and its subtypes.
     type: NotRequired[str | None]
     where: NotRequired[Condition | None]
@@ -5168,7 +5493,7 @@ class ServiceAccountOut(TypedDict):
     imported_from: str
     kind: Literal['person', 'service']
     name: str
-    org_roles: list[Literal['org_admin', 'compute_admin', 'auditor']]
+    org_roles: list[Literal['org_admin', 'compute_admin', 'auditor', 'quarantine_admin']]
 
 
 class ServiceAccountPatch(TypedDict):
@@ -5351,6 +5676,128 @@ class SheetColumnOut(TypedDict):
     time_zone: str | None
     unit: str | None
     values: dict[str, str]
+
+
+class SheetEditCheckIn(TypedDict):
+    locale: NotRequired[SheetEditLocaleIn | None]
+    rows: list[SheetEditCheckRowIn]
+    #: The type of the sheet's records, such as acme/protein.Sample.
+    type: str
+
+
+class SheetEditCheckOut(TypedDict):
+    rows: list[SheetEditRowOut]
+
+
+class SheetEditCheckRowIn(TypedDict):
+    #: How much a new record starts with, in its type's amount unit or its own: `500`, `0.5 mL`.
+    amount: NotRequired[str | None]
+    #: Each changed cell's text, by its field: null or empty to empty it.
+    cells: NotRequired[dict[str, str | None]]
+    #: The record it is; none for a new one.
+    entity: NotRequired[str | None]
+    #: The row, as the caller names it.
+    key: str
+    #: A new record's place in storage: a container by its ID, code or name, and its position, such as `BOX-000002 A1`; just the container for its next free one.
+    location: NotRequired[str | None]
+    #: The record's revision the cells were read from.
+    revision: NotRequired[int | None]
+
+
+class SheetEditLocaleIn(TypedDict):
+    """How the sheet's text writes numbers and dates, as the person says (ADR 0178). Until
+it's said, a cell that reads two ways (1,234; 03/04/2026) is a problem, never a guess.
+    """
+    #: day_first: 31/12/2026; month_first: 12/31/2026. Null until you know.
+    dates: NotRequired[Literal['day_first', 'month_first'] | None]
+    #: point: 1,234.5; comma: 1.234,5. Null until you know.
+    decimal: NotRequired[Literal['point', 'comma'] | None]
+    #: Plain numbers in date columns are Excel serial dates (46023).
+    serial_dates: NotRequired[bool]
+    #: The IANA time zone of a date and time that gives none, such as the person's own: Europe/London. Without one, such a cell is a problem.
+    time_zone: NotRequired[str | None]
+
+
+class SheetEditPlaceIn(TypedDict):
+    #: The container it goes in.
+    container: str
+    #: Its position, such as A1; none for the next free one.
+    position: NotRequired[str | None]
+
+
+class SheetEditPlaceOut(TypedDict):
+    container: str
+    hrid: str
+    position: str | None
+    #: As the sheet says it: `BOX-000002 A1`.
+    shown: str
+    title: str
+
+
+class SheetEditProblemOut(TypedDict):
+    #: Where: `values/<field>` for a cell, `location`, `amount`, or `` for the row.
+    at: str
+    detail: str
+    #: `ambiguous`: the cell reads two ways, by how the sheet writes numbers or dates; `stale`: the record changed since its revision was read.
+    kind: Literal['invalid', 'ambiguous', 'stale']
+
+
+class SheetEditRowOut(TypedDict):
+    amount: NotRequired[AmountIn | None]
+    amount_shown: NotRequired[str | None]
+    #: The record it changes; none for a new one.
+    entity: str | None
+    #: Rules that hold it for review once saved (ADR 0127): saving needs `hold_reason`.
+    held: list[str]
+    hrid: str | None
+    key: str
+    #: What saving it does: `edited`; `unchanged`; `created`, `registered` (a new registry entry) or `added` (a record of an entry already registered); `blank`, a new row with nothing in it; or `failed`, with its problems.
+    kind: Literal['edited', 'unchanged', 'created', 'registered', 'added', 'blank', 'failed']
+    location: NotRequired[SheetEditPlaceOut | None]
+    problems: list[SheetEditProblemOut]
+    #: The record's revision the check read.
+    revision: int | None
+    #: Each cell as the record would have it, as the grid and its CSV say it.
+    shown: dict[str, str]
+    #: Each cell as it reads, as an edit gives it: send these to save.
+    values: dict[str, Any]
+
+
+class SheetEditSaveIn(TypedDict):
+    #: Why to save rows that break rules holding records for review (ADR 0127).
+    hold_reason: NotRequired[str | None]
+    #: How the cells were read, for the audit trail.
+    locale: NotRequired[SheetEditLocaleIn | None]
+    #: Why, for each revision and the audit trail.
+    reason: str
+    rows: list[SheetEditSaveRowIn]
+    type: str
+
+
+class SheetEditSaveOut(TypedDict):
+    created: int
+    edited: int
+    rows: list[SheetEditSavedRowOut]
+
+
+class SheetEditSaveRowIn(TypedDict):
+    amount: NotRequired[AmountIn | None]
+    #: The record it changes; none for a new one.
+    entity: NotRequired[str | None]
+    key: str
+    location: NotRequired[SheetEditPlaceIn | None]
+    #: The revision of the record that was read and reviewed: required for a record. If it's changed since, nothing is saved.
+    revision: NotRequired[int | None]
+    #: Each field's value, as the check read it.
+    values: NotRequired[dict[str, Any]]
+
+
+class SheetEditSavedRowOut(TypedDict):
+    entity: str | None
+    hrid: str | None
+    key: str
+    kind: Literal['edited', 'unchanged', 'created', 'registered', 'added', 'blank', 'failed']
+    revision: int | None
 
 
 class SheetLocaleIn(TypedDict):
@@ -5685,7 +6132,7 @@ class SoftwareOut(TypedDict):
 
 class SortIn(TypedDict):
     descending: NotRequired[bool]
-    #: A field to sort by: text, numbers, dates or yes/no.
+    #: A field to sort by: text, numbers, dates or yes/no; or a request's `asked_by` or `sent_to`, by the project's name (ADR 0232).
     field: str
 
 
@@ -5795,11 +6242,11 @@ class SpreadsheetPreviewOut(TypedDict):
 
 class StartedOut(TypedDict):
     created_at: str
-    #: Why it failed.
+    #: Why it failed, if you can still read the details.
     error: str
     #: Unfinished then, it's cancelled.
     expires_at: str
-    #: The file it became, once ready.
+    #: The file it became, once ready and readable.
     file: FileOut | None
     id: str
     media_type: str
@@ -5811,18 +6258,16 @@ class StartedOut(TypedDict):
     project: str
     sha256: str
     size: int
-    state: Literal['pending', 'checking', 'ready', 'failed', 'cancelled', 'expired']
+    state: Literal['pending', 'checking', 'scanning', 'ready', 'failed', 'cancelled', 'expired']
 
 
 class StarterApplyIn(TypedDict):
     flow: Literal['research', 'regulated_qc']
     #: The `plan` its preview returned: what you reviewed. If what applying does has changed since, nothing is applied (409 `starter_plan_changed`, with the `plan` it would apply now).
     plan: str
-    #: The assay service project. Requires its Admin role.
+    #: The assay project. Requires its Admin role.
     project: str
-    #: A different project in which the caller can create the example request.
-    requester_project: str
-    #: Each qualified lab role and the service project membership IDs receiving it.
+    #: Each qualified lab role and the assay project membership IDs receiving it.
     role_assignments: dict[str, list[str]]
     #: Installed starter version shown at setup.
     version: str
@@ -5833,8 +6278,10 @@ class StarterFlowOut(TypedDict):
     label: str
     #: Qualified lab roles needed to run this flow.
     required_roles: list[str]
-    #: Qualified type for a requested result in this flow.
+    #: Qualified result type whose states this flow's records pass through.
     result_type: str
+    #: The result type's states in this flow, where its one state field has a route per flow. Null: all of them.
+    states: NotRequired[list[str] | None]
 
 
 class StarterOut(TypedDict):
@@ -5842,6 +6289,8 @@ class StarterOut(TypedDict):
     applied: AppliedStarterOut | None
     description: str
     flows: list[StarterFlowOut]
+    #: The records the project's choice applies to from now on, such as `release cases`. Those already opened keep the flow they were opened with.
+    governs: str
     id: str
     label: str
     roles: list[StarterRoleOut]
@@ -5860,11 +6309,9 @@ class StarterRoleOut(TypedDict):
 
 class StarterSetupIn(TypedDict):
     flow: Literal['research', 'regulated_qc']
-    #: The assay service project. Requires its Admin role.
+    #: The assay project. Requires its Admin role.
     project: str
-    #: A different project in which the caller can create the example request.
-    requester_project: str
-    #: Each qualified lab role and the service project membership IDs receiving it.
+    #: Each qualified lab role and the assay project membership IDs receiving it.
     role_assignments: dict[str, list[str]]
     #: Installed starter version shown at setup.
     version: str
@@ -5873,17 +6320,12 @@ class StarterSetupIn(TypedDict):
 class StarterSetupOut(TypedDict):
     #: Whether applying this choice would change anything (preview), or did (apply).
     changed: bool
-    #: IDs of example records already present at preview or available after setup.
-    examples: dict[str, str]
-    #: Names of examples missing when the setup was checked.
-    examples_to_create: list[str]
     flow: Literal['research', 'regulated_qc']
     #: Lab role grants missing when the setup was checked, by membership ID.
     grants_to_add: dict[str, list[str]]
     #: Identifies this plan: what the setup was, and every change applying makes. Send it to apply what was reviewed.
     plan: str
     project: str
-    requester_project: str
     result_type: str
     role_assignments: dict[str, list[str]]
     starter: str
@@ -5933,6 +6375,13 @@ class StateOut(TypedDict):
     set_by: list[str]
     #: The electronic signatures setting it needs (ADR 0126): it's set by the last of them, once they're all given on the same revision, never directly. Empty for a state set directly.
     signatures: list[WantedSignatureOut]
+
+
+class StatedOut(TypedDict):
+    #: Where in the file it's stated, such as ``FCS keyword $CYT``, to check it by.
+    stated_in: str
+    #: As the file gives it.
+    value: str
 
 
 class StepBatchOut(TypedDict):
@@ -6012,14 +6461,14 @@ class StockSummary(TypedDict):
     outstanding_packs: int
     physical: str
     stored: str
-    threshold: str
+    threshold: str | None
     unit: str
 
 
 class StructureViewerOut(TypedDict):
     #: What its tab is called.
     label: str
-    #: The file field holding the structure: mmCIF (chemical/x-mmcif) or PDB (chemical/x-pdb).
+    #: The file field holding coordinates in a format that declares the structure-mmcif or structure-pdb viewer.
     structure: str
     #: `structure`: a 3D structure, in Mol*.
     viewer: Literal['structure']
@@ -6136,7 +6585,7 @@ class TriggerFiredOut(TypedDict):
     enabled_by: PersonRef | None
     #: The visible entity whose change fired it.
     entity: str | None
-    event: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'schedule']
+    event: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'request.received', 'schedule']
     #: Its label, or its name once it's no longer installed.
     label: str
     #: The trigger's qualified name, such as `protein.weigh_new`.
@@ -6163,14 +6612,16 @@ class TriggerOut(TypedDict):
     label: str
     #: Its qualified name, such as `protein.weigh_new_proteins`.
     name: str
-    #: What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.
-    on: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'schedule']
+    #: What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, a request of its type sent to the project as a service (ADR 0232), or its schedule.
+    on: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'request.received', 'schedule']
     params: dict[str, Any]
     plugin: str
     #: Recheck an edited record on the editor’s authority.
     recheck: NotRequired[bool]
     #: Other inputs it gives the entities related to the one that fired it (ADR 0123), by input: each, every one of the input's type in the project that way of it. All of them or none: past the most an input takes, it fails.
     related: dict[str, RelatedOut]
+    #: Its runs are launched as a service account the Admin who turns it on chooses, on their authority: on a schedule, or as a request arrives, since nobody in the project made it happen (ADR 0081, ADR 0232).
+    runs_as_account: NotRequired[bool]
     #: On a schedule: when it runs, in cron's five fields. Empty otherwise.
     schedule: str
     #: For `entity.state_changed`: it fires only when the field is set to one of these. Empty for any of its states.
@@ -6204,7 +6655,7 @@ class TypeAmountOut(TypedDict):
     follows: NotRequired[list[str]]
     #: What it's called, such as Volume.
     label: str
-    #: Its reference naming what its amount is of, such as a lot's molecule: a transfer into one of its records takes only that entity's, and its aliquots are of it too.
+    #: The reference field that identifies the material, or id if the record itself is the material. Transfers and aliquots retain that material identity.
     material: str | None
     #: The UCUM unit it's kept in, such as uL, mg or {vial}.
     unit: str
@@ -6319,21 +6770,35 @@ class UploadIn(TypedDict):
 
 class UploadOut(TypedDict):
     created_at: str
-    #: Why it failed.
+    #: Why it failed, if you can still read the details.
     error: str
     #: Unfinished then, it's cancelled.
     expires_at: str
-    #: The file it became, once ready.
+    #: The file it became, once ready and readable.
     file: FileOut | None
     id: str
     media_type: str
     name: str
     part_count: int
     part_size: int
-    project: str
+    #: Where it was added. Null if you can't see it.
+    project: str | None
     sha256: str
     size: int
-    state: Literal['pending', 'checking', 'ready', 'failed', 'cancelled', 'expired']
+    state: Literal['pending', 'checking', 'scanning', 'ready', 'failed', 'cancelled', 'expired']
+
+
+class UploadStatusOut(TypedDict):
+    """Your job status when the file is outside your current access."""
+    created_at: str
+    #: Why it failed, if you can still read the details.
+    error: str
+    #: Unfinished then, it's cancelled.
+    expires_at: str
+    #: The file it became, once ready and readable.
+    file: FileOut | None
+    id: str
+    state: Literal['pending', 'checking', 'scanning', 'ready', 'failed', 'cancelled', 'expired']
 
 
 class UsedByCountOut(TypedDict):
@@ -6743,7 +7208,7 @@ class WorkflowOut(TypedDict):
     description: str | None
     inputs: list[InputOut]
     label: str
-    #: Qualified, such as `protein.translate_and_characterize`.
+    #: Workflow name in `namespace/plugin.workflow` form.
     name: str
     params: list[ParamOut]
     #: The params as JSON Schema (2020-12).
@@ -6884,4 +7349,4 @@ class WorkflowStepRefOut(TypedDict):
     step: str
 
 
-__all__ = ['AcquiredOut', 'ActionApiOut', 'ActionFilters', 'ActionOut', 'ActionSecretOut', 'AdditionalUnregisteredIn', 'AdjustIn', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AliquotsOut', 'AmountIn', 'AmountMovedOut', 'AmountOut', 'ApiActionOut', 'ApiApprovalIn', 'ApiApprovalOut', 'ApiCallOut', 'ApiCredentialOut', 'ApiPriceOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'AppliedMappingOut', 'AppliedStarterOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptSlurmOut', 'AttemptVolumeOut', 'AvailableMapping', 'AwaitingPutAwayOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BreachOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'CancelReceiptIn', 'CancelReconciliationIn', 'CarriedSignatureOut', 'CellReadingOut', 'CertificationIn', 'CertificationOut', 'CertificationState', 'ChangedOut', 'ChangeOut', 'ChangesParams', 'CheckedOutOut', 'CheckedReceiptOut', 'CheckInIn', 'CheckInItemIn', 'CheckOutIn', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ColumnReadingOut', 'CompleteReceiptIn', 'CompleteReconciliationIn', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'ComponentPersonOut', 'Condition', 'ConditionOut', 'ConsentOut', 'ConsentStatementOut', 'ContainerCan', 'ContainerOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CountScanEvidenceOut', 'CountsOut', 'CreatedOut', 'CreatesOut', 'CustodyOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DisableIn', 'DraftEntityOut', 'DrawIn', 'DrawPurpose', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EnableIn', 'EndOut', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentImageOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventOut', 'EventsOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'ExportParams', 'FacetParams', 'FieldOut', 'FieldTargetOut', 'FileCountOut', 'FileDetailOut', 'FileExportOut', 'FileFilters', 'FileFormatOut', 'FileOriginOut', 'FileOut', 'FilePageOut', 'FileRef', 'FileRowOut', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FlowFieldOut', 'FlowTransitionOut', 'FormatOut', 'FreezeIn', 'GivenOut', 'GivenSignatureOut', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'GuardOut', 'HandOverIn', 'HeldOut', 'HelmGroupMemberOut', 'HelmGroupOut', 'HelmIn', 'HelmLengthOut', 'HelmMonomerOut', 'HelmOut', 'HelmPolymerOut', 'HelmReadingOut', 'HoldingRecordOut', 'HoldOccurrenceOut', 'HoldOut', 'HoldReviewIn', 'HoldRuleOut', 'IdentityBasis', 'IkiIdConfirmationIn', 'ImageBindingOut', 'ImageBindingsOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportMemberParams', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportRunRef', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'IntakeIn', 'IntakeOut', 'InventoryOut', 'JobState', 'KindOut', 'LabelOut', 'LabelsIn', 'LabelSizeOut', 'LabelSizesOut', 'LabelsOut', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LocationOut', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'MoveItemIn', 'MovementOut', 'MovementsOut', 'MovesIn', 'MovesOut', 'MoveUnregisteredIn', 'MySigningOut', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationAgent', 'NotificationOut', 'NotificationProject', 'NotificationRecordOut', 'ObservationEventOut', 'ObservationEventsOut', 'OccupantOut', 'OpenOrder', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideApiOut', 'OutsideRef', 'OverlapOut', 'OverviewOut', 'PageApiCallOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFiringOut', 'PageHoldingRecordOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageOpenOrder', 'PagePreviewRowOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageSlurmAccountOut', 'PageSpreadsheetImportOut', 'PageStockLot', 'PageStockSummary', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageUsingRunOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'ParkOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceOut', 'PlaceSearchIn', 'PlannedOut', 'PluginCandidateIn', 'PluginFindingOut', 'PluginPreflightOut', 'PluginTypePreflightOut', 'PolicyIn', 'PolicyOut', 'PreviewRowOut', 'PreviewRowParams', 'ProjectCan', 'ProjectChangeOut', 'ProjectChoiceIn', 'ProjectChoiceOut', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'PutAwayIn', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'ReassignOut', 'ReceiptIn', 'ReceiptLineIn', 'ReceiptLineOut', 'ReceiptOut', 'ReceiptPlacementIn', 'ReceiptScanIn', 'ReceiptScanOut', 'ReceiptsOut', 'ReconciliationLineOut', 'ReconciliationOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'RelatedOut', 'ReproduceIn', 'ReproductionOut', 'RequestOut', 'RequestSidesOut', 'RequestTypeOut', 'RequestTypeRef', 'RerunIn', 'ResolveIn', 'ResultReleaseOut', 'ResultTypeOut', 'ReviewedCountLine', 'ReviewedExtraIn', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RowOut', 'RowRoleOut', 'RuleOut', 'RunApiOut', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRef', 'RunRefOut', 'RunStatus', 'SampleOut', 'SavedMappingIn', 'SavedMappingMatch', 'SavedMappingOut', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScanCandidateBoxOut', 'ScanCandidateOut', 'ScanCandidateProjectOut', 'ScanIn', 'ScanMatchOut', 'ScanMode', 'ScanOut', 'ScanParams', 'ScanResolveIn', 'ScanResolveOut', 'ScansIn', 'ScopeOut', 'ScopeSearch', 'SearchCsvParams', 'SearchEverythingOut', 'SearchEverythingParams', 'SearchGroupOut', 'SearchIn', 'SearchResultOut', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'ServiceOut', 'ServicesFilters', 'SettingsIn', 'SettingsOut', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'ShapeOut', 'SheetColumnIn', 'SheetColumnOut', 'SheetLocaleIn', 'SheetLocaleOut', 'SheetOut', 'SheetProblemOut', 'SignatureAuthenticationOut', 'SignatureCan', 'SignatureCheckOut', 'SignatureListParams', 'SignatureOut', 'SignaturesOut', 'SignatureVerificationOut', 'SignCan', 'SignedChangeOut', 'SignedReportExportOut', 'SigningIn', 'SigningKeyOut', 'SigningKeysOut', 'SigningOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SlurmAccountIn', 'SlurmAccountOut', 'SlurmClusterOut', 'SlurmTemplateOut', 'SlurmUsageOut', 'SoftwareOut', 'SortIn', 'SpanOut', 'SplitIn', 'SpreadsheetCommitIn', 'SpreadsheetImportChange', 'SpreadsheetImportIn', 'SpreadsheetImportOut', 'SpreadsheetPreviewOut', 'StartedOut', 'StarterApplyIn', 'StarterFlowOut', 'StarterOut', 'StarterRoleOut', 'StarterSetupIn', 'StarterSetupOut', 'StateCan', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepOut', 'StepRunOut', 'StockFilters', 'StockLot', 'StockSummary', 'StructureViewerOut', 'SubmitIn', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TrailFilter', 'TransferIn', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'TypeAmountOut', 'TypeCountOut', 'TypeFlowOut', 'TypeGridOut', 'TypeNotificationOut', 'TypeStorageOut', 'UnitOption', 'UnusedImageBindingOut', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UsedByCountOut', 'UserFilters', 'UserOut', 'UserPatch', 'UsingRunOut', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WantedSignatureOut', 'WatchIn', 'WatchOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WithdrawalIn', 'WorkbookRef', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']
+__all__ = ['AcquiredOut', 'ActionApiOut', 'ActionFilters', 'ActionOut', 'ActionSecretOut', 'AdditionalUnregisteredIn', 'AdjustIn', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AliquotsOut', 'AmountIn', 'AmountMovedOut', 'AmountOut', 'ApiActionOut', 'ApiApprovalIn', 'ApiApprovalOut', 'ApiCallOut', 'ApiCredentialOut', 'ApiPriceOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'AppliedMappingOut', 'AppliedStarterOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptScanWaitOut', 'AttemptSlurmOut', 'AttemptVolumeOut', 'AvailableMapping', 'AwaitingPutAwayOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BreachOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'CancelReceiptIn', 'CancelReconciliationIn', 'CarriedSignatureOut', 'CellReadingOut', 'CertificationIn', 'CertificationOut', 'CertificationState', 'ChangedOut', 'ChangeOut', 'ChangesParams', 'CheckedOutOut', 'CheckedReceiptOut', 'CheckInIn', 'CheckInItemIn', 'CheckOutIn', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ColumnReadingOut', 'CompleteReceiptIn', 'CompleteReconciliationIn', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'ComponentPersonOut', 'CompoundExportOut', 'Condition', 'ConditionOut', 'ConsentOut', 'ConsentStatementOut', 'ContainerCan', 'ContainerOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CountScanEvidenceOut', 'CountsOut', 'CreatedOut', 'CreatesOut', 'CustodyOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DisableIn', 'DraftEntityOut', 'DrawIn', 'DrawPurpose', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EnableIn', 'EndOut', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentImageOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventOut', 'EventsOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'ExportParams', 'ExportSearchIn', 'FacetParams', 'FieldOut', 'FieldTargetOut', 'FileCountOut', 'FileDetailOut', 'FileExportOut', 'FileFactsOut', 'FileFilters', 'FileFormatOut', 'FileOriginOut', 'FileOut', 'FilePageOut', 'FileRef', 'FileRowOut', 'FileScanOut', 'FileSignatureOut', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FlowFieldOut', 'FlowTransitionOut', 'FormatOut', 'FreezeIn', 'GivenOut', 'GivenSignatureOut', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'GuardOut', 'HandOverIn', 'HeldCopyOut', 'HeldOut', 'HelmGroupMemberOut', 'HelmGroupOut', 'HelmIn', 'HelmLengthOut', 'HelmMonomerOut', 'HelmOut', 'HelmPolymerOut', 'HelmReadingOut', 'HoldingRecordOut', 'HoldOccurrenceOut', 'HoldOut', 'HoldReviewIn', 'HoldRuleOut', 'IdentityBasis', 'IkiIdConfirmationIn', 'ImageBindingOut', 'ImageBindingsOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportMemberParams', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportRunRef', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InstalledFormatOut', 'IntakeIn', 'IntakeOut', 'InventoryOut', 'JobState', 'KindOut', 'LabelOut', 'LabelsIn', 'LabelSizeOut', 'LabelSizesOut', 'LabelsOut', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LocationOut', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'MoveItemIn', 'MovementOut', 'MovementsOut', 'MovesIn', 'MovesOut', 'MoveUnregisteredIn', 'MySigningOut', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationAgent', 'NotificationOut', 'NotificationProject', 'NotificationRecordOut', 'ObservationEventOut', 'ObservationEventsOut', 'OccupantOut', 'OpenOrder', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideApiOut', 'OutsideRef', 'OverlapOut', 'OverviewOut', 'PageApiCallOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFiringOut', 'PageHoldingRecordOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageOpenOrder', 'PagePreviewRowOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageQuarantineOut', 'PageRecordExportOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageSlurmAccountOut', 'PageSpreadsheetImportOut', 'PageStockLot', 'PageStockSummary', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageUsingRunOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'ParkOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceOut', 'PlaceSearchIn', 'PlannedOut', 'PluginCandidateIn', 'PluginExportOut', 'PluginFindingOut', 'PluginPreflightOut', 'PluginTypePreflightOut', 'PolicyIn', 'PolicyOut', 'PreviewRowOut', 'PreviewRowParams', 'ProjectCan', 'ProjectChangeOut', 'ProjectChoiceIn', 'ProjectChoiceOut', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'ProteinExportOut', 'PutAwayIn', 'QuarantineFilters', 'QuarantineOut', 'QuarantineReleaseOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadGroupOut', 'ReadIn', 'ReassignOut', 'ReceiptIn', 'ReceiptLineIn', 'ReceiptLineOut', 'ReceiptOut', 'ReceiptPlacementIn', 'ReceiptScanIn', 'ReceiptScanOut', 'ReceiptsOut', 'ReconciliationLineOut', 'ReconciliationOut', 'RecordExportIn', 'RecordExportOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistrationStatusOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'RelatedOut', 'ReleaseQuarantineIn', 'ReproduceIn', 'ReproductionOut', 'RequestOut', 'RequestSidesOut', 'RequestTypeOut', 'RequestTypeRef', 'RerunIn', 'ResolveIn', 'ResultReleaseOut', 'ResultTypeOut', 'ReviewedCountLine', 'ReviewedExtraIn', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RowOut', 'RowRoleOut', 'RuleOut', 'RunApiOut', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRef', 'RunRefOut', 'RunScanWaitOut', 'RunStatus', 'SampleOut', 'SavedMappingIn', 'SavedMappingMatch', 'SavedMappingOut', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScanCandidateBoxOut', 'ScanCandidateOut', 'ScanCandidateProjectOut', 'ScanIn', 'ScanMatchOut', 'ScanMode', 'ScanOut', 'ScanParams', 'ScanResolveIn', 'ScanResolveOut', 'ScansIn', 'ScanWaitFileOut', 'ScopeOut', 'ScopeSearch', 'SearchCsvParams', 'SearchEverythingOut', 'SearchEverythingParams', 'SearchGroupOut', 'SearchIn', 'SearchResultOut', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'ServiceOut', 'ServicesFilters', 'SettingsIn', 'SettingsOut', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'ShapeOut', 'SheetColumnIn', 'SheetColumnOut', 'SheetEditCheckIn', 'SheetEditCheckOut', 'SheetEditCheckRowIn', 'SheetEditLocaleIn', 'SheetEditPlaceIn', 'SheetEditPlaceOut', 'SheetEditProblemOut', 'SheetEditRowOut', 'SheetEditSavedRowOut', 'SheetEditSaveIn', 'SheetEditSaveOut', 'SheetEditSaveRowIn', 'SheetLocaleIn', 'SheetLocaleOut', 'SheetOut', 'SheetProblemOut', 'SignatureAuthenticationOut', 'SignatureCan', 'SignatureCheckOut', 'SignatureListParams', 'SignatureOut', 'SignaturesOut', 'SignatureVerificationOut', 'SignCan', 'SignedChangeOut', 'SignedReportExportOut', 'SigningIn', 'SigningKeyOut', 'SigningKeysOut', 'SigningOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SlurmAccountIn', 'SlurmAccountOut', 'SlurmClusterOut', 'SlurmTemplateOut', 'SlurmUsageOut', 'SoftwareOut', 'SortIn', 'SpanOut', 'SplitIn', 'SpreadsheetCommitIn', 'SpreadsheetImportChange', 'SpreadsheetImportIn', 'SpreadsheetImportOut', 'SpreadsheetPreviewOut', 'StartedOut', 'StarterApplyIn', 'StarterFlowOut', 'StarterOut', 'StarterRoleOut', 'StarterSetupIn', 'StarterSetupOut', 'StateCan', 'StatedOut', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepOut', 'StepRunOut', 'StockFilters', 'StockLot', 'StockSummary', 'StructureViewerOut', 'SubmitIn', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TrailFilter', 'TransferIn', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'TypeAmountOut', 'TypeCountOut', 'TypeFlowOut', 'TypeGridOut', 'TypeNotificationOut', 'TypeStorageOut', 'UnitOption', 'UnusedImageBindingOut', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UploadStatusOut', 'UsedByCountOut', 'UserFilters', 'UserOut', 'UserPatch', 'UsingRunOut', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WantedSignatureOut', 'WatchIn', 'WatchOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WithdrawalIn', 'WorkbookRef', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']

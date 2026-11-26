@@ -69,6 +69,10 @@
       "type": "boolean",
       "description": "No two entities in a project have the same value, such as a LIMS or ELN record's ID. Strings only, and they must be indexed."
     },
+    "searchable": {
+      "type": "boolean",
+      "description": "For text: a search can find its words (`matches`), from a full-text index of its first 100,000 characters (ADR 0233). True unless set. Set it false for machine text whose words mean nothing to a reader, such as a Molfile, a BigSMILES string or an instrument's export: it gets no full-text index, and a search finds text in it with `contains`."
+    },
     "link": {
       "type": "string",
       "minLength": 8,
@@ -254,7 +258,7 @@
           "$ref": "https://ikisci.org/schemas/unit/v1"
         },
         "media_types": {
-          "description": "The media types the file may have, such as `application/json` or `image/*`.",
+          "description": "The format IDs or media types the file may have, such as `iki/core.fastq`, `application/json` or `image/*`.",
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
@@ -406,6 +410,7 @@
                 "computed",
                 "registry",
                 "indexed",
+                "searchable",
                 "removed",
                 "default",
                 "max_length"
@@ -1024,7 +1029,7 @@
           "type": "boolean"
         },
         "on_edit": {
-          "description": "For a locking state, the state to return to when a person corrects a record value. The editor must be able to set the destination and give a reason (ADR 0179).",
+          "description": "For an unsigned locking state, the state to return to when a person corrects a record value. The editor must be able to set the destination and give a reason (ADR 0179).",
           "$ref": "#/$defs/fieldName"
         },
         "reason": {

@@ -608,6 +608,25 @@ def test_params_take_files_to_import(tmp_path: Path) -> None:
     assert make(tmp_path, action(params=params)).problems == []
 
 
+@pytest.mark.parametrize(
+    ("param", "path"),
+    [
+        ("{type: file, media_types: [iki/core.mistake]}", ("params", "data", "media_types", 0)),
+        (
+            "{type: list, items: {type: file, media_types: [iki/core.mistake]}}",
+            ("params", "data", "items", "media_types", 0),
+        ),
+    ],
+)
+def test_file_params_can_name_an_installed_format(
+    tmp_path: Path, param: str, path: tuple[str | int, ...]
+) -> None:
+    manifest = action(params=f"{{ data: {param} }}")
+    assert make(tmp_path, manifest.replace("iki/core.mistake", "iki/core.csv")).ok
+    errors = make(tmp_path, manifest).errors
+    assert [(p.code, p.path) for p in errors] == [("unknown-format", path)]
+
+
 def test_params_take_several_files(tmp_path: Path) -> None:
     params = (
         "\n  reads: { type: list, required: true, max_items: 96,"

@@ -1,0 +1,36 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: translate_complete_coding_sequence
+description: A short coding sequence yields one protein linked to its DNA record.
+action: translate
+inputs:
+  sequence:
+    - values: { name: Calibration peptide, bases: ATGTGGTATTAA, topology: linear }
+params: { frame: 1, table: 1, complete_cds: true }
+expect:
+  output:
+    creates:
+      - type: iki/protein.Protein
+        values:
+          name: Calibration peptide (+1)
+          sequence: MWY
+          encoded_by: 00000000-0000-7000-8003-000000000001
+        derived_from: [00000000-0000-7000-8003-000000000001]
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: characterize_translated_protein
+description: The three-residue translation has one tryptophan and one tyrosine.
+action: compute_properties
+inputs:
+  protein:
+    - values: { sequence: MWY }
+expect:
+  output:
+    updates:
+      protein:
+        - entity: 00000000-0000-7000-8003-000000000001
+          values:
+            length: 3
+            extinction_coefficient_reduced: 6990
+            extinction_coefficient_oxidized: 6990

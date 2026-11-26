@@ -6,6 +6,9 @@ import runpy
 from pathlib import Path
 
 import pytest
+import yaml
+
+from iki_spec.model import parse_size
 
 DATA = Path(__file__).parent / "data"
 preview = runpy.run_path(str(DATA.parents[1] / "scripts" / "reader.py"))["preview_reader"]
@@ -48,6 +51,18 @@ def test_join_retains_source_well_controls_and_concentration():
         "source_row": 10,
     }
     assert [r.get("control") for r in result["readings"][-2:]] == ["blank", "reference"]
+
+
+def test_reader_enforces_the_assay_plate_file_limit():
+    plate = yaml.safe_load((DATA.parents[1] / "types/assay_plate.yaml").read_text())
+    limit = parse_size(plate["fields"]["reader_file"]["max_size"])
+    # At the limit the reader checks the encoding. One extra byte hits the size check.
+    content = bytes(limit)
+    layout = series_layout()
+    assert preview(content, 96, layout)["issues"] == [
+        "Choose a UTF-8 or Windows-1252 MARS CSV export."
+    ]
+    assert preview(content + b"x", 96, layout)["issues"] == ["The endpoint CSV exceeds 1 MiB."]
 
 
 def test_public_pherastar_384_export():

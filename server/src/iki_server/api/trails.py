@@ -49,6 +49,7 @@ router = Router(tags=["entities"])
 #: What each kind of revision did, as the record's page says it.
 KIND: dict[str, str] = {
     RevisionKind.CREATED: "Created",
+    RevisionKind.MIGRATED: "Migrated",
     RevisionKind.EDITED: "Edited",
     RevisionKind.ARCHIVED: "Archived",
     RevisionKind.RESTORED: "Restored",

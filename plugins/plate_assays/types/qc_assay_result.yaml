@@ -3,7 +3,7 @@ kind: EntityType
 name: QCAssayResult
 label: QC assay result
 extends: AssayResult
-schema_version: 1
+schema_version: 2
 hrid: { prefix: QAR }
 fields:
   review:
@@ -22,7 +22,6 @@ fields:
         label: Submitted
         set_by: [analyst]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: authorship }]
         guards:
           recorded_fit:
@@ -32,7 +31,6 @@ fields:
         label: Independently reviewed
         set_by: [reviewer]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: review }]
         guards:
           submitted:

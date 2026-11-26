@@ -31,6 +31,8 @@ __all__ = [
     "Environment",
     "Extension",
     "Field",
+    "FileFormat",
+    "FileSignature",
     "Guard",
     "Input",
     "LabRole",
@@ -115,6 +117,10 @@ class Field:
     #: rather than of each project's record (ADR 0115). None for a record's own field.
     registry: str | None = None
     indexed: bool = False
+    #: For text: a search finds its words (``matches``), from a full-text index of its first
+    #: ``conditions.WORDS_SEARCHED`` characters (ADR 0233). False for machine text, such as
+    #: a Molfile, which gets no full-text index.
+    searchable: bool = True
     #: No two entities in a project share a value (ADR 0082); for a registry fact, no two
     #: entries in a registry.
     unique: bool = False
@@ -208,6 +214,7 @@ class Field:
             reason_on_clear=bool(data.get("reason_on_clear", False)),
             registry=data.get("registry"),
             indexed=bool(data.get("indexed", False)),
+            searchable=bool(data.get("searchable", True)),
             unique=bool(data.get("unique", False)),
             link=data.get("link"),
             removed=bool(data.get("removed", False)),
@@ -787,7 +794,8 @@ class Amount:
     aliquots: str | None = None
     aliquots_of: str | None = None
     #: A required, immutable reference of the type naming what its amount is of, such as
-    #: a lot's molecule: a transfer into one of its records takes only the same entity's,
+    #: a lot's molecule, or ``id`` when the record itself is the material. A transfer
+    #: into one of its records takes only the same entity's,
     #: and its aliquots are that entity's too (ADR 0162).
     material: str | None = None
     #: References whose records' eligibility a draw from it also meets, such as a tube's
@@ -907,7 +915,7 @@ class EntityType:
     viewers: tuple[Viewer, ...] = ()
     #: The files Iki writes of its records, such as GenBank (ADR 0171). Subtypes have their
     #: nearest ancestor's unless they declare their own.
-    exports: tuple[Export | ReportExport, ...] = ()
+    exports: tuple[AnyExport, ...] = ()
     file: str | None = None
     #: The date or datetime field saying when its records are due (ADR 0122): its own or a
     #: parent's. Subtypes have their ancestor's unless they name their own.
@@ -1007,6 +1015,25 @@ class Export:
 
 
 @dataclass(frozen=True)
+class ProteinExport:
+    """A protein's residues as FASTA (``export: protein``, ADR 0229)."""
+
+    export: str  # "protein"
+    sequence: str  # a string field with format protein_sequence
+    description: str = ""  # a string or text field, or ""
+    organism: str = ""  # a reference to iki/core.Organism, or ""
+
+
+@dataclass(frozen=True)
+class CompoundExport:
+    """A compound's structure as a Molfile, and with its fields as an SDF's data
+    (``export: compound``, ADR 0229)."""
+
+    export: str  # "compound"
+    structure: str  # a text field holding an MDL Molfile, V2000 or V3000
+
+
+@dataclass(frozen=True)
 class ReportExport:
     """A JSON report issued by a signed state change."""
 
@@ -1014,6 +1041,79 @@ class ReportExport:
     report: str
     review: str
     issued: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PluginExport:
+    """A type's records as a plugin's writer writes them (ADR 0230): the writer, by its
+    qualified ID, and the field each of its roles reads."""
+
+    export: str  # the writer: "acme/liquid_handling.tecan-worklist"
+    #: role → the type's field it reads.
+    fields: dict[str, str] = field(default_factory=dict)
+
+
+#: Any of the files a type's records export as.
+type AnyExport = Export | ProteinExport | CompoundExport | ReportExport | PluginExport
+
+#: What a writer's roles may be: fields of these types.
+WRITER_ROLE_TYPES = (
+    "string",
+    "text",
+    "int",
+    "float",
+    "bool",
+    "date",
+    "datetime",
+    "enum",
+    "quantity",
+    "ref",
+)
+
+
+@dataclass(frozen=True)
+class WriterRole:
+    """What a writer reads of a record: a field of this type, mapped by each type that
+    exports through it."""
+
+    type: str
+    required: bool = False
+    description: str | None = None
+    #: A quantity's unit: the mapped field's must measure the same thing, and Iki gives the
+    #: writer its value in this one.
+    unit: str | None = None
+    #: A reference's targets, qualified: the mapped field must refer to one of these (or a
+    #: subtype). Empty for any record.
+    to: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Writer:
+    """A plugin's writer of a file format (ADR 0230): a WebAssembly module built from the
+    Rust crate at ``module``, pinned by the digest tracked beside it."""
+
+    plugin: str
+    name: str
+    label: str
+    #: The format it writes, qualified (ADR 0213): its media type and extension.
+    format: str
+    #: The crate's directory in the plugin: ``writers/tecan-worklist``.
+    module: str
+    #: ``file``: many records make one file; ``zip``: one file each, in a ZIP; ``one``:
+    #: one record only.
+    many: str = "file"
+    #: Its memory's cap, in bytes.
+    memory: int = 64 * 1024 * 1024
+    description: str | None = None
+    roles: dict[str, WriterRole] = field(default_factory=dict)
+    #: The SHA-256 of the module the Linux x86-64 builder makes, as the plugin tracks it.
+    sha256: str = ""
+    order: int = 0
+    file: str | None = None
+
+    @property
+    def qualified_name(self) -> str:
+        return f"{self.plugin}.{self.name}"
 
 
 @dataclass(frozen=True)
@@ -1088,6 +1188,9 @@ class Input:
     description: str | None = None
     #: Its type's reference fields whose entities the run reads too.
     include: tuple[str, ...] = ()
+    #: Not chosen: each run is given every record of its type its project owns, not
+    #: archived, such as a core's ranking of the projects it serves (ADR 0232).
+    from_project: bool = False
 
 
 @dataclass(frozen=True)
@@ -1411,17 +1514,28 @@ class Workflow:
 
 
 #: What fires a trigger: an entity of its type created, a new registry entry of it
-#: registered (ADR 0115), a record's state field set (ADR 0125), an entity changed, or
-#: its schedule.
+#: registered (ADR 0115), a record's state field set (ADR 0125), an entity changed, a
+#: request sent to the project as a service (ADR 0232), or its schedule.
 TRIGGER_EVENTS = (
     "entity.created",
     "entity.registered",
     "entity.state_changed",
     "entity.updated",
+    "request.received",
     "schedule",
 )
 #: The events that fire a trigger for an entity.
-ENTITY_EVENTS = ("entity.created", "entity.registered", "entity.state_changed", "entity.updated")
+ENTITY_EVENTS = (
+    "entity.created",
+    "entity.registered",
+    "entity.state_changed",
+    "entity.updated",
+    "request.received",
+)
+#: The events whose trigger's runs are launched as a service account the Admin who turns
+#: it on chooses, on their authority (ADR 0081, ADR 0232): nobody in the project made
+#: them happen.
+ACCOUNT_EVENTS = ("request.received", "schedule")
 
 
 #: Which way a trigger's related entities are (ADR 0123): derived from the entity, or what
@@ -1553,6 +1667,48 @@ class Component:
 
 
 @dataclass(frozen=True)
+class FileSignature:
+    """An exact byte sequence at a fixed offset from the start of the file."""
+
+    hex: str
+    offset: int = 0
+
+
+@dataclass(frozen=True)
+class FileFormat:
+    """One plugin's declaration, qualified by its owner (ADR 0213)."""
+
+    id: str
+    label: str
+    media_types: tuple[str, ...]
+    extensions: tuple[str, ...]
+    signatures: tuple[FileSignature, ...] = ()
+    reader: str | None = None
+    viewer: str | None = None
+
+    # Keep the default for shared extensions even when a compiled JSON object's keys
+    # are sorted for hashing or stored in a database.
+    order: int = 0
+
+    @property
+    def canonical(self) -> str:
+        return self.media_types[0]
+
+    @classmethod
+    def read(cls, id: str, data: dict[str, Any], order: int) -> FileFormat:
+        return cls(
+            id=id,
+            order=order,
+            label=data["label"],
+            media_types=tuple(data["media_types"]),
+            extensions=tuple(data["extensions"]),
+            signatures=tuple(FileSignature(**s) for s in data.get("signatures", ())),
+            reader=data.get("reader"),
+            viewer=data.get("viewer"),
+        )
+
+
+@dataclass(frozen=True)
 class Plugin:
     name: str
     version: str
@@ -1576,8 +1732,12 @@ class Plugin:
     roles: dict[str, LabRole] = field(default_factory=dict)
     #: Installed project starter recipes and their versions (ADR 0198).
     starters: dict[str, str] = field(default_factory=dict)
+    #: File formats this plugin owns, by qualified ID, in declaration order.
+    formats: dict[str, FileFormat] = field(default_factory=dict)
     #: The outside APIs its actions call, by name (ADR 0130).
     apis: dict[str, OutsideApi] = field(default_factory=dict)
+    #: The writers of export formats it declares, by qualified ID (ADR 0230).
+    writers: dict[str, Writer] = field(default_factory=dict)
 
 
 class _CoreTypes(Mapping[str, EntityType]):
@@ -1678,9 +1838,16 @@ _DATACLASSES = (
     WorkItemSpec,
     EntityType,
     Export,
+    ProteinExport,
+    CompoundExport,
     ReportExport,
+    PluginExport,
+    Writer,
+    WriterRole,
     Extension,
     Plugin,
+    FileFormat,
+    FileSignature,
     Action,
     Metric,
     Software,
@@ -1727,6 +1894,8 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
                 and isinstance(value, EntityType)
                 and value.draw_target is None
             )
+            and not (isinstance(value, Plugin) and f.name == "formats" and not value.formats)
+            and not (isinstance(value, Plugin) and f.name == "writers" and not value.writers)
             and not (
                 f.name == "reason_on_clear"
                 and isinstance(value, Field)
@@ -1766,9 +1935,15 @@ def _viewer(data: dict[str, Any]) -> Viewer:
     return Viewer(**{**data, "tracks": tracks})
 
 
-def _export(data: dict[str, Any]) -> Export | ReportExport:
+def _export(data: dict[str, Any]) -> AnyExport:
+    if "fields" in data:
+        return PluginExport(export=data["export"], fields=dict(data["fields"]))
     if data["export"] == "signed_report":
         return ReportExport(**{**data, "issued": tuple(data["issued"])})
+    if data["export"] == "protein":
+        return ProteinExport(**data)
+    if data["export"] == "compound":
+        return CompoundExport(**data)
     return Export(**data)
 
 
@@ -1859,10 +2034,31 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
             },
             # ...or components.
             "components": {k: _component(v) for k, v in (data.get("components") or {}).items()},
+            # ...or format declarations.
+            "formats": {
+                k: FileFormat.read(v["id"], v, v["order"])
+                for k, v in sorted(
+                    data.get("formats", {}).items(), key=lambda item: (item[1]["order"], item[0])
+                )
+            },
             # ...or lab roles.
             "roles": {k: LabRole(**v) for k, v in (data.get("roles") or {}).items()},
             # ...or outside APIs.
             "apis": {k: outside_api(v) for k, v in (data.get("apis") or {}).items()},
+            # ...or writers.
+            "writers": {k: _writer(v) for k, v in (data.get("writers") or {}).items()},
+        }
+    )
+
+
+def _writer(data: dict[str, Any]) -> Writer:
+    return Writer(
+        **{
+            **data,
+            "roles": {
+                k: WriterRole(**{**r, "to": tuple(r.get("to") or ())})
+                for k, r in (data.get("roles") or {}).items()
+            },
         }
     )
 

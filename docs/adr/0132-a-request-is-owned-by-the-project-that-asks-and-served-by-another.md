@@ -8,7 +8,7 @@
   [0125](0125-a-state-is-a-field-each-state-says-who-sets-it.md),
   [0120](0120-a-state-can-lock-a-record-and-the-database-holds-the-lock.md)
 
-Updated by [ADR 0211](0211-lots-inventory-samples-and-requests.md). The shipping Request and Deliverable families and the private WorkItem now live in `iki/requests`. Each returned record references its matching concrete request.
+Updated by [ADR 0211](0211-lots-inventory-samples-and-requests.md). [ADR 0232](0232-a-service-orders-its-own-work-from-primitives.md) lets a subtype name more of its own fields the service writes, fires the service's triggers as a request arrives, and gives runs a request's two sides. The shipping Request and Deliverable families and the private WorkItem now live in `iki/requests`. Each returned record references its matching concrete request.
 
 ## Context
 

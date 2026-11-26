@@ -11,6 +11,7 @@ import pytest
 import requests
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 from org_world import World
 from test_api_entities import api_as, create
 from test_files import run_tasks
@@ -21,6 +22,10 @@ from test_workers import WorkerClient, keep_connection, worker
 
 from iki_server.entities import services
 from iki_server.entities.models import Entity, ProjectLink, Revision
+from iki_server.entities.values import shape
+from iki_server.files import scan_state
+from iki_server.files import services as files
+from iki_server.files.models import Blob, Upload
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.runs import imports
 from iki_server.runs.models import (
@@ -31,6 +36,7 @@ from iki_server.runs.models import (
     JobState,
     RunImport,
 )
+from iki_server.tasks.models import TaskRecord
 from iki_server.webhooks.models import Delivery
 
 pytestmark = pytest.mark.django_db
@@ -367,6 +373,28 @@ def test_every_line_of_an_identity_fills_what_its_entry_hasnt_got(world: World) 
         assert [by[n] for n in numbers] == [run["hrid"]] * len(numbers)
 
 
+def test_inline_and_file_creates_share_one_effect_with_each_entry_revision(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(imports, "FILL_BATCH", 1)
+    run, _ = started(
+        world,
+        lambda f: lines(
+            protein(KINASES[0], "A", f, ec_number="2.7.10.2"),
+            protein(KINASES[0], "A", f, hazard="none"),
+            protein(KINASES[1], "B", f),
+        ),
+        creates=[{"type": "acme/protein.Protein", "values": {"sequence": KINASES[0]}}],
+    )
+    body = finished(world, run)
+    assert body["status"] == "succeeded", body
+    effects = ActionRun.objects.get(pk=run["id"]).effects.order_by("id")
+    assert list(effects.values_list("entry_id", "entry_revisions")) == [
+        (entry_of(KINASES[0]).pk, [1, 2, 3]),
+        (entry_of(KINASES[1]).pk, [1]),
+    ]
+
+
 def test_lines_of_an_identity_that_give_a_fact_two_values_fail_the_import(
     world: World,
 ) -> None:
@@ -625,6 +653,130 @@ def test_two_lines_with_one_unique_value_fail_the_import(world: World) -> None:
         }
     ]
     assert not Entity.objects.filter(type="acme/protein.Protein").exists()
+
+
+def test_lines_repeating_an_inherited_match_field_name_both_lines(world: World) -> None:
+    file_id = stored(world)
+    run = importing(world, file_id).json()
+    stored_run = ActionRun.objects.get(pk=run["id"])
+    stored_run.spec["creates"] = [
+        {
+            "type": "acme/protein.Tube",
+            "cardinality": "many",
+            "match_on": "barcode",
+            "derived_from": [],
+        }
+    ]
+    stored_run.save(update_fields=["spec"])
+    pod = worker(world)
+    job = pod.lease().json()
+    data = lines(
+        *(
+            {"type": type_name, "values": {"barcode": "VENDOR-01"}}
+            for type_name in ("acme/protein.Tube", "acme/protein.RetainTube")
+        )
+    )
+    answer = pod.report(job, "complete", output=output(creates_file=upload(pod, job, data)))
+    assert answer.json()["run_status"] == "running", answer.content
+    body = finished(world, run)
+    assert body["status"] == "failed", body
+    (error,) = body["error"]["errors"]
+    assert error["pointer"] == "#/creates_file/2/values/barcode"
+    assert "Line 1" in error["detail"]
+    assert not Entity.objects.filter(
+        type__in=["acme/protein.Tube", "acme/protein.RetainTube"]
+    ).exists()
+
+
+def test_two_external_ids_in_a_file_cannot_resolve_to_one_existing_record(world: World) -> None:
+    old = services.create(
+        world.users["editor"],
+        "acme/protein.Protein",
+        world.project,
+        {"sequence": KINASES[0], "lims_id": "LIMS-1"},
+    ).entity
+    run, _ = started(
+        world,
+        lambda f: lines(
+            protein(KINASES[0], "Match", f, lims_id="LIMS-1"),
+            protein(KINASES[0], "Other record", f, lims_id="LIMS-2"),
+        ),
+    )
+    body = finished(world, run)
+    assert body["status"] == "failed", body
+    (error,) = body["error"]["errors"]
+    assert error["pointer"] == "#/creates_file/2/values/lims_id"
+    assert "#/creates_file/1" in error["detail"]
+    assert Entity.objects.get(pk=old.pk).revision == 1
+    assert body["effects"] == []
+
+
+@pytest.mark.parametrize("second_id", ["LIMS-1", "LIMS-2"])
+def test_an_external_record_occurs_once_across_inline_and_file(
+    world: World, second_id: str
+) -> None:
+    inline = {
+        "type": "acme/protein.Protein",
+        "values": {"sequence": KINASES[0], "lims_id": "LIMS-1", "name": "Inline"},
+    }
+    run, _ = started(
+        world,
+        lambda f: lines(protein(KINASES[0], "In file", f, lims_id=second_id)),
+        creates=[inline],
+    )
+    body = finished(world, run)
+    assert body["status"] == "failed", body
+    assert body["error"]["code"] == "invalid_output"
+    (error,) = body["error"]["errors"]
+    assert error["pointer"].startswith("#/creates_file/1")
+    assert "#/creates/0" in error["detail"]
+    assert not Entity.objects.filter(type=inline["type"]).exists()
+    assert body["effects"] == []
+
+
+@pytest.mark.parametrize("defaulted", [False, True], ids=["file-supplies-key", "file-omits-key"])
+def test_one_external_key_preserves_both_registrations(
+    world: World, defaulted: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    type_name = "acme/protein.Protein"
+    inline = {
+        "type": type_name,
+        "values": {"sequence": KINASES[0], **({"lims_id": "LIMS-1"} if defaulted else {})},
+        "origin": {"source": "catalog", "id": "inline"},
+    }
+    if defaulted:
+        fields = shape(type_name).part_of("lims_id").fields
+        monkeypatch.setitem(
+            fields,
+            "lims_id",
+            dataclasses.replace(fields["lims_id"], default="LIMS-1", has_default=True),
+        )
+    run, _ = started(
+        world,
+        lambda f: lines(
+            protein(KINASES[0], "File", f, **({} if defaulted else {"lims_id": "LIMS-1"}))
+        ),
+        creates=[inline],
+    )
+    body = finished(world, run)
+    assert body["status"] == "succeeded", body
+    (effect,) = body["effects"]
+    assert effect["kind"] == "created"
+    record = Entity.objects.get(pk=effect["entity"])
+    assert (
+        api_as(world, "editor").get(f"/entities/{record.hrid}").json()["values"]["lims_id"]
+        == "LIMS-1"
+    )
+    assert set(
+        ExternalOrigin.objects.filter(entity=record).values_list("identifier", flat=True)
+    ) == {"inline", "File"}
+    imported = RunImport.objects.get(run_id=run["id"])
+    assert (imported.created, imported.updated, imported.reused, imported.registered) == (
+        1,
+        0,
+        0,
+        1,
+    )
 
 
 def test_lines_that_match_entities_update_them(world: World) -> None:
@@ -888,6 +1040,58 @@ def test_an_import_goes_on_from_where_it_was_interrupted(
     )
 
 
+@pytest.mark.parametrize("infected", [False, True])
+def test_a_staged_import_waits_for_its_first_scan(
+    world: World, monkeypatch: pytest.MonkeyPatch, infected: bool
+) -> None:
+    # A pre-upgrade worker could upload a creates file and stage lines with no scan record.
+    read_scan = scan_state.status_for
+
+    def previous_worker(source: Blob | Upload) -> scan_state.ScanStatus:
+        return scan_state.ScanStatus(state="clean") if source.size else read_scan(source)
+
+    with monkeypatch.context() as old:
+        old.setattr(scan_state, "status_for", previous_worker)
+        run, _ = started(world, lambda f: lines(*(protein(s, s, f) for s in KINASES)))
+        imported = RunImport.objects.get(run_id=run["id"])
+        old.setattr(imports, "CHUNK_LINES", 1)
+        old.setattr(imports, "STEP_FOR", 0)
+        assert imports._advance(imported.pk) is False
+    blob = imported.file.blob
+    assert scan_state.status_for(blob).state == "pending"
+    run_tasks()
+    imported.refresh_from_db()
+    assert (imported.staged, imported.failures) == (1, 0)
+    assert "being scanned" in imported.job.progress_message
+    assert not Entity.objects.filter(type="acme/protein.Protein").exists()
+
+    # Even if the queue exhausts its attempts during an outage, housekeeping
+    # recovers the same staged import and preserves its failure budget.
+    retry = TaskRecord.objects.get(args=[str(imported.pk)], status="READY")
+    assert retry.run_after > timezone.now()
+    retry.delete()
+    RunImport.objects.filter(pk=imported.pk).update(
+        updated_at=timezone.now() - imports.STALLED_AFTER
+    )
+    assert imports.recover() == 1
+    imported.refresh_from_db()
+    assert imported.failures == 0
+
+    if infected:
+        scan_state.record_result(
+            blob, state="infected", scanner="test", signature_version="1", reason="Test-Finding"
+        )
+    else:
+        assert files.scan_source(blob).state == "clean"
+    body = finished(world, run)
+    if infected:
+        assert body["status"] == "failed" and "quarantined" in body["error"]["message"]
+        assert not body["effects"]
+    else:
+        assert body["status"] == "succeeded", body
+        assert len(body["effects"]) == len(KINASES)
+
+
 def test_an_import_that_keeps_failing_gives_up(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -950,7 +1154,6 @@ def test_a_staged_import_checks_the_projects_flow_at_commit(
     monkeypatch.setattr(starters, "CATALOG", (assay,))
     application = StarterApplication.objects.create(
         project=world.project,
-        requester_project=Project.objects.create(team=world.team, name="Requests"),
         starter=assay.id,
         version=assay.version,
         flow="research",

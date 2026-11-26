@@ -1,11 +1,10 @@
 """A token given only some projects acts in those and nowhere else (ADR 0152).
 
-Its person may be an Org Admin, a Compute Admin and an Auditor, but a token
-they gave only some projects takes no action on the organization, its teams
-or its registries. Every operation in the API is tried, from the access
-matrix, which itself lists every operation in the OpenAPI document, with a
-token given another project: one it may still take must be listed in
-REACHABLE, or it's refused.
+Its person may hold every org role, but a token they gave only some projects
+takes no action on the organization, its teams or its registries. Every
+operation in the API is tried, from the access matrix, which itself lists every
+operation in the OpenAPI document, with a token given another project: one it
+may still take must be listed in REACHABLE, or it's refused.
 """
 
 import secrets
@@ -65,6 +64,8 @@ REACHABLE = {
     ("GET", "/entity-types"),
     ("GET", "/entity-types/{name}"),
     ("GET", "/entity-types/{name}/flow"),
+    ("GET", "/entity-types/{name}/import-template.csv"),
+    ("GET", "/formats"),
     ("GET", "/starters"),
     ("GET", "/actions"),
     ("GET", "/actions/{name}"),
@@ -91,10 +92,10 @@ LOOKUPS = {("GET", "/users"): "/users?email="}
 
 
 def everything(world: World) -> User:
-    """The Org Admin, made everything else too: Compute Admin, Auditor, Admin of the
+    """The Org Admin, made everything else too: every other org role, Admin of the
     project, a member of its team and a registrar of its registry."""
     person = world.users["org_admin"]
-    for role in (OrgRole.COMPUTE_ADMIN, OrgRole.AUDITOR):
+    for role in set(OrgRole) - {OrgRole.ORG_ADMIN}:
         OrgRoleAssignment.objects.create(user=person, role=role)
     for project in (world.project, world.archived):
         ProjectMembership.objects.create(project=project, user=person, role=ProjectRole.ADMIN)
@@ -195,7 +196,7 @@ def test_in_its_projects_it_acts_as_its_person_may() -> None:
     assert not permissions.visible_teams(person).exists()
 
 
-#: The organization's: its costs, webhooks, people, teams, compute and settings.
+#: The organization's: its costs, webhooks, people, teams, compute, held files and settings.
 ORGANIZATION = [
     ("GET", "/compute/costs", None),
     ("GET", "/compute/costs/records.csv", None),
@@ -209,6 +210,7 @@ ORGANIZATION = [
     ("POST", "/teams", {"name": "Genomics"}),
     ("GET", "/teams", None),
     ("GET", "/outside-apis", None),
+    ("GET", "/quarantine", None),
 ]
 
 
@@ -274,6 +276,28 @@ def test_a_project_token_can_read_flow_definitions_and_only_its_projects_starter
     problem(bearer(token, "GET", f"/starters?project={world.project.pk}", None), 404, "not_found")
 
 
+def test_project_tokens_share_format_definitions_and_count_only_their_files() -> None:
+    from test_project_files import add
+
+    world = build_world()
+    person = everything(world)
+    other = elsewhere(world, person)
+    add(world.project, "coordinates.pdb", "chemical/x-pdb")
+    add(other, "observations.csv", "text/csv")
+    here = token_for(person, projects=[world.project], scopes=["read"])
+    there = token_for(person, projects=[other], scopes=["read"])
+
+    definitions = bearer(here, "GET", "/formats")
+    assert definitions.status_code == 200
+    assert {f["id"] for f in definitions.json()} >= {"iki/core.pdb", "iki/core.csv"}
+    assert bearer(there, "GET", "/formats").json() == definitions.json()
+    for token, expected in ((here, "iki/core.pdb"), (there, "iki/core.csv")):
+        facets = bearer(token, "GET", "/files/formats")
+        assert facets.status_code == 200
+        assert [(f["id"], f["count"]) for f in facets.json()] == [(expected, 1)]
+    problem(bearer(here, "GET", f"/files/formats?project={other.pk}"), 404, "not_found")
+
+
 def test_its_person_is_told_only_what_their_roles_allow() -> None:
     """Someone who isn't an Org Admin is refused as without a token: the project choice
     isn't why."""
@@ -293,7 +317,15 @@ def test_every_operation_beyond_its_projects_is_refused(
     if (method, template) in REACHABLE and (method, template) not in LOOKUPS:
         pytest.skip("within the token's projects, or the person's own")
     if template.startswith(
-        ("/uploads", "/files", "/registrations", "/bundles", "/imports", "/spreadsheet")
+        (
+            "/uploads",
+            "/files",
+            "/registrations",
+            "/bundles",
+            "/imports",
+            "/spreadsheet",
+            "/entity-exports",
+        )
     ) or (template.endswith(("/bundles", "/imports", "/spreadsheet-imports"))):
         request.getfixturevalue("s3")
         settings = request.getfixturevalue("settings")

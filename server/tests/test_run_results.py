@@ -18,7 +18,7 @@ from test_files import run_tasks
 from test_runs import TEMPLATE, _capacity, launch, protein
 from test_workers import LOCAL, WorkerClient, keep_connection, queued, registration, worker
 
-from iki_server.entities import registry
+from iki_server.entities import registry, services
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.files import services as files
 from iki_server.files import storage
@@ -327,6 +327,8 @@ def _upload(gpu: WorkerClient, job: dict[str, Any], data: bytes = b"") -> dict[s
 
 def _structure_file(gpu: WorkerClient, job: dict[str, Any]) -> str:
     upload = _upload(gpu, job)
+    run_tasks()
+    upload = gpu.report(job, f"uploads/{upload['id']}/complete").json()
     assert upload["state"] == "ready"
     return str(upload["file"])
 
@@ -532,7 +534,14 @@ def test_a_value_set_by_a_run_says_whether_the_run_is_hidden_or_unrecorded(
     assert hidden["molecular_weight"]["run_withheld"] is True
     # A run's revision with no run recorded, as one imported from elsewhere can be, says
     # neither.
-    RunEffect.objects.filter(run_id=run["id"]).delete()
+    entity = Entity.objects.get(pk=entity_id)
+    services.update(
+        world.users["editor"],
+        entity,
+        {"molecular_weight": 1000.0},
+        expected_revision=entity.revision,
+        by_run=True,
+    )
     unrecorded = api_as(world, "editor").get(f"/entities/{entity_id}/provenance").json()
     assert unrecorded["molecular_weight"]["run"] is None
     assert unrecorded["molecular_weight"]["run_withheld"] is False
@@ -671,6 +680,7 @@ def test_results_attach_only_their_own_files(world: World, s3: Any) -> None:
         size=0,
         sha256=EMPTY_SHA256,
     )
+    run_tasks()
     theirs.refresh_from_db()
     assert theirs.state == UploadState.READY
     structure = _structure(gpu, job, run)
@@ -697,7 +707,7 @@ def test_uploads_belong_to_the_job_holding_the_lease(world: World, s3: Any) -> N
 
 
 def _stored(world: World, name: str) -> str:
-    """A file in the project (empty, so it's ready at once)."""
+    """An empty file in the project, ready for use."""
     upload = files.start(
         world.users["editor"],
         world.project,
@@ -706,6 +716,7 @@ def _stored(world: World, name: str) -> str:
         size=0,
         sha256=EMPTY_SHA256,
     )
+    run_tasks()
     upload.refresh_from_db()
     return str(upload.file_id)
 

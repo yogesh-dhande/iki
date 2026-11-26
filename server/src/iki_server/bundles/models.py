@@ -40,6 +40,8 @@ class BundleExport(models.Model):
     picked = ArrayField(models.UUIDField())
     #: The local identities needed to read the exact retained archive.
     references = ArrayField(models.UUIDField(), null=True)
+    #: The immutable sources checked before the archive was written, including registrations.
+    scanned_blobs = ArrayField(models.UUIDField(), null=True)
     state = models.CharField(max_length=16, choices=ExportState.choices, default=ExportState.QUEUED)
     #: Why it failed, said to the person who asked.
     error = models.TextField(blank=True, default="")

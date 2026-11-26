@@ -24,9 +24,11 @@ from django.db import models
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import best_match
 
+from iki_server.api.problems import Problem
 from iki_server.core.sizes import human_size
 from iki_server.entities import registry
 from iki_server.entities.models import Entity
+from iki_server.files.scan_state import status_from_decision
 from iki_server.storage.codes import RESERVED_VENDOR_MESSAGE, has_iki_prefix
 from iki_spec import naming, units
 from iki_spec.model import EntityType, Field, refined, refinement, split_entry
@@ -290,9 +292,13 @@ class Refs:
         readable_entries: Any = None,  # noqa: ANN401
         project: str = "the project",
         namer: Any = None,  # noqa: ANN401 - people.Namer
+        scanning: bool = False,
     ) -> None:
         self.readable = readable
         self.files = files
+        #: Files still being scanned may be named: a run's params, as it waits for their
+        #: scans (ADR 0234). A record's value never may be (ADR 0216).
+        self.scanning = scanning
         #: Why these values may not refer to an entity, or a file, the caller can read
         #: (ADR 0067, 0132), or None for one they can't: a reference to one says so.
         self.held = held
@@ -366,11 +372,19 @@ class Refs:
         return {i: t.type for i, t in self.look_up(ids).items() if isinstance(t, Target)}
 
     def file(self, file_id: uuid.UUID) -> tuple[str, int] | None:
-        """A readable file's media type and size."""
+        """A readable and usable file's media type and size."""
         if self.files is None:
             return None
-        found = self.files.filter(pk=file_id).values_list("media_type", "blob__size").first()
-        return None if found is None else (found[0], found[1])
+        found = self.files.filter(pk=file_id).select_related("blob__scan_result__release").first()
+        if found is None:
+            return None
+        scan = status_from_decision(getattr(found.blob, "scan_result", None))
+        if not (self.scanning and scan.state == "pending"):
+            try:
+                scan.require_usable()
+            except Problem as error:
+                raise ValueError(error.detail) from error
+        return found.media_type, found.blob.size
 
     def why_held(self, entity_id: uuid.UUID) -> str | None:
         """Why a readable entity can't be referred to, if it's why it can't be."""
@@ -639,7 +653,9 @@ def _file(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
         raise ValueError(refs.why_held_file(target) or "refers to no file you can read.")
     media_type, size = found
     if f.media_types and not media_type_allowed(media_type, f.media_types):
-        raise ValueError(f"must be {_either(f.media_types)}, and this file is {media_type}.")
+        formats = registry.file_formats().formats
+        labels = tuple(formats[t].label if t in formats else t for t in f.media_types)
+        raise ValueError(f"must be {_either(labels)}, and this file is {media_type}.")
     if f.max_size is not None and size > f.max_size:
         raise ValueError(
             f"can be at most {human_size(f.max_size)}, and this file is {human_size(size)}."
@@ -648,9 +664,9 @@ def _file(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
 
 
 def media_type_allowed(media_type: str, allowed: Iterable[str]) -> bool:
-    """Whether ``media_type`` is one of ``allowed``, where ``image/*`` allows any image."""
+    """Whether a file matches an accepted format ID, media type or wildcard family."""
     kind = media_type.split("/", 1)[0]
-    return any(a == media_type or a == f"{kind}/*" for a in allowed)
+    return any(a == media_type or a == f"{kind}/*" for a in registry.file_formats().expand(allowed))
 
 
 def _either(choices: tuple[str, ...]) -> str:

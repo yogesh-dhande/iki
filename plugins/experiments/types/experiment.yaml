@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: EntityType
 name: Experiment
-schema_version: 2
+schema_version: 3
 label: Experiment
 hrid: { prefix: EXP }
 description: A project record for an experiment, its external notebook entry and the evidence the lab signed.
@@ -142,7 +142,6 @@ fields:
         label: Submitted
         set_by: [author]
         locks: true
-        on_edit: recorded
         signatures:
           - {
               meaning: authorship,
@@ -170,7 +169,6 @@ fields:
         label: Independently reviewed
         set_by: [reviewer]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: review }]
         guards:
           submitted:

@@ -52,6 +52,7 @@ from iki_server.entities.values import Shape, shape
 from iki_server.files import services as files
 from iki_server.files import storage
 from iki_server.files.models import Blob, File, Upload, UploadKind
+from iki_server.files.scan_state import status_from_decision
 from iki_server.org.models import Project, registry_of
 from iki_server.org.permissions import Action, can
 from iki_server.org.services import Refused
@@ -101,17 +102,39 @@ def start(by: User, project: Project, *, name: str, size: int, sha256: str) -> B
 
 
 def uploaded(upload: Upload) -> None:
-    """Its bytes are in and match: plan it. Called in the transaction that marks it ready."""
+    """Resume work after a usable scan, including an archive in flight during an upgrade."""
     made = BundleImport.objects.select_for_update().get(upload=upload)
-    if made.state != ImportState.UPLOADING:
-        return
-    made.state = ImportState.PLANNING
-    made.save(update_fields=["state"])
-    plan_import.enqueue(str(made.pk))
+    if made.state == ImportState.UPLOADING:
+        made.state = ImportState.PLANNING
+        made.save(update_fields=["state"])
+    if made.state == ImportState.PLANNING:
+        plan_import.enqueue(str(made.pk))
+    elif made.state == ImportState.APPLYING and made.planned_at is not None:
+        from iki_server.bundles.applying import apply_import
+
+        apply_import.enqueue(str(made.pk), made.planned_at.isoformat())
+
+
+def archive_hold(made: BundleImport) -> str | None:
+    """The hold that keeps an archive from being opened, including pre-upgrade archives."""
+    if made.upload.state == "scanning":
+        return "scanning"
+    scan = status_from_decision(getattr(made.upload, "scan_result", None))
+    if scan.usable:
+        return None
+    if scan.state == "pending":
+        return "scanning"
+    return "quarantined" if scan.state == "infected" else "not_scanned"
 
 
 def state_of(made: BundleImport) -> tuple[str, str]:
-    """Its state and error, with an upload that failed, was cancelled or expired as failed."""
+    """Progress of the archive and import, including a hold while planning or applying."""
+    if (
+        made.state in (ImportState.UPLOADING, ImportState.PLANNING, ImportState.APPLYING)
+        and made.upload.state in ("scanning", "ready")
+        and (hold := archive_hold(made))
+    ):
+        return hold, ""
     if made.state == ImportState.UPLOADING and made.upload.state in ("failed", "cancelled"):
         return ImportState.FAILED, made.upload.error or "Its upload was cancelled."
     if made.state == ImportState.UPLOADING and made.upload.state == "expired":
@@ -132,7 +155,7 @@ def discard(by: User, made: BundleImport) -> BundleImport:
             raise Refused("It was applied: what it imported stays, as the record of it.")
         if locked.state == ImportState.DISCARDED:
             return locked
-        if locked.upload.state in ("pending", "checking"):
+        if locked.upload.state in ("pending", "checking", "scanning"):
             files.cancel(locked.upload)
         locked.state = ImportState.DISCARDED
         locked.save(update_fields=["state"])
@@ -157,9 +180,13 @@ def discard(by: User, made: BundleImport) -> BundleImport:
 @task()
 def plan_import(import_id: str) -> str:
     """Reads the uploaded bundle and works out what importing it does."""
-    made = BundleImport.objects.select_related("project", "requested_by").get(pk=import_id)
+    made = BundleImport.objects.select_related(
+        "project", "requested_by", "upload__scan_result__release"
+    ).get(pk=import_id)
     if made.state != ImportState.PLANNING:
         return made.state
+    if hold := archive_hold(made):
+        return hold
     try:
         return _plan(made)
     except Exception:
@@ -308,6 +335,7 @@ class _Entry:
 class _Planner:
     made: BundleImport
     bundle: reading.Bundle
+    prepared_blobs: set[uuid.UUID] = field(default_factory=set)
     problems: list[str] = field(default_factory=list)
     counts: _Counts = field(default_factory=_Counts)
     #: Each file's SHA-256, by its ID, for identities that name a file.
@@ -490,14 +518,13 @@ class _Planner:
         # Choose the first local blob of the digest, including externally registered
         # blobs. Several distinct registered objects can have the same bytes.
         blobs: dict[str, str] = {}
-        existing_uris: set[str] = set()
-        for sha, pk, uri in (
+        for sha, pk in (
             Blob.objects.filter(sha256__in=shas)
+            .exclude(pk__in=self.prepared_blobs, files__isnull=True)
             .order_by("pk")
-            .values_list("sha256", "pk", "storage_uri")
+            .values_list("sha256", "pk")
         ):
             blobs.setdefault(sha, str(pk))
-            existing_uris.add(uri)
         existing = {
             str(pk): (str(blob), sha)
             for pk, blob, sha in File.objects.filter(pk__in=[f["id"] for f in lines]).values_list(
@@ -508,7 +535,6 @@ class _Planner:
         # every file of that digest will be stored, as in _Writer._store.
         sources: dict[str, str] = {}
         registered = 0
-        allowed = files.locations()
         for f in lines:
             source_id, sha = f["id"], f["sha256"]
             self.file_sha[source_id] = sha
@@ -518,12 +544,15 @@ class _Planner:
                 label = source_id
             if f["registered"]:
                 registered += 1
-                uri = f["registered"]["uri"]
-                if uri not in existing_uris and not any(uri.startswith(a) for a in allowed):
-                    self.problems.append(
-                        f"{label} is registered at {uri}, where this deployment doesn't "
-                        "register files from: an administrator adds the location first."
+                if f["registered"]["version"].strip() in ("", "null"):
+                    raise reading.BundleError(
+                        f"{label} requires an immutable object version. Register a version of "
+                        "the file at its source and export the bundle again."
                     )
+                try:
+                    files.registration_location(f["registered"]["uri"])
+                except Refused as error:
+                    self.problems.append(f"{label}: {error}")
             elif sha not in carried and sha not in blobs:
                 raise reading.BundleError(f"It names {label}, but doesn't carry its bytes.")
             member = {"label": label, "action": "new"}

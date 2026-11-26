@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { ApiError, createIkiClient, encodeName, isProblem, unwrap } from "./index.js";
 
@@ -54,6 +54,91 @@ describe("createIkiClient", () => {
     await iki.GET("/api/v1/me");
     expect(requests[0]?.headers.get("Authorization")).toBe("Bearer at-123");
     expect(requests[0]?.credentials).toBe("omit");
+  });
+
+  it("lets the browser enforce its page origin on a signed write", async () => {
+    vi.stubGlobal("location", new URL(BASE));
+    try {
+      const { requests, fetch } = recorder({});
+      const iki = createIkiClient({ baseUrl: BASE, csrfToken: () => "test-csrf", fetch });
+      await iki.POST("/api/v1/projects", { body: { name: "Atlas", description: "", team: "t" } });
+      expect(requests[0]?.headers.get("X-CSRFToken")).toBe("test-csrf");
+      expect(requests[0]?.redirect).toBe("follow");
+      expect(requests[0]?.mode).toBe("same-origin");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("retains the bearer for one same-origin read redirect", async () => {
+    const requests: Request[] = [];
+    const fetch = (request: Request) => {
+      requests.push(request);
+      return Promise.resolve(
+        requests.length === 1
+          ? Response.redirect("https://IKI.test:443/canonical")
+          : Response.json({}),
+      );
+    };
+    const iki = createIkiClient({
+      baseUrl: BASE,
+      accessToken: () => "test-token",
+      fetch: fetch as typeof globalThis.fetch,
+    });
+    await iki.GET("/api/v1/me");
+    expect(requests.map((r) => r.redirect)).toEqual(["manual", "error"]);
+    expect(requests[1]?.headers.get("Authorization")).toBe("Bearer test-token");
+  });
+
+  it.each(["https://store.test/me", "https://iki.test:8443/me", "http://iki.test/me"])(
+    "refuses a program's API redirect to %s",
+    async (location) => {
+      const fetch = vi.fn(() => Promise.resolve(Response.redirect(location)));
+      const iki = createIkiClient({ baseUrl: BASE, accessToken: () => "test-token", fetch });
+      await expect(iki.GET("/api/v1/me")).rejects.toThrow("unsafe redirect");
+      expect(fetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("follows a signed download without Iki headers or cookies", async () => {
+    const requests: Request[] = [];
+    const fetch = (request: Request) => {
+      requests.push(request);
+      return Promise.resolve(
+        requests.length === 1
+          ? Response.redirect("https://store.test/file?sig=test")
+          : new Response("contents"),
+      );
+    };
+    const iki = createIkiClient({
+      baseUrl: BASE,
+      accessToken: () => "test-token",
+      fetch: fetch as typeof globalThis.fetch,
+    });
+    await iki.GET("/api/v1/files/{file_id}/content", {
+      params: { path: { file_id: "file" } },
+      parseAs: "text",
+    });
+    expect(requests[1]?.headers.has("Authorization")).toBe(false);
+    expect(requests[1]?.credentials).toBe("omit");
+    expect(requests[1]?.redirect).toBe("error");
+  });
+
+  it("refuses an insecure signed download and honors an explicitly manual redirect", async () => {
+    const fetch = vi.fn(() =>
+      Promise.resolve(Response.redirect("http://store.test/file?sig=test")),
+    );
+    const iki = createIkiClient({ baseUrl: BASE, accessToken: () => "test-token", fetch });
+    const params = { path: { file_id: "file" } };
+    await expect(iki.GET("/api/v1/files/{file_id}/content", { params })).rejects.toThrow(
+      "unsafe redirect",
+    );
+    const { response } = await iki.GET("/api/v1/files/{file_id}/content", {
+      params,
+      redirect: "manual",
+    });
+    expect(response.status).toBe(302);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the / of a name's namespace in its path, and escapes everything else", async () => {
@@ -130,7 +215,7 @@ describe("unwrap", () => {
 
   it("gives what a launch sends outside when it needs consent (ADR 0130)", async () => {
     const consent = {
-      api: "iki/example_models.foldcloud",
+      api: "acme/hosted_models.foldcloud",
       label: "FoldCloud",
       host: "fold.example.com",
       purpose: "Predicts protein structures.",
@@ -152,7 +237,7 @@ describe("unwrap", () => {
     };
     const call = iki
       .POST("/api/v1/actions/{name}/runs", {
-        params: { path: { name: "iki/example_models.predict_structure" } },
+        params: { path: { name: "acme/hosted_models.predict_structure" } },
         body,
       })
       .then(unwrap);

@@ -1,8 +1,6 @@
 """The oligo plugin's actions, by their first argument:
 
 - ``register``: an oligonucleotide from its HELM.
-- ``design``: an oligonucleotide from its bases and a pattern of chemistry, such as a
-  5-10-5 2′-MOE gapmer with phosphorothioates throughout.
 - ``import``: oligonucleotides from a CSV or SDF file of HELM.
 - ``compute``: an oligonucleotide's weight, formula, extinction and bases, from the
   monomers it lists (for one registered without this plugin's actions).
@@ -238,95 +236,6 @@ def register(run: Mapping[str, Any]) -> dict[str, Any]:
     return {"creates": [*resolve.creates(), oligo]}
 
 
-# The sugars a design names, by the library's symbols.
-SUGARS = {
-    "DNA": "dR",
-    "RNA": "R",
-    "MOE": "MOE",
-    "LNA": "LR",
-    "cEt": "cet",
-    "2-OMe": "mR",
-    "2-F": "fR",
-}
-LINKERS = {
-    "phosphorothioate": "sP",
-    "Rp-phosphorothioate": "Rsp",
-    "Sp-phosphorothioate": "Ssp",
-    "phosphodiester": "P",
-}
-FIVE_PRIME = {
-    "6-FAM": "5FAM",
-    "Cy3": "5Cy3",
-    "Cy5": "5Cy5",
-    "biotin-TEG": "5BioTEG",
-    "amino-C6": "nC6o",
-    "cholesterol-TEG": "cholTEG",
-}
-THREE_PRIME = {
-    "BHQ-1": "BHQ1",
-    "BHQ-2": "BHQ2",
-    "cholesterol-TEG": "cholTEG",
-    "GalNAc-L96": "3GN3C12hp",
-    "C3-spacer": "SpC3",
-}
-
-
-def bracket(symbol: str) -> str:
-    return symbol if len(symbol) == 1 else f"[{symbol}]"
-
-
-def design_helm(params: Mapping[str, Any]) -> str:
-    """The HELM of a designed oligonucleotide (see the design action's params)."""
-    bases = str(params["bases"]).strip().upper()
-    if not bases or any(c not in "ACGTU" for c in bases):
-        raise Refused("Its bases are A, C, G, T and U, 5′ to 3′.")
-    sugar = SUGARS[params.get("sugar") or "DNA"]
-    wings = (params.get("wings") or "").strip()
-    sugars = [sugar] * len(bases)
-    if wings:
-        try:
-            five, gap, three = (int(x) for x in wings.split("-"))
-        except ValueError:
-            raise Refused(f"Its wings are three counts, such as 5-10-5, not “{wings}”.") from None
-        if five + gap + three != len(bases):
-            raise Refused(
-                f"A {wings} gapmer has {five + gap + three} nucleotides; its bases are "
-                f"{len(bases)}."
-            )
-        wing = SUGARS[params.get("wing_sugar") or "MOE"]
-        sugars = [wing] * five + [sugar] * gap + [wing] * three
-    linker = LINKERS[params.get("backbone") or "phosphorothioate"]
-    methyl = bool(params.get("methyl_cytosine"))
-    five_prime = FIVE_PRIME.get(params.get("five_prime") or "")
-    three_prime = THREE_PRIME.get(params.get("three_prime") or "")
-    units = []
-    for i, (base, s) in enumerate(zip(bases, sugars, strict=True)):
-        b = "5meC" if (methyl and base == "C") else base
-        last = i == len(bases) - 1
-        joiner = "" if last and not three_prime else ("P" if last else bracket(linker))
-        units.append(f"{bracket(s)}({bracket(b)}){joiner}")
-    if five_prime:
-        units.insert(0, "P")
-    polymers = ["RNA1{" + ".".join(units) + "}"]
-    connections = []
-    if five_prime:
-        polymers.append("CHEM1{" + bracket(five_prime) + "}")
-        connections.append("RNA1,CHEM1,1:R1-1:R1")
-    if three_prime:
-        n = len(polymers)
-        final = 1 + 3 * len(bases) if five_prime else 3 * len(bases)
-        polymers.append(f"CHEM{n}{{{bracket(three_prime)}}}")
-        connections.append(f"RNA1,CHEM{n},{final}:R2-1:R1")
-    return "|".join(polymers) + "$" + "|".join(connections) + "$$$V2.0"
-
-
-def design(run: Mapping[str, Any]) -> dict[str, Any]:
-    params = run["params"]
-    helm_text = design_helm(params)
-    print(f"HELM: {helm_text}")
-    return register({**run, "params": {**params, "helm": helm_text}})
-
-
 # --- Importing ------------------------------------------------------------------------------
 
 
@@ -355,31 +264,87 @@ def _rows_csv(text: str) -> list[dict[str, str]]:
     return out
 
 
-def _rows_sdf(text: str) -> list[dict[str, str]]:
-    """Each SDF record's data items: its HELM, and its name if it has one."""
-    out = []
-    # A record ends at a line that's only $$$$: HELM has $$$$ in it too.
+#: The data items an import reads, by their names in lower case.
+SDF_KEPT = ("helm", "name", "description")
+
+
+def _rows_sdf(text: str, warnings: list[str]) -> list[dict[str, str]]:
+    """Each SDF record's data items: its HELM, and its name and description if it has them;
+    what's wrong with them in `warnings`.
+    A record ends at a line that's only `$$$$`: HELM has `$$$$` in it too, so a HELM value
+    wrapped over lines (200 characters a line, as CTfile Formats allows) may start one with
+    it. Its HELM's lines are one HELM string; its name's, one line."""
+    out: list[dict[str, str]] = []
     for record in SDF_END.split(text):
         if not record.strip():
             continue
-        items: dict[str, str] = {}
         lines = record.splitlines()
-        name = next((line.strip() for line in lines if line.strip()), "")
-        for i, line in enumerate(lines):
-            if line.startswith(">") and "<" in line and ">" in line[1:]:
-                tag = line[line.index("<") + 1 : line.rindex(">")].strip().lower()
-                value = []
-                for after in lines[i + 1 :]:
-                    if not after.strip():
-                        break
-                    value.append(after.strip())
-                items[tag] = "".join(value)
-        items.setdefault("name", name)
+        title = next((line.strip() for line in lines if line.strip()), "")
+        end = next((i for i, line in enumerate(lines) if line.startswith("M  END")), -1)
+        said: list[str] = []
+        given = data_items(lines[end + 1 :], said)
+        warnings += [f"Record {len(out) + 1}: {w}" for w in said]
+        items = {name.lower(): value for name, value in given.items()}
+        if "helm" in items:
+            items["helm"] = "".join(line.strip() for line in items["helm"].splitlines())
+        if "name" in items:
+            items["name"] = " ".join(items["name"].split())
+        items.setdefault("name", title)
         items[""] = record
         out.append(items)
     if not any("helm" in r for r in out):
         raise Refused("Its records have no HELM data item (> <HELM>).")
     return out
+
+
+# The same reading of SD data items as the small_molecule plugin's (its scripts/sdf.py),
+# which a plugin can't import from another: keep the two alike.
+def data_items(lines: list[str], warnings: list[str]) -> dict[str, str]:
+    """A record's SD fields, from the lines after its molblock, as CTfile Formats (SDfiles)
+    has them: each data item is a header line starting with `>`, which names its field in
+    angle brackets, then its value's lines, up to a blank line. Every line of a value is
+    its value's, one starting with `>` too: only a line after a blank one can start the
+    next item. As RDKit's SDMolSupplier reads them, the name is what's between the
+    header's first `<` and its last `>`, and an item without one (a MACCS-II `DTn` field
+    number alone) is passed over, with its value. A line of only spaces is a blank line,
+    as the format's are. Lines between items that aren't headers aren't anyone's. A value's
+    line that reads as the header of a field the import reads (`> <HELM>`), as a file
+    missing a blank line has, is kept in the value, and `warnings` says so."""
+    fields: dict[str, str] = {}
+    name: str | None = None
+    value: list[str] | None = None  # the lines of the item being read, if it's one
+    for raw in lines:
+        line = raw.rstrip("\r\n")
+        if value is not None:
+            if line.strip():
+                value.append(line)
+                other = _label(line.strip())
+                if name is not None and other is not None and other.lower() in SDF_KEPT:
+                    warnings.append(
+                        f"Its {name} field has a line, {line.strip()!r}, that reads as the "
+                        f"start of its {other} field, but an SD field ends only at a blank "
+                        f"line, so the line is part of {name}'s value and {other} wasn't "
+                        "read. Put a blank line before it to make it a field of its own."
+                    )
+                continue
+            if name is not None:
+                fields[name] = "\n".join(value).strip()
+            name, value = None, None
+            continue
+        if line.strip().startswith(">"):
+            name, value = _label(line.strip()), []
+    if name is not None and value is not None:
+        fields[name] = "\n".join(value).strip()
+    return fields
+
+
+def _label(header: str) -> str | None:
+    """The field a data header names: what's between its first `<` and its last `>`, as
+    RDKit reads it. None for a line that isn't a header, or one without a name."""
+    if not header.startswith(">"):
+        return None
+    opens, closes = header.find("<", 1), header.rfind(">")
+    return (header[opens + 1 : closes].strip() or None) if 0 < opens < closes else None
 
 
 def import_file(run: Mapping[str, Any]) -> dict[str, Any]:
@@ -390,7 +355,8 @@ def import_file(run: Mapping[str, Any]) -> dict[str, Any]:
     with path.open(encoding="utf-8-sig", newline="") as written:
         text = written.read()
     sdf = path.suffix.lower() in (".sdf", ".sd") or SDF_END.search(text) is not None
-    rows = _rows_sdf(text) if sdf else _rows_csv(text)
+    said: list[str] = []
+    rows = _rows_sdf(text, said) if sdf else _rows_csv(text)
     if len(rows) > MAX_IMPORT:
         raise Refused(
             f"It has {len(rows):,} oligonucleotides: import up to {MAX_IMPORT:,} at once."
@@ -445,7 +411,7 @@ def import_file(run: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "creates": [*resolve.creates(), *creates],
         "metrics": {"rows": len(rows), "skipped": len(problems)},
-        "messages": [message("warning", p) for p in problems[:MAX_MESSAGES]],
+        "messages": [message("warning", p) for p in [*said, *problems][:MAX_MESSAGES]],
     }
 
 
@@ -698,7 +664,6 @@ def analyse(run: Mapping[str, Any]) -> dict[str, Any]:
 
 COMMANDS = {
     "register": register,
-    "design": design,
     "import": import_file,
     "compute": compute,
     "library": library_run,

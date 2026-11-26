@@ -1,5 +1,7 @@
 """The small_molecule plugin's SDF files: `import` registers each record of one as a
-compound (and, with `batches`, a batch of it), `export` writes compounds to one.
+compound (and, with `batches`, a batch of it). Compounds export as Molfiles and SDF files
+from their record pages and the records table, which Iki writes from each compound's
+stored Molfile (ADR 0229), not an action.
 
 Importing, each record's structure is standardised and identified as `chemistry` says,
 as a SMILES line is, and registered; one already in Iki is reused. Its name is the SD
@@ -11,21 +13,20 @@ material's, so a compound that isn't that material (a salt's parent, drawn so or
 salt by the record's Salt field, with batches or without) isn't given them. Each records
 which file and record it came from, with the record's SHA-256.
 
+Records and their SD fields are read as BIOVIA's CTfile Formats has them: a field's
+value runs to a blank line, so a line of it starting with `>` is its value's, and a line
+starting with `$$$$` ends a record (`data_items`, `records`).
+
 A record that can't be registered fails the import, which names each such record and
 says why, so nothing is half imported; or, with `on_error: skip`, is left out, saying
 so. Files are read a record at a time, so they may hold a million; past a thousand
 compounds, without batches, they go in a creates file (ADR 0056).
-
-Exporting, each compound is written with 2D coordinates RDKit computes, its name (or
-HRID) as its title, and its values as SD fields.
 """
 
 from __future__ import annotations
 
 import hashlib
-import os
 import re
-import sys
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -59,7 +60,6 @@ from chemistry import (
     write_output,
 )
 from rdkit import Chem
-from rdkit.Chem import rdDepictor
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -69,7 +69,6 @@ MAX_RECORDS = 1_000_000
 MAX_RECORDS_WITH_BATCHES = 5_000
 NAMED = 20
 MAX_FIELD = 10_000
-SDF = "compounds.sdf"
 #: The fields that say which structure a record is, as other systems know it.
 IDS = {"cas_number": "CAS number", "pubchem_cid": "PubChem CID", "chembl_id": "ChEMBL ID"}
 
@@ -158,7 +157,9 @@ class Record:
 
 
 def records(path: Path) -> Iterator[Record]:
-    """Each record of an SDF file, as it's read: its molblock and its SD fields."""
+    """Each record of an SDF file, as it's read: its molblock and its SD fields. A line
+    beginning with four dollar signs ends a record, as BIOVIA's CTfile Formats (SDfiles)
+    has it, and as RDKit's SDMolSupplier splits a file: `$$$$ ` too."""
     number = 0
     lines: list[str] = []
     with path.open("rb") as given:
@@ -172,7 +173,7 @@ def records(path: Path) -> Iterator[Record]:
                     raise UnreadableError(f"Line {count + 1} isn't text.") from None
             if count == 0:
                 line = line.removeprefix("﻿")
-            if line.rstrip("\r\n") == "$$$$":
+            if line.startswith("$$$$"):
                 number += 1
                 yield _record(number, lines)
                 lines = []
@@ -189,24 +190,60 @@ def _record(number: int, lines: list[str]) -> Record:
     if end is None:
         return Record(number, lines[0].strip() if lines else "", "", {}, text)
     molblock = "".join(lines[: end + 1])
+    warnings: list[str] = []
+    fields = data_items(lines[end + 1 :], warnings)
+    return Record(number, lines[0].strip(), molblock, fields, text, warnings)
+
+
+# The same reading of SD data items as the oligo plugin's (its scripts/oligos.py), which a
+# plugin can't import from another: keep the two alike.
+def data_items(lines: list[str], warnings: list[str]) -> dict[str, str]:
+    """A record's SD fields, from the lines after its molblock, as CTfile Formats (SDfiles)
+    has them: each data item is a header line starting with `>`, which names its field in
+    angle brackets, then its value's lines, up to a blank line. Every line of a value is
+    its value's, one starting with `>` too (an IC50 of `>10 uM`): only a line after a
+    blank one can start the next item. As RDKit's SDMolSupplier reads them, the name is
+    what's between the header's first `<` and its last `>`, and an item without one (a
+    MACCS-II `DTn` field number alone) is passed over, with its value. A line of only
+    spaces is a blank line, as the format's are; RDKit's reader keeps one starting with a
+    space in the value. Lines between items that aren't headers aren't anyone's. A value's
+    line that reads as the header of a field Iki keeps (`> <Purity>`), as a file missing a
+    blank line has, is kept in the value, and `warnings` says so."""
     fields: dict[str, str] = {}
     name: str | None = None
-    value: list[str] = []
-    for line in lines[end + 1 :]:
-        header = re.match(r"^>.*?<([^>]+)>", line)
-        if header is not None:
+    value: list[str] | None = None  # the lines of the item being read, if it's one
+    for raw in lines:
+        line = raw.rstrip("\r\n")
+        if value is not None:
+            if line.strip():
+                value.append(line)
+                other = _label(line.strip())
+                if name is not None and other is not None and _key(other) in FIELDS:
+                    warnings.append(
+                        f"Its {name} field has a line, {line.strip()!r}, that reads as the "
+                        f"start of its {other} field, but an SD field ends only at a blank "
+                        f"line, so the line is part of {name}'s value and {other} wasn't "
+                        "read. Put a blank line before it to make it a field of its own."
+                    )
+                continue
             if name is not None:
                 fields[name] = "\n".join(value).strip()
-            name, value = header[1].strip(), []
-        elif name is not None:
-            if line.strip():
-                value.append(line.rstrip("\r\n"))
-            else:
-                fields[name] = "\n".join(value).strip()
-                name, value = None, []
-    if name is not None:
+            name, value = None, None
+            continue
+        if line.strip().startswith(">"):
+            name, value = _label(line.strip()), []
+    if name is not None and value is not None:
         fields[name] = "\n".join(value).strip()
-    return Record(number, lines[0].strip(), molblock, fields, text)
+    return fields
+
+
+def _label(header: str) -> str | None:
+    """The field a data header names: what's between its first `<` and its last `>`, as
+    RDKit reads it. None for a line that isn't a header, or one without a name."""
+    if not header.startswith(">"):
+        return None
+    opens, closes = header.find("<", 1), header.rfind(">")
+    return (header[opens + 1 : closes].strip() or None) if 0 < opens < closes else None
 
 
 def structure(record: Record) -> Chem.Mol:
@@ -572,75 +609,8 @@ def import_file(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# --- Exporting -----------------------------------------------------------------------------------
-
-#: What each compound's SD fields are, in order: its HRID, then its values.
-EXPORTED = (
-    "name",
-    "smiles",
-    "inchikey",
-    "inchi",
-    "synonyms",
-    "molecular_formula",
-    "molecular_weight",
-    "exact_mass",
-    "formal_charge",
-    "logp",
-    "tpsa",
-    "hbd",
-    "hba",
-    "rotatable_bonds",
-    "aromatic_rings",
-    "fraction_csp3",
-    "stereocentres",
-    "undefined_stereocentres",
-    "qed",
-    "lipinski_violations",
-    "pubchem_cid",
-    "chembl_id",
-    "cas_number",
-)
-
-
-def export(run: dict[str, Any]) -> dict[str, Any]:
-    entities = run["inputs"]["compounds"]
-    out = Path(os.environ["IKI_OUT_DIR"]) / SDF
-    messages = Messages()
-    written = 0
-    with Chem.SDWriter(str(out)) as writer:
-        writer.SetKekulize(True)
-        for done, entity in enumerate(entities, start=1):
-            values = entity["values"]
-            try:
-                mol = from_smiles(values["smiles"])
-            except UnreadableError as why:
-                messages.add("warning", f"{entity['hrid']} was left out: {why}.", entity["id"])
-                continue
-            rdDepictor.SetPreferCoordGen(True)
-            rdDepictor.Compute2DCoords(mol)
-            mol.SetProp("_Name", values.get("name") or entity["hrid"])
-            mol.SetProp("hrid", entity["hrid"])
-            for name in EXPORTED:
-                value = values.get(name)
-                if value in (None, "", []):
-                    continue
-                mol.SetProp(name, "; ".join(value) if isinstance(value, list) else str(value))
-            writer.write(mol)
-            written += 1
-            if done % 1000 == 0:
-                print(f"::progress {done / len(entities):.2f} {done:,} written", flush=True)
-    print(f"Wrote {written:,} compounds to {SDF}.")
-    if not written:
-        fail("None of the compounds could be written.")
-    return {"metrics": {"compounds": written}, "messages": messages.output()}
-
-
 def main() -> None:
-    kind = sys.argv[1]
     run = run_input()
-    if kind == "export":
-        write_output(export(run))
-        return
     given = run["files"][run["params"]["file"]]
     try:
         output = import_file(run)

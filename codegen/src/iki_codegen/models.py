@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from iki_spec import naming
+from iki_spec.conditions import WORDS_SEARCHED
 from iki_spec.model import FORMATS, EntityType, Extension, Field, Plugin, split_entry
 
 __all__ = ["render_models"]
@@ -62,7 +63,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVector
 from django.db import models
 from django.db.models import Q
-from django.db.models.functions import Length
+from django.db.models.functions import Left, Length
 from django.db.models.lookups import GreaterThanOrEqual, LessThanOrEqual
 
 from iki_server.entities import checks
@@ -555,8 +556,10 @@ def _ref_target(to: tuple[str, ...], plugin: str, types: Mapping[str, EntityType
 
 def _indexes(table: str, f: Field) -> list[str]:
     """The GIN indexes a field gets for search: trigrams for indexed strings, so finding
-    one that contains some text is fast; words for every text field, for full-text
-    search, since long text can't be indexed otherwise."""
+    one that contains some text is fast; words for every searchable text field, for
+    full-text search, since long text can't be indexed otherwise. Words are its first
+    ``WORDS_SEARCHED`` characters', so the index always fits what Postgres keeps of them,
+    and a long value always saves (ADR 0233); the server's search reads the same."""
     if f.type == "string" and f.indexed:
         return [
             _call(
@@ -566,11 +569,11 @@ def _indexes(table: str, f: Field) -> list[str]:
                 name=naming.index_name(table, f.name, "trgm"),
             )
         ]
-    if f.type == "text":
+    if f.type == "text" and f.searchable:
         return [
             _call(
                 "GinIndex",
-                _raw(f"SearchVector({f.name!r}, config='simple')"),
+                _raw(f"SearchVector(Left({f.name!r}, {WORDS_SEARCHED}), config='simple')"),
                 name=naming.index_name(table, f.name, "fts"),
             )
         ]

@@ -1,5 +1,6 @@
-# Run with `iki plugin test plugins/small_molecule` (ADR 0093). data/stockroom.sdf was
-# written for these tests by RDKit, from the structures' SMILES: no one else's data.
+# Run with `iki plugin test plugins/small_molecule` (ADR 0093). data/README.md says where
+# each file is from: data/stockroom.sdf was written for these tests by RDKit, from the
+# structures' SMILES; data/pubchem-aspirin-caffeine.sdf is PubChem's own.
 apiVersion: iki/v1
 kind: ActionTest
 name: a_stockrooms_sdf_file
@@ -38,4 +39,36 @@ expect:
           salt: hydrochloride
           salt_equivalents: 1
           formula_weight: 276.811
+    metrics: { records: 2, skipped: 0 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: pubchems_sdf_file
+description: >-
+  Aspirin and caffeine as PubChem's SDF has them, its fields' values over several
+  lines (PUBCHEM_COORDINATE_TYPE, PUBCHEM_BONDANNOTATIONS) read to their blank
+  lines: each registered by the standard InChIKey PubChem gives it, with its CID
+  and its IUPAC name as a synonym, named by its traditional name.
+action: import_sdf
+params:
+  file: { $file: pubchem }
+  name_field: PUBCHEM_IUPAC_TRADITIONAL_NAME
+files: { pubchem: tests/data/pubchem-aspirin-caffeine.sdf }
+expect:
+  output:
+    creates:
+      - type: iki/small_molecule.Compound
+        values:
+          inchikey: BSYNRYMUTXBXSQ-UHFFFAOYSA-N
+          inchi: InChI=1S/C9H8O4/c1-6(10)13-8-5-3-2-4-7(8)9(11)12/h2-5H,1H3,(H,11,12)
+          name: 2-acetoxybenzoic acid
+          pubchem_cid: "2244"
+          synonyms: [2-acetyloxybenzoic acid]
+      - type: iki/small_molecule.Compound
+        values:
+          inchikey: RYYVLZVUVIJVGH-UHFFFAOYSA-N
+          inchi: InChI=1S/C8H10N4O2/c1-10-4-9-6-5(10)7(13)12(3)8(14)11(6)2/h4H,1-3H3
+          name: caffeine
+          pubchem_cid: "2519"
+          synonyms: ["1,3,7-trimethylpurine-2,6-dione"]
     metrics: { records: 2, skipped: 0 }

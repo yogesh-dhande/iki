@@ -1,4 +1,5 @@
-"""A sequence record as the files other tools read: GenBank and FASTA (ADR 0171).
+"""A sequence record as the files other tools read: GenBank and FASTA (ADR 0171), and a
+protein's residues as FASTA (ADR 0229).
 
 These are pure functions of what a record held at one revision, gathered by
 :mod:`iki_server.entities.exports`, so the same revision is always the same file.
@@ -25,7 +26,13 @@ GenBank is written as INSDC's flat file writes it (NCBI's GenBank release notes,
 
 FASTA is a header and the bases: ``>HRID name description [topology=circular]``. The
 first word is the identifier, as FASTA's is; ``[topology=…]`` is NCBI's source modifier,
-which Iki's import reads back.
+which Iki's import reads back. A protein's is its residues in one-letter codes after
+``>HRID name description [Homo sapiens]``, its organism in brackets at the end, as NCBI
+writes a protein's FASTA and Iki's protein import reads it back.
+
+Each writes one record, ending its last line. Records written one after another are one
+file of them all: a GenBank record ends with ``//``, and a FASTA record where the next's
+``>`` starts.
 """
 
 from __future__ import annotations
@@ -378,6 +385,9 @@ def _origin(bases: str) -> list[str]:
 
 # --- FASTA ---------------------------------------------------------------------------------------
 
+#: Residues or bases a FASTA line holds, as NCBI writes them.
+FASTA_WIDTH = 70
+
 
 def fasta(record: SequenceFile) -> Written:
     words = [record.hrid]
@@ -389,7 +399,7 @@ def fasta(record: SequenceFile) -> Written:
         words.append(description)
     words.append(f"[topology={record.topology}]")
     lines = [">" + " ".join(words)]
-    lines += [record.bases[i : i + 70] for i in range(0, len(record.bases), 70)]
+    lines += _wrapped_residues(record.bases)
     left_out = []
     if record.features:
         count = len(record.features)
@@ -398,3 +408,37 @@ def fasta(record: SequenceFile) -> Written:
     if record.strandedness == "single":
         left_out.append("FASTA can't say a molecule is single-stranded.")
     return Written(("\n".join(lines) + "\n").encode("utf-8"), left_out)
+
+
+def _wrapped_residues(residues: str) -> list[str]:
+    return [residues[i : i + FASTA_WIDTH] for i in range(0, len(residues), FASTA_WIDTH)]
+
+
+@dataclass(frozen=True)
+class ProteinFile:
+    """What a protein record held at one revision, as FASTA writes it."""
+
+    hrid: str
+    name: str
+    residues: str
+    revision: int
+    description: str = ""
+    organism: str = ""  # its scientific name, or ""
+    latest: bool = True
+
+
+def protein_fasta(record: ProteinFile) -> Written:
+    """``>HRID name description [organism]``, then its residues, 70 a line. FASTA holds no
+    more of a protein than that, so there's nothing it leaves out of one."""
+    words = [record.hrid]
+    name = " ".join(record.name.split())
+    if name and name != record.hrid:
+        words.append(name)
+    description = " ".join(record.description.split())
+    if description:
+        words.append(description)
+    organism = " ".join(record.organism.split())
+    if organism:
+        words.append(f"[{organism}]")
+    lines = [">" + " ".join(words), *_wrapped_residues(record.residues)]
+    return Written(("\n".join(lines) + "\n").encode("utf-8"), [])

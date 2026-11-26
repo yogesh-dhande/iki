@@ -5,8 +5,9 @@
 
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { Fragment } from "react";
 
-import { problemOf } from "../api";
+import { meQuery, problemOf } from "../api";
 import { formatSize, typeLabel, typesQuery } from "../entities";
 import { FileTable } from "../file-table";
 import { UploadFiles } from "../file-upload";
@@ -17,15 +18,19 @@ import {
   fileRecordsQuery,
   fileRunsQuery,
   filterOf,
+  readGroupColumns,
   searchOf,
   spanText,
+  statedFacts,
   usedByText,
   type FileDetail,
   type UsingRun,
 } from "../files";
 import { usePageTitle } from "../layout";
 import { useReadableProjects } from "../lists";
-import { media } from "../media";
+import { useMedia } from "../media";
+import { FilePreviewSection } from "../previews/preview-places";
+import { heldBecause, reviewHref } from "../quarantine";
 import { useProject } from "./project-overview";
 import { StatusBadge } from "./runs";
 import {
@@ -136,9 +141,67 @@ function Origin({ file }: { file: FileDetail }) {
   }
 }
 
+/** What the malware scan decided, for a file it didn't find clean: why it's held and
+ * what happens next, or what let it be used; and for a Quarantine Admin, where to review it. */
+function ScanFacts({ scan }: { scan: FileDetail["scan"] }) {
+  const review = useQuery(meQuery).data?.can.manage_quarantine ?? false;
+  if (scan.state === "pending")
+    return <>Scanning… It can be used once the scanner finds it clean.</>;
+  const why = heldBecause(scan);
+  const finding = why.finding ? (
+    <>
+      {" "}
+      <code>{why.finding}</code>
+    </>
+  ) : null;
+  const link =
+    review && scan.decision_id && (scan.state === "infected" || !scan.usable) ? (
+      <div>
+        <a href={reviewHref(scan.decision_id)}>
+          {scan.usable
+            ? "See its release in Admin → Quarantine"
+            : "Review it in Admin → Quarantine"}
+        </a>
+      </div>
+    ) : null;
+  if (scan.usable && scan.state === "infected") {
+    return (
+      <>
+        Released from quarantine: the scanner found{finding}, and a Quarantine Admin found it a
+        false positive.
+        {link}
+      </>
+    );
+  }
+  if (scan.usable) return <>Not scanned: too large. The deployment allows such files unscanned.</>;
+  if (scan.state === "infected") {
+    return (
+      <>
+        <strong>Quarantined</strong>: the scanner found{finding}. It can’t be downloaded or used
+        unless a Quarantine Admin finds it a false positive.
+        {link}
+      </>
+    );
+  }
+  return (
+    <>
+      <strong>Held</strong>: {why.label}
+      {why.finding ? (
+        <>
+          {" "}
+          (<code>{why.finding}</code>)
+        </>
+      ) : null}
+      . It can’t be downloaded or used: the scanner couldn’t inspect all of it.
+      {link}
+    </>
+  );
+}
+
 /** A file: what it is, when its data was acquired, where it came from, and what uses it. */
 export function FilePage() {
   const { id } = useParams({ from: "/files/$id" });
+  const media = useMedia();
   const found = useQuery(fileQuery(id));
   const file = found.data;
   usePageTitle(file ? file.name : "File");
@@ -167,12 +230,25 @@ export function FilePage() {
         ]}
         title={file.name}
         actions={
-          <a className={buttonClass("primary")} href={downloadHref(file.id)} download={file.name}>
-            Download
-          </a>
+          file.scan.usable ? (
+            <a className={buttonClass("primary")} href={downloadHref(file.id)} download={file.name}>
+              Download
+            </a>
+          ) : undefined
         }
       />
       <dl className="summary file-facts">
+        {file.scan.state !== "clean" ? (
+          <>
+            <dt>Malware scan</dt>
+            <dd>
+              {/* Said as it changes: a scan that finishes while the page is open. */}
+              <div role="status">
+                <ScanFacts scan={file.scan} />
+              </div>
+            </dd>
+          </>
+        ) : null}
         <dt>Format</dt>
         <dd>
           {media.named(file.media_type)} <span className="muted">{file.media_type}</span>
@@ -199,6 +275,14 @@ export function FilePage() {
             </span>
           )}
         </dd>
+        {statedFacts(file.facts).map((fact) => (
+          <Fragment key={fact.key}>
+            <dt>{fact.label}</dt>
+            <dd>
+              {fact.value} <span className="muted">from {fact.statedIn}</span>
+            </dd>
+          </Fragment>
+        ))}
         <dt>Added</dt>
         <dd>
           <Time value={file.created_at} />
@@ -219,8 +303,60 @@ export function FilePage() {
           </>
         ) : null}
       </dl>
+      {file.read_groups.length ? <ReadGroups file={file} /> : null}
+      <FilePreviewSection file={file} />
       <UsedBy file={file} />
     </>
+  );
+}
+
+/** A SAM or BAM file's read groups (ADR 0224): a column for each tag any of them gives. */
+function ReadGroups({ file }: { file: FileDetail }) {
+  const columns = readGroupColumns(file.read_groups);
+  return (
+    <section className="file-read-groups" aria-labelledby="read-groups">
+      <h2 className="section-title" id="read-groups">
+        Read groups <span className="muted">{file.read_groups.length.toLocaleString()}</span>
+      </h2>
+      <p className="muted">As the file’s header gives them, in its @RG lines.</p>
+      {/* Many tags can be wider than the page: its box scrolls, by keyboard too. */}
+      <div
+        className="list-table-box"
+        role="region"
+        aria-label={`Read groups in ${file.name}`}
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable table
+        tabIndex={0}
+      >
+        <table className="list-table">
+          <caption className="visually-hidden">Read groups in {file.name}</caption>
+          <thead>
+            <tr>
+              {columns.map(([tag, label]) => (
+                <th scope="col" key={tag} title={`@RG ${tag}`}>
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {file.read_groups.map((group) => (
+              <tr key={group.ID}>
+                {columns.map(([tag]) => (
+                  <td
+                    key={tag}
+                    className={
+                      tag === "ID" ? "grid-id" : group[tag] === undefined ? "muted" : undefined
+                    }
+                  >
+                    {group[tag] ?? "—"}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

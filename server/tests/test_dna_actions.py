@@ -136,7 +136,7 @@ def test_measurement_in_the_worker_archive_matches_the_server(tmp_path: Path) ->
     module's wrapper it imports, and the two modules they load."""
     packed = tmp_path / "dna.tar.gz"
     code = workers.prepared_source("iki/dna", SCRIPT.parents[1], tmp_path / "worker-code")
-    workers.bundle(code, packed)
+    workers.bundle("iki/dna", code, packed)
     unpacked = tmp_path / "action"
     with tarfile.open(packed, "r:gz") as archive:
         for path in (
@@ -915,12 +915,11 @@ def ncbi(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
     """The fetch script, loaded here with NCBI faked."""
     import importlib
     import time
-    import urllib.request
 
     monkeypatch.syspath_prepend(str(SCRIPT.parent))
     module = importlib.import_module("ncbi")
     fake = FakeNcbi()
-    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    monkeypatch.setattr(module.NCBI_OPENER, "open", fake)
     slept: list[float] = []
     monkeypatch.setattr(time, "sleep", slept.append)
     monkeypatch.setenv("IKI_INPUT", str(tmp_path / "input.json"))
@@ -1003,6 +1002,58 @@ def test_an_api_key_goes_in_the_body_and_lets_it_ask_faster(
     fetched(tmp_path, ncbi, "L09137.2 NM_000546.6")
     assert [a["api_key"] for a in ncbi.fake.asked] == [["k3y"], ["k3y"]]
     assert ncbi.slept == [0.1]
+
+
+@pytest.mark.parametrize(
+    ("locations", "expected_hops"),
+    [
+        (
+            [
+                "https://EUTILS.ncbi.nlm.nih.gov:443/record",
+                "https://eutils.ncbi.nlm.nih.gov:0443/next",
+            ],
+            2,
+        ),
+        (["//other.example/record"], 0),
+        (["https://eutils.ncbi.nlm.nih.gov:8443/record"], 0),
+        (["http://eutils.ncbi.nlm.nih.gov/record"], 0),
+        ([f"/next/{i}" for i in range(6)], 5),
+    ],
+)
+def test_ncbi_redirects_stay_at_the_https_origin(
+    monkeypatch: pytest.MonkeyPatch, locations: list[str], expected_hops: int
+) -> None:
+    import importlib
+    import io
+    import urllib.request
+    import urllib.response
+    from http.client import HTTPMessage
+
+    monkeypatch.syspath_prepend(str(SCRIPT.parent))
+    script = importlib.import_module("ncbi")
+    calls = []
+
+    def respond(request: urllib.request.Request, timeout: float) -> Any:
+        calls.append(request.full_url)
+        headers = HTTPMessage()
+        code = 200
+        if len(calls) <= len(locations):
+            headers["Location"] = locations[len(calls) - 1]
+            code = 302
+        response = urllib.response.addinfourl(
+            io.BytesIO(b"result"), headers, request.full_url, code
+        )
+        response.msg = "NCBI"  # type: ignore[attr-defined]
+        return response
+
+    monkeypatch.setenv("NCBI_API_KEY", "test-key")
+    monkeypatch.setattr(script.NCBI_OPENER, "_open", respond)
+    if expected_hops == len(locations):
+        assert script.efetch(["test"], "lab@example.com") == "result"
+    else:
+        with pytest.raises(script.UnreadableError, match="NCBI answered 302"):
+            script.efetch(["test"], "lab@example.com")
+    assert len(calls) == 1 + expected_hops
 
 
 def test_waits_and_asks_again_when_ncbi_says_to_slow_down(tmp_path: Path, ncbi: Any) -> None:

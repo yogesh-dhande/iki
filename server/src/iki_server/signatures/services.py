@@ -38,6 +38,7 @@ from iki_server.audit.models import AuditEvent
 from iki_server.bundles import keys
 from iki_server.core.ids import uuid7
 from iki_server.entities import requests, states
+from iki_server.entities.history import history_changes as history_changes
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
 from iki_server.entities.values import Invalid, exact_reference_ids, shape
 from iki_server.org import lab_roles, permissions
@@ -1031,32 +1032,6 @@ def read_through(signature: Mapping[str, Any], changes: list[dict[str, Any]]) ->
         "key": key.public,
         "signature": proof.b64(private.sign(document.encode())),
     }
-
-
-def history_changes(entity: Entity, seen: int) -> list[HistoryChange]:
-    """What plugins' migrations have done to the record's kept history since ``seen``
-    (:func:`history_seen`), in the order they did it (ADR 0148): only changes to the tables
-    its fields are in, as those tables were named then."""
-    rows = list(HistoryChange.objects.filter(pk__gt=seen).order_by("-pk"))
-    parts = {p.name for p in shape(entity.type).parts}
-    kept: list[HistoryChange] = []
-    for row in rows:  # newest first, so each is matched to the tables as named then
-        if row.kind == HistoryChange.Kind.RETYPE:
-            named = {_retyped(p, row.to, row.name) for p in parts}
-            if named != parts:
-                kept.append(row)
-                parts = named
-        elif row.part in parts:
-            kept.append(row)
-    return kept[::-1]
-
-
-def _retyped(part: str, new: str, old: str) -> str:
-    """A part's name (``acme/lab.Sample``, ``acme/lims:acme/lab.Sample#entry``) before its
-    type ``old`` was renamed ``new``."""
-    named, hash_, entry = part.partition("#")
-    plugin, colon, of = named.rpartition(":")
-    return f"{plugin}{colon}{old if of == new else of}{hash_}{entry}"
 
 
 # --- Withdrawing --------------------------------------------------------------------------------

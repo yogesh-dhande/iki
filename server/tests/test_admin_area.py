@@ -94,7 +94,9 @@ def test_the_sidebar_offers_only_what_each_person_may_open(
 PAGES = [item.href for group in admin_area.groups() for item in group.items if not item.app]
 
 
-@pytest.mark.parametrize("principal", ["viewer", "org_admin", "compute_admin", "auditor"])
+@pytest.mark.parametrize(
+    "principal", ["viewer", "org_admin", "compute_admin", "auditor", "quarantine_admin"]
+)
 def test_each_server_page_in_the_sidebar_opens_for_whom_it_offers_it(
     world: World, principal: str
 ) -> None:
@@ -131,6 +133,7 @@ def test_the_sidebars_items_are_pages_and_the_app_routes_those_it_says() -> None
         ("org_admin", "/admin/sign-in/"),
         ("compute_admin", "/admin/compute/"),
         ("auditor", "/admin/costs/"),
+        ("quarantine_admin", "/admin/quarantine/"),
     ],
 )
 def test_admin_opens_the_first_page_someone_may_open(
@@ -148,7 +151,7 @@ def test_admin_is_not_for_someone_who_may_open_none_of_it(world: World) -> None:
     assert response.status_code == 200
     page = response.content.decode()
     assert "The admin area isn’t open to you" in page
-    assert "Org Admins, Compute Admins and Auditors" in page
+    assert "Org Admins, Compute Admins, Auditors and Quarantine Admins" in page
     assert 'aria-label="Admin"' not in page
     assert 'aria-label="Main"' in page
     assert world.browser("viewer").get("/admin/sign-in/").status_code == 403
@@ -165,7 +168,7 @@ def test_every_page_of_the_area_is_under_admin() -> None:
     routed = {page for page in routed_pages() if page.startswith("/admin/")}
     assert app <= routed
     areas = {page.split("/")[2] for page in routed}
-    assert areas == {"compute", "costs", "outside-apis", "webhooks"}
+    assert areas == {"compute", "costs", "outside-apis", "quarantine", "webhooks"}
 
 
 OLD_ADDRESSES = [

@@ -1,0 +1,21 @@
+# Additional plugins for the dev-ci fixture build. Paths are relative to this file.
+apiVersion: iki/v1
+kind: PluginLock
+plugins:
+  # Imports from the fake LIMS (fake-lims.yaml), and writes back.
+  - name: acme/lims_connector
+    local: ../../../examples/plugins/lims_connector
+    state: active
+    settings: settings/lims_connector.yaml
+  # Calls the fake FoldCloud (fake-foldcloud.yaml), an outside API.
+  - name: acme/hosted_models
+    local: ../../../examples/plugins/hosted_models
+    state: active
+    settings: settings/hosted_models.yaml
+  # Exercise fresh and warm workers and the three reference-volume strategies.
+  - { name: fixtures/worker_execution, local: plugins/worker_execution, state: active }
+  # Declares a Tecan worklist writer, so the fixture cluster runs a plugin's writer
+  # in the export sandbox (ADR 0230); sso.py downloads a worklist through it.
+  - name: acme/liquid_handling
+    local: ../../../examples/plugins/liquid_handling
+    state: active

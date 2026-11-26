@@ -6,10 +6,11 @@ import pytest
 from api_client import Api, problem
 from django.db import IntegrityError, connection, transaction
 from org_world import World, build_world
+from scan_fixtures import clean_blob
 
 from iki_server.entities import services, unique
 from iki_server.entities.models import Entity, UniqueValue
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.plugins import sync
 
@@ -118,7 +119,7 @@ def test_a_value_written_at_the_same_moment_is_refused_too(
 
 
 def test_extension_fields_can_be_unique(world: World) -> None:
-    blob = Blob.objects.create(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
+    blob = clean_blob(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
     pdb = File.objects.create(
         blob=blob, name="1abc.pdb", media_type="chemical/x-pdb", project=world.project
     )

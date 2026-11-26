@@ -1,6 +1,7 @@
 /**
- * Starters (ADR 0198): versioned recipes a project's Admin applies to set an assay service
- * up, choosing its review flow, the project that asks it, and who holds each lab role.
+ * Starters (ADRs 0198 and 0240): versioned recipes a project's Admin applies to set an assay
+ * service or a procedure such as lot release testing up, choosing its review flow and who
+ * holds each lab role.
  * This is their data and the checks a setup screen makes before asking Iki, which makes
  * the same ones.
  */
@@ -86,11 +87,6 @@ export function planChanges(
   for (const grant of before)
     if (!after.has(grant))
       out.push({ key: `-${grant}`, body: `Applying no longer does: ${said(grant)}` });
-  if (shown.examples_to_create.length && !now.examples_to_create.length)
-    out.push({
-      key: "examples",
-      body: "It was applied meanwhile: its example records are there, and none are made",
-    });
   if (!out.length) out.push({ key: "else", body: "What’s set up changed" });
   return out;
 }
@@ -112,6 +108,22 @@ export function eligible(
       m.user.active &&
       RANK[m.role] >= RANK[minimum],
   );
+}
+
+/** A flow's own route through its result type's states: all of them, unless the type has a
+ * route per flow in one state field and the starter names this flow's (ADR 0240). Moves
+ * between its states are kept; those leading elsewhere are dropped. */
+export function routeOf(
+  field: FlowField | undefined,
+  states: readonly string[] | null | undefined,
+): FlowField | undefined {
+  if (!field || !states) return field;
+  const kept = new Set(states);
+  return {
+    ...field,
+    states: field.states.filter((s) => kept.has(s.name)),
+    transitions: field.transitions.filter((t) => kept.has(t.from) && kept.has(t.to)),
+  };
 }
 
 /** The lab roles whose holders sign a flow's states: those the result type's states that
@@ -141,20 +153,6 @@ export function independentEnough(
     if (people.size < group.length) return false;
   }
   return true;
-}
-
-/** An example record's name, as people read it. */
-export function exampleLabel(name: string): string {
-  return (
-    {
-      request: "an analysis request",
-      protein: "a protein",
-      sample: "a sample",
-      tube: "a tube for the sample",
-      reader_file: "a plate reader file",
-      plate: "a mapped assay plate",
-    }[name] ?? name.replaceAll("_", " ")
-  );
 }
 
 /** What a flow asks of people, in a sentence, for the flows starters offer. */

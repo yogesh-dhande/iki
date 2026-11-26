@@ -135,20 +135,19 @@ _register(
     ),
     EventType(
         "entity.amount_moved",
-        "Someone draws from a record's amount, transfers some of it, splits it into "
-        "aliquots or adjusts it (ADR 0139): `kind`, its `change` and `balance` in `unit`, "
-        "what was asked for (`given`), the draw's `purpose`, and the other record "
-        "(`counterpart`), if any. A counterpart outside the project is `unreadable` "
-        "in a project webhook.",
+        "A record's amount changes (ADR 0139). Organization webhooks identify the record, "
+        "movement kind, actor and agent. Project webhooks also give the change and balance "
+        "in the record's unit, the requested amount, purpose, reason, operation and "
+        "counterpart. A counterpart outside the project is `unreadable`.",
         project=True,
         org=True,
     ),
     EventType(
         "storage.moved",
-        "Someone puts a record away, moves it, takes it out of storage, checks it out or in, "
-        "hands it over or receives it (ADR 0180): `kind`, where it was (`from`) and went "
-        "(`to`), each a container and position (null when hidden from the project), "
-        "its `custodian`, and the `operation` a bulk move's records share.",
+        "A record moves in storage or changes custody (ADR 0180). Organization webhooks "
+        "identify the record, movement kind, actor and agent. Project webhooks also give "
+        "its previous and new container and position (null when hidden from the project), "
+        "custodian, operation and reason.",
         project=True,
         org=True,
     ),

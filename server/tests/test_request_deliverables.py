@@ -162,9 +162,11 @@ def test_a_value_editor_cannot_sign_for_someone_elses_work(
     assert allows(analysis_result, current, target, "independent", {}, value_editor="editor")
 
 
-def test_correcting_a_result_before_release_reopens_recorded(analysis_result: EntityType) -> None:
+def test_correcting_a_signed_result_requires_an_explicit_return(
+    analysis_result: EntityType,
+) -> None:
     states = analysis_result.fields["review"].states
-    assert {name: state.on_edit for name, state in states.items() if state.on_edit} == {
-        "submitted": "recorded",
-        "reviewed": "recorded",
-    }
+    for name in ("submitted", "reviewed"):
+        assert states[name].on_edit is None
+        assert allows(analysis_result, name, "recorded", "analyst", {})
+    assert not allows(analysis_result, "released", "recorded", "qa", {})

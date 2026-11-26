@@ -17,7 +17,16 @@ import {
   withTypes,
 } from "./entity-fixtures";
 import { ACTION, AGENT, approval, attempt, run, RUN_ID } from "./run-fixtures";
-import { answer, calls, FakeEventSource, ME, page, problem, signedIn } from "./test-server";
+import {
+  answer,
+  calls,
+  CLEAN_SCAN,
+  FakeEventSource,
+  ME,
+  page,
+  problem,
+  signedIn,
+} from "./test-server";
 
 const EVENTS = "/api/v1/runs/RUN-000001/events";
 
@@ -57,6 +66,7 @@ function artifact(overrides: Partial<Schemas["RunArtifactOut"]> = {}): Schemas["
     size: 2048,
     sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
     state: "kept",
+    scan: CLEAN_SCAN,
     created_at: "2026-03-14T09:01:00Z",
     expires_at: "2026-06-12T09:01:00Z",
     deleted_at: null,
@@ -876,6 +886,69 @@ describe("a run's page", () => {
     expect(await screen.findByText("Nothing printed yet.")).toBeInTheDocument();
   });
 
+  it("says a run waits for a malware scan, of which files, and links each", async () => {
+    const waiting = {
+      since: "2026-03-14T09:00:00Z",
+      files: [{ id: "0195f2a8-0000-7000-8000-00000000c0a1", name: "CoA lot KA-24-117.pdf" }],
+      others: 1,
+    };
+    onRun(
+      () =>
+        run({
+          status: "queued",
+          started_at: null,
+          waiting: "2 files it reads (CoA lot KA-24-117.pdf and others) are being scanned.",
+          waiting_for_scan: waiting,
+        }),
+      () => [
+        attempt({
+          state: "queued",
+          worker: null,
+          started_at: null,
+          progress: null,
+          log_size: 0,
+          scan_wait: { started_at: "2026-03-14T09:00:00Z", ended_at: null, files: 2 },
+        }),
+      ],
+    );
+    withLog(() => "");
+    await renderApp("/runs/RUN-000001/");
+    const note = screen
+      .getAllByRole("status")
+      .find((s) => s.textContent.startsWith("Waiting for a malware scan"));
+    if (!note) throw new Error("No note says the run waits for a malware scan.");
+    expect(note).toHaveTextContent(
+      /^Waiting for a malware scan2 files it reads \(CoA lot KA-24-117\.pdf, and 1 you can’t read\) are being scanned, since .+\. No worker takes the run until they’re found clean; then it starts by itself\. If one is quarantined, the run fails, saying why\.Files it reads or made$/,
+    );
+    expect(within(note).getByRole("link", { name: "CoA lot KA-24-117.pdf" })).toHaveAttribute(
+      "href",
+      "/files/0195f2a8-0000-7000-8000-00000000c0a1/",
+    );
+    // The note says it all: not again as the generic reason.
+    expect(screen.queryByText(/^Waiting to start/)).toBeNull();
+    const attempts = await screen.findByRole("region", { name: "Attempts" });
+    expect(within(attempts).getByText(/^Waiting for 2 files/)).toHaveTextContent(
+      /^Waiting for 2 files it reads to be scanned for malware, since .+$/,
+    );
+  });
+
+  it("says how long an attempt waited for its files' scans", async () => {
+    onRun(run, () => [
+      attempt({
+        scan_wait: {
+          started_at: "2026-03-14T08:56:30Z",
+          ended_at: "2026-03-14T09:00:00Z",
+          files: 1,
+        },
+      }),
+    ]);
+    await renderApp("/runs/RUN-000001/");
+    const attempts = await screen.findByRole("region", { name: "Attempts" });
+    expect(await within(attempts).findByText(/^Waited/)).toHaveTextContent(
+      /^Waited 3 min 30 s for a file it reads to be scanned for malware, until .+$/,
+    );
+  });
+
   function waitingSelfHosted(why: "unregistered" | "offline" | "busy") {
     onRun(
       () => run({ status: "queued", started_at: null, tier: "self_hosted", needs_worker: why }),
@@ -1467,6 +1540,46 @@ describe("a run's page", () => {
       expect(request).toHaveTextContent(/it waits for Alice Admin to approve it in Iki\./);
       expect(screen.getByText(/Fetch hemoglobin nightly, on its schedule/)).toHaveTextContent(
         /carries on from the run for .*\. It runs as Nightly robot on Alice Admin’s authority/,
+      );
+    });
+
+    it("says when a request's arrival asked, as the service's account", async () => {
+      const robot = { id: "00000000-0000-7000-8000-0000000000b7", name: "Queue ranker" };
+      const admin = { id: "00000000-0000-7000-8000-00000000a11c", name: "Alice Admin" };
+      const trigger = {
+        name: "acme/request_priority.rank_arriving_requests",
+        label: "Rank requests as they arrive",
+        event: "request.received" as const,
+        entity: "00000000-0000-7000-8000-0000000000e1",
+        revision: 2,
+        scheduled_for: null,
+        since: null,
+        enabled_by: admin,
+      };
+      onRun(
+        () =>
+          run({
+            ...waiting,
+            via: "trigger",
+            client: "",
+            agent: null,
+            requested_by: robot,
+            trigger,
+            approval: approval({
+              client: "",
+              agent: null,
+              trigger: { name: trigger.name, label: trigger.label },
+              requested_by: robot,
+              decider: admin,
+              can: { decide: false },
+            }),
+          }),
+        unstarted,
+      );
+      withLog(() => "");
+      await renderApp("/runs/RUN-000001/");
+      expect(screen.getByText(/Rank requests as they arrive, when/)).toHaveTextContent(
+        /arrived from the project that asked \(revision 2\)\. It runs as Queue ranker on Alice Admin’s authority, who turned the trigger on\./,
       );
     });
 

@@ -33,12 +33,14 @@ export type SheetChange = Schemas["SpreadsheetImportChange"];
 export type SaveMapping = Schemas["SavedMappingIn"];
 export type SheetLocaleChange = Schemas["SheetLocaleIn"];
 
-/** The files an import reads: Excel workbooks and CSV files (and TSV, as CSV). */
-export const WORKBOOK_TYPES = [
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "text/csv",
+/** The workbook and delimited text formats the spreadsheet importer reads. */
+export const WORKBOOK_FORMATS = [
+  "iki/core.xlsx",
+  "iki/core.xlsm",
+  "iki/core.csv",
+  "iki/core.tsv",
+  "iki/core.text",
 ] as const;
-export const WORKBOOK_ACCEPT = ".xlsx,.xlsm,.csv,.tsv,.txt," + WORKBOOK_TYPES.join(",");
 
 export const SPREADSHEETS = "spreadsheet-imports";
 

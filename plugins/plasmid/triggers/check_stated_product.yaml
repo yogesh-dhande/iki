@@ -5,10 +5,8 @@ name: check_stated_product
 label: Check each assembly when its product or its plan changes
 description: >-
   Checks a cloning plan against its product as soon as someone says what the clone's
-  sequence turned out to be, so the scientist who sequenced it hears at once whether the
-  plan explains it. And again whenever the plan itself changes: a result stands for the
-  plan it was found from, so a different method, enzymes, backbone or inserts need
-  another check, and the run clears the old result where it can't reach one.
+  sequence turned out to be. Editing the method, enzymes, backbone, inserts or product
+  clears the previous comparison. The new result and any diagnostic are recorded on the plan.
 on: entity.updated
 type: Assembly
 fields: [product, method, enzymes, backbone, inserts]

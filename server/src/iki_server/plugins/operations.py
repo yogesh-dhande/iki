@@ -4,8 +4,9 @@ Plugin migrations import them, so they are API: their names and arguments
 never change incompatibly.
 """
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from copy import deepcopy
 from typing import Any
 
 from django.db import migrations
@@ -102,6 +103,166 @@ def unlocked(schema_editor: BaseDatabaseSchemaEditor) -> Iterator[None]:
         schema_editor.execute("SELECT set_config(%s, '', true)", [UNLOCKED_SETTING])
 
 
+def same_value(left: Any, right: Any) -> bool:  # noqa: ANN401 - JSON
+    """Compare stored values, distinguishing JSON booleans from numbers at every depth."""
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(same_value(v, right[k]) for k, v in left.items())
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(
+            same_value(a, b) for a, b in zip(left, right, strict=True)
+        )
+    return isinstance(left, bool) == isinstance(right, bool) and bool(left == right)
+
+
+class MigrateValues(migrations.operations.base.Operation):
+    """Backfill a plugin table. The callback reads a historical model instance and
+    returns the column values to set, keyed by field name (foreign keys take IDs).
+    Each changed record gets its own revision, history snapshot and audit event.
+    Define callbacks in the migration file so the archived migration is self-contained.
+    """
+
+    def __init__(
+        self,
+        model_name: str,
+        forwards: Callable[[Any], Mapping[str, Any]],
+        *,
+        version: str,
+        migration: str,
+        reason: str,
+        backwards: Callable[[Any], Mapping[str, Any]] | None = None,
+    ) -> None:
+        if not all(value.strip() for value in (version, migration, reason)):
+            raise ValueError(
+                "MigrateValues requires the plugin version, migration name and reason."
+            )
+        self.model_name = model_name
+        self.forwards = forwards
+        self.backwards = backwards
+        self.version = version
+        self.migration = migration
+        self.reason = reason.strip()
+
+    @property
+    def reversible(self) -> bool:  # type: ignore[override]  # Like RunPython, depends on its callback.
+        return self.backwards is not None
+
+    def state_forwards(self, app_label: str, state: ProjectState) -> None:
+        pass
+
+    def database_forwards(
+        self,
+        app_label: str,
+        schema_editor: BaseDatabaseSchemaEditor,
+        from_state: ProjectState,
+        to_state: ProjectState,
+    ) -> None:
+        self._apply(app_label, schema_editor, to_state, self.forwards, "Applying")
+
+    def database_backwards(
+        self,
+        app_label: str,
+        schema_editor: BaseDatabaseSchemaEditor,
+        from_state: ProjectState,
+        to_state: ProjectState,
+    ) -> None:
+        if self.backwards is None:
+            raise ValueError(f"{self.migration} has no reverse backfill.")
+        self._apply(app_label, schema_editor, from_state, self.backwards, "Reversing")
+
+    def _apply(
+        self,
+        app_label: str,
+        editor: BaseDatabaseSchemaEditor,
+        state: ProjectState,
+        values_for: Callable[[Any], Mapping[str, Any]],
+        direction: str,
+    ) -> None:
+        from django.db.models.functions import Now
+
+        from iki_server.entities.fields import StateField
+        from iki_spec import naming
+
+        alias = editor.connection.alias
+        live = state.apps.get_model(app_label, self.model_name)
+        entities = state.apps.get_model("iki_entities", "Entity").objects.using(alias)
+        revisions = state.apps.get_model("iki_entities", "Revision").objects.using(alias)
+        events = state.apps.get_model("iki_audit", "AuditEvent").objects.using(alias)
+        columns = {
+            f.name: f
+            for f in live._meta.concrete_fields
+            if naming.plugin_of_label(f.model._meta.app_label)
+            and not f.primary_key
+            and not isinstance(f, StateField)
+        }
+        plugin = naming.plugin_of_label(app_label) or app_label
+        reason = f"{direction} {plugin} {self.version} {self.migration}: {self.reason}"
+        rows = live.objects.using(alias)
+        # Record edits lock the entity before touching any of its tables. Read each
+        # part under the same lock so both the callback and its snapshot see that edit.
+        records = entities.filter(pk__in=rows.values("pk")).select_for_update().order_by("pk")
+        for entity in records.iterator():
+            row = rows.get(pk=entity.pk)
+            # A callback may edit a JSON object in place before returning it.
+            before = {name: deepcopy(getattr(row, f.attname)) for name, f in columns.items()}
+            updates: dict[Any, dict[str, Any]] = {}
+            files = set()
+            for name, value in values_for(row).items():
+                if name not in columns:
+                    raise ValueError(f"{live.__name__}.{name} is not a backfillable column.")
+                field = columns[name]
+                value = (field.target_field if field.is_relation else field).to_python(value)
+                if not same_value(before[name], value):
+                    updates.setdefault(field.model, {})[name] = value
+                    if (
+                        value
+                        and field.is_relation
+                        and field.related_model._meta.label_lower == "iki_files.file"
+                    ):
+                        files.add(value)
+            if not updates:
+                continue
+            number = entity.revision + 1
+            changed = sorted(name for part in updates.values() for name in part)
+            for owner, values in updates.items():
+                history = state.apps.get_model(
+                    owner._meta.app_label, naming.history_model(owner.__name__)
+                )
+                kept = history.objects.using(alias)
+                snapshot = kept.filter(entity_id=entity.pk).order_by("-revision").values().first()
+                if snapshot is None:
+                    raise ValueError(f"{entity.hrid} has no {owner.__name__} history to migrate.")
+                owner.objects.using(alias).filter(pk=entity.pk).update(**values)
+                kept.create(**{**snapshot, **values, "revision": number})
+            revisions.create(
+                entity_id=entity.pk,
+                number=number,
+                kind="migrated",
+                changed_fields=changed,
+                via="system",
+                reason=reason,
+            )
+            if files:
+                uses = state.apps.get_model("iki_files", "FileUse")
+                uses.objects.using(alias).bulk_create(
+                    [uses(file_id=f, entity_id=entity.pk, revision=number) for f in sorted(files)],
+                    ignore_conflicts=True,
+                )
+            entities.filter(pk=entity.pk).update(revision=number, updated_at=Now())
+            events.create(
+                action="entity.migrated",
+                via="system",
+                target_type="entity",
+                target_id=str(entity.pk),
+                target_label=entity.hrid,
+                project_id=entity.owner_project_id,
+                data={"revision": number, "changed_fields": changed, "reason": reason},
+            )
+        editor.connection.check_constraints()
+
+    def describe(self) -> str:
+        return f"Migrate {self.model_name} values for {self.version}: {self.reason}"
+
+
 class _StateOperation(migrations.operations.base.Operation):
     """What the operations on state fields (ADR 0125) share: moving records from one state
     to another as revisions, each with its history row, and keeping ``locked_by``."""
@@ -157,6 +318,8 @@ class _StateOperation(migrations.operations.base.Operation):
                 " new text, reason text) ON COMMIT DROP"
             )
             schema_editor.execute(f"INSERT INTO iki_moving {moving}", params)
+            # The database stamps history_seen when present. Archived operations can
+            # also run against the earlier revision table during an initial migration.
             schema_editor.execute(
                 "INSERT INTO iki_revision (id, entity_id, number, kind, changed_fields, via,"
                 " client, reason, state_field, state_from, state_to, created_at)"
@@ -661,6 +824,35 @@ class ConvertUnit(migrations.operations.base.Operation):
         model = state.apps.get_model(app_label, self.model_name)
         field: Any = model._meta.get_field(self.name)
         table, column = (schema_editor.quote_name(n) for n in (model._meta.db_table, field.column))
+        history = getattr(model, "APPEND_ONLY", False) or model.__name__.endswith("_History")
+        if history:
+            # A recorded change of units changes the column's representation. PostgreSQL
+            # rewrites it with its append-only guards installed throughout (ADR 0148).
+            expression = f"{column} * %s + %s"
+            array = field.get_internal_type() == "ArrayField"
+            if array:
+                # ALTER TYPE's USING expression cannot itself contain a subquery.
+                schema_editor.execute("""
+                    CREATE FUNCTION pg_temp.iki_convert_quantities(double precision[],
+                        double precision, double precision) RETURNS double precision[]
+                    LANGUAGE SQL IMMUTABLE STRICT AS $$
+                    SELECT ARRAY(SELECT x * $2 + $3 FROM unnest($1) WITH ORDINALITY AS v(x, i)
+                                 ORDER BY i) $$
+                """)
+                expression = f"pg_temp.iki_convert_quantities({column}, %s, %s)"
+            schema_editor.connection.check_constraints()
+            column_type = field.db_type(schema_editor.connection)
+            schema_editor.execute(
+                f"ALTER TABLE {table} ALTER COLUMN {column} TYPE {column_type} "
+                f"USING ({expression})",
+                [scale, offset],
+            )
+            if array:
+                schema_editor.execute(
+                    "DROP FUNCTION pg_temp.iki_convert_quantities("
+                    "double precision[], double precision, double precision)"
+                )
+            return
         if field.get_internal_type() == "ArrayField":
             value = (
                 f"ARRAY(SELECT item * %s + %s FROM unnest({column}) "  # noqa: S608 - a quoted name
@@ -668,10 +860,6 @@ class ConvertUnit(migrations.operations.base.Operation):
             )
         else:
             value = f"{column} * %s + %s"
-        history = getattr(model, "APPEND_ONLY", False) or model.__name__.endswith("_History")
-        if history:
-            # The same quantity in a new unit: the one change history allows, in a migration.
-            schema_editor.execute(f"ALTER TABLE {table} DISABLE TRIGGER {AppendOnly.ROW_TRIGGER}")
         # The same values, so locked records (ADR 0125) take them too.
         with unlocked(schema_editor):
             schema_editor.execute(
@@ -682,8 +870,6 @@ class ConvertUnit(migrations.operations.base.Operation):
         # and PostgreSQL won't alter a table with checks pending: run them now.
         schema_editor.execute("SET CONSTRAINTS ALL IMMEDIATE")
         schema_editor.execute("SET CONSTRAINTS ALL DEFERRED")
-        if history:
-            schema_editor.execute(f"ALTER TABLE {table} ENABLE TRIGGER {AppendOnly.ROW_TRIGGER}")
 
     def describe(self) -> str:
         return f"Convert {self.model_name}.{self.name} from {self.from_unit} to {self.to_unit}"

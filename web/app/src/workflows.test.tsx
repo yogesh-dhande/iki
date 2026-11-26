@@ -7,7 +7,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { KINASE, renderApp, withTypes } from "./entity-fixtures";
-import { ACTION, WORKFLOW, workflowRun } from "./run-fixtures";
+import { WEIGH_ACTION, WORKFLOW, workflowRun } from "./run-fixtures";
 import { answer, calls, page, project } from "./test-server";
 import type { Schemas } from "@ikisci/sdk";
 
@@ -20,7 +20,7 @@ const ON_MACHINES: Schemas["WorkflowOut"] = {
 
 const OFFLINE: Schemas["WorkflowOut"] = {
   ...WORKFLOW,
-  name: "iki/protein.relax_all",
+  name: "acme/weighing.relax_all",
   label: "Relax all",
   available: false,
   unavailable_reason: "Step `relax` can't run here. There are no backend workers.",
@@ -30,7 +30,7 @@ function onProject(can: Partial<Schemas["ProjectOut"]["can"]> = {}): void {
   withTypes();
   const atlas = project({ can: { ...KINASE.can, run: ["self_hosted", "backend"], ...can } });
   answer("GET /api/v1/projects", page([atlas]));
-  answer("GET /api/v1/actions", [ACTION]);
+  answer("GET /api/v1/actions", [WEIGH_ACTION]);
   answer("GET /api/v1/workflows", [WORKFLOW, ON_MACHINES, OFFLINE]);
 }
 

@@ -1,5 +1,7 @@
 # Splitting the example LIMS before M1
 
+The connector from this pre-M1 split now lives in the [LIMS connector author example](../examples/plugins/lims_connector/README.md) as `acme/lims_connector`. The mapping below records the names used at the original cutover.
+
 Phase 1 mapped the `a794df0f` tree for [ADR 0211](adr/0211-lots-inventory-samples-and-requests.md). The split carries forward example LIMS **0.10.0** from `231cd950`, including the private WorkItem and plain deliverable introduced in 0.9.0.
 
 The request family marks a request delivered only after every recorded result is returned and every expected material has a returned result. A deliverable’s immutable `material` identifies the sample, tube or recorded aliquot it covers. The dose-response starter commissions the two compound tubes. Its luciferase stock and ledger-backed sample belong to the service project. The split retains the run-import request checks and the reviewed put-away plan from main.
@@ -42,7 +44,7 @@ Each row lists direct dependencies relevant to the split. Existing unrelated dep
 | `equipment`              | Instrument and Booking become local. Use `lab_roles` for former LIMS qualifications. Keep equipment-specific review/QA grants. The two evidence tabs formerly attached to AnalysisResult need `requests.QCDeliverable` for a measured delivery. The `InstrumentUse.result` input remains `iki/core.Entity`.                                |
 | `cell_lines`             | `inventory.Tube` for CellVial inheritance. A filled vial must identify its bank consistently with the inherited contents. Exercise existing vial creation and thaw.                                                                                                                                                                        |
 | `mouse_strains`          | `inventory.Box` for MouseCryobox. Verify its allowed cryostocks and nested storage.                                                                                                                                                                                                                                                        |
-| `strains`                | `inventory.Box` for StrainBox and `inventory.Tube` for its allowed contents. Keep its plasmid dependency.                                                                                                                                                                                                                                  |
+| `strains`                | `plasmid.Plasmid` for the transformed strain design. [ADR 0221](adr/0221-strain-isolates-and-their-glycerol-stocks.md) moves the physical isolate and its Tube subtype to Lots. Inventory supplies the stock box.                                                                                                                          |
 | `plate_assays`           | `requests.Request` for the plate, plate read and both requested result types. Type-check the applicable concrete request in each return flow so a research signature cannot satisfy QC intake. Well assignments already use generic records. The optional server starter checks installed sample, tube, protein and role types separately. |
 | `stability`              | `inventory.Tube` and existing `lots.Lot`. Retain Pull's lot, protocol revision, planned unit/amount and unique scan-confirmed draw. The scheduler must compare `tube.contents` to the study lot. Update the scheduler fixture and exercise both a matching lot and a different lot.                                                        |
 
@@ -110,3 +112,6 @@ scripts/ci/with-browser-traces.sh --vm ~/.local/share/iki-test-vm/bin/vm-run.sh 
   bash -c 'pnpm install --frozen-lockfile && make -k check'
 ~/.local/share/iki-test-vm/bin/vm-run.sh make dev-ci
 ```
+
+The optional failed-instrument trigger moved from the original Equipment split
+to the [facility calibration tracing example](../examples/plugins/calibration_tracing/README.md).

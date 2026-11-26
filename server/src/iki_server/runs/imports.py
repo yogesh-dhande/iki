@@ -41,13 +41,14 @@ from collections.abc import Generator
 from dataclasses import asdict, dataclass
 from datetime import timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 import structlog
 from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from iki_server.api.problems import Problem
 from iki_server.audit import log as audit
 from iki_server.entities import (
     access,
@@ -74,7 +75,7 @@ from iki_server.entities.values import (
     shape,
     to_db,
 )
-from iki_server.files import storage
+from iki_server.files import scan_state, storage
 from iki_server.files.models import File
 from iki_server.org.models import registry_of
 from iki_server.runs import live, makings, results
@@ -146,8 +147,9 @@ def start(job: Job, run: ActionRun, file_id: uuid.UUID) -> RunImport:
     from iki_server.runs import tasks
 
     file = File.objects.select_related("blob").get(pk=file_id)
+    scan_state.require_usable(file.blob)
     imported = RunImport.objects.create(
-        run=run, job=job, file=file, size=file.blob.size, schema=_schema()
+        run=run, job=job, file=file, size=file.blob.size, schema=_schema(staged=True)
     )
     job.state = JobState.COMMITTING
     job.lease_token = job.lease_expires_at = None
@@ -264,14 +266,17 @@ def clear(import_id: str) -> str:
     return "continues"
 
 
-def _schema() -> str:
+def _schema(*, staged: bool = False) -> str:
     """What the installed plugins are: lines checked against one may not fit another."""
     record = registry.installed() or {}
     plugins = sorted(
         (str(p.get("name")), str(p.get("version")), str(p.get("sha")))
         for p in record.get("plugins", ())
     )
-    return hashlib.sha256(json.dumps(plugins).encode()).hexdigest()
+    # Older creates-file staging didn't distinguish an omitted match field from its
+    # default. Start an unfinished file again so its original lines decide which match.
+    encoded = json.dumps(plugins).encode()
+    return hashlib.sha256(b"creates-file-v2:" + encoded if staged else encoded).hexdigest()
 
 
 # --- Stepping ----------------------------------------------------------------------------------
@@ -289,6 +294,10 @@ def step(import_id: str) -> str:
         if _failed(uuid.UUID(import_id), error):
             return "gave up"
         raise Retry(f"The import failed for now: {error}") from error
+    if done == "scanning":
+        # Normal queue backoff. Housekeeping also resumes an import whose task ran
+        # out of attempts while waiting, without counting the wait as an import failure.
+        raise Retry("Waiting for the creates file's malware scan.")
     if done:
         return "ended"
     with transaction.atomic():
@@ -303,14 +312,22 @@ def recover() -> int:
 
     moved = 0
     with transaction.atomic():
-        stalled = RunImport.objects.select_for_update(skip_locked=True).filter(
-            ~Q(phase=ImportPhase.ENDED), updated_at__lt=timezone.now() - STALLED_AFTER
-        )[:100]
+        stalled = (
+            RunImport.objects.select_for_update(skip_locked=True, of=("self",))
+            .filter(~Q(phase=ImportPhase.ENDED), updated_at__lt=timezone.now() - STALLED_AFTER)
+            .annotate(
+                waiting=Q(file__blob__scan_result__isnull=True)
+                | Q(run__cancel_requested_at__isnull=False)
+            )[:100]
+        )
         for imported in stalled:
-            imported.failures += 1
+            # A pending scan or a requested cancellation still needs its step to run.
+            # A lost task in either state is no evidence that staging or writing failed.
+            if not imported.waiting:
+                imported.failures += 1
             imported.updated_at = timezone.now()
             imported.save(update_fields=["failures", "updated_at"])
-            if imported.failures >= MAX_FAILURES:
+            if not imported.waiting and imported.failures >= MAX_FAILURES:
                 _give_up(imported, "Its runner stopped, again and again.")
             else:
                 tasks.import_creates.enqueue(str(imported.pk))
@@ -356,8 +373,8 @@ def _give_up(imported: RunImport, why: str) -> None:
     )
 
 
-def _advance(import_id: uuid.UUID) -> bool:
-    """True once the import has ended; False if there's more to do."""
+def _advance(import_id: uuid.UUID) -> bool | Literal["scanning"]:
+    """True once finished, False for immediate work, or scanning when it needs a later step."""
     deadline = time.monotonic() + STEP_FOR
     reader: Reader | None = None
     try:
@@ -378,8 +395,26 @@ def _advance(import_id: uuid.UUID) -> bool:
                 run = ActionRun.objects.select_related("project", "requested_by").get(
                     pk=imported.run_id
                 )
-                if run.cancel_requested_at is not None or imported.phase == ImportPhase.WRITING:
-                    # Writing (or cancelling) locks the job and its run, as cancelling does.
+                if run.cancel_requested_at is not None:
+                    return _finish(imported)
+                try:
+                    scan_state.require_usable(imported.file.blob)
+                except Problem as error:
+                    # An import could already be queued or staged when scanning is enabled.
+                    if error.code == "file_scanning":
+                        imported.updated_at = timezone.now()
+                        imported.save(update_fields=["updated_at"])
+                        changed = (
+                            Job.objects.filter(pk=imported.job_id)
+                            .exclude(progress_message=error.detail)
+                            .update(progress_message=error.detail)
+                        )
+                        if changed:
+                            live.changed(run.pk, run.batch_id)
+                        return "scanning"
+                    _give_up(imported, error.detail)
+                    return True
+                if imported.phase == ImportPhase.WRITING:
                     return _finish(imported)
                 if imported.offset >= imported.size or len(imported.errors) >= MAX_ERRORS:
                     _checked(imported, run)
@@ -730,6 +765,14 @@ def _row(number: int, form: Shape, given: dict[str, Any], create: Any) -> tuple[
             for name in part.fields
             if name in given and given[name] is not None
         }
+    # A default belongs to the saved record, but only an external key the producer
+    # supplied is a match. The marker is never a table or one of its fields.
+    if (
+        create.match_on
+        and create.match_on not in create.values
+        and given.get(create.match_on) is not None
+    ):
+        parts["$default_match"] = {}
     try:
         digest = hash_of(given, form.entity_type)
     except ValueError:
@@ -850,7 +893,7 @@ def _finish(imported: RunImport) -> bool:
     if run.cancel_requested_at is not None:
         _end(imported, job, run, JobState.CANCELLED, RunStatus.CANCELLED, None)
         return True
-    if imported.schema != _schema():
+    if imported.schema != _schema(staged=True):
         # A plugin changed while it was checked: check it all again, against what's
         # installed now.
         from iki_server.runs import tasks
@@ -860,10 +903,10 @@ def _finish(imported: RunImport) -> bool:
         imported.phase = ImportPhase.CHECKING
         imported.offset = imported.lines = imported.staged = 0
         imported.errors = []
-        imported.schema = _schema()
+        imported.schema = _schema(staged=True)
         imported.updated_at = timezone.now()
         imported.save()
-        _progress(imported, 0.0, "A plugin changed: checking its creates again.")
+        _progress(imported, 0.0, "Checking its creates again against the current schema.")
         return False
     document = RunOutput.objects.filter(job=job).values_list("document", flat=True)[0]
     outcome = queue.outcome(run, lambda: _write(imported, run, document))
@@ -881,15 +924,39 @@ def _write(imported: RunImport, run: ActionRun, document: Mapping[str, Any]) -> 
     done = results.checked(run, document)
     try:
         with transaction.atomic():
-            made = results.write(done)
+            with connection.cursor() as cursor:
+                # Inline and matched effects come first. File lines can still fill their
+                # entries. Only effects made before the file's set-based insert, and
+                # records with later fills, need staging.
+                cursor.execute(
+                    "CREATE TEMP TABLE iki_import_effects (entity_id uuid PRIMARY KEY,"
+                    " position bigint GENERATED ALWAYS AS IDENTITY, kind text, revision integer,"
+                    " entry_id uuid, entry_revisions integer[] NOT NULL,"
+                    " match_line bigint NOT NULL DEFAULT 0)"
+                    " ON COMMIT DROP"
+                )
+            made = results.write(done, save_effects=_stage_effects)
             _replace_stand_ins(imported, made)
-            unchanged = _update_matches(imported, done.check)
-            imported.updated = RunEffect.objects.filter(run=run).count() - unchanged
+            _update_matches(imported, done.check)
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT count(*) FILTER (WHERE kind = 'created'),"
+                    " count(*) FILTER (WHERE kind = 'reused'),"
+                    " count(*) FILTER (WHERE kind = 'updated'),"
+                    " count(*) FILTER (WHERE 1 = ANY(entry_revisions)) FROM iki_import_effects"
+                )
+                staged_created, staged_reused, imported.updated, staged_registered = (
+                    cursor.fetchone()
+                )
             created, reused, registered = _insert(imported, run)
             # Lines were checked as they were staged; those that break rules that hold
             # are held now they're records (ADR 0127).
             holds.hold_imported(run)
-            counts = (created, reused + unchanged, registered)
+            counts = (
+                created + staged_created,
+                reused + staged_reused,
+                registered + staged_registered,
+            )
     except (IntegrityError, DatabaseError) as error:
         if not isinstance(error, IntegrityError) and "violates" not in str(error):
             raise
@@ -925,6 +992,27 @@ def _write(imported: RunImport, run: ActionRun, document: Mapping[str, Any]) -> 
     emit("entity.imported", data, project=run.project)
 
 
+def _stage_effects(effects: list[RunEffect], lines: list[int] | None = None) -> None:
+    with (
+        connection.cursor() as cursor,
+        cursor.copy(
+            "COPY iki_import_effects (entity_id, kind, revision, entry_id, entry_revisions,"
+            " match_line) FROM STDIN"
+        ) as copy,
+    ):
+        for position, effect in enumerate(effects):
+            copy.write_row(
+                (
+                    effect.entity_id,
+                    effect.kind,
+                    effect.revision,
+                    effect.entry_id,
+                    effect.entry_revisions,
+                    lines[position] if lines is not None else 0,
+                )
+            )
+
+
 def _replace_stand_ins(imported: RunImport, made: dict[str, uuid.UUID]) -> None:
     """Puts what each keyed create made (its registry entry, for a type with an identity)
     where the staged lines refer to it, a few statements for the whole file."""
@@ -952,31 +1040,69 @@ def _replace_stand_ins(imported: RunImport, made: dict[str, uuid.UUID]) -> None:
                 break
 
 
-def _update_matches(imported: RunImport, check: results.Check) -> int:
+def _update_matches(imported: RunImport, check: results.Check) -> None:
     """Writes each staged line whose ``match_on`` value an entity of the run's project has
     to that entity, as a revision (ADR 0082), and unstages it so the rest are inserted.
-    Raises :class:`results.InvalidOutput` for lines that can't be. Returns how many changed
-    nothing."""
-    table = _lines(imported)
-    unchanged = 0
+    Raises :class:`results.InvalidOutput` for lines that can't be."""
+    table = f"(SELECT * FROM {_lines(imported)} l WHERE NOT (l.parts ? '$default_match'))"  # noqa: S608 - imported UUID and round
     with connection.cursor() as cursor:
         cursor.execute(f"SELECT DISTINCT type FROM {table} s")  # noqa: S608 - our own values
         staged = sorted(t for (t,) in cursor.fetchall())
-    for effect in check.action.creates:
-        if effect.match_on is None:
-            continue
-        for type_name in (t for t in staged if is_a(t, effect.type)):
-            unchanged += _update_matches_of(imported, check, type_name, effect.match_on)
+    # The first applicable declaration is the one the line was checked against.
+    # An inherited unique field has one key across all of its concrete types.
+    columns: dict[tuple[str, str], list[str]] = {}
+    for type_name in staged:
+        effect = next(effect for effect in check.action.creates if is_a(type_name, effect.type))
+        if effect.match_on is not None:
+            part = shape(type_name).part_of(effect.match_on)
+            columns.setdefault((part.model._meta.db_table, effect.match_on), []).append(type_name)
+    inline_keys: dict[str, dict[str, str]] = {}
+    for (key, value), pointer in check.external_keys.items():
+        inline_keys.setdefault(key, {})[value] = pointer
+    with connection.cursor() as cursor:
+        for (part_name, field), types in columns.items():
+            key = unique.key(shape(types[0]).part_of(field).model, field)
+            cursor.execute(
+                "WITH candidates AS (SELECT s.line, s.parts->%s->>%s AS value"  # noqa: S608
+                f" FROM {table} s WHERE s.type = ANY(%s)), records AS ("
+                " SELECT line, min(line) OVER (PARTITION BY value) AS first,"
+                " %s::jsonb->>value AS inline FROM candidates WHERE value IS NOT NULL)"
+                " SELECT line, first, inline FROM records WHERE line > first OR inline IS NOT NULL"
+                " ORDER BY line LIMIT 100",
+                [part_name, field, types, json.dumps(inline_keys.get(key, {}))],
+            )
+            for line, first, inline in cursor.fetchall():
+                previous = inline or f"Line {first}"
+                scope = "a file" if inline is None else "the output"
+                check.error(
+                    results.pointer("creates_file", line, "values", field),
+                    f"{previous} has the same {field}: each record comes once in {scope}.",
+                )
     if check.errors:
         raise results.InvalidOutput(check.errors)
-    return unchanged
+    for (_, field), types in columns.items():
+        for type_name in types:
+            _update_matches_of(imported, check, table, type_name, field)
+    if check.errors:
+        raise results.InvalidOutput(check.errors)
+
+
+class _MatchedLine(NamedTuple):
+    line: int
+    parts: Any
+    origin: Any
+    parents: Any
+    made_with: Any
+    entity_id: uuid.UUID
+    # None for a new effect, 0 for an inline effect, otherwise the first matching file line.
+    previous_line: int | None
+    conflict: str | None = None
 
 
 def _update_matches_of(
-    imported: RunImport, check: results.Check, type_name: str, field: str
-) -> int:
+    imported: RunImport, check: results.Check, table: str, type_name: str, field: str
+) -> None:
     run = check.run
-    table = _lines(imported)
     part = shape(type_name).part_of(field)
     params: dict[str, Any] = {
         "type": type_name,
@@ -1005,62 +1131,88 @@ def _update_matches_of(
             False,
         )
     with connection.cursor() as cursor:
-        # A record twice in one file: which would win is anyone's guess.
         cursor.execute(
-            f"SELECT array_agg(s.line ORDER BY s.line) FROM {table} s"  # noqa: S608 - ours; values are parameters
-            f" WHERE s.type = %(type)s AND {value} IS NOT NULL"
-            f" GROUP BY {value} HAVING count(*) > 1 ORDER BY min(s.line) LIMIT 100",
-            params,
-        )
-        for (lines,) in cursor.fetchall():
-            for line in lines[1:]:
-                check.error(
-                    results.pointer("creates_file", line, "values", field),
-                    f"Line {lines[0]} has the same {field}: each record comes once in a file.",
-                )
-        if check.errors:
-            return 0
-        cursor.execute(
-            f"SELECT s.line, s.parts, s.origin, s.parents, s.made_with, mm.id FROM {table} s"  # noqa: S608 - ours; values are parameters
-            f" JOIN LATERAL (SELECT {match[1]} AS id FROM {match[0]}) mm ON true"
+            f"SELECT s.line, s.parts, s.origin, s.parents, s.made_with, mm.id,"  # noqa: S608
+            " e.match_line"
+            f" FROM {table} s JOIN LATERAL (SELECT {match[1]} AS id FROM {match[0]}) mm ON true"
+            " LEFT JOIN iki_import_effects e ON e.entity_id = mm.id"
             " WHERE s.type = %(type)s ORDER BY s.line",
             params,
         )
-        matched = cursor.fetchall()
-        matched += _claims(cursor, check, table, type_name, field, params, match)
-        matched.sort(key=lambda row: row[0])
+        matched = [_MatchedLine(*row) for row in cursor]
+        claims = _claims(cursor, check, table, type_name, field, params, match)
+        # Two direct matches here have distinct keys. Only claims on a registered identity
+        # can target a record another line of this type also names.
+        within_type = {row.entity_id: row.line for row in claims}
+        matched.extend(claims)
+        matched.sort(key=lambda row: row.line)
+        for row in matched:
+            previous = check.external_creates.get(row.entity_id)
+            if row.entity_id in within_type:
+                within_type[row.entity_id] = min(row.line, within_type[row.entity_id])
+            earlier = row.previous_line or within_type.get(row.entity_id)
+            if previous is None and earlier is not None and earlier != row.line:
+                previous = results.pointer("creates_file", earlier)
+            at = results.pointer("creates_file", row.line, "values", field)
+            if previous is not None:
+                check.error(at, f"It resolves to the same record as {previous}.")
+            elif row.conflict:
+                check.error(at, row.conflict)
         if check.errors:
-            return 0
-    unchanged = 0
+            return
     done: list[int] = []
+    effects = []
+    effect_lines: list[int] = []
     with entities.quietly():
-        for line, parts_text, origin_text, parents_text, made_text, entity_id in matched:
+        for row in matched:
+            line = row.line
             # Django reads jsonb as text.
             parts, origin, parents, made_with = (
                 json.loads(t) if isinstance(t, str) else t
-                for t in (parts_text, origin_text, parents_text, made_text)
+                for t in (row.parts, row.origin, row.parents, row.made_with)
             )
-            entity = Entity.objects.select_for_update().get(pk=entity_id)
+            entity = Entity.objects.select_for_update().get(pk=row.entity_id)
             values = {n: v for fields in parts.values() for n, v in fields.items()}
             at = results.pointer("creates_file", line)
             saved = results.update_match(check, at, type_name, entity, values)
             if saved is None:
                 continue
             revision = saved.revision.number if saved.revision is not None else None
-            unchanged += revision is None
-            RunEffect.objects.create(
+            effect = RunEffect(
                 run=run,
                 entity_id=entity.pk,
                 kind=EffectKind.UPDATED if revision is not None else EffectKind.REUSED,
                 revision=revision,
                 **results.entry_made(saved),
             )
+            if row.previous_line == 0:
+                # An inline update or unkeyed registration already recorded the effect.
+                # Keep that first effect and every registry revision the run made.
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE iki_import_effects SET match_line = %s,"
+                        " entry_id = COALESCE(%s, entry_id),"
+                        " entry_revisions = entry_revisions || %s::integer[]"
+                        " WHERE entity_id = %s",
+                        [line, effect.entry_id, effect.entry_revisions, entity.pk],
+                    )
+            else:
+                effects.append(effect)
+                effect_lines.append(line)
+                if len(effects) == CHUNK_LINES:
+                    _stage_effects(effects, effect_lines)
+                    effects.clear()
+                    effect_lines.clear()
             kept = None
             if origin is not None:
                 # As staged: ExternalOrigin's fields.
                 kept = ExternalOrigin.objects.create(
                     run=run, entity_id=entity.pk, revision=revision, **origin
                 )
+            if row.previous_line == 0:
+                makings.record(run.pk, entity.pk, (), kept)
+                done.append(line)
+                continue
             tools = [Software(name, version) for name, version in made_with or ()]
             makings.record(run.pk, entity.pk, tools, kept)
             Lineage.objects.bulk_create(
@@ -1074,6 +1226,8 @@ def _update_matches_of(
                 for parent, name, parent_revision in parents or []
             )
             done.append(line)
+    if effects:
+        _stage_effects(effects, effect_lines)
     if done:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -1081,7 +1235,6 @@ def _update_matches_of(
                 " AND line = ANY(%s)",
                 [imported.pk, imported.round, done],
             )
-    return unchanged
 
 
 def _claims(
@@ -1092,7 +1245,7 @@ def _claims(
     field: str,
     params: dict[str, Any],
     match: tuple[str, str, bool],
-) -> list[tuple[Any, ...]]:
+) -> list[_MatchedLine]:
     """The staged lines with no match whose type has an identity, each with the run's
     project's own record of its registry entry, which it claims as the matched rows are
     (ADR 0082, 0115). Notes those whose record has another value already, or that
@@ -1110,39 +1263,42 @@ def _claims(
     )
     # Two records of one entity in a file: it can only be one of them.
     cursor.execute(
-        f"SELECT array_agg(s.line ORDER BY s.line) FROM {table} s WHERE {unmatched}"  # noqa: S608 - ours; values are parameters
-        f" GROUP BY s.identity_hash HAVING count(DISTINCT {value}) > 1"
-        " ORDER BY min(s.line) LIMIT 100",
+        f"SELECT line, first FROM (SELECT s.line,"  # noqa: S608 - ours; values are parameters
+        " min(s.line) OVER (PARTITION BY s.identity_hash) AS first"
+        f" FROM {table} s WHERE {unmatched}"
+        ") duplicates WHERE line > first ORDER BY line LIMIT 100",
         params,
     )
-    for (lines,) in cursor.fetchall():
-        for line in lines[1:]:
-            check.error(
-                results.pointer("creates_file", line, "values", field),
-                f"It has the same {same} as line {lines[0]}: they'd be one entity, which "
-                "can't be two records.",
-            )
+    for line, first in cursor.fetchall():
+        check.error(
+            results.pointer("creates_file", line, "values", field),
+            f"It has the same {same} as line {first}: they'd be one entity, which "
+            "can't be two records.",
+        )
     holder = "x.id" if on_entry else "e.id"
     cursor.execute(
         f"SELECT s.line, s.parts, s.origin, s.parents, s.made_with,"  # noqa: S608 - ours; values are parameters
-        f" e.id, e.hrid, u.value FROM {table} s"
+        " e.id, e.hrid, u.value, prev.match_line"
+        f" FROM {table} s"
         " JOIN iki_entity x ON x.registry_id = %(registry)s"
         "  AND x.identity_hash = s.identity_hash"
         " JOIN iki_entity e ON e.entry_id = x.id AND e.owner_project_id = %(project)s"
         "  AND e.archived_at IS NULL"
         f" LEFT JOIN iki_unique_value u ON u.entity_id = {holder} AND u.key = %(key)s"
+        " LEFT JOIN iki_import_effects prev ON prev.entity_id = e.id"
         f" WHERE {unmatched} ORDER BY s.line",
         params,
     )
     claims = []
-    for line, parts, origin, parents, made_with, entity_id, hrid, other in cursor.fetchall():
-        if other is None:
-            claims.append((line, parts, origin, parents, made_with, entity_id))
-            continue
-        check.error(
-            results.pointer("creates_file", line, "values", field),
-            f"It has the same {same} as {hrid}, whose {field} is {other} already: they'd be "
-            "one entity, which can't be two records.",
+    for line, parts, origin, parents, made_with, entity_id, hrid, other, prior in cursor.fetchall():
+        conflict = None
+        if other is not None:
+            conflict = (
+                f"It has the same {same} as {hrid}, whose {field} is {other} already: they'd be "
+                "one entity, which can't be two records."
+            )
+        claims.append(
+            _MatchedLine(line, parts, origin, parents, made_with, entity_id, prior, conflict)
         )
     return claims
 
@@ -1274,8 +1430,7 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
         # An entity the run already changed (one of its inputs, updated) keeps that effect.
         cursor.execute(
             "UPDATE iki_import_resolved r SET first = false WHERE first AND EXISTS ("
-            " SELECT 1 FROM iki_run_effect e WHERE e.run_id = %(run)s AND e.entity_id = r.target)",
-            params,
+            " SELECT 1 FROM iki_import_effects e WHERE e.entity_id = r.target)"
         )
         cursor.execute("ANALYZE iki_import_resolved")
         _place_along_entries(cursor, imported, table, identified)
@@ -1324,10 +1479,10 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             # (ADR 0138), as a create's does.
             cursor.execute(
                 "INSERT INTO iki_revision (id, entity_id, number, kind, changed_fields, user_id,"  # noqa: S608 - ours; values are parameters
-                " via, client, reason, submitted, created_at)"
+                " via, client, reason, submitted, created_at, history_seen)"
                 " SELECT uuidv7(), s.entity_id, 1, 'created',"
                 "  ARRAY(SELECT c FROM unnest(s.changed) c WHERE c = ANY(%(own)s) ORDER BY c),"
-                "  %(user)s, 'run', '', %(reason)s, p.submitted, now()"
+                "  %(user)s, 'run', '', %(reason)s, p.submitted, now(), (SELECT iki_history_seen())"
                 f" FROM {table} s JOIN iki_import_resolved r USING (line)"
                 " LEFT JOIN iki_import_spelled p USING (line)"
                 " WHERE r.new AND s.type = %(type)s ORDER BY s.line",
@@ -1339,21 +1494,6 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             params,
         )
         created = cursor.rowcount
-        # A record whose line registered its entry names the entry's first revision too,
-        # as a create's does (ADR 0115).
-        cursor.execute(
-            "INSERT INTO iki_run_effect (run_id, entity_id, kind, revision, entry_id,"
-            " entry_revisions)"
-            " SELECT %(run)s, r.target, CASE WHEN r.reused THEN 'reused' ELSE 'created' END,"
-            "  CASE WHEN r.reused THEN NULL ELSE 1 END, m.entry_id,"
-            "  CASE WHEN m.entry_id IS NOT NULL THEN ARRAY[1] ELSE '{}' END"
-            " FROM iki_import_resolved r"
-            " LEFT JOIN (SELECT target, entry_id FROM iki_import_resolved WHERE makes_entry) m"
-            "  ON m.target = r.target"
-            " WHERE r.first ORDER BY r.line",
-            params,
-        )
-        reused = cursor.rowcount - created
         # Every line's origin, the first of a record and each that found it again: one
         # molecule is in several databases' records (ADR 0154).
         cursor.execute(
@@ -1401,7 +1541,32 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             " WHERE r.first AND s.parents IS NOT NULL",
             params,
         )
-    _fill_entries(run, table, identified)
+        _fill_entries(run, table, identified)
+        # Each effect is inserted once, with every entry revision the run made. Preserve
+        # the order of the inline and matched effects, followed by the file's lines.
+        cursor.execute(
+            "INSERT INTO iki_run_effect (run_id, entity_id, kind, revision, entry_id,"
+            " entry_revisions)"
+            " SELECT %(run)s, entity_id, kind, revision, entry_id, entry_revisions"
+            " FROM iki_import_effects WHERE kind IS NOT NULL ORDER BY position",
+            params,
+        )
+        cursor.execute(
+            "INSERT INTO iki_run_effect (run_id, entity_id, kind, revision, entry_id,"
+            " entry_revisions)"
+            " SELECT %(run)s, r.target, CASE WHEN r.reused THEN 'reused' ELSE 'created' END,"
+            "  CASE WHEN r.reused THEN NULL ELSE 1 END, COALESCE(m.entry_id, f.entry_id),"
+            "  (CASE WHEN m.entry_id IS NOT NULL THEN ARRAY[1] ELSE '{}' END)"
+            "    || COALESCE(f.entry_revisions, '{}')"
+            " FROM iki_import_resolved r"
+            " LEFT JOIN (SELECT target, entry_id FROM iki_import_resolved WHERE makes_entry) m"
+            "  ON m.target = r.target"
+            " LEFT JOIN iki_import_effects f ON f.entity_id = r.target"
+            " WHERE r.first ORDER BY r.line",
+            params,
+        )
+        reused = cursor.rowcount - created
+        cursor.execute("DROP TABLE iki_import_effects")
     return created, reused, registered
 
 
@@ -1583,10 +1748,11 @@ def _insert_entries(cursor: Any, table: str, type_name: str, params: dict[str, A
     names = sorted(n for p in form.parts if p.entry for n in p.fields)
     cursor.execute(
         "INSERT INTO iki_revision (id, entity_id, number, kind, changed_fields, user_id,"  # noqa: S608 - ours; values are parameters
-        " via, client, reason, project_id, created_at)"
+        " via, client, reason, project_id, created_at, history_seen)"
         " SELECT uuidv7(), r.entry_id, 1, 'created',"
         "  ARRAY(SELECT c FROM unnest(s.changed) c WHERE c = ANY(%(names)s) ORDER BY c),"
-        f"  %(user)s, 'run', '', %(reason)s, %(project)s, now() {making} AND s.type = %(type)s"
+        "  %(user)s, 'run', '', %(reason)s, %(project)s, now(), (SELECT iki_history_seen())"
+        f" {making} AND s.type = %(type)s"
         " ORDER BY s.line",
         {**params, "names": names, "type": type_name},
     )
@@ -1757,11 +1923,19 @@ class _Filling:
                         self.error(line, name, f"It {' '.join(messages)}")
                     continue
                 if filled is not None:
-                    # The project's record of the entry has this run's effect already.
-                    record = Entity.objects.filter(
-                        owner_project=self.run.project, entry_id=entry_id
-                    ).values_list("pk", flat=True)
-                    results.add_entry_revision(self.run, record.first(), filled)
+                    # Any line that contributed to this fill names the same record.
+                    # A file-only record has no earlier staged effect (its kind is NULL).
+                    line = self.set_by[(entry_id, next(iter(values)))]
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "INSERT INTO iki_import_effects (entity_id, entry_id, entry_revisions)"
+                            " SELECT target, entry_id, ARRAY[%s]::integer[]"
+                            " FROM iki_import_resolved WHERE line = %s"
+                            " ON CONFLICT (entity_id) DO UPDATE SET entry_id = EXCLUDED.entry_id,"
+                            " entry_revisions = iki_import_effects.entry_revisions"
+                            " || EXCLUDED.entry_revisions",
+                            [filled.number, line],
+                        )
 
     def _given(
         self, line: int, form: Shape, parts: dict[str, Any], identity: frozenset[str]

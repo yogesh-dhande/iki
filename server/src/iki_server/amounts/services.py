@@ -492,11 +492,27 @@ def transfer(
         _lock_records([source, target])
         _ensure(target, wanted.unit)
         locked = dict(zip((source.pk, target.pk), _locked([source, target]), strict=True))
-        _what_it_takes(source, target)
+        direct_fill = _what_it_takes(source, target)
         out = _taking(source, locked[source.pk], given, operation="transfer")
         here = units.parse(locked[source.pk].unit)
         there = units.parse(locked[target.pk].unit)
-        if not here.is_commensurable(there):
+        same_dimension = here.is_commensurable(there)
+        if same_dimension:
+            moved = Fraction(out) * here.factor / there.factor
+        elif direct_fill and there.is_commensurable(_LITRE):
+            per = units.parse(f"({here.code})/({there.code})")
+            at = _concentration(source, per)
+            if at is None or at <= 0:
+                raise Wrong(
+                    {
+                        "to": [
+                            f"Filling {target.hrid} in {there.code} from {source.hrid} in "
+                            f"{here.code} needs the source’s positive concentration in {per.code}."
+                        ]
+                    }
+                )
+            moved = Fraction(out) / at
+        else:
             raise Wrong(
                 {
                     "to": [
@@ -505,10 +521,10 @@ def transfer(
                     ]
                 }
             )
-        moved = Fraction(out) * here.factor / there.factor
         _whole_units(target, wanted, moved)
         into = _rounded(moved)
-        if Fraction(into) != moved:
+        # A measured concentration rounds once to ledger precision (ADR 0157).
+        if into == 0 or (same_dimension and Fraction(into) != moved):
             raise Wrong(
                 {
                     "amount": [
@@ -660,10 +676,12 @@ def split(
 
 def _material_of(entity: Entity, values: Mapping[str, Any] | None = None) -> Any:  # noqa: ANN401 - an ID
     """What ``entity``'s amount is of, by its type's ``material``: the entity its reference
-    names, or None if its type doesn't say."""
+    names, the record itself for ``material: id``, or None if its type doesn't say."""
     wanted = spec(entity.type)
     if wanted is None or wanted.material is None:
         return None
+    if wanted.material == "id":
+        return entity.pk
     if values is None:
         from iki_server.entities import services
 
@@ -683,20 +701,25 @@ def _hrid(ref: Any) -> str:  # noqa: ANN401 - an ID
     return str(found or ref)
 
 
-def _what_it_takes(source: Entity, target: Entity) -> None:
+def _what_it_takes(source: Entity, target: Entity) -> bool:
     """Refuses a transfer that would change what ``target`` is: material of another entity
     than its type says it's of, or material that isn't in the state a state locking it
-    is in (a quarantined lot's into a released one). Neither is changed."""
+    is in (a quarantined lot's into a released one). Returns whether the container names
+    the source record itself as its contents (ADR 0211)."""
     from iki_server.entities import services
 
     values = services.current_values_of([source, target])
     theirs, mine = values[source.pk], values[target.pk]
     wanted = spec(target.type)
     assert wanted is not None  # noqa: S101 - only records with an amount get here
+    direct_fill = False
     if wanted.material is not None:
-        of = mine.get(wanted.material)
+        of = _material_of(target, mine)
+        # A tube can take stock directly from the lot on its label, or from a tube of
+        # the same material. Two different lots of one molecule remain separate.
+        direct_fill = wanted.material in wanted.follows and str(of) == str(source.pk)
         given = _material_of(source, theirs)
-        if given is None or of is None or _entry(given) != _entry(of):
+        if not direct_fill and (given is None or of is None or _entry(given) != _entry(of)):
             said = (
                 f"{source.hrid}'s amount isn't of one entity, as its type doesn't say"
                 if given is None
@@ -730,6 +753,7 @@ def _what_it_takes(source: Entity, target: Entity) -> None:
                 ]
             }
         )
+    return direct_fill
 
 
 def _usable(entity: Entity) -> None:
@@ -980,7 +1004,8 @@ def _pool(
     per = units.parse(field.unit)
     values = services.current_values_of([target])[target.pk]
     current = values.get(wanted.concentration)
-    theirs = _concentration(source, per)
+    concentration = _concentration(source, per)
+    theirs = float(concentration) if concentration is not None else None
     held = _solution(Fraction(amount.value), units.parse(amount.unit), current, per)
     added = _solution(Fraction(out), here, theirs, per)
     pooled: float | None = None
@@ -1030,7 +1055,7 @@ def _pool(
         ) from None
 
 
-def _concentration(entity: Entity, per: units.Unit) -> float | None:
+def _concentration(entity: Entity, per: units.Unit) -> Fraction | None:
     """``entity``'s concentration, in ``per``'s unit, if its type has one, it's recorded,
     and it measures what ``per`` does."""
     from iki_server.entities import services
@@ -1045,7 +1070,7 @@ def _concentration(entity: Entity, per: units.Unit) -> float | None:
     theirs = units.parse(field.unit)
     if not theirs.is_commensurable(per):
         return None
-    return float(Fraction(str(value)) * theirs.factor / per.factor)
+    return Fraction(str(value)) * theirs.factor / per.factor
 
 
 _LITRE = units.parse("L")

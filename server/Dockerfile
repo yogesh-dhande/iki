@@ -16,7 +16,7 @@ ARG RUST_IMAGE=rust:1.93.0-slim-trixie@sha256:760ad1d638d70ebbd0c61e06210e1289cb
 # amd64 artifact job supplies these modules and both native Wasmtime artifacts.
 ARG WASM_BUILD_PLATFORM=linux/amd64
 
-FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
+FROM ghcr.io/astral-sh/uv:0.13.10@sha256:a3ea1357342c1a4bf9a0c53a3deb1b55379aefa037338d8113d5771efa01774f AS uv
 
 # --- Build the digest-pinned worker artifact on its canonical compiler host ------
 FROM --platform=$WASM_BUILD_PLATFORM ${RUST_IMAGE} AS dna-annotation
@@ -39,6 +39,7 @@ COPY scripts/build-oligo-wasm.sh /src/scripts/build-oligo-wasm.sh
 RUN rustup target add wasm32-unknown-unknown \
  && cargo build --locked -p iki-wasm --target wasm32-unknown-unknown --release \
  && ! grep -q Europe/London target/wasm32-unknown-unknown/release/iki_wasm.wasm \
+ && cargo build --locked -p iki-previews --target wasm32-unknown-unknown --release \
  && /src/scripts/build-oligo-wasm.sh --with-notice /src/worker/oligo-measurement.wasm
 # And the plasmid plugin's own module, which places primers and cuts DNA (ADR 0200). No
 # .wasm is tracked in git, so this stage is where a deployment's copy comes from; the
@@ -70,18 +71,21 @@ RUN /src/scripts/build-server-aot.sh /input/iki_wasm.wasm /artifacts
 # context in both platform builds. Plain Docker builds use the stages above.
 FROM scratch AS server-wasm-artifacts
 COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm /
+# The file previews' readers (ADR 0226), which only browsers run.
+COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_previews.wasm /
 COPY --from=wasm /src/worker/dna-annotation.wasm /src/worker/oligo-measurement.wasm /src/worker/rust-standard-library.html /
 COPY --from=wasm /src/plugins/plasmid/data/plasmid-tools.wasm /src/plugins/dna/data/oligo-checks.wasm /
 COPY --from=server-aot /artifacts/ /
 
 FROM ${PYTHON_IMAGE} AS verified-wasm
-COPY --from=server-wasm-artifacts /iki_wasm.wasm /dna-annotation.wasm /oligo-measurement.wasm /plasmid-tools.wasm /oligo-checks.wasm /rust-standard-library.html /artifacts/
+COPY --from=server-wasm-artifacts /iki_wasm.wasm /iki_previews.wasm /dna-annotation.wasm /oligo-measurement.wasm /plasmid-tools.wasm /oligo-checks.wasm /rust-standard-library.html /artifacts/
 COPY --from=server-wasm-artifacts /amd64 /artifacts/amd64
 COPY --from=server-wasm-artifacts /arm64 /artifacts/arm64
 COPY scripts/verify-server-wasm.sh scripts/verify-server-aot.py /src/scripts/
 COPY server/iki_wasm.wasm.sha256 server/iki_wasm.amd64.cwasm.sha256 server/iki_wasm.arm64.cwasm.sha256 /src/server/
 COPY plugins/dna/data/oligo-measurement.sha256 plugins/dna/data/oligo-checks.wasm.sha256 /src/plugins/dna/data/
 COPY plugins/plasmid/data/dna-annotation.wasm.sha256 plugins/plasmid/data/plasmid-tools.wasm.sha256 /src/plugins/plasmid/data/
+COPY web/app/iki_previews.wasm.sha256 /src/web/app/
 COPY uv.lock /src/
 RUN /src/scripts/verify-server-wasm.sh /artifacts
 
@@ -106,6 +110,7 @@ COPY web web
 # The header's navigation, which the server's pages render too (iki_server.web.navigation).
 COPY server/src/iki_server/web/navigation.json server/src/iki_server/web/
 COPY --from=verified-wasm /artifacts/iki_wasm.wasm web/packages/science/wasm/
+COPY --from=verified-wasm /artifacts/iki_previews.wasm web/app/wasm/
 # Writes server/src/iki_server/web/static/app and, for the structure viewer's frame, viewers.
 # The parsers are built above, so this builds the rest (`build` would build them too).
 RUN pnpm --filter @ikisci/app build:web \
@@ -149,6 +154,10 @@ COPY --from=verified-wasm /artifacts/iki_wasm.wasm /artifacts/dna-annotation.was
 # because `iki deploy build` exports a plugin with `git archive`, which has each module's
 # tracked digest but not its bytes; the CLI takes them from here and checks them again.
 COPY --from=verified-wasm /artifacts/plasmid-tools.wasm /artifacts/oligo-checks.wasm spec/src/iki_spec/modules/
+# And the iki-writer SDK, which `iki deploy build` gives plugins' writers to build against
+# in the plugin image (ADR 0230).
+COPY worker/crates/iki-writer/Cargo.toml worker/crates/iki-writer/README.md worker/crates/iki-writer/build-writer.sh spec/src/iki_spec/writers/sdk/iki-writer/
+COPY worker/crates/iki-writer/src spec/src/iki_spec/writers/sdk/iki-writer/src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-editable \
  && /opt/iki/venv/bin/python -c "from iki_spec import wasm; assert wasm.WASM.is_file(), wasm.WASM" \

@@ -83,6 +83,20 @@ migrate Job reverses the plugin migrations the older image doesn't have.
 If reversing could lose data entered since, it refuses and changes nothing,
 and you restore the database from its backup instead.
 
+## Choosing plugin sources
+
+Pin each first-party plugin to `plugins/<name>` in Iki's repository. For a
+lab-specific plugin, pin the reviewed commit from your lab's repository
+using the name in its manifest. To adapt a worked recipe, follow the
+[example copy and test instructions](../../examples/plugins/README.md).
+
+The default build checks active and detached entries against Iki's example,
+template, fixture and live-check directories, including on mirrors named under
+`plugins.mirrors`. The config template's staging and production builds use
+this default. A separate CI or live-check deployment can pass `--test-only`
+to build an official example in place. An entry using `local:` also needs
+`--allow-local`.
+
 ## Compute
 
 Plugins' actions say what they need; `compute.yaml` says what this
@@ -144,6 +158,11 @@ and your compute admins to review changes, with `CODEOWNERS` if you use it.
   `containerTier.imagePolicy` in the chart admits only those in the runs'
   namespace, with policy-controller
   ([ADR 0063](../../docs/adr/0063-the-cluster-admits-only-images-iki-signed-or-the-deployment-approved.md)).
+- On the reference GKE deployment, include the reviewed `image.yaml` in
+  OpenTofu's `config_image_files` before deploying. The build signs the GHCR
+  images and pins both digests in that file. For a rolling update, admit
+  both the current and incoming pins until the rollout finishes.
+  [GCP deployment guide](../gcp/production/README.md#3-the-clusters-controllers)
 - Point Argo CD or Flux at each deployment: the Iki chart at the version in
   `iki.yaml`, with `values.yaml` and `image.yaml` as value files.
 - Once Iki is up, a Compute admin makes a backend-tier registration token
@@ -161,6 +180,32 @@ create_registration_token --tier backend --label ...` in a web pod). Store it in
   ([ADR 0155](../../docs/adr/0155-workers-and-runs-reach-only-the-server-storage-and-the-proxy.md)).
   Allow more destinations that actions need in
   `networkPolicy.egress.workers`.
+- Setting `files.bucket` starts the chart's ClamAV Deployment. The web pods
+  and task runners reach it on a cluster-internal service. The scanner starts
+  with the signatures in its pinned image. FreshClam checks hourly and clamd
+  reloads updated signatures. The upstream project publishes the image and
+  documents its memory requirements. [ClamAV in Docker](https://docs.clamav.net/manual/Installing/Docker.html)
+
+  When scans are waiting, check both container logs.
+
+  ```console
+  kubectl logs deploy/iki-clamd -c clamd
+  kubectl logs deploy/iki-clamd -c freshclam
+  ```
+
+  For an air-gapped cluster, mirror the chart's pinned `files.scanner.clamd.image`
+  into the local registry and point `files.scanner.clamd.privateMirror` at
+  the internal FreshClam mirror. Set `networkPolicy.egress.signatureUpdates.to`
+  and `.ports` to that mirror's network peers and port. To use a deployment
+  adapter, install its Python module in the server image, set `files.scanner.adapter`
+  to the callable, and set `files.scanner.clamd.enabled: false`. Declare any
+  network peers the adapter needs in `networkPolicy.egress.externalScanner`.
+
+  `files.scanner.maxBytes` defaults to 100 MiB. For bundled clamd, choose a
+  threshold below 2 GiB. Objects above the threshold stay held unless
+  the deployment sets `files.scanner.oversizePolicy: allow`. The file keeps the
+  recorded size exception in either case. [ADR 0216](../../docs/adr/0216-files-wait-for-a-scan.md)
+
 - Bundles move validated entities, with their history, from staging to
   production ([ADR 0096](../../docs/adr/0096-bundles-carry-entities-between-deployments-with-their-history.md)).
   In each deployment, run `iki-server bundle_key` in a web pod, store what it

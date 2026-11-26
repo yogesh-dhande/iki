@@ -142,7 +142,14 @@ def _explain(error: ValidationError, document: Any) -> Iterator[SchemaIssue]:  #
         if validator == "enum" and isinstance(parent, dict) and isinstance(parent.get("type"), str):
             allowed = [str(v) for v in _values(error)]
             if path[:1] == ("settings",):
-                fields_only = ("immutable", "computed", "registry", "indexed", "unique")
+                fields_only = (
+                    "immutable",
+                    "computed",
+                    "registry",
+                    "indexed",
+                    "searchable",
+                    "unique",
+                )
                 allowed = [a for a in allowed if a not in fields_only]
             yield SchemaIssue(
                 key_path,
@@ -388,7 +395,10 @@ def _bad_value(where: str, value: Any, pattern: str) -> str:  # noqa: ANN401 - m
         elif pattern.startswith("^(0|[1-9]"):
             explanation = "Versions are semantic versions, such as `1.4.0`."
         elif "media_types" in where:
-            explanation = "Media types look like `application/json` or `image/*`."
+            explanation = (
+                "Media types look like `application/json` or `image/*`. "
+                "Fields can also name a format such as `iki/core.csv`."
+            )
         else:
             explanation = "It doesn't have the expected form."
     return f"`{where}` can't be {_show(value)}. {explanation}"

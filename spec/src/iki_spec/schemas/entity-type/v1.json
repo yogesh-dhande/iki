@@ -195,7 +195,7 @@
       }
     },
     "request": {
-      "description": "Its records are requests a project sends to another project's service, such as a core facility (ADR 0132). The asking project owns each request; the service it's sent to may change only the fields named here, and set only the state fields named here, while the rest stay the asking project's. Its subtypes are requests too.",
+      "description": "Its records are requests a project sends to another project's service, such as a core facility (ADR 0132). The asking project owns each request; the service it's sent to may change only the fields named here, and set only the state fields named here, while the rest stay the asking project's. Its subtypes are requests too; a subtype may declare `request` with only `service_fields`, naming more of its own fields the service writes, such as a ranking a lab's core keeps (ADR 0232).",
       "type": "object",
       "properties": {
         "service_fields": {
@@ -502,7 +502,7 @@
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "material": {
-          "description": "An immutable reference naming what the amount is of. A positive stock balance requires a value. A transfer into one of its records takes only the same entity's, and its aliquots are that entity's too.",
+          "description": "An immutable reference naming what the amount is of, or id when this record is the material. A positive stock balance requires an identified material. A transfer into one of its records takes only the same entity's, and its aliquots are that entity's too.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "follows": {
@@ -538,6 +538,24 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "pluginExport": {
+      "type": "object",
+      "required": ["export", "fields"],
+      "additionalProperties": false,
+      "properties": {
+        "export": {
+          "description": "The plugin's writer, qualified (`acme/lab.tecan-worklist`) or, for this plugin's own, its local name.",
+          "type": "string"
+        },
+        "fields": {
+          "description": "The field each of the writer's roles reads, by role: `volume: transfer_volume`. Every required role is mapped, each to a field of its role's type.",
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+          "additionalProperties": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+        }
+      }
+    },
     "gridSize": {
       "oneOf": [
         { "type": "integer", "minimum": 1, "maximum": 48 },
@@ -548,7 +566,17 @@
       "type": "object",
       "required": ["export"],
       "properties": {
-        "export": { "enum": ["sequence", "signed_report"] }
+        "export": {
+          "description": "What it writes: one of Iki's (`sequence`, `protein`, `compound`, `signed_report`), or a plugin's writer (ADR 0230), such as `acme/lab.tecan-worklist`, with `fields`.",
+          "anyOf": [
+            { "enum": ["sequence", "protein", "compound", "signed_report"] },
+            {
+              "type": "string",
+              "maxLength": 125,
+              "pattern": "^([a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.)?[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+            }
+          ]
+        }
       },
       "allOf": [
         {
@@ -556,11 +584,28 @@
           "then": { "$ref": "#/$defs/sequenceExport" }
         },
         {
+          "if": { "required": ["export"], "properties": { "export": { "const": "protein" } } },
+          "then": { "$ref": "#/$defs/proteinExport" }
+        },
+        {
+          "if": { "required": ["export"], "properties": { "export": { "const": "compound" } } },
+          "then": { "$ref": "#/$defs/compoundExport" }
+        },
+        {
           "if": {
             "required": ["export"],
             "properties": { "export": { "const": "signed_report" } }
           },
           "then": { "$ref": "#/$defs/reportExport" }
+        },
+        {
+          "if": {
+            "required": ["export"],
+            "properties": {
+              "export": { "not": { "enum": ["sequence", "protein", "compound", "signed_report"] } }
+            }
+          },
+          "then": { "$ref": "#/$defs/pluginExport" }
         }
       ]
     },
@@ -591,6 +636,44 @@
         },
         "organism": {
           "description": "A reference to iki/core.Organism: the taxon it's from, written as GenBank's source feature.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        }
+      }
+    },
+    "proteinExport": {
+      "type": "object",
+      "required": ["export", "sequence"],
+      "additionalProperties": false,
+      "properties": {
+        "export": {
+          "description": "What it writes. `protein`: a protein's residues, as FASTA, with its ID, name and description in its header (ADR 0229).",
+          "enum": ["protein"]
+        },
+        "sequence": {
+          "description": "A string field with format `protein_sequence`: its residues, N- to C-terminus, in one-letter codes.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "description": {
+          "description": "A string or text field describing it: the FASTA header after its name.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "organism": {
+          "description": "A reference to iki/core.Organism: the taxon it's from, written as NCBI's `[organism=…]` modifier.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        }
+      }
+    },
+    "compoundExport": {
+      "type": "object",
+      "required": ["export", "structure"],
+      "additionalProperties": false,
+      "properties": {
+        "export": {
+          "description": "What it writes. `compound`: a compound's structure as an MDL Molfile, and many as an SDF with their fields as its data (ADR 0229).",
+          "enum": ["compound"]
+        },
+        "structure": {
+          "description": "A text field holding its structure as an MDL Molfile (V2000, or V3000 where V2000 can't hold it), with its coordinates.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         }
       }

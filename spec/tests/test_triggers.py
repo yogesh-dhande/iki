@@ -566,3 +566,89 @@ def test_a_schedules_problem_says_why(tmp_path: Path) -> None:
     assert only(result, "trigger-schedule-invalid") == (
         "It runs 2 minutes apart, and a schedule runs at most every 5 minutes."
     )
+
+
+# --- A request's arrival (ADR 0232) ------------------------------------------------------------
+
+ASK = """\
+---
+apiVersion: iki/v1
+kind: EntityType
+name: Ask
+schema_version: 1
+hrid: { prefix: ASK }
+request:
+  service_fields: [rank]
+fields:
+  title: { type: string }
+  rank: { type: int }
+"""
+
+RANK = """\
+---
+apiVersion: iki/v1
+kind: Action
+name: rank
+inputs:
+  asks: { type: Ask, cardinality: many }
+  ranking: { type: Readout, cardinality: many, from_project: true }
+effects:
+  updates: [{ input: asks, fields: [rank] }]
+runs_on: { tier: backend, environment: tools }
+command: [python, ./run.py]
+"""
+
+
+def received(tmp_path: Path, body: str) -> Result:
+    global ACTIONS, TYPES
+    saved = ACTIONS, TYPES
+    ACTIONS, TYPES = saved[0] + RANK, saved[1] + ASK
+    try:
+        return make(tmp_path, trigger(body))
+    finally:
+        ACTIONS, TYPES = saved
+
+
+def test_a_request_arriving_fires_its_services_trigger(tmp_path: Path) -> None:
+    result = received(tmp_path, "on: request.received\ntype: Ask\nrun: rank\n")
+    assert result.problems == []
+    assert result.plugin is not None
+    found = result.plugin.triggers["on_assay"]
+    # The input from the project takes nothing from the trigger, so `asks` is the one.
+    assert (found.on, found.type, found.input) == ("request.received", "acme/lab.Ask", "asks")
+    assert result.plugin.actions["rank"].inputs["ranking"].from_project
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+
+
+@pytest.mark.parametrize(
+    ("body", "code"),
+    [
+        (
+            "on: request.received\ntype: Assay\nrun: measure\nparams: { mode: fast }\n",
+            "trigger-received-not-a-request",
+        ),
+        (
+            "on: request.received\ntype: Ask\nrun: rank\ninput: ranking\n",
+            "trigger-input-from-project",
+        ),
+        (
+            "on: request.received\ntype: Ask\nrun: rank\n"
+            "related:\n  ranking: { direction: downstream }\n",
+            "trigger-input-from-project",
+        ),
+    ],
+)
+def test_arrival_triggers_are_checked(tmp_path: Path, body: str, code: str) -> None:
+    result = received(tmp_path, body)
+    assert code in codes(result), result.problems
+
+
+def test_an_input_from_the_project_takes_many(tmp_path: Path) -> None:
+    global RANK
+    saved = RANK
+    RANK = saved.replace("cardinality: many, from_project", "from_project")
+    try:
+        result = received(tmp_path, "on: request.received\ntype: Ask\nrun: rank\n")
+    finally:
+        RANK = saved
+    assert "from-project-one" in codes(result), result.problems

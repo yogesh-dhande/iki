@@ -43,10 +43,10 @@ export function newWorker(script: string = readerUrl): Worker {
   return new Worker(trusted as string | URL, { type: "module" });
 }
 
-/** The alphabet a FASTA file's media type says it holds, if it says. */
-export function declaredAlphabet(mediaType: string | undefined): Alphabet | null {
-  if (mediaType === "chemical/seq-aa-fasta") return "protein";
-  if (mediaType === "chemical/seq-na-fasta") return "nucleotide";
+/** The alphabet a FASTA file's format says it holds, if it says. */
+export function declaredAlphabet(formatId: string | undefined): Alphabet | null {
+  if (formatId === "iki/core.protein-fasta") return "protein";
+  if (formatId === "iki/core.nucleotide-fasta") return "nucleotide";
   return null;
 }
 

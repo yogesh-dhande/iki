@@ -6,7 +6,7 @@ deployed with the same Helm chart as production (`deploy/helm/iki`).
 
 ## Requirements
 
-- Docker, with about 6 GB of memory available to it
+- Docker, with about 10 GB of memory available to it
 - `kind`, `kubectl`, `helm` (v4) and `tilt`. On macOS:
   `brew install kind kubernetes-cli helm tilt-dev/tap/tilt`
 - `jq`, `curl` and [`uv`](https://docs.astral.sh/uv/) for the end-to-end checks
@@ -14,12 +14,13 @@ deployed with the same Helm chart as production (`deploy/helm/iki`).
 ## Usage
 
 ```console
-make dev-up      # create the cluster (once) and start Tilt; UI at http://localhost:10350
-make dev-creds   # print the generated passwords and keys
-make dev-sso     # set up sign-in through Keycloak (bob becomes the admin)
-make dev-e2e     # run the end-to-end checks against the running cluster
-make dev-ci      # headless: bring everything up, run the checks, exit (what CI runs)
-make dev-down    # delete the cluster
+make dev-up          # start the product cluster and Tilt UI at http://localhost:10350
+make dev-creds       # print the generated passwords and keys
+make dev-sso         # set up sign-in through Keycloak (bob becomes the admin)
+make dev-e2e         # seed and check the running product cluster
+make dev-product-ci  # headless product cluster, science seed and restore check
+make dev-ci          # headless fixture cluster, science and integration checks, then restore
+make dev-down        # delete the cluster
 ```
 
 Tilt rebuilds the server image and redeploys whenever code under `server/`
@@ -42,6 +43,30 @@ it in the `iki-worker-registration` Secret. Delete that Secret to make a new
 one. [`compute.yaml`](compute.yaml) binds the plugins' environments to the
 worker pod, so their backend actions run there.
 
+## Which cluster to run
+
+For ordinary development, `make dev-up` builds the product plugins in
+[`plugins.lock.yaml`](plugins.lock.yaml). Run `make dev-e2e` to populate
+and verify the four worked cases for a dose-response plate, a verified
+plasmid prep, a lot release certificate and a core facility request.
+Both the product and fixture clusters read the same source datasets.
+
+CI runs `make dev-product-ci` and `make dev-ci` on separate, fresh clusters.
+The latter adds the [fixture plugin pins](fixtures/plugins.lock.yaml),
+[compute bindings](fixtures/compute.yaml) and [Helm values](fixtures/values.yaml).
+The server and worker builds both pass `--test-only` for this overlay.
+It includes the [execution fixture's](fixtures/plugins/worker_execution) container and storage checks, the LIMS import and
+write-back, and the [hosted-model recipe](../../examples/plugins/hosted_models).
+The [FoldCloud fixture](fixtures/fake-foldcloud.yaml) accepts a cancelled job
+and delivers a signed callback for a completed one. The seed checks the resumed
+run's structure, provenance and billed usage. Each run backs up the seeded
+database and checks the restored records and files.
+
+To work on those integrations interactively, run `IKI_DEV_FIXTURES=1 make dev-up`,
+then `IKI_DEV_FIXTURES=1 make dev-e2e`. Use a fresh cluster when returning
+to the product profile. `make dev-down` deletes the current dev cluster and
+its data.
+
 ## What runs
 
 | Component                        | Local URL                            | Notes                                                                                     |
@@ -51,21 +76,30 @@ worker pod, so their backend actions run there.
 | Migrations (`iki-migrate`)       | n/a                                  | Job; web pods turn ready only once it has finished                                        |
 | Backend worker (`iki-worker`)    | n/a                                  | Runs backend actions; reaches the web Service over plain HTTP (dev only)                  |
 | Postgres 18 (`iki-db`)           | n/a                                  | CloudNativePG, TLS verified with its own CA                                               |
+| ClamAV (`iki-clamd`)             | cluster only                         | Scans files using the chart's pinned signatures and FreshClam updates                     |
 | SeaweedFS (S3)                   | <http://localhost:8333>              | Bucket `iki`; signed requests only (ADR 0022)                                             |
 | Keycloak                         | <http://keycloak.iki.localhost:8080> | Realm `iki` includes `alice`, `bob` and `carol`, OIDC client `iki-web` and a SAML client  |
 | Mailpit (email)                  | <http://localhost:8025>              | Catches every email Iki and Keycloak send; nothing leaves the cluster                     |
 | Webhook receiver                 | <http://localhost:8090/requests>     | Lists what Iki sent to `http://webhook-receiver.iki.svc:8080/…` webhooks                  |
-| Fake LIMS                        | <http://localhost:8091/requests>     | `https://fake-lims.iki.svc`, for the example LIMS connector; lists the requests runs made |
-| Fake FoldCloud                   | <http://localhost:8092/requests>     | `https://fake-foldcloud.iki.svc`, for the example models plugin; lists the requests made  |
 | Grafana, Tempo, Loki, Prometheus | <http://localhost:3300>              | `grafana/otel-lgtm`; Iki sends OTLP traces and metrics. Dashboards → Iki → Iki (ADR 0098) |
 
-The example LIMS connector (`plugins/lims_connector_example`) imports from the fake LIMS
-as it would from a lab's: over HTTPS, through the egress proxy, to the host
-its `lims_host` setting gives (`settings/lims_connector_example.yaml`). The LIMS's
-certificate comes from a dev CA that `up.sh` makes; the backend worker
-trusts it, with the public CAs, through `backendWorkers.caSecret`, as a
-deployment would trust its internal CA. Its token is in `iki-run-secrets`
-(`runSecrets`), which the fake LIMS checks.
+The fixture cluster also exposes the requests received by
+[the fake LIMS](http://localhost:8091/requests) and [FoldCloud](http://localhost:8092/requests).
+The [LIMS connector example](../../examples/plugins/lims_connector/README.md)
+imports from the [fake LIMS](fixtures/fake-lims.yaml) over HTTPS through the
+egress proxy. Its [fixture settings](fixtures/settings/lims_connector.yaml)
+name the host. The backend worker trusts the dev CA through
+`backendWorkers.caSecret`. The connector's actions receive their
+`LIMS_TOKEN` from `acme__lims_connector.LIMS_TOKEN` in `iki-run-secrets`.
+The fake LIMS mounts that same key to authenticate each request.
+
+The fixture cluster runs the export sandbox (`iki-sandbox`, ADR 0230) for the
+[liquid handling example](../../examples/plugins/liquid_handling)'s Tecan worklist
+writer. The seed downloads a transfer's worklist through it, and `make dev-e2e`
+checks that the sandbox holds no token or credentials and reaches nothing: not
+DNS, Postgres, the web pods, the Kubernetes API, a metadata service or the
+internet. Only web pods and task runners reach it. The product cluster has no
+plugin writers, so it doesn't run the sandbox.
 
 The dna plugin's `ncbi_email` setting is set (`settings/dna.yaml`), so the
 cluster can fetch from NCBI, through the egress proxy; a deployment that
@@ -118,7 +152,7 @@ The dev cluster is deliberately close to production:
 - The chart's NetworkPolicies are enforced (kindnet), so Iki pods can reach
   only DNS, Postgres, the OTLP collector and (web pods only) Keycloak.
   Workers and run pods reach only the server, object storage and the
-  egress proxy (ADR 0155).
+  egress proxy (ADR 0155). The export sandbox reaches nothing (ADR 0230).
 - Every credential is random, generated per cluster by `up.sh`, and never
   written to the repo.
 - Every image and the CloudNativePG chart are pinned by digest.

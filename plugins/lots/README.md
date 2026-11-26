@@ -1,22 +1,22 @@
 # lots
 
-Iki's lots plugin: lots of any registered entity. A registry entry is the
-molecule, the same for every project; a lot is the material, what was made or
-bought of it at one time, which a label and a certificate of analysis name:
-how much of it is left, what was measured of it, and whether QA released it
-for use ([ADR 0162](../../docs/adr/0162-a-lot-is-a-projects-record-of-an-entrys-material.md)).
+A lot records material made or bought at one time for a project. A registry
+entry identifies the shared design, such as a plasmid or a strain. Each lot
+has its own label, measurements, evidence and QA disposition.
+[ADR 0162](../../docs/adr/0162-a-lot-is-a-projects-record-of-an-entrys-material.md)
 
 Every kind of lot extends one abstract type, so a search of `iki/lots.Lot`
-finds them all, and each has the measurements its kind needs:
+finds them all.
 
-| Type                    | HRID           | Lot of                                    | Amount kept in | What's measured, and worked out                                                                                                                 |
-| ----------------------- | -------------- | ----------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `iki/lots.OligoLot`     | `OLOT-000001`  | `iki/oligo.Oligonucleotide`               | nmol, by µM    | Synthesis scale, purification, counterion, purity; yield in OD260 and nmol; mass by ESI-MS against the one its HELM gives                       |
-| `iki/lots.PlasmidPrep`  | `PREP-000001`  | `iki/plasmid.Plasmid`                     | µg, by ng/µL   | Prep scale and method, kit, host strain; concentration from A260; A260/A280, A260/A230, supercoiled share, endotoxin; how it was verified       |
-| `iki/lots.ProteinLot`   | `PLOT-000001`  | `iki/protein.Protein`, `iki/core.Complex` | mg, by mg/mL   | Concentration from A280 and its sequence's ε280; purity and aggregates by SEC; endotoxin; formulation                                           |
-| `iki/lots.ConjugateLot` | `CJLOT-000001` | `iki/conjugate.Conjugate`                 | mg, by mg/mL   | As a protein lot's, with its own measured ε280; DAR from its drug load distribution (HIC, LC-MS, reduced chains), unconjugated share, free drug |
-| `iki/lots.PolymerLot`   | `PYLOT-000001` | `iki/polymer.Polymer`                     | mg             | Mn, Mw, Mp, dispersity (Mw/Mn), how each was measured and against which standards                                                               |
-| `iki/lots.GenericLot`   | `GLOT-000001`  | any entity                                | mg, by mg/mL   | Concentration and purity                                                                                                                        |
+| Type                     | HRID           | Lot of                                                    | Amount kept in | What's measured, and worked out                                                                                                                 |
+| ------------------------ | -------------- | --------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `iki/lots.OligoLot`      | `OLOT-000001`  | `iki/oligo.Oligonucleotide`                               | nmol, by µM    | Synthesis scale, purification, counterion, purity; yield in OD260 and nmol; mass by ESI-MS against the one its HELM gives                       |
+| `iki/lots.PlasmidPrep`   | `PREP-000001`  | `iki/plasmid.Plasmid`                                     | µg, by ng/µL   | Prep scale and method, kit, host strain; concentration from A260; A260/A280, A260/A230, supercoiled share, endotoxin; how it was verified       |
+| `iki/lots.ProteinLot`    | `PLOT-000001`  | `iki/protein.Protein`, `iki/core.Complex`                 | mg, by mg/mL   | Concentration from A280 and its sequence's ε280; purity and aggregates by SEC; endotoxin; formulation                                           |
+| `iki/lots.ConjugateLot`  | `CJLOT-000001` | `iki/conjugate.Conjugate`                                 | mg, by mg/mL   | As a protein lot's, with its own measured ε280; DAR from its drug load distribution (HIC, LC-MS, reduced chains), unconjugated share, free drug |
+| `iki/lots.PolymerLot`    | `PYLOT-000001` | `iki/polymer.Polymer`                                     | mg             | Mn, Mw, Mp, dispersity (Mw/Mn), how each was measured and against which standards                                                               |
+| `iki/lots.GenericLot`    | `GLOT-000001`  | any entity                                                | mg, by mg/mL   | Concentration and purity                                                                                                                        |
+| `iki/lots.StrainIsolate` | `ISO-000001`   | `iki/strains.BaseStrain`, `iki/strains.TransformedStrain` | µL             | Isolate label, transformation or parent stock, verification evidence                                                                            |
 
 `iki/lots.BiologicLot` is the abstract parent of the protein and conjugate
 lots: their A280, path length, dilution, ε280, concentration and
@@ -35,16 +35,16 @@ its method, SEC purity and aggregates, endotoxin and formulation.
   of 50 MiB each): its supplier's, or the lab's, and the reports they cite.
 - **How much of it is left** (ADR 0139): each kind keeps its amount in the
   unit it's made and used in, so an oligonucleotide lot's is in nmol and a
-  protein lot's in mg. Each has a concentration field too, so it's drawn by
-  volume: 50 µL of a 100 µM oligonucleotide lot is 5 nmol, 2 µg of a
+  protein lot's in mg. Where a concentration is recorded, it can be drawn by
+  volume. For example, 50 µL of a 100 µM oligonucleotide lot is 5 nmol, 2 µg of a
   420 ng/µL plasmid prep is 4.76 µL. Every draw, transfer and split is a
   movement of its ledger. A draw records its purpose (routine use or QA
   sampling), who took the material and why. Routine use is the default.
   Taking a QA sample also requires Lot QA (`iki/lots.qa`) in the project
   that owns the lot. A transfer into a lot pools its concentration (ADR 0157).
-  Its amount is of what it's a lot of
-  (`amount.material`), so a transfer into it takes only another lot of the
-  same molecule, and an aliquot of it is of that molecule too. A released lot
+  A molecular lot's `amount.material` identifies its registered molecule.
+  A strain isolate's material is the isolate record itself. A transfer into
+  either requires its particular material. A released lot
   takes only released material, whatever its concentration.
 - **Its disposition**, which QA sets (the plugin's `iki/lots.qa` role, Lot QA):
 
@@ -68,6 +68,24 @@ its method, SEC purity and aggregates, endotoxin and formulation.
   blocked, including QA samples. The date check applies immediately, even
   before QA changes the disposition.
 
+## Track a strain isolate
+
+Create a **Strain isolate lot** for each clone the project tracks. Choose the
+registered strain and enter the isolate label. A source can be a record of
+the transformation or a parent glycerol stock. Attach
+the verification report for the isolate you examined. Two isolates can
+share the same strain entry and have different evidence.
+
+Enter an initial volume on the isolate only for material still held in bulk.
+When splitting it into vials, open the isolate's ledger and choose **Split into aliquots**. Iki
+debits the bulk volume and creates glycerol stocks with the isolate as their
+contents. For vials that already exist, create one **Glycerol stock** per vial,
+set its isolate and contents to the same isolate, and enter the volume in
+that vial. Inventory can place it in a normal box and trace draws from
+it. For a collection that tracks one lot per strain, point each of the
+strain's stocks at that common lot.
+[Stock custody and lineage](../strains/README.md#track-isolates-and-stocks)
+
 ## Verify a plasmid prep
 
 Open the physical `PlasmidPrep` and its **Verification** tab to find the
@@ -86,11 +104,15 @@ review history, including discrepancies and inconclusive results.
    action launches. The alignment retains its original file and the provenance
    of the comparison that produced it. These evidence references stay pinned
    through review.
-3. Assign a Verification reviewer in the project. At deployment, the
-   `iki/lots` setting `verification_flow` selects the review path for new
-   verifications. The record keeps the flow selected at creation.
+3. Assign a Verification reviewer in the project. A project's Admin chooses
+   the review path for new verifications in **Project settings → Starters →
+   Plasmid prep verification**, and assigns its roles there. A project that
+   hasn't chosen one uses the deployment's `verification_flow` setting. The
+   record keeps the flow in force when it was recorded, whatever the project
+   chooses later
+   ([ADR 0240](../../docs/adr/0240-a-project-chooses-its-release-stability-and-verification-review.md)).
 
-| Setting              | Signed transitions                                                                                                                    |
+| Flow                 | Signed transitions                                                                                                                    |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `research` (default) | From Recorded, the assigned reviewer signs off the outcome.                                                                           |
 | `regulated_qc`       | A Verification analyst signs submission, an independent assigned reviewer signs review, and an independent Lot QA signer releases it. |
@@ -205,8 +227,10 @@ measured.
 
 A plugin adds a kind of lot by extending `iki/lots.Lot`, or
 `iki/lots.BiologicLot` for a protein's, with a reference to what it's a lot
-of, its own amount naming that reference as its `material`, and its own
-measurements; it depends on `iki/lots`. Its
+of, its own amount, and its measurements. Name the registered entity reference
+as `material` if lots of the same entity may be pooled. Use `material: id`
+when each physical lot must keep its own identity in the ledger. The plugin
+depends on `iki/lots`. Its
 lots have the same disposition, certificates and QA, and a search of
 `iki/lots.Lot` finds them. The immutable `ConjugateLot.conjugate` points to
 the registered conjugate. Its lot keeps the distribution measured on the

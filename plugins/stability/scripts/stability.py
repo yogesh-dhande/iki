@@ -54,9 +54,10 @@ def schedule(run: dict[str, Any]) -> dict[str, Any]:
     tubes = {record["id"]: record for record in includes["assignments.tube"]}
     lot = includes["lot"][0]
     material_field = lot.get("material_field")
-    if not material_field or not lot["values"].get(material_field):
+    material = lot["id"] if material_field == "id" else lot["values"].get(material_field)
+    if not material:
         raise ValueError("The selected lot must identify its material before scheduling pulls.")
-    if lot["values"][material_field] != values["material"]:
+    if material != values["material"]:
         raise ValueError("The selected material does not match the lot.")
     flow = run.get("settings", {}).get("review_flow", "research")
     if flow not in FLOWS:

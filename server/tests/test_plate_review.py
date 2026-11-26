@@ -9,13 +9,14 @@ from api_client import Api
 from django.core.exceptions import PermissionDenied
 from first_party_dependencies import PLUGINS, build_order
 from org_world import World, build_world
+from scan_fixtures import clean_blob
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, evidence, ready, signed
 
 from iki_server.entities import registry, requests, services, states
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.entities.values import Invalid
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
 from iki_server.org.models import LabRoleGrant, Project, ProjectMembership, ProjectRole
 from iki_server.org.services import Refused
 from iki_server.runs import catalog
@@ -67,10 +68,7 @@ def _check_inherited_flows(world: World) -> None:
         ("submitted", "reviewed", True),
         ("reviewed", "released", True),
     }
-    assert {s["name"]: s["on_edit"] for s in field["states"] if s["on_edit"]} == {
-        "submitted": "recorded",
-        "reviewed": "recorded",
-    }
+    assert all(state["on_edit"] is None for state in field["states"])
 
 
 def _requests(world: World) -> tuple[Entity, Entity, Entity]:
@@ -142,9 +140,8 @@ def exercise_reviews() -> None:
     assert fit
     application = StarterApplication.objects.create(
         project=world.project,
-        requester_project=asking,
         starter="dose-response",
-        version="1.2.0",
+        version=starters.DOSE_RESPONSE.version,
         flow="research",
         applied_by=world.users["admin"],
     )
@@ -265,7 +262,7 @@ def exercise_reviews() -> None:
 
 def _read_evidence(world: World, sample_id: str) -> str:
     """A synthetic reviewed fit with an unreportable endpoint still needs a retained read."""
-    blob = Blob.objects.create(sha256="a" * 64, size=10, storage_uri="s3://iki/test")
+    blob = clean_blob(sha256="a" * 64, size=10, storage_uri="s3://iki/test")
     reader_file = File.objects.create(
         project=world.project, blob=blob, name="review.csv", media_type="text/csv"
     )

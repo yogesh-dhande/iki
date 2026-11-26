@@ -1,0 +1,96 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: design_oligonucleotide
+label: Design an oligonucleotide from its bases
+description: >-
+  Registers an oligonucleotide from its bases and a pattern of chemistry: its
+  sugar, a gapmer's wings, its backbone, 5-methylcytosines and the groups at its
+  ends, such as a 5-10-5 2′-MOE gapmer with phosphorothioates throughout. Its HELM
+  is written from them, and it's registered as from HELM, with the same
+  properties.
+inputs:
+  monomers:
+    type: iki/oligo.Monomer
+    schema: ">=1"
+    cardinality: many
+    max: 500
+    optional: true
+    label: Your monomers
+    description: >-
+      Monomers its HELM names that aren't in the HELM monomer library the plugin
+      ships, registered by your lab. A library monomer the registry hasn't got yet is
+      registered with it.
+params:
+  bases:
+    type: string
+    label: Bases
+    required: true
+    max_length: 600
+    pattern: "^[ACGTUacgtu]+$"
+    description: Its bases, 5′ to 3′, as A, C, G, T and U.
+  sugar:
+    type: enum
+    values: [DNA, RNA, MOE, LNA, cEt, 2-OMe, 2-F]
+    default: DNA
+    label: Sugar
+    description: >-
+      Every nucleotide's sugar, or a gapmer's gap's: DNA (2′-deoxyribose), RNA
+      (ribose), 2′-O-methoxyethyl (MOE), LNA, (S)-cEt, 2′-O-methyl or 2′-fluoro.
+  wings:
+    type: string
+    label: Gapmer wings
+    max_length: 20
+    pattern: "^[0-9]{1,3}-[0-9]{1,3}-[0-9]{1,3}$"
+    description: >-
+      For a gapmer, its 5′ wing, gap and 3′ wing, in nucleotides, such as 5-10-5:
+      the wings take the wing sugar, the gap the sugar. Left empty, every nucleotide
+      takes the sugar.
+  wing_sugar:
+    type: enum
+    values: [MOE, LNA, cEt, 2-OMe, 2-F, RNA, DNA]
+    default: MOE
+    label: Wing sugar
+  backbone:
+    type: enum
+    values: [phosphorothioate, phosphodiester, Rp-phosphorothioate, Sp-phosphorothioate]
+    default: phosphorothioate
+    label: Backbone
+    description: >-
+      The link between each nucleotide and the next: phosphorothioate with its
+      stereochemistry undefined (a mixture of Rp and Sp, as made), phosphodiester,
+      or a phosphorothioate made Rp or Sp throughout.
+  methyl_cytosine:
+    type: bool
+    default: false
+    label: 5-methylcytosine for every C
+  five_prime:
+    type: enum
+    values: [6-FAM, Cy3, Cy5, biotin-TEG, amino-C6, cholesterol-TEG]
+    label: 5′ group
+    description: >-
+      A group on its 5′ end, through a phosphate: 6-FAM, Cy3, Cy5, biotin-TEG, an
+      amino C6 linker or cholesterol-TEG.
+  three_prime:
+    type: enum
+    values: [BHQ-1, BHQ-2, cholesterol-TEG, GalNAc-L96, C3-spacer]
+    label: 3′ group
+    description: >-
+      A group on its 3′ end, through a phosphate: BHQ-1, BHQ-2, cholesterol-TEG,
+      triantennary GalNAc (as L96) or a C3 spacer.
+  name: { type: string, max_length: 255, label: Name }
+  description: { type: text, max_length: 10000, label: Description }
+  purpose:
+    type: enum
+    values: [antisense, siRNA-strand, primer, probe, aptamer, other]
+    label: Purpose
+effects:
+  creates:
+    - { type: iki/oligo.Monomer, cardinality: many }
+    - { type: iki/oligo.Oligonucleotide }
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+runs_on: { tier: backend, environment: oligo-tools }
+command: [python, ./scripts/design.py]
+deterministic: true
+timeout: 10m

@@ -112,6 +112,7 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
                 label=spec.get("label") or n.replace("_", " ").capitalize(),
                 description=spec.get("description"),
                 include=tuple(spec.get("include") or ()),
+                from_project=bool(spec.get("from_project", False)),
             )
             for n, spec in (body.get("inputs") or {}).items()
         },
@@ -639,6 +640,16 @@ class _Rules:
             )
         if target is not None:
             self.include(put, target, source, path)
+        if put.from_project and put.cardinality != "many":
+            self.add(
+                "from-project-one",
+                "An input `from_project` is given every record of its type the project owns, "
+                "and there can be any number.",
+                source,
+                (*path, "from_project"),
+                key=True,
+                hint="Add `cardinality: many`.",
+            )
         if put.max is not None and put.cardinality != "many":
             self.add(
                 "max-needs-many",
@@ -694,6 +705,8 @@ class _Rules:
                 hint="Declare it under `secrets:`; admins map it to the secret manager.",
             )
         self.s.options(param, source, path)
+        if param.items and param.items.media_types:
+            self.s.file_choices(param.items, source, (*path, "items"))
         if param.type == "quantity":
             self.s.quantity(param, source, path)
         if param.has_default:

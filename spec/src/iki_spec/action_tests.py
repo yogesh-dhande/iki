@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from iki_spec import API_VERSION, naming, schemas
+from iki_spec.formats import FormatRegistry
 from iki_spec.model import Action, EntityType, Field, Input, Plugin, amount_of, included_reference
 from iki_spec.problems import Path as DocPath
 from iki_spec.problems import Problem, Severity
@@ -73,6 +74,7 @@ class ActionTest:
     error: str | None = None
     tolerance: float = TOLERANCE
     upgrade: bool = False
+    after: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
 
 @dataclass
@@ -202,11 +204,19 @@ class _Check:
                     hint=_known("Its params", action.params),
                 )
         for param, f in action.params.items():
-            if param not in params and f.required and not f.has_default:
+            if params.get(param) is None and f.required and not f.has_default:
                 self.add("missing-param", f"Give {action.name}'s {param}.", ("params",))
         self._files_named(params, files, ("params",))
         inputs = {k: list(v) for k, v in (data.get("inputs") or {}).items()}
         self._inputs(action, inputs, files)
+        after = data.get("after", {})
+        for input_name, expected in after.items():
+            if input_name not in inputs or len(expected) != len(inputs[input_name]):
+                self.add(
+                    "upgrade-after",
+                    f"Give one expected value map per {input_name} sample.",
+                    ("after", input_name),
+                )
         settings = dict(data.get("settings") or {})
         for setting in settings:
             if setting not in self.plugin.settings:
@@ -231,6 +241,7 @@ class _Check:
             error=expect.get("error"),
             tolerance=float(expect.get("tolerance", TOLERANCE)),
             upgrade=data.get("upgrade", False),
+            after=after,
         )
 
     def _inputs(
@@ -278,6 +289,13 @@ class _Check:
                         )
                 self._files_named(entity["values"], files, (*at, index, "values"))
                 self._included(given, fields, entity, files, (*at, index, "included"))
+                if "request" in entity and not self._is_request(entity_type):
+                    self.add(
+                        "not-a-request",
+                        f"{type_name} isn't a request type, so it has no asking project or "
+                        "service.",
+                        (*at, index, "request"),
+                    )
         for name, given in action.inputs.items():
             if name not in inputs and not given.optional:
                 self.add("missing-input", f"Give {action.name}'s {name} input.", ("inputs",))
@@ -348,6 +366,14 @@ class _Check:
                     hint=_known("Its files", files),
                 )
 
+    def _is_request(self, entity_type: EntityType) -> bool:
+        current: EntityType | None = entity_type
+        while current is not None:
+            if current.request is not None:
+                return True
+            current = self.types.get(current.extends) if current.extends else None
+        return False
+
     def _is_a(self, entity_type: EntityType, wanted: str) -> bool:
         if wanted == naming.ENTITY:
             return True
@@ -417,7 +443,8 @@ def _known(what: str, names: Mapping[str, Any]) -> str:
 
 
 def _id(kind: int, n: int) -> str:
-    """A fixed UUID: kind 1 for the run, 2 the project, 3 entities, 4 files, 5 people."""
+    """A fixed UUID: kind 1 for the run, 2 the project, 3 entities, 4 files, 5 people, 6
+    other projects."""
     return str(uuid.UUID(f"00000000-0000-7000-8{kind:03d}-{n:012d}"))
 
 
@@ -428,6 +455,8 @@ def run_input(
     directory: Path,
     settings: Mapping[str, Any],
     relative_to: Path,
+    *,
+    formats: FormatRegistry | None = None,
 ) -> dict[str, Any]:
     """The run input the server would give the test's command (``run-input/v1``), without a
     lease. Files are given by path, relative to ``relative_to``, where input.json goes, as
@@ -435,6 +464,8 @@ def run_input(
     every = {**types, **{t.qualified_name: t for t in plugin.types.values()}}
     file_ids = {key: _id(4, n) for n, key in enumerate(sorted(test.files), start=1)}
     action = test.action
+    params = {name: field.default for name, field in action.params.items() if field.has_default}
+    params.update({name: value for name, value in test.params.items() if value is not None})
     inputs: dict[str, list[dict[str, Any]]] = {name: [] for name in action.inputs}
     n = 0
 
@@ -458,6 +489,10 @@ def run_input(
         put = action.inputs[name]
         for entity in entities:
             document = made(entity, entity.get("type") or put.type)
+            if "request" in entity:
+                # A request's two sides, as the server gives them (ADR 0232): by default
+                # sent from another project to the test's, which serves it.
+                document["request"] = _request_sides(entity["request"])
             if put.include:
                 # What its references name: each given one gets an ID, which the reference
                 # holds, as the server gives them (ADR 0105).
@@ -512,19 +547,65 @@ def run_input(
         },
         "command": list(action.command),
         "environment": f"{plugin.name}.{action.environment}",
-        "params": _with_ids(test.params, file_ids),
+        "params": _with_ids(params, file_ids),
         "settings": {**settings, **test.settings},
         "inputs": inputs,
-        "files": {
-            file_ids[key]: {
-                "path": Path(_relative(directory / path, relative_to)).as_posix(),
-            }
-            for key, path in test.files.items()
-        },
+        "files": _fixture_files(test, file_ids, directory, relative_to, formats),
         # Entities for an input that takes one: a batchable action's runs packed into one
         # job, as the server packs them, one run each.
         **({"pack": pack} if pack else {}),
     }
+
+
+#: The test run's project, which a request is sent to unless its fixture says otherwise.
+_TEST_PROJECT = {"slug": "service", "name": "Service"}
+
+
+def _request_sides(given: Mapping[str, Any]) -> dict[str, Any]:
+    def side(value: Mapping[str, Any] | None, n: int) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        return {"id": value.get("id") or _id(6, n), "slug": value["slug"], "name": value["name"]}
+
+    service = given["service"] if "service" in given else {**_TEST_PROJECT, "id": _id(2, 1)}
+    return {"asking_project": side(given["asking_project"], 1), "service": side(service, 2)}
+
+
+def _fixture_files(
+    test: ActionTest,
+    file_ids: Mapping[str, str],
+    directory: Path,
+    relative_to: Path,
+    formats: FormatRegistry | None,
+) -> dict[str, dict[str, str]]:
+    files = {
+        file_ids[key]: {"path": Path(_relative(directory / path, relative_to)).as_posix()}
+        for key, path in test.files.items()
+    }
+    if not formats or not files:
+        return files
+    allowed: dict[str, set[str]] = {}
+    for param, value in test.params.items():
+        field = test.action.params[param]
+        for _, key in _file_names(value, ()):
+            allowed.setdefault(key, set()).update(
+                formats.expand((field.items or field).media_types)
+            )
+    for key, path in test.files.items():
+        with (directory / path).open("rb") as stream:
+            identified = formats.by_signature(stream.read(formats.signature_bytes))
+        if identified is None:
+            # A fixture may deliberately be malformed to test its parser's error path.
+            # File params disambiguate shared extensions such as protein vs nucleotide FASTA.
+            candidates = formats.by_extension(path)
+            accepted = allowed.get(key, set())
+            identified = next(
+                (fmt for fmt in candidates if fmt.canonical in accepted),
+                candidates[0] if candidates else None,
+            )
+        if identified:
+            files[file_ids[key]]["media_type"] = identified.canonical
+    return files
 
 
 def _relative(path: Path, start: Path) -> str:

@@ -4,7 +4,7 @@ kind: EntityType
 name: EquipmentService
 label: Equipment service
 label_plural: Equipment service records
-schema_version: 2
+schema_version: 3
 hrid: { prefix: EQS }
 description: A planned calibration or maintenance appointment and the signed evidence of what happened.
 due: due_on
@@ -106,7 +106,6 @@ fields:
         label: Submitted
         set_by: [iki/lab_roles.engineer]
         locks: true
-        on_edit: scheduled
         signatures:
           [
             {
@@ -125,7 +124,6 @@ fields:
         label: Independently reviewed
         set_by: [reviewer]
         locks: true
-        on_edit: scheduled
         signatures: [{ meaning: review }]
         guards:
           submitted:

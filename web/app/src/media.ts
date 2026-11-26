@@ -1,98 +1,11 @@
-/**
- * Media types, as file fields' rules name them: `image/*` allows any image.
- *
- * Browsers know a file's type only from what the operating system maps its
- * extension to, and most systems don't know scientific formats: a `.pdb` file
- * arrives with no type (or as a Palm database). The table below names the
- * types of common lab formats by extension, as shared-mime-info and IANA do,
- * and wins over the browser's guess for those extensions.
- *
- * Some extensions are used for more than one type: `.fasta` and `.fa` hold
- * protein sequences as often as nucleotide ones (UniProt's downloads are
- * `.fasta`). Such a file is the type its field takes.
- */
+/** The installed file formats (ADR 0213). The order of declarations breaks ties for
+ * shared extensions like .fasta when the field accepts both readings. */
+import { unwrap, type Schemas } from "@ikisci/sdk";
+import { bytesToHex } from "@noble/hashes/utils.js";
+import { queryOptions, useQuery } from "@tanstack/react-query";
+import { iki } from "./api";
 
-const NA_FASTA = "chemical/seq-na-fasta";
-const AA_FASTA = "chemical/seq-aa-fasta";
-
-/** By extension, the types its files may be, the usual one first. */
-const BY_EXTENSION: Readonly<Record<string, readonly string[]>> = {
-  // Structures and molecules
-  pdb: ["chemical/x-pdb"],
-  ent: ["chemical/x-pdb"],
-  cif: ["chemical/x-mmcif"],
-  mmcif: ["chemical/x-mmcif"],
-  mol: ["chemical/x-mdl-molfile"],
-  sdf: ["chemical/x-mdl-sdfile"],
-  mol2: ["chemical/x-mol2"],
-  xyz: ["chemical/x-xyz"],
-  cml: ["chemical/x-cml"],
-  smi: ["chemical/x-daylight-smiles"],
-  // Sequences
-  fasta: [NA_FASTA, AA_FASTA],
-  fa: [NA_FASTA, AA_FASTA],
-  fna: [NA_FASTA],
-  faa: [AA_FASTA],
-  gb: ["chemical/seq-na-genbank"],
-  gbk: ["chemical/seq-na-genbank"],
-  // SnapGene's files, which have no registered type: the x- form, as AB1 traces' is.
-  dna: ["application/x-snapgene"],
-  fastq: ["text/x-fastq"],
-  fq: ["text/x-fastq"],
-  sam: ["text/x-sam"],
-  bam: ["application/x-bam"],
-  ab1: ["application/x-abi"],
-  // Instruments and data
-  fcs: ["application/vnd.isac.fcs"],
-  mzml: ["application/x-mzml"],
-  h5: ["application/x-hdf5"],
-  hdf5: ["application/x-hdf5"],
-  csv: ["text/csv"],
-  tsv: ["text/tab-separated-values"],
-  json: ["application/json"],
-  xlsx: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
-  // Images that systems often miss
-  tif: ["image/tiff"],
-  tiff: ["image/tiff"],
-  czi: ["application/x-czi"],
-};
-
-/** What people call a type, and whether it's "an" one. */
-const NAMES: Readonly<Record<string, { name: string; an?: true }>> = {
-  "chemical/x-pdb": { name: "PDB" },
-  "chemical/x-mmcif": { name: "mmCIF", an: true },
-  "chemical/x-mdl-molfile": { name: "MOL" },
-  "chemical/x-mdl-sdfile": { name: "SDF", an: true },
-  "chemical/x-mol2": { name: "MOL2" },
-  "chemical/x-xyz": { name: "XYZ", an: true },
-  "chemical/x-cml": { name: "CML" },
-  "chemical/x-daylight-smiles": { name: "SMILES" },
-  [NA_FASTA]: { name: "nucleotide FASTA" },
-  [AA_FASTA]: { name: "protein FASTA" },
-  "chemical/seq-na-genbank": { name: "GenBank" },
-  "application/x-snapgene": { name: "SnapGene" },
-  "text/x-fastq": { name: "FASTQ" },
-  "text/x-sam": { name: "SAM", an: true },
-  "application/x-bam": { name: "BAM" },
-  "application/x-abi": { name: "ABI trace", an: true },
-  "application/vnd.isac.fcs": { name: "FCS", an: true },
-  "application/x-mzml": { name: "mzML", an: true },
-  "application/x-hdf5": { name: "HDF5", an: true },
-  "text/csv": { name: "CSV" },
-  "text/tab-separated-values": { name: "TSV" },
-  "application/json": { name: "JSON" },
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
-    name: "Excel",
-    an: true,
-  },
-  "application/pdf": { name: "PDF" },
-  "text/plain": { name: "plain-text" },
-  "image/*": { name: "image", an: true },
-  "image/png": { name: "PNG" },
-  "image/jpeg": { name: "JPEG" },
-  "image/tiff": { name: "TIFF" },
-  "application/x-czi": { name: "Zeiss CZI" },
-};
+export type FileFormat = Schemas["InstalledFormatOut"];
 
 /** "a", "a or b", "a, b or c". */
 function or(items: readonly string[]): string {
@@ -101,76 +14,145 @@ function or(items: readonly string[]): string {
     : (items[0] ?? "");
 }
 
-function extensionOf(name: string): string {
-  const dot = name.lastIndexOf(".");
-  return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
-}
+export class MediaFormats {
+  private readonly byType = new Map<string, FileFormat>();
+  private readonly byExtension = new Map<string, FileFormat[]>();
+  private prefixLength = 0;
 
-/** The extensions the table gives files of `type`, as ".pdb or .ent". */
-function extensionsOf(type: string): string {
-  const found = Object.entries(BY_EXTENSION)
-    .filter(([, types]) => types.includes(type))
-    .map(([extension]) => `.${extension}`);
-  return or(found);
-}
+  constructor(readonly formats: readonly FileFormat[]) {
+    for (const format of formats) {
+      for (const key of [format.id, ...format.media_types]) this.byType.set(key, format);
+      for (const extension of format.extensions) {
+        const matches = this.byExtension.get(extension) ?? [];
+        matches.push(format);
+        this.byExtension.set(extension, matches);
+      }
+      for (const { offset, hex } of format.signatures) {
+        this.prefixLength = Math.max(this.prefixLength, offset + hex.length / 2);
+      }
+    }
+  }
 
-export const media = {
-  allowed(mediaType: string, allowed: readonly string[]): boolean {
-    if (allowed.length === 0) return true;
-    const kind = mediaType.split("/", 1)[0] ?? "";
-    return allowed.some((a) => a === mediaType || a === `${kind}/*`);
-  },
+  get(type: string): FileFormat | undefined {
+    const normalized = type.split(";", 1)[0]?.trim().toLowerCase();
+    return normalized ? this.byType.get(normalized) : undefined;
+  }
 
-  /** "protein FASTA", or the type itself for one it doesn't know. */
-  named(mediaType: string): string {
-    return NAMES[mediaType]?.name ?? mediaType;
-  },
+  named(type: string): string {
+    return this.get(type)?.label ?? (type.endsWith("/*") ? type.slice(0, -2) : type);
+  }
 
-  /** "PDB (.pdb or .ent) or mmCIF (.cif or .mmcif)": what people would call `choices`. */
+  /** One filter value per format, even when an older schema lists every MIME alias. */
+  choices(types: readonly string[]): string[] {
+    const seen = new Set<string>();
+    return types.filter((type) => {
+      const id = this.get(type)?.id ?? type;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }
+
   either(choices: readonly string[]): string {
     return or(
-      choices.map((type) => {
-        const extensions = extensionsOf(type);
-        return extensions ? `${media.named(type)} (${extensions})` : media.named(type);
+      this.choices(choices).map((type) => {
+        const format = this.get(type);
+        return format?.extensions.length
+          ? `${format.label} (${or(format.extensions)})`
+          : this.named(type);
       }),
     );
-  },
+  }
 
-  /**
-   * A file's media type: the table's for extensions it knows, else the browser's. An
-   * extension used for several, such as `.fasta`, is the one of them `allowed` takes.
-   */
-  of(file: { name: string; type: string }, allowed: readonly string[] = []): string {
-    const types = BY_EXTENSION[extensionOf(file.name)];
-    if (!types) return file.type || "application/octet-stream";
-    const usual = types[0] ?? "application/octet-stream";
-    if (allowed.length === 0) return usual;
-    return types.find((t) => media.allowed(t, allowed)) ?? usual;
-  },
-
-  /** Why `file` isn't one of `allowed`, for the person who chose it, or null if it is. */
-  refusal(file: { name: string; type: string }, allowed: readonly string[]): string | null {
-    const type = media.of(file, allowed);
-    if (media.allowed(type, allowed)) return null;
-    const known = NAMES[type];
-    const first = NAMES[allowed[0] ?? ""];
-    return (
-      (known
-        ? `${file.name} is ${known.an ? "an" : "a"} ${known.name} file.`
-        : `${file.name} isn’t a file this takes.`) +
-      ` Choose ${first?.an ? "an" : "a"} ${media.either(allowed)} file.`
+  allowed(type: string, allowed: readonly string[]): boolean {
+    if (!allowed.length) return true;
+    const format = this.get(type);
+    const types = format?.media_types ?? [type];
+    return allowed.some(
+      (choice) =>
+        types.includes(choice) ||
+        choice === format?.id ||
+        (choice.endsWith("/*") && types.some((t) => t.startsWith(choice.slice(0, -1)))),
     );
-  },
+  }
 
-  /**
-   * The file picker's `accept`: the types, and the extensions the table maps to
-   * them, so pickers that don't know a type still offer its files.
-   */
+  /** Longest suffix first. For a shared suffix, honor a compatible browser type,
+   * then use the first variant the field takes. */
+  of(file: { name: string; type: string }, allowed: readonly string[] = []): string {
+    const name = file.name.toLowerCase();
+    const reported = this.get(file.type);
+    for (let dot = name.indexOf(".", 1); dot >= 0; dot = name.indexOf(".", dot + 1)) {
+      const formats = this.byExtension.get(name.slice(dot));
+      if (formats?.length) {
+        if (reported && formats.includes(reported) && this.allowed(reported.canonical, allowed)) {
+          return reported.canonical;
+        }
+        const format = formats.find((f) => this.allowed(f.canonical, allowed)) ?? formats[0];
+        if (format) return format.canonical;
+      }
+    }
+    return reported?.canonical ?? (file.type || "application/octet-stream");
+  }
+
+  /** Read only as much as the installed signatures need. The server checks the stored bytes. */
+  async identify(file: File, allowed: readonly string[]): Promise<string> {
+    const head = bytesToHex(new Uint8Array(await file.slice(0, this.prefixLength).arrayBuffer()));
+    let longest = 0;
+    const matches = new Set<FileFormat>();
+    for (const format of this.formats) {
+      for (const { offset, hex } of format.signatures) {
+        if (hex.length < longest || !head.startsWith(hex.toLowerCase(), offset * 2)) continue;
+        if (hex.length > longest) matches.clear();
+        longest = hex.length;
+        matches.add(format);
+      }
+    }
+    if (matches.size > 1) {
+      const labels = [...matches].map((f) => f.label);
+      throw new FormatError(
+        `${file.name} matches ${new Intl.ListFormat("en").format(labels)}. Check its format.`,
+      );
+    }
+    const match = matches.values().next().value;
+    const type = match?.canonical ?? this.of(file, allowed);
+    const found = this.get(type);
+    if (!match && found?.signatures.length) {
+      throw new FormatError(
+        `${file.name} lacks the byte signature for ${found.label}. Check its format.`,
+      );
+    }
+    if (!this.allowed(type, allowed)) {
+      const reason = found
+        ? `${file.name} is in ${found.label} format.`
+        : `${file.name} isn’t a file this takes.`;
+      throw new FormatError(`${reason} Choose a file matching ${this.either(allowed)}.`);
+    }
+    return type;
+  }
+
+  /** Include the extensions so a picker recognizes scientific formats unknown to the OS. */
   accept(allowed: readonly string[]): string | undefined {
-    if (allowed.length === 0) return undefined;
-    const extensions = Object.entries(BY_EXTENSION)
-      .filter(([, types]) => types.some((type) => media.allowed(type, allowed)))
-      .map(([extension]) => `.${extension}`);
-    return [...allowed, ...extensions].join(",");
-  },
-};
+    if (!allowed.length) return undefined;
+    const types = allowed.flatMap((type) => this.get(type)?.media_types ?? [type]);
+    const extensions = [...this.byExtension]
+      .filter(([, formats]) => formats.some((f) => this.allowed(f.canonical, allowed)))
+      .map(([extension]) => extension);
+    return [...new Set([...types, ...extensions])].join(",");
+  }
+}
+
+export class FormatError extends Error {}
+
+export const formatsQuery = queryOptions({
+  queryKey: ["formats"],
+  queryFn: async ({ signal }) =>
+    new MediaFormats(unwrap(await iki.GET("/api/v1/formats", { signal }))),
+  staleTime: 10 * 60_000,
+});
+
+const empty = new MediaFormats([]);
+
+/** Until the query arrives labels fall back to the file's recorded media type. */
+export function useMedia(enabled = true): MediaFormats {
+  return useQuery({ ...formatsQuery, enabled }).data ?? empty;
+}

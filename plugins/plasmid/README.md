@@ -110,15 +110,12 @@ annotated from.
     or a cut vector with no insert; and the `digest` method cuts one molecule and keeps a
     band, which is linear by definition — a vector linearised by one cut, or a fragment
     cut out of a plasmid. A digest takes no inserts, which a rule keeps.
-  - Its `status` goes Planned → Checked → Built → Verified, each state set by the lab
-    roles that may, with guards: it's Checked only once the plan matches its product,
-    Built only from Checked, and Verified only from Built by someone other than whoever
-    built it or edited its record since it entered Built
-    ([ADR 0128](../../docs/adr/0128-guards-say-when-a-state-may-be-set.md)). Verified
-    locks it. It can be Abandoned from anywhere, with a reason.
-  - Whoever recorded a plan hears when a check finds it doesn't make its product, and
-    when a reviewer verifies the construct
-    ([ADR 0129](../../docs/adr/0129-types-declare-their-notifications.md)).
+  - `check_stated_product` clears the previous comparison when someone edits the product,
+    method, enzymes, backbone or inserts. By default it queues a fresh check. A project
+    Admin can opt out of the automatic run with a reason. The edited plan still shows
+    that it needs re-verification.
+  - Labs that require a second person to verify a matching result can copy the
+    [construct review example](../../examples/plugins/construct_review/README.md).
 
 - **`iki/plasmid.Pcr`** (`PCR-000001`): a PCR — a `template`, a `forward_primer` and a
   `reverse_primer`, and the linear molecule they amplify. Like an assembly it has no
@@ -154,15 +151,6 @@ the **Verification** tab. Each verification links the evidence and outcome
 to that physical prep and to a revision of the project's plasmid record.
 Opening a recorded result shows the reviewer and its sign-off history.
 [Prep verification in the lots plugin](../lots/README.md#verify-a-plasmid-prep)
-
-## Lab roles
-
-A project's Admins give these to its members, beside their project role:
-
-- `cloner` (Cloning scientist): plans a construct, builds it, and records the sequence
-  of what was built.
-- `construct_reviewer` (Construct reviewer): verifies that a construct's sequence is
-  what was planned — someone other than whoever built it.
 
 ## Actions
 
@@ -227,7 +215,7 @@ resources into `spec/src/iki_spec`. Run it with `--check` to verify the tracked 
   to have, which whoever sequenced it states, and `check_assembly` then compares the two.
 - **`check_assembly`**: works out what a plan makes and checks it against the sequence
   the clone turned out to have. A trigger runs it as soon as someone states the product,
-  so whoever sequenced the clone hears at once whether the plan explains it.
+  and records the comparison on the plan.
 - **`virtual_digest`**: cuts each of a plan's parts with its enzymes and lists every
   fragment in the plan's `fragments`, largest first, with where it lies and the enzyme
   and overhang at each end, as SnapGene's and Benchling's virtual digests do. It
@@ -422,11 +410,9 @@ out.
   molecule is its bases, its topology and its strand count, so a linear or
   single-stranded product isn't what a plan closing a duplex circle makes, however its
   bases read.
-- **A result stands for the plan it was found from.** A plan's method, enzymes, backbone
-  or inserts changing checks it again, and a check that can't reach a result clears the
-  old one rather than leaving it to be read as current. Built and Verified each need the
-  plan to match at that moment, not only when it was first checked — Verified locks the
-  record, so what it attests has to hold then.
+- Editing the method, enzymes, backbone, inserts or product clears the previous result.
+  A successful recheck records the comparison for the edited plan. If a recheck cannot
+  reach a result, the comparison stays empty and the run explains why.
 
 Nothing here models partly double-stranded molecules beyond an end's overhang,
 methylation, star activity or a nick left by a ligation: a plan whose ends don't pair

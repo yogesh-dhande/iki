@@ -83,7 +83,7 @@ runbook runs them all.
 - Images' tags can't be moved, and every image is scanned as it's pushed.
 - The cluster runs only images Binary Authorization allows: the
   deployment's own repositories, Iki's and External Secrets' images, the
-  first-party plugins', and any you list (`plugin_images`,
+  chart's pinned ClamAV image, first-party plugins', and any you list (`plugin_images`,
   `extra_images`). GKE's system images are allowed by Google's policy.
   Anything else is refused, and each refusal is in the audit logs.
 - Plugins' code runs on its own nodes. Pools other than `system` are

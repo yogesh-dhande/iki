@@ -9,3 +9,208 @@ title: Core
 description: The types every Iki deployment has.
 license: Apache-2.0
 homepage: https://ikisci.org
+
+# The first media type is canonical. A suffix shared by variants in this plugin
+# lists its default variant first. See ADRs 0213 and 0214.
+formats:
+  pdb:
+    label: PDB
+    media_types: [chemical/x-pdb]
+    extensions: [.pdb, .ent]
+    viewer: structure-pdb
+  mmcif:
+    label: mmCIF
+    media_types: [chemical/x-mmcif]
+    extensions: [.cif, .mmcif]
+    viewer: structure-mmcif
+  mol:
+    label: MOL
+    media_types: [chemical/x-mdl-molfile]
+    extensions: [.mol]
+  sdf:
+    label: SDF
+    media_types: [chemical/x-mdl-sdfile]
+    extensions: [.sdf]
+  mol2:
+    label: MOL2
+    media_types: [application/vnd.sybyl.mol2, chemical/x-mol2]
+    extensions: [.mol2]
+  xyz:
+    label: XYZ
+    media_types: [chemical/x-xyz]
+    extensions: [.xyz]
+  cml:
+    label: CML
+    media_types: [chemical/x-cml]
+    extensions: [.cml]
+  smiles:
+    label: SMILES
+    media_types: [chemical/x-daylight-smiles]
+    extensions: [.smi]
+
+  nucleotide-fasta:
+    label: nucleotide FASTA
+    media_types: [chemical/seq-na-fasta]
+    extensions: [.fasta, .fa, .fna]
+    viewer: alignment
+  protein-fasta:
+    label: protein FASTA
+    media_types: [chemical/seq-aa-fasta]
+    extensions: [.fasta, .fa, .faa]
+    viewer: alignment
+  fasta:
+    # A caller can identify FASTA without knowing its alphabet.
+    label: FASTA (unspecified alphabet)
+    media_types: [text/x-fasta]
+    extensions: [.fasta, .fa]
+    viewer: alignment
+  genbank:
+    label: GenBank
+    media_types: [chemical/seq-na-genbank]
+    extensions: [.gb, .gbk]
+  snapgene:
+    label: SnapGene
+    media_types: [application/x-snapgene]
+    extensions: [.dna]
+    # The cookie packet starts with its tag, length and the string "SnapGene".
+    signatures: [{ hex: "090000000e536e617047656e65" }]
+  fastq:
+    label: FASTQ
+    media_types: [text/x-fastq]
+    extensions: [.fastq, .fq]
+  sam:
+    label: SAM
+    media_types: [text/x-sam]
+    extensions: [.sam]
+    reader: sam
+  bam:
+    label: BAM
+    media_types: [application/x-bam]
+    extensions: [.bam]
+    reader: sam
+  abif:
+    label: ABI trace
+    media_types: [application/x-abi]
+    extensions: [.ab1, .abi, .fsa]
+    signatures: [{ hex: "41424946" }]
+    reader: abif
+    viewer: chromatogram-abif
+  vcf:
+    label: VCF
+    media_types: [text/x-vcf]
+    extensions: [.vcf]
+
+  fcs:
+    label: FCS
+    media_types: [application/vnd.isac.fcs]
+    extensions: [.fcs, .lmd]
+    # FCS denotes its version in the first six bytes.
+    signatures:
+      - { hex: "464353312e30" }
+      - { hex: "464353322e30" }
+      - { hex: "464353332e30" }
+      - { hex: "464353332e31" }
+      - { hex: "464353332e32" }
+    reader: fcs
+  mzml:
+    label: mzML
+    media_types: [application/x-mzml]
+    extensions: [.mzml]
+    reader: mzml
+    viewer: spectrum-mzml
+  jcamp-dx:
+    label: JCAMP-DX
+    media_types: [chemical/x-jcamp-dx]
+    extensions: [.jdx, .dx, .jcamp]
+    reader: jcamp-dx
+    viewer: spectrum-jcamp-dx
+  hdf5:
+    label: HDF5
+    media_types: [application/vnd.hdfgroup.hdf5, application/x-hdf5]
+    extensions: [.h5, .hdf5]
+    # An HDF5 user block can put its superblock beyond the recognition prefix.
+  czi:
+    label: Zeiss CZI
+    media_types: [application/x-czi]
+    extensions: [.czi]
+    signatures: [{ hex: "5a495352415746494c45" }]
+    reader: czi
+  tiff:
+    label: TIFF
+    media_types: [image/tiff]
+    extensions: [.tif, .tiff, .ome.tif, .ome.tiff]
+    # Classic TIFF and BigTIFF, in both byte orders.
+    signatures: [{ hex: "49492a00" }, { hex: "4d4d002a" }, { hex: "49492b00" }, { hex: "4d4d002b" }]
+    reader: image
+    viewer: image-tiff
+  jpeg:
+    label: JPEG
+    media_types: [image/jpeg]
+    extensions: [.jpg, .jpeg]
+    signatures: [{ hex: "ffd8ff" }]
+    reader: image
+    viewer: image
+  png:
+    label: PNG
+    media_types: [image/png]
+    extensions: [.png]
+    signatures: [{ hex: "89504e470d0a1a0a" }]
+    viewer: image
+
+  csv:
+    label: CSV
+    media_types: [text/csv]
+    extensions: [.csv]
+    # A plate reader's export header: BMG LABTECH MARS's user and test (ADR 0224).
+    reader: csv
+    viewer: table-csv
+  tsv:
+    label: TSV
+    media_types: [text/tab-separated-values]
+    extensions: [.tsv]
+    viewer: table-tsv
+  json:
+    label: JSON
+    media_types: [application/json]
+    extensions: [.json]
+  xlsx:
+    label: Excel
+    media_types: [application/vnd.openxmlformats-officedocument.spreadsheetml.sheet]
+    extensions: [.xlsx]
+    viewer: table-xlsx
+  xlsm:
+    label: Macro-enabled Excel workbook
+    media_types: [application/vnd.ms-excel.sheet.macroenabled.12]
+    extensions: [.xlsm]
+    viewer: table-xlsx
+  xls:
+    label: Excel 97–2003
+    media_types: [application/vnd.ms-excel]
+    extensions: [.xls]
+  parquet:
+    label: Parquet
+    media_types: [application/vnd.apache.parquet]
+    extensions: [.parquet]
+    # Encrypted-footer Parquet starts with PARE, other Parquet files with PAR1.
+    signatures: [{ hex: "50415245" }, { hex: "50415231" }]
+  pdf:
+    label: PDF
+    media_types: [application/pdf]
+    extensions: [.pdf]
+    viewer: pdf
+  text:
+    label: plain-text
+    media_types: [text/plain]
+    # .fasta and .fa alone cannot assign an alphabet to a file supplied as plain text.
+    extensions: [.txt, .log, .aln, .a3m, .sto, .fasta, .fa]
+    viewer: alignment
+  gzip:
+    label: gzip
+    media_types: [application/gzip, application/x-gzip]
+    extensions: [.gz, .fastq.gz, .fq.gz]
+    # A gzip header also identifies BGZF-wrapped formats such as BAM.
+  zip:
+    label: ZIP
+    media_types: [application/zip]
+    extensions: [.zip]
+    # OOXML spreadsheets share the ZIP header.

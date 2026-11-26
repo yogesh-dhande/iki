@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: ProteomicsResult
 label: Proteomics search result
-schema_version: 1
+schema_version: 2
 hrid: { prefix: PSR }
 description: Search results and quantities imported from versioned reports, with links to their raw data and matched proteins.
 fields:
@@ -45,7 +45,6 @@ fields:
         label: Signed off
         set_by: [reviewer]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: review }]
         guards:
           research:
@@ -55,7 +54,6 @@ fields:
         label: Submitted
         set_by: [analyst]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: authorship }]
         guards:
           qc:
@@ -65,7 +63,6 @@ fields:
         label: Independently reviewed
         set_by: [reviewer]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: review }]
         guards:
           submitted:
@@ -80,7 +77,6 @@ fields:
         label: QA released
         set_by: [qa]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: approval, label: QA release }]
         guards:
           reviewed:
