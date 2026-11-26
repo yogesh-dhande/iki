@@ -428,3 +428,23 @@ def test_saved_input_units_are_checked_for_quantity_lists_and_headerless_units()
         match = mapping.from_saved(saved, [header], {"readings": field})
         assert match.score == 0
         assert header in match.conflicts[0]
+
+
+@pytest.mark.parametrize(
+    ("cell", "separator", "expected"),
+    [
+        ("Ampicillin; Neomycin", ";", ["Ampicillin", "Neomycin"]),
+        # As Iki's CSV download writes an item holding the separator (ADR 0175).
+        ('"Tris-HCl; pH 8.0"; EDTA', ";", ["Tris-HCl; pH 8.0", "EDTA"]),
+        ('"""Aspirin"" (Bayer)"; plain', ";", ['"Aspirin" (Bayer)', "plain"]),
+        # A quote inside an item is part of it.
+        ('a 5" vial; 2 mL', ";", ['a 5" vial', "2 mL"]),
+        ('"KanR|NeoR"|AmpR', "|", ["KanR|NeoR", "AmpR"]),
+        ('say "hi"; there', ";", ['say "hi"', "there"]),
+        ('a"b"c', '"', ["a", "b", "c"]),
+    ],
+)
+def test_a_lists_items_are_apart_by_its_separator_and_quoted_ones_kept_whole(
+    cell: str, separator: str, expected: list[str]
+) -> None:
+    assert cells.items(cell, separator) == expected

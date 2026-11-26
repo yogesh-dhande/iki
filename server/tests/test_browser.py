@@ -2290,6 +2290,91 @@ def test_exporting_a_collection_and_downloading_its_bundle(
     assert {e["hrid"] for e in bundle.lines("entities.ndjson")} == {kinases.hrid, protein.hrid}
 
 
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_reader_exports_the_proteins_picked_as_one_fasta_file(
+    open_as: Any, world: World, color_scheme: str, tmp_path: Path
+) -> None:
+    """A Viewer picks rows to export (ADR 0229), though they run and edit nothing, and the
+    file is the records picked, in the table's order, each at its revision."""
+    from Bio import SeqIO
+
+    from iki_server.audit.models import AuditEvent
+    from iki_server.entities import services as entities
+
+    made: list[Any] = [
+        entities.create(
+            world.users["editor"],
+            "acme/protein.Protein",
+            world.project,
+            {"sequence": sequence, "name": name},
+        ).entity
+        for name, sequence in (("HBA1", "MVLSPADKTNVKAAWGKVGAHAG"), ("HBB", "MVHLTPEEKSAVTALWGKV"))
+    ]
+    page: Page = open_as(
+        "viewer", "/projects/kinase-atlas/entities/?type=acme/protein.Protein", color_scheme
+    )
+    page.get_by_role("checkbox", name=f"Select {made[0].hrid}").check()
+    page.get_by_role("checkbox", name=f"Select {made[1].hrid}").check()
+    page.get_by_text("2 selected", exact=True).wait_for()
+    page.get_by_role("button", name="Export selected").click()
+    dialog = page.get_by_role("dialog", name="Export 2 selected")
+    dialog.get_by_role("radio", name=re.compile("^FASTA")).wait_for()
+    assert dialog.get_by_role("radio", name=re.compile("^FASTA")).is_checked()
+    assert_clean(page)
+    with page.expect_download() as downloading:
+        dialog.get_by_role("button", name="Export").click()
+    saved = tmp_path / downloading.value.suggested_filename
+    downloading.value.save_as(saved)
+    # WebKit saves it with underscores for spaces.
+    assert saved.name.replace("_", " ") == "Kinase Atlas Proteins (2).fasta"
+    with saved.open() as text:
+        shown = [r.id for r in SeqIO.parse(text, "fasta")]  # type: ignore[no-untyped-call]
+    # In the table's order: last changed first, as it opens.
+    newest_first = [e.hrid for e in reversed(made)]
+    assert shown == newest_first
+    dialog.get_by_role("status").get_by_text("2 records", exact=False).wait_for()
+    assert_clean(page)
+    taken = AuditEvent.objects.get(action="entities.exported")
+    assert [r["hrid"] for r in taken.data["records"]] == newest_first
+    assert taken.data["writer"]["builtin"] == "protein-fasta"
+    dialog.get_by_role("button", name="Done").click()
+    page.get_by_role("button", name="Export selected").wait_for()
+    assert page.get_by_role("dialog").count() == 0
+
+
+def test_a_whole_table_is_written_in_the_background_and_downloaded_when_ready(
+    open_as: Any, world: World, tasks: Server, tmp_path: Path
+) -> None:
+    """Past a hundred records, the file is written by a task: the dialog shows how far it's
+    got, then a link to the file."""
+    from Bio import SeqIO
+
+    from iki_server.entities import services as entities
+
+    residues = "ACDEFGHIKLMNPQRSTVWY"
+    for n in range(101):
+        entities.create(
+            world.users["editor"],
+            "acme/protein.Protein",
+            world.project,
+            {"sequence": residues[n % 20] + residues + residues[: n % 17], "name": f"Variant {n}"},
+        )
+    page: Page = open_as("viewer", "/projects/kinase-atlas/entities/?type=acme/protein.Protein")
+    page.get_by_role("button", name="Export", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Export all proteins the table shows")
+    dialog.get_by_role("button", name="Export", exact=True).click()
+    link = dialog.get_by_role("link", name="Kinase Atlas Proteins (101).fasta")
+    link.wait_for(timeout=60_000)
+    dialog.get_by_role("status").get_by_text("101 records", exact=False).wait_for()
+    assert_clean(page)
+    with page.expect_download() as downloading:
+        link.click()
+    saved = tmp_path / downloading.value.suggested_filename
+    downloading.value.save_as(saved)
+    with saved.open() as text:
+        assert len(list(SeqIO.parse(text, "fasta"))) == 101  # type: ignore[no-untyped-call]
+
+
 def test_importing_a_bundle_and_reading_its_plan(
     open_as: Any, world: World, tasks: Server, tmp_path: Path
 ) -> None:

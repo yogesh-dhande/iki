@@ -26,3 +26,10 @@ server/src/iki_server/web/static/iki/fonts/inter-LICENSE.txt -text
 
 # Engine notices are vendored verbatim, including upstream whitespace.
 web/packages/science/licenses/*.txt -text -whitespace
+
+# File-preview samples, byte for byte as published (server/tests/data/previews/README.md):
+# mzML indexes are byte offsets, and some samples have CRLF line ends.
+server/tests/data/previews/*.ab1 binary
+server/tests/data/previews/*.jdx -text
+server/tests/data/previews/*.dx -text
+server/tests/data/previews/*.mzML -text

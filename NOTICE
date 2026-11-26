@@ -45,6 +45,35 @@ the Creative Commons Attribution 4.0 International License (CC BY 4.0); see
 https://creativecommons.org/licenses/by/4.0/. Iki keeps only the accessions
 and their parents, not the terms' names or definitions.
 
+This product's tests include two ABIF traces from Biopython's test suite,
+server/tests/data/previews/*.ab1, unmodified, and what Biopython's tests
+expect of them, server/tests/data/previews/biopython-abi-expected.json.
+Copyright the Biopython contributors. Distributed under the Biopython License
+Agreement; see server/tests/data/snapgene/BIOPYTHON-LICENSE.rst or
+https://github.com/biopython/biopython/blob/master/LICENSE.rst.
+
+This product's tests include two JCAMP-DX files of Robert J. Lancashire's
+test data, server/tests/data/previews/{dupdec1,pktab1}.jdx, unmodified, which
+say they are in the public domain, as the nzhagen/jcamp repository publishes
+them. Copyright (c) 2013 Nathan Hagen. Licensed under the MIT License; see
+server/tests/data/previews/NZHAGEN-JCAMP-LICENSE.txt.
+
+This product's tests include two JCAMP-DX files from jcampconverter's test
+suite, server/tests/data/previews/jcamp-{difdup,fix}.dx, unmodified.
+Copyright (c) 2014 Luc Patiny. Licensed under the MIT License; see
+server/tests/data/previews/JCAMPCONVERTER-LICENSE.txt.
+
+This product's tests include two JCAMP-DX files from cheminfo's
+jcamp-data-test, server/tests/data/previews/aspirin-1h.fid.dx and
+broad-carbon-bruker.jdx, unmodified. Copyright (c) 2020 cheminfo. Licensed
+under the MIT License; see
+server/tests/data/previews/JCAMP-DATA-TEST-LICENSE.txt.
+
+This product's tests include two mzML files from pyteomics' test suite,
+server/tests/data/previews/tiny.pwiz.1.1.mzML and pyteomics-test.mzML,
+unmodified; the first is ProteoWizard's example file. Licensed under the
+Apache License, Version 2.0; see LICENSE.
+
 This product includes the Inter typeface as @fontsource-variable/inter
 5.3.0 publishes it (its Latin, Latin Extended and Greek subsets),
 server/src/iki_server/web/static/iki/fonts/*.woff2, unmodified.
@@ -52,3 +81,16 @@ Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter).
 Licensed under the SIL Open Font License, Version 1.1; see
 server/src/iki_server/web/static/iki/fonts/inter-LICENSE.txt or
 https://openfontlicense.org.
+
+This product's web app includes pdf.js (pdfjs-dist 6.5.438), which draws PDF
+previews, unmodified. Copyright Mozilla Foundation and the pdf.js
+contributors. Licensed under the Apache License, Version 2.0. With it come:
+the Foxit standard fonts from PDFium (BSD-3-Clause, Copyright 2014 The PDFium
+Authors); Adobe's CMap resources (BSD-3-Clause, Copyright 1990-2009 Adobe
+Systems Incorporated); and the image decoders OpenJPEG (BSD-2-Clause,
+Copyright 2002-2014 Universite catholique de Louvain and others), PDFium's
+JBIG2 decoder (BSD-3-Clause, Copyright 2014 The PDFium Authors) and qcms
+(MIT, Copyright 2009-2024 Mozilla Corporation and 1998-2007 Marti Maria).
+Their licence texts are in the package's standard_fonts, cmaps and wasm
+folders. pdf.js's Liberation fonts (GPL-2.0 with a font exception) aren't
+included.

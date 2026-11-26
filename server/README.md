@@ -168,6 +168,24 @@ file ID both return 404.
 
 For a worked example, see [Find and read a project's files](../docs/guides/find-and-read-project-files.md).
 
+#### Export tools
+
+An agent exports records the person can read as one FASTA, GenBank or SDF
+file (ADR 0229), with the `read` scope.
+
+- `export_entities(format, ...)` takes `entities` (IDs or HRIDs, in the
+  file's order) or a search (`type`, `project`, `q`, `where`, `sort`,
+  `archived`, `collection`), up to 10,000 records, and for SDF the `fields`
+  to carry as data. Each record is written at the revision it has when
+  asked. Up to 100 are written at once; more in the background.
+- `get_entity_export(export_id)` returns its `state`, `done` of `count`,
+  and once ready its file's name, size, SHA-256 and `notes`, what it
+  couldn't hold of each record. A failed export's `refused` says which
+  records couldn't be written, and why.
+- `get_entity_export_download_link(export_id)` returns `url`, `expires_at`
+  and `sha256`, as `get_file_download_link` does. Each link is in the audit
+  log as a download.
+
 ### Database roles
 
 Iki connects to Postgres as two roles (ADR 0025):
@@ -213,7 +231,8 @@ When a source or toolchain update changes the output, review the SHA-256 values
 and update the affected pins. The portable and native guard pins are in
 `server/iki_wasm.wasm.sha256`, `server/iki_wasm.amd64.cwasm.sha256`, and
 `server/iki_wasm.arm64.cwasm.sha256`. The other portable modules are pinned in
-`plugins/plasmid/data/dna-annotation.wasm.sha256`,
+`web/app/iki_previews.wasm.sha256` (the file previews' readers, which only browsers
+run), `plugins/plasmid/data/dna-annotation.wasm.sha256`,
 `plugins/dna/data/oligo-measurement.sha256`,
 `plugins/plasmid/data/plasmid-tools.wasm.sha256` and
 `plugins/dna/data/oligo-checks.wasm.sha256`. To build an image from the verified

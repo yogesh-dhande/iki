@@ -105,7 +105,9 @@ reader, in the same order.
   revision say exactly which record, and as of when, each row shows.
 - **Its values are as the grid shows them, as the reader may read them.** A
   reference is its HRID, or "An entity you can’t read". A person is their name.
-  A state is its label, and a list is its items. Where a spreadsheet needs data
+  A state is its label. A list is its items, apart by `; `, as a
+  spreadsheet import reads them back (ADR 0178): an item that holds a semicolon
+  or starts with a quote is in double quotes, a quote in it doubled. Where a spreadsheet needs data
   rather than display, the file says it as data. Numbers are in full
   (`11.981`, not `11.98`). A quantity's unit is in its column's heading, in the
   unit the grid shows it in: `Molecular weight (kDa)`. Dates and times are ISO

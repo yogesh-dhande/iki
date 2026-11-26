@@ -121,7 +121,6 @@ FIRST_PARTY = frozenset(
         "iki/samples",
         "iki/requests",
         "iki/lab_roles",
-        "iki/lims_connector_example",
     }
 )
 

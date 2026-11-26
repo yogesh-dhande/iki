@@ -3659,6 +3659,45 @@
         "title": "ComponentPersonOut",
         "type": "object"
       },
+      "CompoundExportOut": {
+        "properties": {
+          "data": {
+            "description": "The fields an SDF can carry as data, in order, which it carries unless `fields` names fewer: those of a kind SD holds as text (not files, people or JSON).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "export": {
+            "const": "compound",
+            "description": "What it writes. `compound`: a compound's structure, as a Molfile, and as an SDF with its fields as data (ADR 0229).",
+            "title": "Export",
+            "type": "string"
+          },
+          "formats": {
+            "description": "The files it's written as.",
+            "items": {
+              "$ref": "#/components/schemas/FileFormatOut"
+            },
+            "title": "Formats",
+            "type": "array"
+          },
+          "structure": {
+            "description": "The text field holding its Molfile.",
+            "title": "Structure",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export",
+          "formats",
+          "structure",
+          "data"
+        ],
+        "title": "CompoundExportOut",
+        "type": "object"
+      },
       "Condition": {
         "additionalProperties": false,
         "description": "A condition on a field, or a group of them: exactly one of ``field`` (with ``op`` and\n``value``), ``all``, ``any`` or ``not``.",
@@ -5944,6 +5983,8 @@
             "items": {
               "discriminator": {
                 "mapping": {
+                  "compound": "#/components/schemas/CompoundExportOut",
+                  "protein": "#/components/schemas/ProteinExportOut",
                   "sequence": "#/components/schemas/FileExportOut",
                   "signed_report": "#/components/schemas/SignedReportExportOut"
                 },
@@ -5952,6 +5993,12 @@
               "oneOf": [
                 {
                   "$ref": "#/components/schemas/FileExportOut"
+                },
+                {
+                  "$ref": "#/components/schemas/ProteinExportOut"
+                },
+                {
+                  "$ref": "#/components/schemas/CompoundExportOut"
                 },
                 {
                   "$ref": "#/components/schemas/SignedReportExportOut"
@@ -6961,11 +7008,30 @@
       },
       "ExportParams": {
         "properties": {
+          "fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`).",
+            "title": "Fields"
+          },
           "format": {
             "description": "Which file, as its type's `exports` list them.",
             "enum": [
               "genbank",
               "fasta",
+              "protein-fasta",
+              "sdf",
+              "molfile",
               "signed-report-html",
               "signed-report-json"
             ],
@@ -7003,6 +7069,111 @@
           "format"
         ],
         "title": "ExportParams",
+        "type": "object"
+      },
+      "ExportSearchIn": {
+        "description": "The records a table shows, as ``POST /entities/search`` finds them.",
+        "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived"
+          },
+          "collection": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
+          },
+          "exact_type": {
+            "default": false,
+            "description": "Only the type itself, not its subtypes.",
+            "title": "Exact Type",
+            "type": "boolean"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Entities that belong to this project.",
+            "title": "Project"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run"
+          },
+          "sort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SortIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This type and its subtypes.",
+            "title": "Type"
+          },
+          "where": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Condition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ExportSearchIn",
         "type": "object"
       },
       "FacetParams": {
@@ -7988,6 +8159,9 @@
             "enum": [
               "genbank",
               "fasta",
+              "protein-fasta",
+              "sdf",
+              "molfile",
               "signed-report-html",
               "signed-report-json"
             ],
@@ -7997,6 +8171,15 @@
           "label": {
             "description": "Its name, such as GenBank.",
             "title": "Label",
+            "type": "string"
+          },
+          "many": {
+            "description": "`file`: many records make one file of it, from `POST /entity-exports` (ADR 0229); `one`: it holds one record.",
+            "enum": [
+              "file",
+              "one"
+            ],
+            "title": "Many",
             "type": "string"
           },
           "media_type": {
@@ -8010,7 +8193,8 @@
           "label",
           "extension",
           "media_type",
-          "description"
+          "description",
+          "many"
         ],
         "title": "FileFormatOut",
         "type": "object"
@@ -14738,6 +14922,35 @@
         "title": "Page[ProjectOut]",
         "type": "object"
       },
+      "Page_RecordExportOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RecordExportOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[RecordExportOut]",
+        "type": "object"
+      },
       "Page_RegistrationOut_": {
         "properties": {
           "items": {
@@ -17687,6 +17900,36 @@
         "title": "ProjectTriggerOut",
         "type": "object"
       },
+      "ProteinExportOut": {
+        "properties": {
+          "export": {
+            "const": "protein",
+            "description": "What it writes. `protein`: a protein's residues, as FASTA (ADR 0229).",
+            "title": "Export",
+            "type": "string"
+          },
+          "formats": {
+            "description": "The files it's written as.",
+            "items": {
+              "$ref": "#/components/schemas/FileFormatOut"
+            },
+            "title": "Formats",
+            "type": "array"
+          },
+          "sequence": {
+            "description": "The protein sequence field it's written from.",
+            "title": "Sequence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export",
+          "formats",
+          "sequence"
+        ],
+        "title": "ProteinExportOut",
+        "type": "object"
+      },
       "PutAwayIn": {
         "properties": {
           "line": {
@@ -19003,6 +19246,226 @@
           "can_change"
         ],
         "title": "ReconciliationOut",
+        "type": "object"
+      },
+      "RecordExportIn": {
+        "properties": {
+          "entities": {
+            "description": "The records, by UUID or HRID, in the file's order. Or give `search`.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "title": "Entities",
+            "type": "array"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An SDF's data: the fields it carries, in order. Every one all its records' types can carry, if left out.",
+            "title": "Fields"
+          },
+          "format": {
+            "description": "A format every record's type exports, as its `exports` list them, of which many records make one file (`many: file`).",
+            "enum": [
+              "genbank",
+              "fasta",
+              "protein-fasta",
+              "sdf"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For an HRID naming a registry entry's record in several projects: this project's (ADR 0115).",
+            "title": "Project"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExportSearchIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every record this search finds, in its order, up to 10,000: a table's whole result."
+          }
+        },
+        "required": [
+          "format"
+        ],
+        "title": "RecordExportIn",
+        "type": "object"
+      },
+      "RecordExportOut": {
+        "properties": {
+          "count": {
+            "description": "How many records it holds.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "done": {
+            "description": "How many of them are written so far.",
+            "title": "Done",
+            "type": "integer"
+          },
+          "error": {
+            "description": "Why it failed, if it did.",
+            "title": "Error",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When its file is deleted. Files of records in a project under a legal hold are kept until the hold is released.",
+            "title": "Expires At"
+          },
+          "fields": {
+            "description": "The fields an SDF carries as data.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "notes": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "What the file couldn't hold of each record, by HRID, as the file says it where the format has a place: GenBank's COMMENT, an SDF's IKI_NOTES. FASTA has none, so its notes are only here.",
+            "title": "Notes",
+            "type": "object"
+          },
+          "refused": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Records that couldn't be written, by HRID, and why: the export failed, so no file holds fewer records than were asked for.",
+            "title": "Refused",
+            "type": "object"
+          },
+          "selection": {
+            "description": "What was picked, in words.",
+            "title": "Selection",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "The file's SHA-256, once it's ready.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The file's size in bytes, once it's ready.",
+            "title": "Size"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "writing",
+              "ready",
+              "failed",
+              "expired"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "writer": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Which code wrote it: `builtin` and `version`.",
+            "title": "Writer",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "format",
+          "selection",
+          "count",
+          "done",
+          "file_name",
+          "size",
+          "sha256",
+          "fields",
+          "notes",
+          "refused",
+          "error",
+          "writer",
+          "created_at",
+          "finished_at",
+          "expires_at"
+        ],
+        "title": "RecordExportOut",
         "type": "object"
       },
       "RefOut": {
@@ -25020,6 +25483,638 @@
           "examples"
         ],
         "title": "SheetColumnOut",
+        "type": "object"
+      },
+      "SheetEditCheckIn": {
+        "properties": {
+          "locale": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetEditLocaleIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SheetEditCheckRowIn"
+            },
+            "maxItems": 200,
+            "title": "Rows",
+            "type": "array"
+          },
+          "type": {
+            "description": "The type of the sheet's records, such as acme/protein.Sample.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "rows"
+        ],
+        "title": "SheetEditCheckIn",
+        "type": "object"
+      },
+      "SheetEditCheckOut": {
+        "properties": {
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SheetEditRowOut"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "title": "SheetEditCheckOut",
+        "type": "object"
+      },
+      "SheetEditCheckRowIn": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much a new record starts with, in its type's amount unit or its own: `500`, `0.5 mL`.",
+            "title": "Amount"
+          },
+          "cells": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Each changed cell's text, by its field: null or empty to empty it.",
+            "title": "Cells",
+            "type": "object"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record it is; none for a new one.",
+            "title": "Entity"
+          },
+          "key": {
+            "description": "The row, as the caller names it.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A new record's place in storage: a container by its ID, code or name, and its position, such as `BOX-000002 A1`; just the container for its next free one.",
+            "title": "Location"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record's revision the cells were read from.",
+            "title": "Revision"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "SheetEditCheckRowIn",
+        "type": "object"
+      },
+      "SheetEditLocaleIn": {
+        "description": "How the sheet's text writes numbers and dates, as the person says (ADR 0178). Until\nit's said, a cell that reads two ways (1,234; 03/04/2026) is a problem, never a guess.",
+        "properties": {
+          "dates": {
+            "anyOf": [
+              {
+                "enum": [
+                  "day_first",
+                  "month_first"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "day_first: 31/12/2026; month_first: 12/31/2026. Null until you know.",
+            "title": "Dates"
+          },
+          "decimal": {
+            "anyOf": [
+              {
+                "enum": [
+                  "point",
+                  "comma"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "point: 1,234.5; comma: 1.234,5. Null until you know.",
+            "title": "Decimal"
+          },
+          "serial_dates": {
+            "default": false,
+            "description": "Plain numbers in date columns are Excel serial dates (46023).",
+            "title": "Serial Dates",
+            "type": "boolean"
+          },
+          "time_zone": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The IANA time zone of a date and time that gives none, such as the person's own: Europe/London. Without one, such a cell is a problem.",
+            "title": "Time Zone"
+          }
+        },
+        "title": "SheetEditLocaleIn",
+        "type": "object"
+      },
+      "SheetEditPlaceIn": {
+        "properties": {
+          "container": {
+            "description": "The container it goes in.",
+            "format": "uuid",
+            "title": "Container",
+            "type": "string"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its position, such as A1; none for the next free one.",
+            "title": "Position"
+          }
+        },
+        "required": [
+          "container"
+        ],
+        "title": "SheetEditPlaceIn",
+        "type": "object"
+      },
+      "SheetEditPlaceOut": {
+        "properties": {
+          "container": {
+            "format": "uuid",
+            "title": "Container",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "shown": {
+            "description": "As the sheet says it: `BOX-000002 A1`.",
+            "title": "Shown",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "container",
+          "hrid",
+          "title",
+          "position",
+          "shown"
+        ],
+        "title": "SheetEditPlaceOut",
+        "type": "object"
+      },
+      "SheetEditProblemOut": {
+        "properties": {
+          "at": {
+            "description": "Where: `values/<field>` for a cell, `location`, `amount`, or `` for the row.",
+            "title": "At",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`ambiguous`: the cell reads two ways, by how the sheet writes numbers or dates; `stale`: the record changed since its revision was read.",
+            "enum": [
+              "invalid",
+              "ambiguous",
+              "stale"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "detail",
+          "kind"
+        ],
+        "title": "SheetEditProblemOut",
+        "type": "object"
+      },
+      "SheetEditRowOut": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AmountIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "amount_shown": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Shown"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record it changes; none for a new one.",
+            "title": "Entity"
+          },
+          "held": {
+            "description": "Rules that hold it for review once saved (ADR 0127): saving needs `hold_reason`.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Held",
+            "type": "array"
+          },
+          "hrid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hrid"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What saving it does: `edited`; `unchanged`; `created`, `registered` (a new registry entry) or `added` (a record of an entry already registered); `blank`, a new row with nothing in it; or `failed`, with its problems.",
+            "enum": [
+              "edited",
+              "unchanged",
+              "created",
+              "registered",
+              "added",
+              "blank",
+              "failed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetEditPlaceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/SheetEditProblemOut"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record's revision the check read.",
+            "title": "Revision"
+          },
+          "shown": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Each cell as the record would have it, as the grid and its CSV say it.",
+            "title": "Shown",
+            "type": "object"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Each cell as it reads, as an edit gives it: send these to save.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "entity",
+          "hrid",
+          "revision",
+          "values",
+          "shown",
+          "problems",
+          "held"
+        ],
+        "title": "SheetEditRowOut",
+        "type": "object"
+      },
+      "SheetEditSaveIn": {
+        "properties": {
+          "hold_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why to save rows that break rules holding records for review (ADR 0127).",
+            "title": "Hold Reason"
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetEditLocaleIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the cells were read, for the audit trail."
+          },
+          "reason": {
+            "description": "Why, for each revision and the audit trail.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SheetEditSaveRowIn"
+            },
+            "maxItems": 1000,
+            "title": "Rows",
+            "type": "array"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "reason",
+          "rows"
+        ],
+        "title": "SheetEditSaveIn",
+        "type": "object"
+      },
+      "SheetEditSaveOut": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "edited": {
+            "title": "Edited",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SheetEditSavedRowOut"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows",
+          "edited",
+          "created"
+        ],
+        "title": "SheetEditSaveOut",
+        "type": "object"
+      },
+      "SheetEditSaveRowIn": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AmountIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record it changes; none for a new one.",
+            "title": "Entity"
+          },
+          "key": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetEditPlaceIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The revision of the record that was read and reviewed: required for a record. If it's changed since, nothing is saved.",
+            "title": "Revision"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Each field's value, as the check read it.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "SheetEditSaveRowIn",
+        "type": "object"
+      },
+      "SheetEditSavedRowOut": {
+        "properties": {
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity"
+          },
+          "hrid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hrid"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "edited",
+              "unchanged",
+              "created",
+              "registered",
+              "added",
+              "blank",
+              "failed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "entity",
+          "hrid",
+          "revision"
+        ],
+        "title": "SheetEditSavedRowOut",
         "type": "object"
       },
       "SheetLocaleIn": {
@@ -36108,7 +37203,7 @@
     },
     "/api/v1/entities/{ref}/export": {
       "get": {
-        "description": "The record as one of the files its type exports (ADR 0171), at its latest revision or\nthe one asked for, written from its values then, so a revision is always the same file.\nAnyone who can read it may; each download is in the audit log (``entity.exported``),\nwith the file's SHA-256. What the file can't say, such as a feature across a linear\nmolecule's ends, is listed in it (GenBank's COMMENT), and ``Iki-Left-Out`` says how\nmany such notes there are.",
+        "description": "The record as one of the files its type exports (ADR 0171), at its latest revision or\nthe one asked for, written from its values then, so a revision is always the same file.\nAnyone who can read it may; each download is in the audit log (``entity.exported``),\nwith the file's SHA-256. What the file can't say, such as a feature across a linear\nmolecule's ends, is listed in it where the format has a place (GenBank's COMMENT, an\nSDF's ``IKI_NOTES``), and ``Iki-Left-Out`` says how many such notes there are. Many\nrecords make one file from ``POST /entity-exports`` (ADR 0229).",
         "operationId": "iki_server_api_entities_export_entity",
         "parameters": [
           {
@@ -36130,11 +37225,36 @@
               "enum": [
                 "genbank",
                 "fasta",
+                "protein-fasta",
+                "sdf",
+                "molfile",
                 "signed-report-html",
                 "signed-report-json"
               ],
               "title": "Format",
               "type": "string"
+            }
+          },
+          {
+            "description": "An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`).",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 500,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`).",
+              "title": "Fields"
             }
           },
           {
@@ -36180,8 +37300,11 @@
           "200": {
             "content": {
               "application/json": {},
+              "chemical/seq-aa-fasta": {},
               "chemical/seq-na-fasta": {},
               "chemical/seq-na-genbank": {},
+              "chemical/x-mdl-molfile": {},
+              "chemical/x-mdl-sdfile": {},
               "text/html": {}
             },
             "description": "The file, as an attachment named for the record."
@@ -38045,6 +39168,238 @@
         ]
       }
     },
+    "/api/v1/entity-exports": {
+      "get": {
+        "description": "Newest first: each file of records you asked for, ready to download again until it\nexpires a week after it's written.",
+        "operationId": "iki_server_api_record_exports_list_record_exports",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RecordExportOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Your exports of records",
+        "tags": [
+          "entities"
+        ]
+      },
+      "post": {
+        "description": "Records you can read as one file of a format each of their types exports (ADR 0229):\nthose picked, in order, or every one a search finds, up to 10,000. Each is written at\nthe revision it has now, read in one snapshot, so editing one afterwards doesn't change\nthe file. Up to 100 are written at once (201, ready to download); more in the\nbackground (202): read the export until it's ready. A record the format can't be\nwritten for fails it, naming each such record, so no file holds fewer than asked for.\nAsking and each download are in the audit log.",
+        "operationId": "iki_server_api_record_exports_start_record_export",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordExportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordExportOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordExportOut"
+                }
+              }
+            },
+            "description": "Accepted"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Export records as one file, such as FASTA or SDF",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entity-exports/{export_id}": {
+      "get": {
+        "description": "How far it's got (``done`` of ``count``), and once it's ready, its file.",
+        "operationId": "iki_server_api_record_exports_get_record_export",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Export Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordExportOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "An export of records",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entity-exports/{export_id}/content": {
+      "get": {
+        "description": "Redirects to the file, for a few minutes, while you can still read every record it\nholds and what they refer to. Each download is in the audit log.",
+        "operationId": "iki_server_api_record_exports_download_record_export",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Export Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Download an export of records",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entity-exports/{export_id}/content-url": {
+      "get": {
+        "description": "The signed URL ``/content`` redirects to, for a client that fetches it without its\nIki token, such as an agent. Each one issued is in the audit log, as a download.",
+        "operationId": "iki_server_api_record_exports_record_export_content_url",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Export Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentUrlOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A link to an export of records",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
     "/api/v1/entity-types": {
       "get": {
         "description": "Every type the deployment's plugins define, abstract ones included, by name.",
@@ -38158,6 +39513,43 @@
         "summary": "A type's state fields and possible transitions",
         "tags": [
           "entities"
+        ]
+      }
+    },
+    "/api/v1/entity-types/{name}/import-template.csv": {
+      "get": {
+        "description": "A CSV file with a heading for each field of the type a spreadsheet import can set\n(ADR 0178), in the type's order, a quantity's with its unit: `Concentration (mg/mL)`.\nThe import maps each heading back to its field. No heading starts as a formula would\n(ADR 0175), and the file starts with a byte order mark, so a spreadsheet opens its\nunits' symbols as they are.",
+        "operationId": "iki_server_api_sheets_import_template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "As CSV"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A type's import template",
+        "tags": [
+          "sheets"
         ]
       }
     },
@@ -42448,6 +43840,110 @@
         "summary": "The services a project may send requests to",
         "tags": [
           "requests"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/sheet-edits": {
+      "post": {
+        "description": "Makes the changes reviewed (ADR 0228, 0207): each record's, from the revision read,\nas a revision with the reason; each new record, with its starting amount and place.\nAll of them are made, or none. If a record changed since its revision, nothing is\n(412, ``stale``, its rows in ``rows``); if any row has a problem, nothing is (422,\neach problem at ``#/rows/<n>/values/<field>``, ``…/location``, ``…/amount`` or the row).\nThe audit trail records them as one change, ``records.sheet_saved``.",
+        "operationId": "iki_server_api_sheets_save_sheet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SheetEditSaveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SheetEditSaveOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Save a sheet's changes, all or none",
+        "tags": [
+          "sheets"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/sheet-edits/check": {
+      "post": {
+        "description": "Reads each row's cells as the type's fields read a spreadsheet's (ADR 0178), and\nfinds what saving them would do by making the changes, then undoing them: so a cell\nis held to every rule an edit is. Nothing is saved, and no HRID is spent. Needs Editor\nin the project, and in each record's own.",
+        "operationId": "iki_server_api_sheets_check_sheet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SheetEditCheckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SheetEditCheckOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Check a sheet's changes",
+        "tags": [
+          "sheets"
         ]
       }
     },

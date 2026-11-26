@@ -1348,8 +1348,9 @@ export interface paths {
          *     the one asked for, written from its values then, so a revision is always the same file.
          *     Anyone who can read it may; each download is in the audit log (``entity.exported``),
          *     with the file's SHA-256. What the file can't say, such as a feature across a linear
-         *     molecule's ends, is listed in it (GenBank's COMMENT), and ``Iki-Left-Out`` says how
-         *     many such notes there are.
+         *     molecule's ends, is listed in it where the format has a place (GenBank's COMMENT, an
+         *     SDF's ``IKI_NOTES``), and ``Iki-Left-Out`` says how many such notes there are. Many
+         *     records make one file from ``POST /entity-exports`` (ADR 0229).
          */
         get: operations["iki_server_api_entities_export_entity"];
         put?: never;
@@ -1869,6 +1870,99 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entity-exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your exports of records
+         * @description Newest first: each file of records you asked for, ready to download again until it
+         *     expires a week after it's written.
+         */
+        get: operations["iki_server_api_record_exports_list_record_exports"];
+        put?: never;
+        /**
+         * Export records as one file, such as FASTA or SDF
+         * @description Records you can read as one file of a format each of their types exports (ADR 0229):
+         *     those picked, in order, or every one a search finds, up to 10,000. Each is written at
+         *     the revision it has now, read in one snapshot, so editing one afterwards doesn't change
+         *     the file. Up to 100 are written at once (201, ready to download); more in the
+         *     background (202): read the export until it's ready. A record the format can't be
+         *     written for fails it, naming each such record, so no file holds fewer than asked for.
+         *     Asking and each download are in the audit log.
+         */
+        post: operations["iki_server_api_record_exports_start_record_export"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-exports/{export_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An export of records
+         * @description How far it's got (``done`` of ``count``), and once it's ready, its file.
+         */
+        get: operations["iki_server_api_record_exports_get_record_export"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-exports/{export_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download an export of records
+         * @description Redirects to the file, for a few minutes, while you can still read every record it
+         *     holds and what they refer to. Each download is in the audit log.
+         */
+        get: operations["iki_server_api_record_exports_download_record_export"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-exports/{export_id}/content-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A link to an export of records
+         * @description The signed URL ``/content`` redirects to, for a client that fetches it without its
+         *     Iki token, such as an agent. Each one issued is in the audit log, as a download.
+         */
+        get: operations["iki_server_api_record_exports_record_export_content_url"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entity-types": {
         parameters: {
             query?: never;
@@ -1918,6 +2012,30 @@ export interface paths {
          * @description The declared flow, independent of any record or current assignment (ADR 0198).
          */
         get: operations["iki_server_api_entities_get_type_flow"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-types/{name}/import-template.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A type's import template
+         * @description A CSV file with a heading for each field of the type a spreadsheet import can set
+         *     (ADR 0178), in the type's order, a quantity's with its unit: `Concentration (mg/mL)`.
+         *     The import maps each heading back to its field. No heading starts as a formula would
+         *     (ADR 0175), and the file starts with a byte order mark, so a spreadsheet opens its
+         *     units' symbols as they are.
+         */
+        get: operations["iki_server_api_sheets_import_template"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3138,6 +3256,54 @@ export interface paths {
         get: operations["iki_server_api_requests_list_services"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/sheet-edits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save a sheet's changes, all or none
+         * @description Makes the changes reviewed (ADR 0228, 0207): each record's, from the revision read,
+         *     as a revision with the reason; each new record, with its starting amount and place.
+         *     All of them are made, or none. If a record changed since its revision, nothing is
+         *     (412, ``stale``, its rows in ``rows``); if any row has a problem, nothing is (422,
+         *     each problem at ``#/rows/<n>/values/<field>``, ``…/location``, ``…/amount`` or the row).
+         *     The audit trail records them as one change, ``records.sheet_saved``.
+         */
+        post: operations["iki_server_api_sheets_save_sheet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/sheet-edits/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a sheet's changes
+         * @description Reads each row's cells as the type's fields read a spreadsheet's (ADR 0178), and
+         *     finds what saving them would do by making the changes, then undoing them: so a cell
+         *     is held to every rule an edit is. Nothing is saved, and no HRID is spent. Needs Editor
+         *     in the project, and in each record's own.
+         */
+        post: operations["iki_server_api_sheets_check_sheet"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7314,6 +7480,29 @@ export interface components {
              */
             name: string;
         };
+        /** CompoundExportOut */
+        CompoundExportOut: {
+            /**
+             * Data
+             * @description The fields an SDF can carry as data, in order, which it carries unless `fields` names fewer: those of a kind SD holds as text (not files, people or JSON).
+             */
+            data: string[];
+            /**
+             * @description What it writes. `compound`: a compound's structure, as a Molfile, and as an SDF with its fields as data (ADR 0229). (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            export: "compound";
+            /**
+             * Formats
+             * @description The files it's written as.
+             */
+            formats: components["schemas"]["FileFormatOut"][];
+            /**
+             * Structure
+             * @description The text field holding its Molfile.
+             */
+            structure: string;
+        };
         /**
          * Condition
          * @description A condition on a field, or a group of them: exactly one of ``field`` (with ``op`` and
@@ -8406,7 +8595,7 @@ export interface components {
              * Exports
              * @description The files Iki writes of its records (ADR 0171), from `/entities/{ref}/export`: its own, or its nearest parent's.
              */
-            exports?: (components["schemas"]["FileExportOut"] | components["schemas"]["SignedReportExportOut"])[];
+            exports?: (components["schemas"]["FileExportOut"] | components["schemas"]["ProteinExportOut"] | components["schemas"]["CompoundExportOut"] | components["schemas"]["SignedReportExportOut"])[];
             /** Extends */
             extends: string | null;
             /** Fields */
@@ -8867,11 +9056,16 @@ export interface components {
         /** ExportParams */
         ExportParams: {
             /**
+             * Fields
+             * @description An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`).
+             */
+            fields?: string[] | null;
+            /**
              * Format
              * @description Which file, as its type's `exports` list them.
              * @enum {string}
              */
-            format: "genbank" | "fasta" | "signed-report-html" | "signed-report-json";
+            format: "genbank" | "fasta" | "protein-fasta" | "sdf" | "molfile" | "signed-report-html" | "signed-report-json";
             /**
              * Project
              * @description Whose record of a registry entry, as for reading it (ADR 0115).
@@ -8882,6 +9076,38 @@ export interface components {
              * @description Which revision, as it was then. Its latest if left out.
              */
             revision?: number | null;
+        };
+        /**
+         * ExportSearchIn
+         * @description The records a table shows, as ``POST /entities/search`` finds them.
+         */
+        ExportSearchIn: {
+            /** Archived */
+            archived?: boolean | null;
+            /** Collection */
+            collection?: string | null;
+            /**
+             * Exact Type
+             * @description Only the type itself, not its subtypes.
+             * @default false
+             */
+            exact_type: boolean;
+            /**
+             * Project
+             * @description Entities that belong to this project.
+             */
+            project?: string | null;
+            /** Q */
+            q?: string | null;
+            /** Run */
+            run?: string | null;
+            sort?: components["schemas"]["SortIn"] | null;
+            /**
+             * Type
+             * @description This type and its subtypes.
+             */
+            type?: string | null;
+            where?: components["schemas"]["Condition"] | null;
         };
         /** FacetParams */
         FacetParams: {
@@ -9282,12 +9508,18 @@ export interface components {
              * @description What `/entities/{ref}/export` takes.
              * @enum {string}
              */
-            format: "genbank" | "fasta" | "signed-report-html" | "signed-report-json";
+            format: "genbank" | "fasta" | "protein-fasta" | "sdf" | "molfile" | "signed-report-html" | "signed-report-json";
             /**
              * Label
              * @description Its name, such as GenBank.
              */
             label: string;
+            /**
+             * Many
+             * @description `file`: many records make one file of it, from `POST /entity-exports` (ADR 0229); `one`: it holds one record.
+             * @enum {string}
+             */
+            many: "file" | "one";
             /**
              * Media Type
              * @description Its media type, such as chemical/seq-na-genbank.
@@ -12372,6 +12604,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[RecordExportOut] */
+        Page_RecordExportOut_: {
+            /** Items */
+            items: components["schemas"]["RecordExportOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page_RegistrationOut_ */
         Page_RegistrationOut_: {
             /** Items */
@@ -13588,6 +13830,24 @@ export interface components {
              */
             why_not_enable: string | null;
         };
+        /** ProteinExportOut */
+        ProteinExportOut: {
+            /**
+             * @description What it writes. `protein`: a protein's residues, as FASTA (ADR 0229). (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            export: "protein";
+            /**
+             * Formats
+             * @description The files it's written as.
+             */
+            formats: components["schemas"]["FileFormatOut"][];
+            /**
+             * Sequence
+             * @description The protein sequence field it's written from.
+             */
+            sequence: string;
+        };
         /** PutAwayIn */
         PutAwayIn: {
             /**
@@ -14091,6 +14351,117 @@ export interface components {
              * @enum {string}
              */
             status: "open" | "completed" | "cancelled";
+        };
+        /** RecordExportIn */
+        RecordExportIn: {
+            /**
+             * Entities
+             * @description The records, by UUID or HRID, in the file's order. Or give `search`.
+             */
+            entities?: string[];
+            /**
+             * Fields
+             * @description An SDF's data: the fields it carries, in order. Every one all its records' types can carry, if left out.
+             */
+            fields?: string[] | null;
+            /**
+             * Format
+             * @description A format every record's type exports, as its `exports` list them, of which many records make one file (`many: file`).
+             * @enum {string}
+             */
+            format: "genbank" | "fasta" | "protein-fasta" | "sdf";
+            /**
+             * Project
+             * @description For an HRID naming a registry entry's record in several projects: this project's (ADR 0115).
+             */
+            project?: string | null;
+            /** @description Every record this search finds, in its order, up to 10,000: a table's whole result. */
+            search?: components["schemas"]["ExportSearchIn"] | null;
+        };
+        /** RecordExportOut */
+        RecordExportOut: {
+            /**
+             * Count
+             * @description How many records it holds.
+             */
+            count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Done
+             * @description How many of them are written so far.
+             */
+            done: number;
+            /**
+             * Error
+             * @description Why it failed, if it did.
+             */
+            error: string;
+            /**
+             * Expires At
+             * @description When its file is deleted. Files of records in a project under a legal hold are kept until the hold is released.
+             */
+            expires_at: string | null;
+            /**
+             * Fields
+             * @description The fields an SDF carries as data.
+             */
+            fields: string[];
+            /** File Name */
+            file_name: string;
+            /** Finished At */
+            finished_at: string | null;
+            /** Format */
+            format: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Notes
+             * @description What the file couldn't hold of each record, by HRID, as the file says it where the format has a place: GenBank's COMMENT, an SDF's IKI_NOTES. FASTA has none, so its notes are only here.
+             */
+            notes: {
+                [key: string]: string[];
+            };
+            /**
+             * Refused
+             * @description Records that couldn't be written, by HRID, and why: the export failed, so no file holds fewer records than were asked for.
+             */
+            refused: {
+                [key: string]: string;
+            };
+            /**
+             * Selection
+             * @description What was picked, in words.
+             */
+            selection: string;
+            /**
+             * Sha256
+             * @description The file's SHA-256, once it's ready.
+             */
+            sha256: string;
+            /**
+             * Size
+             * @description The file's size in bytes, once it's ready.
+             */
+            size: number | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "writing" | "ready" | "failed" | "expired";
+            /**
+             * Writer
+             * @description Which code wrote it: `builtin` and `version`.
+             */
+            writer: {
+                [key: string]: string;
+            };
         };
         /** RefOut */
         RefOut: {
@@ -16779,6 +17150,250 @@ export interface components {
             values: {
                 [key: string]: string;
             };
+        };
+        /** SheetEditCheckIn */
+        SheetEditCheckIn: {
+            locale?: components["schemas"]["SheetEditLocaleIn"] | null;
+            /** Rows */
+            rows: components["schemas"]["SheetEditCheckRowIn"][];
+            /**
+             * Type
+             * @description The type of the sheet's records, such as acme/protein.Sample.
+             */
+            type: string;
+        };
+        /** SheetEditCheckOut */
+        SheetEditCheckOut: {
+            /** Rows */
+            rows: components["schemas"]["SheetEditRowOut"][];
+        };
+        /** SheetEditCheckRowIn */
+        SheetEditCheckRowIn: {
+            /**
+             * Amount
+             * @description How much a new record starts with, in its type's amount unit or its own: `500`, `0.5 mL`.
+             */
+            amount?: string | null;
+            /**
+             * Cells
+             * @description Each changed cell's text, by its field: null or empty to empty it.
+             */
+            cells?: {
+                [key: string]: string | null;
+            };
+            /**
+             * Entity
+             * @description The record it is; none for a new one.
+             */
+            entity?: string | null;
+            /**
+             * Key
+             * @description The row, as the caller names it.
+             */
+            key: string;
+            /**
+             * Location
+             * @description A new record's place in storage: a container by its ID, code or name, and its position, such as `BOX-000002 A1`; just the container for its next free one.
+             */
+            location?: string | null;
+            /**
+             * Revision
+             * @description The record's revision the cells were read from.
+             */
+            revision?: number | null;
+        };
+        /**
+         * SheetEditLocaleIn
+         * @description How the sheet's text writes numbers and dates, as the person says (ADR 0178). Until
+         *     it's said, a cell that reads two ways (1,234; 03/04/2026) is a problem, never a guess.
+         */
+        SheetEditLocaleIn: {
+            /**
+             * Dates
+             * @description day_first: 31/12/2026; month_first: 12/31/2026. Null until you know.
+             */
+            dates?: ("day_first" | "month_first") | null;
+            /**
+             * Decimal
+             * @description point: 1,234.5; comma: 1.234,5. Null until you know.
+             */
+            decimal?: ("point" | "comma") | null;
+            /**
+             * Serial Dates
+             * @description Plain numbers in date columns are Excel serial dates (46023).
+             * @default false
+             */
+            serial_dates: boolean;
+            /**
+             * Time Zone
+             * @description The IANA time zone of a date and time that gives none, such as the person's own: Europe/London. Without one, such a cell is a problem.
+             */
+            time_zone?: string | null;
+        };
+        /** SheetEditPlaceIn */
+        SheetEditPlaceIn: {
+            /**
+             * Container
+             * Format: uuid
+             * @description The container it goes in.
+             */
+            container: string;
+            /**
+             * Position
+             * @description Its position, such as A1; none for the next free one.
+             */
+            position?: string | null;
+        };
+        /** SheetEditPlaceOut */
+        SheetEditPlaceOut: {
+            /**
+             * Container
+             * Format: uuid
+             */
+            container: string;
+            /** Hrid */
+            hrid: string;
+            /** Position */
+            position: string | null;
+            /**
+             * Shown
+             * @description As the sheet says it: `BOX-000002 A1`.
+             */
+            shown: string;
+            /** Title */
+            title: string;
+        };
+        /** SheetEditProblemOut */
+        SheetEditProblemOut: {
+            /**
+             * At
+             * @description Where: `values/<field>` for a cell, `location`, `amount`, or `` for the row.
+             */
+            at: string;
+            /** Detail */
+            detail: string;
+            /**
+             * Kind
+             * @description `ambiguous`: the cell reads two ways, by how the sheet writes numbers or dates; `stale`: the record changed since its revision was read.
+             * @enum {string}
+             */
+            kind: "invalid" | "ambiguous" | "stale";
+        };
+        /** SheetEditRowOut */
+        SheetEditRowOut: {
+            amount?: components["schemas"]["AmountIn"] | null;
+            /** Amount Shown */
+            amount_shown?: string | null;
+            /**
+             * Entity
+             * @description The record it changes; none for a new one.
+             */
+            entity: string | null;
+            /**
+             * Held
+             * @description Rules that hold it for review once saved (ADR 0127): saving needs `hold_reason`.
+             */
+            held: string[];
+            /** Hrid */
+            hrid: string | null;
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @description What saving it does: `edited`; `unchanged`; `created`, `registered` (a new registry entry) or `added` (a record of an entry already registered); `blank`, a new row with nothing in it; or `failed`, with its problems.
+             * @enum {string}
+             */
+            kind: "edited" | "unchanged" | "created" | "registered" | "added" | "blank" | "failed";
+            location?: components["schemas"]["SheetEditPlaceOut"] | null;
+            /** Problems */
+            problems: components["schemas"]["SheetEditProblemOut"][];
+            /**
+             * Revision
+             * @description The record's revision the check read.
+             */
+            revision: number | null;
+            /**
+             * Shown
+             * @description Each cell as the record would have it, as the grid and its CSV say it.
+             */
+            shown: {
+                [key: string]: string;
+            };
+            /**
+             * Values
+             * @description Each cell as it reads, as an edit gives it: send these to save.
+             */
+            values: {
+                [key: string]: unknown;
+            };
+        };
+        /** SheetEditSaveIn */
+        SheetEditSaveIn: {
+            /**
+             * Hold Reason
+             * @description Why to save rows that break rules holding records for review (ADR 0127).
+             */
+            hold_reason?: string | null;
+            /** @description How the cells were read, for the audit trail. */
+            locale?: components["schemas"]["SheetEditLocaleIn"] | null;
+            /**
+             * Reason
+             * @description Why, for each revision and the audit trail.
+             */
+            reason: string;
+            /** Rows */
+            rows: components["schemas"]["SheetEditSaveRowIn"][];
+            /** Type */
+            type: string;
+        };
+        /** SheetEditSaveOut */
+        SheetEditSaveOut: {
+            /** Created */
+            created: number;
+            /** Edited */
+            edited: number;
+            /** Rows */
+            rows: components["schemas"]["SheetEditSavedRowOut"][];
+        };
+        /** SheetEditSaveRowIn */
+        SheetEditSaveRowIn: {
+            amount?: components["schemas"]["AmountIn"] | null;
+            /**
+             * Entity
+             * @description The record it changes; none for a new one.
+             */
+            entity?: string | null;
+            /** Key */
+            key: string;
+            location?: components["schemas"]["SheetEditPlaceIn"] | null;
+            /**
+             * Revision
+             * @description The revision of the record that was read and reviewed: required for a record. If it's changed since, nothing is saved.
+             */
+            revision?: number | null;
+            /**
+             * Values
+             * @description Each field's value, as the check read it.
+             */
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        /** SheetEditSavedRowOut */
+        SheetEditSavedRowOut: {
+            /** Entity */
+            entity: string | null;
+            /** Hrid */
+            hrid: string | null;
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "edited" | "unchanged" | "created" | "registered" | "added" | "blank" | "failed";
+            /** Revision */
+            revision: number | null;
         };
         /**
          * SheetLocaleIn
@@ -21829,7 +22444,9 @@ export interface operations {
         parameters: {
             query: {
                 /** @description Which file, as its type's `exports` list them. */
-                format: "genbank" | "fasta" | "signed-report-html" | "signed-report-json";
+                format: "genbank" | "fasta" | "protein-fasta" | "sdf" | "molfile" | "signed-report-html" | "signed-report-json";
+                /** @description An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`). */
+                fields?: string[] | null;
                 /** @description Which revision, as it was then. Its latest if left out. */
                 revision?: number | null;
                 /** @description Whose record of a registry entry, as for reading it (ADR 0115). */
@@ -21850,8 +22467,11 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                    "chemical/seq-aa-fasta": unknown;
                     "chemical/seq-na-fasta": unknown;
                     "chemical/seq-na-genbank": unknown;
+                    "chemical/x-mdl-molfile": unknown;
+                    "chemical/x-mdl-sdfile": unknown;
                     "text/html": unknown;
                 };
             };
@@ -22553,6 +23173,128 @@ export interface operations {
             };
         };
     };
+    iki_server_api_record_exports_list_record_exports: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RecordExportOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_record_exports_start_record_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordExportIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordExportOut"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordExportOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_record_exports_get_record_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordExportOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_record_exports_download_record_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Found */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    iki_server_api_record_exports_record_export_content_url: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentUrlOut"];
+                };
+            };
+        };
+    };
     iki_server_api_entities_list_types: {
         parameters: {
             query?: never;
@@ -22613,6 +23355,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TypeFlowOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_sheets_import_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description As CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
                 };
             };
         };
@@ -24314,6 +25078,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServiceOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_sheets_save_sheet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SheetEditSaveIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SheetEditSaveOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_sheets_check_sheet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SheetEditCheckIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SheetEditCheckOut"];
                 };
             };
         };

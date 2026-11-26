@@ -1,7 +1,7 @@
 # Additional bindings and prices for the fixture plugins on the dev cluster.
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: iki/lims_connector_example.lims-tools
+environment: acme/lims_connector.lims-tools
 templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1

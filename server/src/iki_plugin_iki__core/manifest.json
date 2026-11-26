@@ -4155,7 +4155,7 @@
           }
         ],
         "reader": "abif",
-        "viewer": null,
+        "viewer": "chromatogram-abif",
         "order": 16
       },
       "iki/core.vcf": {
@@ -4219,7 +4219,7 @@
         ],
         "signatures": [],
         "reader": "mzml",
-        "viewer": null,
+        "viewer": "spectrum-mzml",
         "order": 19
       },
       "iki/core.jcamp-dx": {
@@ -4235,7 +4235,7 @@
         ],
         "signatures": [],
         "reader": "jcamp-dx",
-        "viewer": null,
+        "viewer": "spectrum-jcamp-dx",
         "order": 20
       },
       "iki/core.hdf5": {
@@ -4304,7 +4304,7 @@
           }
         ],
         "reader": "image",
-        "viewer": null,
+        "viewer": "image-tiff",
         "order": 23
       },
       "iki/core.jpeg": {
@@ -4324,7 +4324,7 @@
           }
         ],
         "reader": "image",
-        "viewer": null,
+        "viewer": "image",
         "order": 24
       },
       "iki/core.png": {
@@ -4343,7 +4343,7 @@
           }
         ],
         "reader": null,
-        "viewer": null,
+        "viewer": "image",
         "order": 25
       },
       "iki/core.csv": {
@@ -4357,7 +4357,7 @@
         ],
         "signatures": [],
         "reader": "csv",
-        "viewer": null,
+        "viewer": "table-csv",
         "order": 26
       },
       "iki/core.tsv": {
@@ -4371,7 +4371,7 @@
         ],
         "signatures": [],
         "reader": null,
-        "viewer": null,
+        "viewer": "table-tsv",
         "order": 27
       },
       "iki/core.json": {
@@ -4399,7 +4399,7 @@
         ],
         "signatures": [],
         "reader": null,
-        "viewer": null,
+        "viewer": "table-xlsx",
         "order": 29
       },
       "iki/core.xlsm": {
@@ -4413,7 +4413,7 @@
         ],
         "signatures": [],
         "reader": null,
-        "viewer": null,
+        "viewer": "table-xlsx",
         "order": 30
       },
       "iki/core.xls": {
@@ -4464,7 +4464,7 @@
         ],
         "signatures": [],
         "reader": null,
-        "viewer": null,
+        "viewer": "pdf",
         "order": 33
       },
       "iki/core.text": {

@@ -139,8 +139,14 @@ of their input record types. A deployment refuses two plugins that claim the
 same extension or media type.
 
 A format can name a built-in metadata `reader` and a `viewer` that understands
-its contents. For a record tab, [configure the viewer](#viewers) under the
-type's `display.viewers` so it knows which field to show. See the
+its contents. A file whose format names a viewer is previewed on its page, and
+from the records and runs that hold it, without being downloaded: `pdf`,
+`image` (PNG, JPEG), `image-tiff` (TIFF and OME-TIFF, read in tiles),
+`table-csv`, `table-tsv`, `table-xlsx`, `chromatogram-abif` (Sanger traces
+with their calls and qualities), `spectrum-mzml` and `spectrum-jcamp-dx`.
+`structure-pdb`, `structure-mmcif` and `alignment` show a record's file in a
+tab instead: [configure the viewer](#viewers) under the type's
+`display.viewers` so it knows which field to show. See the
 [generated format reference](../docs/site/src/content/reference/file-formats.mdx) for the IDs,
 aliases, readers, viewers and actions that ship with Iki.
 
@@ -944,7 +950,8 @@ as the record in the LIMS. `{value}` is the value, and `{settings.name}` one
 of the plugin's settings, so each deployment can point at its own LIMS. A
 link starts with `https://` or a setting, and Iki shows only links that are
 https once the settings are filled in. The API, SDK and MCP look entities
-up by a unique field's value.
+up by a unique field's value. The [LIMS connector example](../examples/plugins/lims_connector/README.md)
+extends Protein with a field of this kind and uses it to match repeated imports.
 
 ```yaml
 lims_id:

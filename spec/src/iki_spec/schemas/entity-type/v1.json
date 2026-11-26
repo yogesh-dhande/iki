@@ -548,12 +548,20 @@
       "type": "object",
       "required": ["export"],
       "properties": {
-        "export": { "enum": ["sequence", "signed_report"] }
+        "export": { "enum": ["sequence", "protein", "compound", "signed_report"] }
       },
       "allOf": [
         {
           "if": { "required": ["export"], "properties": { "export": { "const": "sequence" } } },
           "then": { "$ref": "#/$defs/sequenceExport" }
+        },
+        {
+          "if": { "required": ["export"], "properties": { "export": { "const": "protein" } } },
+          "then": { "$ref": "#/$defs/proteinExport" }
+        },
+        {
+          "if": { "required": ["export"], "properties": { "export": { "const": "compound" } } },
+          "then": { "$ref": "#/$defs/compoundExport" }
         },
         {
           "if": {
@@ -591,6 +599,44 @@
         },
         "organism": {
           "description": "A reference to iki/core.Organism: the taxon it's from, written as GenBank's source feature.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        }
+      }
+    },
+    "proteinExport": {
+      "type": "object",
+      "required": ["export", "sequence"],
+      "additionalProperties": false,
+      "properties": {
+        "export": {
+          "description": "What it writes. `protein`: a protein's residues, as FASTA, with its ID, name and description in its header (ADR 0229).",
+          "enum": ["protein"]
+        },
+        "sequence": {
+          "description": "A string field with format `protein_sequence`: its residues, N- to C-terminus, in one-letter codes.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "description": {
+          "description": "A string or text field describing it: the FASTA header after its name.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "organism": {
+          "description": "A reference to iki/core.Organism: the taxon it's from, written as NCBI's `[organism=…]` modifier.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        }
+      }
+    },
+    "compoundExport": {
+      "type": "object",
+      "required": ["export", "structure"],
+      "additionalProperties": false,
+      "properties": {
+        "export": {
+          "description": "What it writes. `compound`: a compound's structure as an MDL Molfile, and many as an SDF with their fields as its data (ADR 0229).",
+          "enum": ["compound"]
+        },
+        "structure": {
+          "description": "A text field holding its structure as an MDL Molfile (V2000, or V3000 where V2000 can't hold it), with its coordinates.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         }
       }

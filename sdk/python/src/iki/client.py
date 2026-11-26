@@ -71,6 +71,9 @@ if TYPE_CHECKING:
         SavedMappingOut,
         ServiceOut,
         SettingsOut,
+        SheetEditCheckOut,
+        SheetEditRowOut,
+        SheetEditSaveOut,
         SignatureOut,
         SignaturesOut,
         SignatureVerificationOut,
@@ -458,11 +461,11 @@ class Entities(_Part):
         *,
         project: str | Mapping[str, Any] | None = None,
     ) -> list[EntityOut]:
-        """The entities whose unique `field` is `value`, such as the ID a LIMS gives its
-        record, in each project you can read: at most one of each project's own::
+        """Find the entities whose unique `field` equals `value`, with at most one match
+        per readable project. For example, find a tube by barcode::
 
             iki.entities.lookup(
-                "iki/protein.Protein", "lims_id", "LIMS-0042", project="kinase-atlas"
+                "iki/inventory.Tube", "barcode", "TUBE-0042", project="kinase-atlas"
             )
         """
         client = self._client
@@ -1787,6 +1790,20 @@ class Files(_Part):
 _IMPORT_ENDED = frozenset({"imported", "failed", "cancelled", "discarded"})
 
 
+def _saved_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    """A row to save: as a check returned it, or as given."""
+    out: dict[str, Any] = {"key": str(row["key"]), "values": dict(row.get("values") or {})}
+    if row.get("entity"):
+        out["entity"] = str(row["entity"])
+        out["revision"] = row.get("revision")
+    place = row.get("location")
+    if place:
+        out["location"] = {"container": str(place["container"]), "position": place.get("position")}
+    if row.get("amount"):
+        out["amount"] = dict(row["amount"])
+    return out
+
+
 class Spreadsheets(_Part):
     """Spreadsheets imported into records (ADR 0178): an XLSX workbook or a CSV file,
     its columns mapped to a type's fields, every row checked, then written by one run,
@@ -1799,7 +1816,81 @@ class Spreadsheets(_Part):
     Each step after ``start`` is made from the import as you read it: give the import each
     step returned, or its ``revision``. If it changed since (in another session, say),
     the step raises ``iki.Conflict`` and changes nothing: ``get`` it, then choose again.
+
+    A type's records already in a project are changed many at once, as a sheet's cells
+    (ADR 0228): ``check_edits`` reads each row's cells as an import reads them and says
+    what saving them would do, and ``save_edits`` saves what was checked, with a reason,
+    all of it or none. ``template`` is a type's import template, as CSV.
     """
+
+    #: The most rows the API checks at once: ``check_edits`` sends more in parts.
+    CHECK_ROWS = 200
+
+    def check_edits(
+        self,
+        project: str | Mapping[str, Any],
+        *,
+        type: str,
+        rows: Sequence[Mapping[str, Any]],
+        locale: Mapping[str, Any] | None = None,
+    ) -> builtins.list[SheetEditRowOut]:
+        """What saving ``rows`` would do, row by row, changing nothing. Each row is a
+        record's (``entity``, and the ``revision`` its values were read at) or a new one's,
+        with the ``cells`` that change as text (``{"purity": "98,5"}``), and for a new
+        record its ``location`` (``"BOX-000002 A1"``) and starting ``amount`` (``"500"``).
+        Each returned row says what it would do (``kind``), its ``values`` as read, to
+        save, and its ``problems``, each at its cell. ``locale`` says how the cells write
+        numbers and dates, as for :meth:`import_sheet`."""
+        client = self._client
+        path = _path("/projects/{p}/sheet-edits/check", p=client._project_id(project))
+        out: builtins.list[SheetEditRowOut] = []
+        given = [dict(r) for r in rows]
+        for start in range(0, len(given), self.CHECK_ROWS):
+            body: dict[str, Any] = {"type": type, "rows": given[start : start + self.CHECK_ROWS]}
+            if locale is not None:
+                body["locale"] = dict(locale)
+            out.extend(cast("SheetEditCheckOut", client.request("POST", path, json=body))["rows"])
+        return out
+
+    def save_edits(
+        self,
+        project: str | Mapping[str, Any],
+        *,
+        type: str,
+        rows: Sequence[Mapping[str, Any]],
+        reason: str,
+        hold_reason: str | None = None,
+        locale: Mapping[str, Any] | None = None,
+    ) -> SheetEditSaveOut:
+        """Saves rows as :meth:`check_edits` returned them (or as ``{"entity",
+        "revision", "values"}`` and, for a new record, ``location`` and ``amount``), each
+        change a revision with ``reason``, all of them or none. A record changed since its
+        revision raises ``iki.Conflict``, and any row's problem ``iki.ApiError`` with each
+        problem, and nothing is saved."""
+        client = self._client
+        body: dict[str, Any] = {
+            "type": type,
+            "reason": reason,
+            "rows": [_saved_row(r) for r in rows],
+        }
+        if hold_reason is not None:
+            body["hold_reason"] = hold_reason
+        if locale is not None:
+            body["locale"] = dict(locale)
+        return cast(
+            "SheetEditSaveOut",
+            client.request(
+                "POST", _path("/projects/{p}/sheet-edits", p=client._project_id(project)), json=body
+            ),
+        )
+
+    def template(self, type: str) -> str:
+        """``type``'s import template: a CSV file's text, a heading for each field an
+        import sets, with its unit, for a collaborator or vendor to fill in."""
+        response = self._client._send(
+            "GET", _path("/entity-types/{t}/import-template.csv", t=_Name(type))
+        )
+        return response.content.decode("utf-8-sig")
 
     def import_sheet(
         self,

@@ -24,7 +24,14 @@ from Bio import BiopythonParserWarning, SeqIO
 from Bio.SeqFeature import CompoundLocation
 from Bio.SeqRecord import SeqRecord
 
-from iki_server.entities.sequence_files import Organism, SequenceFile, fasta, genbank
+from iki_server.entities.sequence_files import (
+    Organism,
+    ProteinFile,
+    SequenceFile,
+    fasta,
+    genbank,
+    protein_fasta,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 IMPORTS = ROOT / "plugins" / "dna" / "scripts" / "imports.py"
@@ -467,3 +474,27 @@ def test_a_snapgene_file_exports_as_genbank_with_what_snapgene_says(
             expected["label"] = [name[0], *expected.get("label", [])]
         got = {k: ["; ".join(v)] if k != "label" else v for k, v in mine.qualifiers.items()}
         assert got == expected, theirs
+
+
+def test_a_protein_is_fasta_as_ncbi_writes_one() -> None:
+    """NCBI's protein FASTA: an identifier, then its name and description, its organism in
+    brackets, and 70 residues a line; Biopython reads it back whole."""
+    residues = "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSHGSAQVKGHGKKVADALTNAVAHV" * 2
+    written = protein_fasta(
+        ProteinFile(
+            hrid="PRT-000042",
+            name="HBA1",
+            residues=residues,
+            revision=2,
+            description="Hemoglobin subunit\nalpha",
+            organism="Homo sapiens",
+        )
+    )
+    text = written.content.decode()
+    lines = text.splitlines()
+    assert lines[0] == ">PRT-000042 HBA1 Hemoglobin subunit alpha [Homo sapiens]"
+    assert [len(line) for line in lines[1:]] == [70, 70, 8]
+    assert text.endswith("\n")
+    (read,) = SeqIO.parse(io.StringIO(text), "fasta")  # type: ignore[no-untyped-call]
+    assert (read.id, str(read.seq)) == ("PRT-000042", residues)
+    assert written.left_out == []

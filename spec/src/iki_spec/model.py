@@ -915,7 +915,7 @@ class EntityType:
     viewers: tuple[Viewer, ...] = ()
     #: The files Iki writes of its records, such as GenBank (ADR 0171). Subtypes have their
     #: nearest ancestor's unless they declare their own.
-    exports: tuple[Export | ReportExport, ...] = ()
+    exports: tuple[AnyExport, ...] = ()
     file: str | None = None
     #: The date or datetime field saying when its records are due (ADR 0122): its own or a
     #: parent's. Subtypes have their ancestor's unless they name their own.
@@ -1015,6 +1015,25 @@ class Export:
 
 
 @dataclass(frozen=True)
+class ProteinExport:
+    """A protein's residues as FASTA (``export: protein``, ADR 0229)."""
+
+    export: str  # "protein"
+    sequence: str  # a string field with format protein_sequence
+    description: str = ""  # a string or text field, or ""
+    organism: str = ""  # a reference to iki/core.Organism, or ""
+
+
+@dataclass(frozen=True)
+class CompoundExport:
+    """A compound's structure as a Molfile, and with its fields as an SDF's data
+    (``export: compound``, ADR 0229)."""
+
+    export: str  # "compound"
+    structure: str  # a text field holding an MDL Molfile, V2000 or V3000
+
+
+@dataclass(frozen=True)
 class ReportExport:
     """A JSON report issued by a signed state change."""
 
@@ -1022,6 +1041,10 @@ class ReportExport:
     report: str
     review: str
     issued: tuple[str, ...]
+
+
+#: Any of the files a type's records export as.
+type AnyExport = Export | ProteinExport | CompoundExport | ReportExport
 
 
 @dataclass(frozen=True)
@@ -1730,6 +1753,8 @@ _DATACLASSES = (
     WorkItemSpec,
     EntityType,
     Export,
+    ProteinExport,
+    CompoundExport,
     ReportExport,
     Extension,
     Plugin,
@@ -1821,9 +1846,13 @@ def _viewer(data: dict[str, Any]) -> Viewer:
     return Viewer(**{**data, "tracks": tracks})
 
 
-def _export(data: dict[str, Any]) -> Export | ReportExport:
+def _export(data: dict[str, Any]) -> AnyExport:
     if data["export"] == "signed_report":
         return ReportExport(**{**data, "issued": tuple(data["issued"])})
+    if data["export"] == "protein":
+        return ProteinExport(**data)
+    if data["export"] == "compound":
+        return CompoundExport(**data)
     return Export(**data)
 
 

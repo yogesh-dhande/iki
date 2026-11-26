@@ -131,7 +131,23 @@
           }
         },
         "reader": { "enum": ["abif", "fcs", "mzml", "jcamp-dx", "image", "sam", "czi", "csv"] },
-        "viewer": { "enum": ["structure-pdb", "structure-mmcif", "alignment"] }
+        "viewer": {
+          "description": "The Iki viewer that shows this format's contents: on a file's page and from the records and runs that hold it (ADR 0226), and, for structure and alignment, in a type's display.viewers.",
+          "enum": [
+            "structure-pdb",
+            "structure-mmcif",
+            "alignment",
+            "pdf",
+            "image",
+            "image-tiff",
+            "table-csv",
+            "table-tsv",
+            "table-xlsx",
+            "chromatogram-abif",
+            "spectrum-mzml",
+            "spectrum-jcamp-dx"
+          ]
+        }
       },
       "additionalProperties": false
     },
