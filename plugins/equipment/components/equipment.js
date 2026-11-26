@@ -57,6 +57,7 @@ const LABELS = {
   due: "Due",
   calibrated: "Calibrated",
   failed: "Failed",
+  not_required: "Not required",
 };
 const SIGNED = new Set(["signed_off", "released"]);
 const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone: "UTC" });
@@ -112,6 +113,10 @@ function serviceReadiness(work, kind, now) {
   if (work && !SIGNED.has(work.review)) return marked("Awaiting sign-off", "warning");
   if (work && now < Date.parse(work.valid_until)) {
     return node("span", calibration ? "Valid until " : "Next due ", date(work.valid_until));
+  }
+  // Maintenance whose procedure sets no interval is done when it's signed, not due again.
+  if (work && !calibration && !work.valid_until) {
+    return node("span", "Completed ", date(work.performed_at));
   }
   return marked(calibration ? "Calibration due" : "Maintenance due", "warning");
 }
@@ -229,7 +234,10 @@ class EquipmentService extends EquipmentRecords {
         .filter((values) => Date.parse(values.performed_at) <= now)
         .sort((a, b) => Date.parse(b.performed_at) - Date.parse(a.performed_at));
       const calibration = history.find((values) => values.kind === "calibration");
-      entries.push(["Calibration evidence", serviceReadiness(calibration, "calibration", now)]);
+      // An instrument outside the calibration program isn't due for one.
+      if (calibration || flag !== "not_required") {
+        entries.push(["Calibration evidence", serviceReadiness(calibration, "calibration", now)]);
+      }
       const maintenance = history.find((values) => values.kind === "maintenance");
       if (maintenance) {
         entries.push(["Maintenance evidence", serviceReadiness(maintenance, "maintenance", now)]);

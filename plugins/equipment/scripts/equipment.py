@@ -109,7 +109,9 @@ def trace(run: Record) -> list[Record]:
         for record in signed
         if record["values"]["outcome"] == "in_tolerance"
     )
-    measurements = [(timestamp(use["values"]["measurement_at"]), use) for use in uses]
+    measurements = sorted(
+        ((timestamp(use["values"]["measurement_at"]), use) for use in uses), key=lambda m: m[0]
+    )
     already = {record["values"]["key"] for record in existing}
     impacts = []
     for failure in failures:
@@ -118,6 +120,20 @@ def trace(run: Record) -> list[Record]:
         discovery = timestamp(values["performed_at"])
         next_pass = bisect_right(passes, discovery)
         cleared = passes[next_pass] if next_pass < len(passes) else None
+        # What the investigator reviews: the interval, and what it was checked against.
+        within = [m for m in measurements if m[0] >= start and (cleared is None or m[0] < cleared)]
+        print(
+            f"{failure.get('hrid', failure['id'])}: reviewed measurements from "
+            f"{start.isoformat()} "
+            + (
+                f"to the passing calibration at {cleared.isoformat()}"
+                if cleared is not None
+                else "onward: no passing calibration after it was selected, so the window "
+                "stays open"
+            )
+            + f". {len(within)} of the {len(measurements)} selected uses are in it"
+            + (f", the last at {within[-1][0].isoformat()}." if within else ".")
+        )
         for at, use in measurements:
             case = key(failure["id"], use["id"])
             if at < start or (cleared is not None and at >= cleared) or case in already:
@@ -144,7 +160,8 @@ def trace(run: Record) -> list[Record]:
                 )
     print(
         f"Checked {len(measurements)} uses against {len(failures)} failures. "
-        f"{len(impacts)} new cases."
+        f"{len(impacts)} new cases. Only the selected uses were checked: trace again with "
+        "any other uses of this instrument in these intervals, from this project or others."
     )
     return impacts
 
