@@ -471,7 +471,8 @@ def _plain_delivery_coverage(world: World, asking: Project) -> None:
         world.users[REQUESTER], request, {"tubes": subjects[:1]}, expected_revision=request.revision
     )
     request.refresh_from_db()
-    with pytest.raises(Refused, match="Choose a sample or tube on this request"):
+    # The delivery's own guard refuses it before Iki's release check would.
+    with pytest.raises(Refused, match="must still be on the request"):
         _status(world, last, "admin", "delivered")
     services.update(
         world.users[REQUESTER], request, {"tubes": subjects}, expected_revision=request.revision

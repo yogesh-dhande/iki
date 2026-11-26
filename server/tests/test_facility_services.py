@@ -124,7 +124,9 @@ def _production(world: World, asking: Project) -> None:
     with pytest.raises(Invalid, match="lot number and a positive delivered mass"):
         _make(world, "editor", delivered, world.project, **fields, delivered_mass=0.8)
     lot = {"lot_number": "TRAINING-ADH1-01", "delivered_mass": 0.8}
-    with pytest.raises(Invalid, match="Name the protein the request sent"):
+    # A protein the request didn't send isn't the core's to name; the example's own tests
+    # check the rule for one it can read.
+    with pytest.raises(Invalid, match="refers to no entity you can read"):
         _make(
             world, "editor", delivered, world.project, **{**fields, "protein": str(other.pk)}, **lot
         )
@@ -218,10 +220,10 @@ def _analysis(world: World, asking: Project) -> None:
         "outcome": "fulfilled",
         "material": str(tube.pk),
         "report": report,
-        "result": "pass",
     }
     with pytest.raises(Invalid, match="record an Analytical result for it"):
         _make(world, "editor", REQUESTS + "QCDeliverable", world.project, **fields)
+    fields["result"] = "pass"
     measured = ANALYTICAL + "AnalyticalResult"
     with pytest.raises(Invalid, match="Measure one of the analyses the request asks for"):
         _make(
