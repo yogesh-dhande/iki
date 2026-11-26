@@ -17,7 +17,16 @@ and separate QA signer. Iki retains each case's original flow when the setup cha
 Register the material and a physical lot with its lot number. Create one **Specification
 schedule** for the material. Create a **Specification version** in that schedule with an
 effective date, a controlled source, and one criterion per attribute. Every criterion names
-its method and unit and has an inclusive lower limit, upper limit or both.
+its method and its kind of result (ADR 0244):
+
+- A **numeric** criterion has a reporting unit and an inclusive lower limit, upper limit or
+  both, such as an assay of 99.0–100.5%.
+- A **conforms** criterion states its requirement, such as `Meets the requirements` for an
+  identification test or `White crystalline powder` for appearance. It has no limits or
+  unit. ICH Q6A lists such tests beside quantitative ones.
+
+List two identification tests as two attributes, as monographs do (`Identification A`,
+`Identification B`).
 
 Release Testing QA signs **Approved for publication** on the version. Run **Publish an
 approved specification version** on the schedule and that signed version. The first version
@@ -30,8 +39,11 @@ predecessor. Publication appends versions and retains all earlier ones.
    the testing date. The action selects the most recent approved, published version
    effective on that date. The case retains its lot number and the schedule and version
    revisions the run read.
-2. Record each criterion's value with its declared method and unit. For a manual observation,
-   attach the source laboratory report if available. The plate-assay path uses a signed,
+2. Record each criterion's value with its declared method and unit. For a conforming
+   criterion, say whether it conforms instead, and describe what was seen. Iki records a
+   result that does not conform as out of specification, like a number outside its limits,
+   and opens its investigation. For a manual observation, attach the source laboratory
+   report if available. The plate-assay path uses a signed,
    reportable, in-range IC50 or EC50 result for the same physical lot and pins its revision.
    Record the same analytical procedure ID and revision on the plate and the
    specification criterion. Set the criterion method to the assay's fit version,

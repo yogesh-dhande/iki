@@ -82,6 +82,11 @@ def number(value: object) -> Decimal:
     return amount
 
 
+def kind(criterion: dict[str, Any]) -> str:
+    """A criterion's kind of result: a number against limits, or conforms or not."""
+    return str(criterion.get("kind") or "numeric")
+
+
 def criteria(version: dict[str, Any]) -> dict[str, dict[str, Any]]:
     rows = version["values"].get("criteria") or []
     if not rows:
@@ -89,10 +94,19 @@ def criteria(version: dict[str, Any]) -> dict[str, dict[str, Any]]:
     by_attribute = {}
     for row in rows:
         attribute = row.get("attribute")
-        if not all(str(row.get(field) or "").strip() for field in ("attribute", "method", "unit")):
-            raise ValueError("Every criterion needs an attribute, a method and a unit.")
+        if not all(str(row.get(field) or "").strip() for field in ("attribute", "method")):
+            raise ValueError("Every criterion needs an attribute and a method.")
         if attribute in by_attribute:
             raise ValueError(f"The specification repeats the attribute {attribute}.")
+        if kind(row) == "conforms":
+            if not str(row.get("acceptance") or "").strip():
+                raise ValueError(f"The specification needs the requirement for {attribute}.")
+            if row.get("lower") is not None or row.get("upper") is not None:
+                raise ValueError(f"{attribute} conforms to a requirement: it has no limits.")
+            by_attribute[attribute] = row
+            continue
+        if not str(row.get("unit") or "").strip():
+            raise ValueError(f"The specification needs a reporting unit for {attribute}.")
         lower, upper = (
             number(row[name]) if row.get(name) is not None else None for name in ("lower", "upper")
         )
@@ -298,24 +312,42 @@ def record_test(run: dict[str, Any]) -> dict[str, Any]:
     if not operator:
         raise ValueError("Recording an observation requires an authenticated run requester.")
     params = run["params"]
-    attribute, method, unit = (params[field] for field in ("attribute", "method", "unit"))
+    attribute, method, unit = params["attribute"], params["method"], params.get("unit")
     criterion = criteria(specification).get(attribute)
     if criterion is None:
         raise ValueError("Choose an attribute named by the pinned specification.")
-    if criterion["method"] != method or criterion["unit"] != unit:
+    if criterion["method"] != method or (criterion.get("unit") or None) != (unit or None):
         raise ValueError("The observed unit and method must match the pinned specification.")
     assessor = optional_input(run, "assay")
     original = optional_input(run, "repeat_of")
     investigation = optional_input(run, "investigation")
     repeat(case, attribute, original, investigation)
-    reading, evidence = observation(case, params, assessor, criterion)
-    measured = number(reading)
     lower, upper = criterion.get("lower"), criterion.get("upper")
-    # Stored specification bounds are inclusive. Compare the supplied value directly,
-    # without adding a tolerance, rounding across a boundary or averaging repeats.
-    is_outside = (lower is not None and measured < number(lower)) or (
-        upper is not None and measured > number(upper)
-    )
+    typed: dict[str, Any] = {"kind": kind(criterion)}
+    if typed["kind"] == "conforms":
+        # A requirement, such as an identification test's: the analyst says whether what
+        # they saw meets it. An assay's number or a value isn't such a result.
+        if assessor is not None or params.get("value") is not None:
+            raise ValueError(f"{attribute} conforms or doesn't: say which, without a value.")
+        result = params.get("result")
+        if result not in ("conforms", "does_not_conform"):
+            raise ValueError(f"Say whether {attribute} conforms to its requirement.")
+        is_outside = result == "does_not_conform"
+        reading: int | float | None = None
+        evidence: dict[str, Any] = {}
+        typed |= {"result": result, "acceptance": criterion["acceptance"]}
+    else:
+        if params.get("result") is not None:
+            raise ValueError(f"{attribute} is a number: give its observed value.")
+        reading, evidence = observation(case, params, assessor, criterion)
+        measured = number(reading)
+        # Stored specification bounds are inclusive. Compare the supplied value directly,
+        # without adding a tolerance, rounding across a boundary or averaging repeats.
+        is_outside = (lower is not None and measured < number(lower)) or (
+            upper is not None and measured > number(upper)
+        )
+    if seen := str(params.get("observation") or "").strip():
+        typed["observation"] = seen
     attempt = {
         "sequence": len(attempts) + 1,
         "attribute": attribute,
@@ -326,11 +358,12 @@ def record_test(run: dict[str, Any]) -> dict[str, Any]:
         "case": case["id"],
         "lot": case_values["lot"],
         "method": method,
-        "unit": unit,
+        "unit": unit or None,
         "value": reading,
         "lower": lower,
         "upper": upper,
         "observed_by": operator,
+        **typed,
         **evidence,
     }
     if original is not None:
@@ -342,9 +375,9 @@ def record_test(run: dict[str, Any]) -> dict[str, Any]:
     parents = [row for row in (case, assessor, original, investigation) if row is not None]
     creates = [create("ReleaseTest", values, *parents, key="measurement")]
     if is_outside:
-        kind = FLOWS[case_values["review_flow"]]["investigation"]
+        investigated = FLOWS[case_values["review_flow"]]["investigation"]
         creates.append(
-            create(kind, {"case": case["id"], "test": {"$create": "measurement"}}, *parents)
+            create(investigated, {"case": case["id"], "test": {"$create": "measurement"}}, *parents)
         )
     return output("case", case, {"attempts": [*attempts, attempt]}, *creates)
 
@@ -440,10 +473,14 @@ def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
                     "sequence",
                     "attribute",
                     "method",
+                    "kind",
                     "unit",
                     "value",
                     "lower",
                     "upper",
+                    "acceptance",
+                    "result",
+                    "observation",
                     "outcome",
                     "observed_by",
                     "repeat_of",
@@ -470,14 +507,14 @@ def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
         "analysts": sorted({test["values"]["observed_by"] for test in tests}),
         "report": report,
     }
-    kind = FLOWS[values["review_flow"]]["certificate"]
+    issued = FLOWS[values["review_flow"]]["certificate"]
     # The signed records above are permanently locked. A newly recorded test races this
     # seal on the case revision and either invalidates the preparation or is refused.
     return output(
         "case",
         case,
         {"sealed": True},
-        create(kind, certificate, case),
+        create(issued, certificate, case),
     )
 
 

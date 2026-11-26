@@ -38,6 +38,7 @@ function label(record) {
 }
 
 function limit(test) {
+  if (test.kind === "conforms") return test.acceptance;
   const { lower, upper, unit } = test;
   if (lower == null) return `≤ ${upper} ${unit}`;
   if (upper == null) return `≥ ${lower} ${unit}`;
@@ -58,7 +59,15 @@ function result(test, tests, investigations) {
   const details = facts([
     ["Test", label(test)],
     ["Method", test.method],
-    ["Observed", `${test.value} ${test.unit}`],
+    [
+      "Observed",
+      test.kind === "conforms"
+        ? test.result === "conforms"
+          ? "Conforms"
+          : "Does not conform"
+        : `${test.value} ${test.unit}`,
+    ],
+    ...(test.observation ? [["Observation", test.observation]] : []),
     ["Acceptance", limit(test)],
     ["Outcome", test.outcome === "pass" ? "Pass" : "Out of specification"],
     ...(original ? [["Repeats", label(original)]] : []),
