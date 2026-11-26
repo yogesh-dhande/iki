@@ -2,13 +2,14 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/mouse_strains
-version: 0.2.0
+version: 0.3.0
 title: Mouse strains
 description: >-
-  Register mouse strains and alleles by MGI accession, look up JAX stocks and
-  trace genotypes, cryopreserved embryos and sperm to their source and data.
+  Register mouse strains and alleles by MGI accession, or local strains by the
+  lab's own ID, look up repository stocks and trace genotypes, cryopreserved
+  embryos and sperm to their source and data.
 license: Apache-2.0
 iki: ">=0.1"
 homepage: https://ikisci.org/plugins/mouse_strains
 dependencies:
-  iki/inventory: { types: { Box: ">=1" } }
+  iki/inventory: { types: { Box: ">=1", Container: ">=1" } }

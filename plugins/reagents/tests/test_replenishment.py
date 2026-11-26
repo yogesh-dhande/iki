@@ -70,6 +70,7 @@ def test_receipt_finishes_line_in_catalogue_units(
     assert created["values"]["certificates"] == ["file"]
     assert created["values"]["expires_on"] == "2027-05-01"
     assert created["values"]["order_line"] == "order"
+    assert created["values"]["received_as"] == "order"
     assert created["receipt"]["amount"] == {"value": expected, "unit": unit}
     assert "position" not in created["receipt"]
     assert out["updates"] == {
@@ -102,3 +103,48 @@ def test_refuses_fractional_consumable_packs() -> None:
 def test_delivery_note_and_line_must_identify_the_receipt() -> None:
     with pytest.raises(ValueError, match="delivery line"):
         replenishment.receive_delivery(delivery(delivery_line="   "))
+
+
+def direct(**changes: Any) -> dict[str, Any]:
+    """The same synthetic Corning rack, received without a reorder line."""
+    run = delivery(**changes)
+    item = run["inputs"].pop("order")[0]["included"]["item"][0]
+    run["inputs"]["item"] = [item]
+    return run
+
+
+def test_a_supplier_line_has_one_identity_with_or_without_an_order() -> None:
+    """A delivery received against its order can't be received again without one."""
+    ordered = replenishment.receive_delivery(delivery())["creates"][0]
+    unordered = replenishment.receive_stock(direct())["creates"][0]
+    assert ordered["values"]["receipt_key"] == unordered["values"]["receipt_key"]
+    assert ordered["values"]["received_as"] == "order"
+    assert unordered["values"]["received_as"] == "delivery"
+    assert "order_line" not in unordered["values"]
+    assert unordered["derived_from"] == ["item"]
+    assert unordered["receipt"] == {
+        "amount": {"value": "100", "unit": "1"},
+        "reason": "Received without an order, delivery SYNTH-DN002, line 1.",
+    }
+
+
+def test_a_transfer_is_identified_by_its_sender_and_opening_stock_by_its_count() -> None:
+    sent = replenishment.receive_stock(direct(received_as="transfer", received_from=" Site B "))
+    [lot] = sent["creates"]
+    assert lot["values"]["received_from"] == "Site B"
+    assert lot["receipt"]["reason"] == "Transferred from Site B, document SYNTH-DN002, line 1."
+    assert lot["values"]["receipt_key"] == replenishment.receipt_key("site b", "SYNTH-DN002", "1")
+    counted = replenishment.receive_stock(direct(received_as="opening_balance"))["creates"][0]
+    assert counted["values"]["receipt_key"] == replenishment.receipt_key("", "SYNTH-DN002", "1")
+    assert len({lot["values"]["receipt_key"], counted["values"]["receipt_key"]}) == 2
+    with pytest.raises(ValueError, match="Only a transfer"):
+        replenishment.receive_stock(direct(received_as="delivery", received_from="Site B"))
+
+
+def test_the_order_only_procedure_refuses_a_receipt_without_an_order() -> None:
+    run = direct()
+    run["settings"] = {"receipts_without_order": "refused"}
+    with pytest.raises(ValueError, match="only against a reorder line"):
+        replenishment.receive_stock(run)
+    run["settings"] = {"receipts_without_order": "allowed"}
+    assert replenishment.receive_stock(run)["creates"]

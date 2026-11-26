@@ -17,10 +17,16 @@ chain has one, a light chain the other, an scFv both. A chain with a domain ANAR
 but can't number in the scheme (a CDR with more insertions than it has codes for, as a
 cow's ultralong CDR-H3 has in Kabat's) is left as it was, and the run warns which: saved
 without that domain, it would say it's another kind of chain. Every field is set, so numbering
-a protein again leaves nothing of the last time: a chain whose liabilities were found
-(find_liabilities) has them found again on the new numbering, since each liability's
-number and region are its numbering's. A protein with none is left as it was, and the
-run warns which.
+a protein again leaves nothing of the last time. A chain whose liabilities were found
+(find_liabilities) on another scheme or CDR definition has that screen cleared, since each
+liability's number and region are its numbering's: the screen is run again, by whoever
+chooses its rule set, rather than reapplied here. Numbered again the same way, its numbering
+is the same, so its screen stays. A protein with none is left as it was, and the run warns
+which.
+
+The closest species and germline genes are assignments against the germlines this ANARCI
+release carries (IMGT's), which each chain records as its germline set. They say what the
+sequence resembles, not the species the antibody came from.
 
 The numbering scheme (IMGT, Kabat, Chothia, Martin or AHo) says how residues are
 numbered. The CDR definition says where the CDRs are, by residue number in the numbering
@@ -56,8 +62,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-import liabilities
 from anarci import anarci
+from liabilities import OWN_DEFINITION
 
 #: A CDR's first and last residue numbers, each with its insertions.
 Bounds = tuple[int, int]
@@ -107,15 +113,6 @@ DEFINITIONS: dict[str, tuple[str, dict[str, tuple[Bounds, Bounds, Bounds]]]] = {
 }
 #: Each CDR definition's name, as people write it.
 NAMES = {"imgt": "IMGT", "kabat": "Kabat", "chothia": "Chothia", "abm": "AbM", "contact": "Contact"}
-#: The CDR definition each scheme's numbering is read with, unless another is chosen.
-#: Martin's numbering is Chothia's in the CDRs; AHo's defines no CDRs of its own.
-OWN_DEFINITION = {
-    "imgt": "imgt",
-    "kabat": "kabat",
-    "chothia": "chothia",
-    "martin": "chothia",
-    "aho": "imgt",
-}
 #: What ANARCI can read: the 20 standard amino acids and X.
 READABLE = frozenset("ACDEFGHIKLMNPQRSTVWYX")
 #: ANARCI's chain types that are an antibody's: heavy, kappa and lambda.
@@ -124,11 +121,17 @@ ANTIBODY = {"H", "K", "L"}
 CHAINS = {"H": "heavy", "K": "kappa", "L": "lambda"}
 #: A run's output keeps at most 100 messages.
 MAX_MESSAGES = 100
+#: The germlines its species and genes are assigned against: those this ANARCI release
+#: carries, from IMGT (the action's software and the image's requirements pin it).
+GERMLINE_SET = "ANARCI 2026.2.13.2, IMGT germlines"
+#: The fields a liability screen writes, which a new numbering clears.
+SCREEN = ("liability_screen", "liabilities", "liability_counts", "liability_count")
 #: The species ANARCI has germlines for.
 SPECIES = ("human", "mouse", "rat", "rabbit", "rhesus", "pig", "cow", "alpaca")
 FIELDS = (
     "chain_type",
     "species",
+    "germline_set",
     "numbering_scheme",
     "cdr_definition",
     "cdr_h1",
@@ -241,6 +244,7 @@ def fields(
     values: dict[str, Any] = dict.fromkeys(FIELDS)
     values["numbering_scheme"] = scheme
     values["cdr_definition"] = definition
+    values["germline_set"] = GERMLINE_SET
     values["variable_domains"] = domains
     if heavy and light:
         values["chain_type"] = "heavy_and_light"
@@ -402,20 +406,19 @@ def number(run: dict[str, Any]) -> dict[str, Any]:
             )
         else:
             values, notes = fields(domains, sequence, scheme, definition)
-            rescreened = None
-            if entity["values"].get("liability_count") is not None:
+            cleared = None
+            screen = entity["values"].get("liability_screen") or {}
+            if entity["values"].get("liability_count") is not None and (
+                screen.get("numbering_scheme"),
+                screen.get("cdr_definition"),
+            ) != (scheme, definition):
                 # Its liabilities were found on the numbering this replaces: their numbers
-                # and regions are that numbering's, so they're found again on this one.
-                renumbered = {**entity, "values": {**entity["values"], **values}}
-                screened, note = liabilities.screened(
-                    entity, liabilities.liabilities(renumbered) or []
-                )
-                values |= screened
-                notes += [note.removeprefix(f"{_label(entity)} ").rstrip(".")] if note else []
-                rescreened = {
+                # and regions are that numbering's, so the screen goes with it.
+                values |= dict.fromkeys(SCREEN)
+                cleared = {
                     "level": "info",
-                    "text": f"{_label(entity)}'s liabilities were found again on the new "
-                    f"numbering: {screened['liability_count']:,}.",
+                    "text": f"{_label(entity)}'s liability screen read another numbering, so "
+                    "it was cleared: find its liabilities again on this one.",
                     "entity": entity["id"],
                 }
             updates.append({"entity": entity["id"], "values": values})
@@ -423,7 +426,7 @@ def number(run: dict[str, Any]) -> dict[str, Any]:
                 {"level": "warning", "text": f"{_label(entity)}: {note}.", "entity": entity["id"]}
                 for note in notes
             ]
-            messages += [rescreened] if rescreened else []
+            messages += [cleared] if cleared else []
             shown = ", ".join(
                 f"{k} {values[k]}"
                 for k in ("chain_type", "species", "cdr_h3", "cdr_l3")

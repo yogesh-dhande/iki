@@ -1,8 +1,14 @@
 # Equipment service
 
 Instrument and Booking share a calendar with the instrument's service and calibration history.
-The calendar shows bookings by instrument, project or person and can narrow its search to a month.
-Project members can open a booking from the calendar. Instrument maintenance and use are recorded alongside it.
+The calendar shows bookings by instrument, project or person, a month at a time. A booking
+is on each day it covers, so an overnight run is on both days, and one that started last
+month is on the days it runs into this one. Project members can open a booking from the
+calendar. Instrument maintenance and use are recorded alongside it.
+
+Equipment needs only `iki/lab_roles`. A lab can book and service its instruments without
+installing requests or any results plugin. The calendar's sections on a project's page and
+each person's home appear only once there are bookings to show there.
 
 ## Book time for someone else
 
@@ -46,7 +52,9 @@ the appointment and start its review again.
    instrument. Select the measured record, the signed passing calibration
    and the measurement timestamp with a time zone. Iki checks the match and
    pins the result and calibration revisions. The Instrument evidence tab
-   shows that evidence on the instrument and on the QC deliverable.
+   shows that evidence on the instrument, and on the measured record's page,
+   whatever its type: a QC deliverable, an assay result or a sample. A record
+   no instrument use names has no such tab.
    For an identity-bearing measured record, the immutable record UUID still
    identifies the exact project record the run read.
 
@@ -71,7 +79,8 @@ if there is a known calibration failure.
    passing calibration. Until a recovery is available, the window stays
    open. Trace late evidence again. For a large history, select uses in
    batches and include the complete calibration history in each batch.
-3. Open the **Calibration impact** tab to review the results that need a
+3. Open the **Calibration impact** tab, on the failed service record or on
+   an affected result's own page, to review the results that need a
    disposition. A new case is pending review. Give each case a reasoned
    disposition of Unaffected, Repeat required or Invalidated. Research needs
    a QA sign-off. Regulated QC uses engineer submission, independent review

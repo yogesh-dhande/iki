@@ -64,7 +64,7 @@ def test_public_puc19_reads_show_their_multiple_cloning_site_insert(
     results: dict[str, tuple[dict[str, Any], Path]],
 ) -> None:
     found = values(results, "reads")
-    assert found["agreement"] == "differs"
+    assert found["verdict"] == "differs"
     assert found["source"] == "reads"
     assert found["reads_total"] == 41
     assert found["reads_aligned"] == 37  # four short reads align nowhere
@@ -112,6 +112,9 @@ def test_public_puc19_reads_show_their_multiple_cloning_site_insert(
     assert (found["plasmid_record_id"], found["plasmid_revision"]) == (replay.PLASMID_ID, 3)
     assert found["reference"] == found["members"][0] == replay.SEQUENCE_ENTRY
     assert found["method"].startswith("minimap2 2.31-r1302 (-x map-ont")
+    assert "Iki majority consensus 1 of at least 10 reads" in found["method"]
+    assert found["consensus_caller"] == "iki_majority_1"
+    assert "agreement" not in found
     # The features each difference was placed in, kept as they were when it was compared.
     assert [(f["name"], f["strand"]) for f in found["features"]] == [
         ("lac promoter", "reverse"),
@@ -168,12 +171,14 @@ def test_a_rotated_consensus_of_the_same_bases_matches(
     results: dict[str, tuple[dict[str, Any], Path]],
 ) -> None:
     found = values(results, "same-rotated")
-    assert (found["agreement"], found["differences"], found["called_percent"]) == (
+    assert (found["verdict"], found["differences"], found["called_percent"]) == (
         "matches",
         [],
         100.0,
     )
     assert found["source"] == "consensus"
+    assert found["consensus_caller"] == "supplied"
+    assert found["method"].endswith("the supplied consensus, round the circle")
     assert found["consensus_given"] == "given"
     assert "read_set" not in found and "mean_depth" not in found
     _, out_dir = results["same-rotated"]
@@ -224,7 +229,7 @@ def test_a_linear_consensus_that_stops_short_is_incomplete(
     results: dict[str, tuple[dict[str, Any], Path]],
 ) -> None:
     found = values(results, "linear-short")
-    assert found["agreement"] == "incomplete"
+    assert found["verdict"] == "incomplete"
     assert found["differences"] == []
     assert found["low_coverage"] == [{"start": 2637, "end": 2686}]
     assert found["called_percent"] == 98.14
@@ -236,7 +241,7 @@ def test_a_consensus_with_the_plasmid_twice_over_doesnt_match(
     found = values(results, "two-laps")
     # Every base of the plasmid is in it, unchanged; but its second lap is placed where the
     # first already was, so it isn't one copy of the plasmid.
-    assert (found["agreement"], found["differences"], found["called_percent"]) == (
+    assert (found["verdict"], found["differences"], found["called_percent"]) == (
         "differs",
         [],
         100.0,
@@ -253,7 +258,7 @@ def test_a_consensus_longer_than_the_plasmid_doesnt_match(
     results: dict[str, tuple[dict[str, Any], Path]],
 ) -> None:
     found = values(results, "linear-longer")
-    assert (found["agreement"], found["differences"]) == ("differs", [])
+    assert (found["verdict"], found["differences"]) == ("differs", [])
     assert found["unplaced"] == [{"start": 2687, "end": 3136, "bases": 450, "why": "unaligned"}]
     _, out_dir = results["linear-longer"]
     consensus = "".join((out_dir / "consensus.fasta").read_text(encoding="utf-8").splitlines()[1:])

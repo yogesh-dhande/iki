@@ -35,6 +35,7 @@ expect:
     creates:
       - type: iki/biologics_ms.MSResult
         values:
+          report_format: iki_mass_table_1
           comparison:
             basis: average
             peaks:
@@ -79,6 +80,7 @@ expect:
     creates:
       - type: iki/biologics_ms.MSResult
         values:
+          report_format: iki_mass_table_1
           comparison:
             basis: average
             peaks:
@@ -124,6 +126,7 @@ expect:
     creates:
       - type: iki/biologics_ms.MSResult
         values:
+          report_format: iki_peptide_map_1
           comparison:
             coverage:
               - chain: heavy
@@ -134,3 +137,37 @@ expect:
               - chain: heavy
                 start: 68
                 end: 76
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_mass_comparison_needs_the_labs_tolerance
+action: characterize
+inputs:
+  antibody:
+    - values:
+        name: Trastuzumab
+        molecular_weight: 145197.41
+        components:
+          - part: 00000000-0000-7000-8003-000000000002
+            role: heavy
+            copies: 2
+          - part: 00000000-0000-7000-8003-000000000003
+            role: light
+            copies: 2
+      included:
+        components.part:
+          - values:
+              sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+            type: iki/protein.Protein
+          - values:
+              sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+            type: iki/protein.Protein
+files:
+  report: tests/data/trastuzumab-intact.tsv
+params:
+  analysis: mass
+  report:
+    $file: report
+  mass_basis: average
+expect:
+  error: Enter the lab's mass tolerance in ppm for a mass comparison.

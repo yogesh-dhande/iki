@@ -23,6 +23,9 @@ from typing import Any
 WEIGHTS = Path(os.environ.get("IMMUNEBUILDER_WEIGHTS", "/opt/immunebuilder/weights"))
 #: CDR-H3 in IMGT numbering, which ImmuneBuilder's models use.
 H3 = range(105, 118)
+#: The ImmuneBuilder release the image installs (images/structure-tools/requirements.txt),
+#: as the action's software says.
+RELEASE = "1.2"
 
 
 def _one_head(chain: dict[str, Any], kinds: list[str], form: str | None) -> None:
@@ -128,6 +131,8 @@ def predict(run: dict[str, Any]) -> dict[str, Any]:
         "method": "predicted",
         "chains": proteins,
         "chain_ids": ids,
+        "immunebuilder_model": name.lower(),
+        "immunebuilder_version": RELEASE,
         "predicted_error": round(mean, 3),
         "cdr_h3_predicted_error": round(h3, 3) if h3 is not None else None,
     }

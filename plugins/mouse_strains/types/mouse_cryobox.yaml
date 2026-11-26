@@ -7,9 +7,12 @@ label_plural: Mouse cryoboxes
 schema_version: 2
 extends: iki/inventory.Box
 hrid: { prefix: MCB }
-description: A storage box for mouse cryostocks, with the standard box grid, barcode and freezer rack positions.
+description: >-
+  A box, goblet or cassette of mouse cryostocks, with the positions of the one in use,
+  its barcode and its place in a rack, canister or dewar. It can also hold other
+  containers, such as tubes of the donors' tissue.
 storage:
-  holds: [MouseCryostock]
+  holds: [MouseCryostock, iki/inventory.Container]
   grid: { rows: rows, columns: columns, labels: letter_number, order: by_row }
   barcode: barcode
   label: "{{ contents }}"

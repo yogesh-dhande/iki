@@ -3,14 +3,15 @@ apiVersion: iki/v1
 kind: EntityType
 name: Rack
 label: Rack
-schema_version: 1
+schema_version: 2
 description: >-
-  An upright freezer rack of five boxes high and four deep (ADR 0180), its
-  slots numbered 1 to 20 from the top, front to back.
+  A freezer or dewar rack of box slots (ADR 0180). Its format is set as it's made:
+  how many boxes high and how many deep. The slots are numbered from the top,
+  front to back, so a five by four rack's are 1 to 20.
 hrid: { prefix: RCK }
 storage:
   holds: [Box]
-  grid: { rows: 5, columns: 4, labels: number, order: by_row }
+  grid: { rows: rows, columns: columns, labels: number, order: by_row }
   barcode: barcode
 fields:
   name:
@@ -18,6 +19,24 @@ fields:
     required: true
     max_length: 100
     description: Such as "Rack C".
+  rows:
+    type: int
+    label: Boxes high
+    required: true
+    immutable: true
+    min: 1
+    max: 16
+    default: 5
+    description: How many boxes it holds from top to bottom.
+  columns:
+    type: int
+    label: Boxes deep
+    required: true
+    immutable: true
+    min: 1
+    max: 8
+    default: 4
+    description: How many boxes each level holds from front to back.
   barcode:
     type: string
     max_length: 64

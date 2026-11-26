@@ -808,11 +808,11 @@ def test_a_plugin_with_a_symbolic_link_is_refused(tmp_path: Path) -> None:
     (plugin / "plugin.yaml").write_text("x")
     (plugin / "secrets").symlink_to("/etc/passwd")
     with pytest.raises(ValueError, match="secrets is a symbolic link"):
-        workers.bundle(plugin, tmp_path / "out.tar.gz")
+        workers.bundle("acme/plugin", plugin, tmp_path / "out.tar.gz")
     (plugin / "secrets").unlink()
-    first = workers.bundle(plugin, tmp_path / "a.tar.gz")
+    first = workers.bundle("acme/plugin", plugin, tmp_path / "a.tar.gz")
     (plugin / "plugin.yaml").touch()  # a new time changes nothing
-    assert workers.bundle(plugin, tmp_path / "b.tar.gz") == first
+    assert workers.bundle("acme/plugin", plugin, tmp_path / "b.tar.gz") == first
 
 
 def test_the_images_runs_use_are_those_bound_to_container_templates(tmp_path: Path) -> None:

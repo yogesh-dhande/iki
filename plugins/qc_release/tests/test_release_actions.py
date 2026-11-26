@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 from copy import deepcopy
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -311,3 +312,115 @@ def test_a_certificate_of_analysis_is_issued_from_its_signed_record_alone(
     shared = json.dumps(issued["values"])
     evidence = ["test1", "TEST1", "test2", "inv1", "INV1", "analyst1", '": 89', "Synthetic proof"]
     assert [text for text in evidence if text in shared] == []
+
+
+def schedule_with(qc_actions: ModuleType, first: date, **schedule: Any) -> dict[str, Any]:
+    """A schedule whose one published version took effect on ``first``. Its criterion and
+    source are synthetic."""
+    version = record(
+        "v1",
+        1,
+        schedule="sched1",
+        version="1",
+        effective_from=first.isoformat(),
+        approval="approved",
+        source="Synthetic specification",
+        criteria=[{"attribute": "Assay", "method": "Synthetic", "unit": "AU", "lower": 1}],
+    )
+    found = record("sched1", 2, material="material1", versions=["v1"], **schedule)
+    found["included"] = {"versions": [version]}
+    return found
+
+
+def publish(
+    qc_actions: ModuleType,
+    schedule: dict[str, Any],
+    starts: date,
+    policy: str | None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    version = deepcopy(schedule["included"]["versions"][0])
+    version.update(id="v2", values={**version["values"], "version": "2"})
+    version["values"]["effective_from"] = starts.isoformat()
+    run: dict[str, Any] = {
+        "inputs": {"schedule": [schedule], "version": [version]},
+        "params": {"backdated_because": reason} if reason else {},
+        "settings": {"successor_effective_dates": policy} if policy else {},
+    }
+    result: dict[str, Any] = qc_actions.publish_version(run)
+    return result
+
+
+TODAY = datetime.now(UTC).date()
+LONG_AGO = TODAY - timedelta(days=400)
+
+
+@pytest.mark.parametrize(
+    ("policy", "starts", "reason", "refused"),
+    [
+        # The incumbent policy: a successor starts after today.
+        (None, TODAY + timedelta(days=1), None, None),
+        (None, TODAY, None, "future date"),
+        ("future", TODAY, None, "future date"),
+        ("same_day", TODAY, None, None),
+        ("same_day", TODAY - timedelta(days=1), None, "today or later"),
+        ("backdated", TODAY - timedelta(days=30), None, "Say why"),
+        ("backdated", TODAY - timedelta(days=30), "Importing the approved paper history", None),
+        ("backdated", TODAY, "Importing", "Leave the backdating reason empty"),
+        ("future", TODAY + timedelta(days=1), "Importing", "Leave the backdating reason empty"),
+        ("backdated", LONG_AGO, "Importing", "after its predecessor"),
+        ("weekly", TODAY + timedelta(days=1), None, "Choose future, same_day or backdated"),
+    ],
+)
+def test_a_successor_starts_when_the_sites_policy_allows(
+    qc_actions: ModuleType,
+    policy: str | None,
+    starts: date,
+    reason: str | None,
+    refused: str | None,
+) -> None:
+    schedule = schedule_with(qc_actions, LONG_AGO)
+    if refused:
+        with pytest.raises(ValueError, match=refused):
+            publish(qc_actions, schedule, starts, policy, reason)
+        return
+    (update,) = publish(qc_actions, schedule, starts, policy, reason)["updates"]["schedule"]
+    assert update == {
+        "entity": "sched1",
+        "values": {"versions": ["v1", "v2"]},
+        "require_unchanged": True,
+    }
+
+
+@pytest.mark.parametrize("policy", ["same_day", "backdated"])
+def test_no_policy_moves_a_testing_date_a_case_has_pinned(
+    qc_actions: ModuleType, policy: str
+) -> None:
+    """A case tested today, or ten days ago, already pinned the version in force then."""
+    for tested in (TODAY, TODAY - timedelta(days=10)):
+        schedule = schedule_with(qc_actions, LONG_AGO, tested_through=tested.isoformat())
+        reason = "Importing" if tested < TODAY else None
+        with pytest.raises(ValueError, match="already pinned the version in force"):
+            publish(qc_actions, schedule, tested, policy, reason)
+        if policy == "backdated":
+            later = tested + timedelta(days=1)
+            reason = "Importing" if later < TODAY else None
+            assert publish(qc_actions, schedule, later, policy, reason)["updates"]
+
+
+def test_opening_a_case_records_the_latest_testing_date(qc_actions: ModuleType) -> None:
+    lot = record("lot1", 1, of="material1", lot_number="Synthetic lot")
+    for before, tested, latest in (
+        (None, LONG_AGO + timedelta(days=5), LONG_AGO + timedelta(days=5)),
+        (TODAY.isoformat(), LONG_AGO + timedelta(days=5), TODAY),
+    ):
+        extra = {"tested_through": before} if before else {}
+        schedule = schedule_with(qc_actions, LONG_AGO, **extra)
+        run = {
+            "inputs": {"lot": [lot], "schedule": [schedule]},
+            "params": {"testing_on": tested.isoformat()},
+            "settings": {"review_flow": "research"},
+        }
+        (update,) = qc_actions.open_release(run)["updates"]["schedule"]
+        assert update["values"] == {"versions": ["v1"], "tested_through": latest.isoformat()}
+        assert update["require_unchanged"]

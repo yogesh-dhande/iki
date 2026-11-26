@@ -70,6 +70,8 @@ expect:
     updates:
       protein:
         - values:
+            liability_screen:
+              { rule_set: developability_v1, numbering_scheme: imgt, cdr_definition: imgt }
             liability_count: 11
             liability_counts:
               deamidation: 2
@@ -253,6 +255,9 @@ expect:
     updates:
       protein:
         - values:
+            # Kabat's numbering is read with Kabat's CDRs unless numbering chose others.
+            liability_screen:
+              { rule_set: developability_v1, numbering_scheme: kabat, cdr_definition: kabat }
             liability_count: 2
             liability_counts: { deamidation: 1, n_glycosylation: 1 }
             liabilities:

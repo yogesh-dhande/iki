@@ -29,7 +29,7 @@ pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = ROOT / "examples" / "plugins" / "liquid_handling" / "writers" / "tecan-worklist.wasm"
-WRITER = "examples/liquid_handling.tecan-worklist"
+WRITER = "acme/liquid_handling.tecan-worklist"
 
 if not MODULE.is_file():  # pragma: no cover - make test-wasm builds it
     pytest.skip("make test-wasm builds the Tecan writer's module", allow_module_level=True)
@@ -43,7 +43,7 @@ def transfers(world: World, *wells: tuple[str, str]) -> list[Any]:
     def plate(label: str, wells: str, barcode: str) -> Any:
         return entities.create(
             editor,
-            "examples/liquid_handling.Plate",
+            "acme/liquid_handling.Plate",
             world.project,
             {"label": label, "wells": wells, "barcode": barcode},
         ).entity
@@ -53,7 +53,7 @@ def transfers(world: World, *wells: tuple[str, str]) -> list[Any]:
     return [
         entities.create(
             editor,
-            "examples/liquid_handling.Transfer",
+            "acme/liquid_handling.Transfer",
             world.project,
             {
                 "source": str(source.pk),
@@ -82,7 +82,7 @@ def test_a_reader_downloads_a_transfer_as_the_plugins_worklist(
     worklist.wait_for()
     # Its only format, so it's chosen; and it says whose it is.
     assert worklist.is_checked()
-    dialog.get_by_text("Written by the examples/liquid_handling plugin.", exact=False).wait_for()
+    dialog.get_by_text("Written by the acme/liquid_handling plugin.", exact=False).wait_for()
     assert_clean(page)
     with page.expect_download() as downloading:
         dialog.get_by_role("button", name="Download").click()
@@ -105,7 +105,7 @@ def test_a_reader_exports_the_transfers_picked_as_one_worklist(
 ) -> None:
     first, second = transfers(world, ("A1", "A1"), ("P24", "H12"))
     page: Page = open_as(
-        "viewer", "/projects/kinase-atlas/entities/?type=examples/liquid_handling.Transfer"
+        "viewer", "/projects/kinase-atlas/entities/?type=acme/liquid_handling.Transfer"
     )
     page.get_by_role("checkbox", name=f"Select {first.hrid}").check()
     page.get_by_role("checkbox", name=f"Select {second.hrid}").check()

@@ -1,8 +1,9 @@
 /**
- * A project's starters (ADR 0198): the recipes installed to set an assay service up. Its
- * Admins choose a review flow, drawn as the flow its results follow (ADR 0199), and the
- * members who hold each lab role. They preview the changes before applying them. Its
- * other members read what's installed and what's applied.
+ * A project's starters (ADRs 0198 and 0240): the recipes installed to set a service or
+ * procedure up, such as an assay or lot release testing. Its Admins choose a review flow,
+ * drawn as the flow its results follow (ADR 0199), and the members who hold each lab role.
+ * They preview the changes before applying them. Its other members read what's installed
+ * and what's applied.
  */
 
 import { ApiError } from "@ikisci/sdk";
@@ -28,7 +29,9 @@ import {
   STARTERS,
   startersQuery,
   type Member,
+  routeOf,
   type Starter,
+  type StarterFlow,
   type StarterPlan,
   type StarterSetup,
 } from "../starters";
@@ -52,8 +55,8 @@ export function ProjectStarters() {
       <section className="card card-wide starter-intro">
         <h2 className="section-title">Starters</h2>
         <p className="muted">
-          A starter configures the review flow for new assay results in {project.name} and assigns
-          the lab roles needed to run it.
+          A starter chooses the review flow for new work in {project.name}, such as assay results or
+          lot release testing, and assigns the lab roles needed to run it.
         </p>
         <p>
           <Link to="/projects/$slug/settings/" params={{ slug: project.slug }}>
@@ -115,18 +118,20 @@ function StarterCard({ starter, project }: { starter: Starter; project: Project 
         <div className="starter-flow" key={flow.id}>
           <h3 className="starter-flow-title">{flow.label}</h3>
           <p>{flowSummary(flow)}</p>
-          <ResultFlow type={flow.result_type} />
+          <ResultFlow flow={flow} />
         </div>
       ))}
     </section>
   );
 }
 
-/** The flow a starter's result type follows, drawn. */
-function ResultFlow({ type }: { type: string }) {
+/** The flow a starter's result type follows, drawn: only this flow's route, where the type
+ * has one per flow (ADR 0240). */
+function ResultFlow({ flow: chosen }: { flow: StarterFlow }) {
+  const type = chosen.result_type;
   const flow = useQuery(typeFlowQuery(type));
   const roles = useRoleLabels();
-  const field = flow.data?.fields[0];
+  const field = routeOf(flow.data?.fields[0], chosen.states);
   if (flow.isPending) return <Loading label="Loading its flow" />;
   if (!field) return null;
   return (
@@ -158,6 +163,7 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
   const [flowId, setFlowId] = useState(applied?.flow ?? starter.flows[0]?.id ?? "research");
   const flow = starter.flows.find((f) => f.id === flowId) ?? starter.flows[0];
   const resultFlow = useQuery(typeFlowQuery(flow?.result_type ?? ""));
+  const route = routeOf(resultFlow.data?.fields[0], flow?.states);
   // Who's chosen for each role: until the Admin chooses, whoever holds it already.
   const [picked, setPicked] = useState<Record<string, string[]> | null>(null);
   const [plan, setPlan] = useState<{ key: string; plan: StarterPlan } | null>(null);
@@ -177,7 +183,7 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
   }, [members.data, starter.roles]);
   const chosen = picked ?? held;
   const required = flow?.required_roles ?? [];
-  const signers = signingRoles(resultFlow.data?.fields[0]).filter((r) => required.includes(r));
+  const signers = signingRoles(route).filter((r) => required.includes(r));
   const independent = independentEnough(signers, chosen);
   const missing = required.filter((r) => !(chosen[r] ?? []).length);
   const setup: StarterSetup = {
@@ -292,14 +298,14 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
         {flow ? (
           <div className="starter-flow">
             <h3 className="starter-flow-title">How a {flow.label} result moves</h3>
-            <ResultFlow type={flow.result_type} />
+            <ResultFlow flow={flow} />
           </div>
         ) : null}
         {applied && flow && applied.flow !== flow.id ? (
           <div className="alert alert-warning" role="note">
             <p>
-              New fits will use the {flow.label} flow. Existing results keep their current review
-              and signature requirements.
+              New {starter.governs} will use the {flow.label} flow. Existing ones keep their current
+              review and signature requirements.
             </p>
           </div>
         ) : null}

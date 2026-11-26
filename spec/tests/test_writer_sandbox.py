@@ -335,7 +335,7 @@ def test_the_tecan_writer_writes_the_same_worklist_in_two_processes() -> None:
         "id": "0190e9a4-0000-7000-8000-000000000001",
         "name": "Compound source 1",
         "revision": 1,
-        "type": "examples/liquid_handling.Plate",
+        "type": "acme/liquid_handling.Plate",
     }
     record = canonical(
         {
@@ -352,7 +352,7 @@ def test_the_tecan_writer_writes_the_same_worklist_in_two_processes() -> None:
                 "source_well": "B3",
                 "volume": {"unit": "uL", "value": 2.5},
             },
-            "type": "examples/liquid_handling.Transfer",
+            "type": "acme/liquid_handling.Transfer",
             "withheld": [],
         }
     )

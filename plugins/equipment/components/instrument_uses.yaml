@@ -17,8 +17,10 @@ slots:
       where: { field: instrument, op: eq, value: "{{ entity }}" }
       sort: measurement_at
       descending: true
+  # Any measured record's page, such as a QC deliverable's or an assay result's, once a
+  # use names it (ADR 0237).
   - slot: entity.tab
-    type: iki/requests.QCDeliverable
+    type: iki/core.Entity
     search:
       where: { field: result, op: eq, value: "{{ entity }}" }
       sort: measurement_at

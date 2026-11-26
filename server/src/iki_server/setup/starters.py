@@ -1,10 +1,10 @@
-"""Recipes installed with active plugins configure individual projects (ADRs 0198 and 0223)."""
+"""Recipes installed with active plugins configure individual projects (ADRs 0198, 0223, 0240)."""
 
 import hashlib
 import json
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 from itertools import combinations
 from typing import Any
@@ -36,6 +36,16 @@ class Starter:
     roles: dict[str, ProjectRole]
     required_roles: dict[str, tuple[str, ...]]
     independent_roles: dict[str, tuple[str, ...]]
+    #: What the project's choice governs, as in "New dose-response fits use Research".
+    governs: str = "dose-response fits"
+    #: The type whose records pin the flow when an action opens them (ADR 0240). Records
+    #: made under one, such as a release case's certificate, follow its pinned flow, not
+    #: the project's current choice. Without one, new results must be the chosen flow's
+    #: result type.
+    pinned_by: str | None = None
+    #: The states each flow's records pass through, where the result type has one route
+    #: per flow in a single state field. Without them, a flow is its result type's.
+    flow_states: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def types(self) -> tuple[str, ...]:
@@ -66,7 +76,108 @@ DOSE_RESPONSE = Starter(
     },
     independent_roles={"regulated_qc": (ANALYST, REVIEWER, QA)},
 )
-CATALOG = (DOSE_RESPONSE,)
+
+# Release testing, stability and prep verification pin their flow on the record an action
+# opens: a case, a scheduled study, a verification (ADR 0240). A later choice governs only
+# records opened after it, and the ones in progress finish as they began.
+QC = "iki/qc_release."
+QC_ANALYST, QC_REVIEWER, QC_QA = QC + "analyst", QC + "reviewer", QC + "qa"
+LOT_RELEASE_TESTING = Starter(
+    id="lot-release-testing",
+    version="1.0.0",
+    label="Lot release testing",
+    description=(
+        "Choose how new release cases' investigations and certificates of analysis are "
+        "signed, and assign the release testing roles."
+    ),
+    plugin="iki/qc_release",
+    setting="review_flow",
+    result_base=QC + "ReleaseCertificate",
+    flows={"research": QC + "ResearchCertificate", "regulated_qc": QC + "QCCertificate"},
+    roles={
+        QC_ANALYST: ProjectRole.EDITOR,
+        QC_REVIEWER: ProjectRole.VIEWER,
+        QC_QA: ProjectRole.VIEWER,
+    },
+    # Release Testing QA approves the specifications in either flow.
+    required_roles={
+        "research": (QC_REVIEWER, QC_QA),
+        "regulated_qc": (QC_ANALYST, QC_REVIEWER, QC_QA),
+    },
+    independent_roles={"regulated_qc": (QC_ANALYST, QC_REVIEWER, QC_QA)},
+    governs="release cases",
+    pinned_by=QC + "ReleaseCase",
+)
+
+STABILITY = "iki/stability."
+COORDINATOR, ST_ANALYST, ST_REVIEWER, ST_QA = (
+    STABILITY + r for r in ("coordinator", "analyst", "reviewer", "qa")
+)
+STABILITY_STUDY = Starter(
+    id="stability-study",
+    version="1.0.0",
+    label="Stability study",
+    description=(
+        "Choose how measurements on newly scheduled studies are reviewed, and assign who "
+        "pulls, records, reviews and releases them."
+    ),
+    plugin="iki/stability",
+    setting="review_flow",
+    result_base=STABILITY + "Measurement",
+    flows={"research": STABILITY + "Measurement", "regulated_qc": STABILITY + "Measurement"},
+    flow_states={
+        "research": ("recorded", "signed"),
+        "regulated_qc": ("recorded", "submitted", "reviewed", "released"),
+    },
+    roles={
+        COORDINATOR: ProjectRole.EDITOR,
+        ST_ANALYST: ProjectRole.EDITOR,
+        ST_REVIEWER: ProjectRole.VIEWER,
+        ST_QA: ProjectRole.VIEWER,
+    },
+    required_roles={
+        "research": (COORDINATOR, ST_REVIEWER),
+        "regulated_qc": (COORDINATOR, ST_ANALYST, ST_REVIEWER, ST_QA),
+    },
+    independent_roles={"regulated_qc": (ST_ANALYST, ST_REVIEWER, ST_QA)},
+    governs="scheduled studies",
+    pinned_by=STABILITY + "Study",
+)
+
+LOTS = "iki/lots."
+VER_ANALYST, VER_REVIEWER, LOT_QA = (
+    LOTS + r for r in ("verification_analyst", "verification_reviewer", "qa")
+)
+PREP_VERIFICATION = Starter(
+    id="plasmid-prep-verification",
+    version="1.0.0",
+    label="Plasmid prep verification",
+    description=(
+        "Choose how new verifications of physical plasmid preps are reviewed, and assign who "
+        "submits, reviews and releases them."
+    ),
+    plugin="iki/lots",
+    setting="verification_flow",
+    result_base=LOTS + "PlasmidVerification",
+    flows={"research": LOTS + "PlasmidVerification", "regulated_qc": LOTS + "PlasmidVerification"},
+    flow_states={
+        "research": ("recorded", "signed_off"),
+        "regulated_qc": ("recorded", "submitted", "reviewed", "released"),
+    },
+    roles={
+        VER_ANALYST: ProjectRole.EDITOR,
+        VER_REVIEWER: ProjectRole.VIEWER,
+        LOT_QA: ProjectRole.VIEWER,
+    },
+    required_roles={
+        "research": (VER_REVIEWER,),
+        "regulated_qc": (VER_ANALYST, VER_REVIEWER, LOT_QA),
+    },
+    independent_roles={"regulated_qc": (VER_ANALYST, VER_REVIEWER, LOT_QA)},
+    governs="plasmid verifications",
+    pinned_by=LOTS + "PlasmidVerification",
+)
+CATALOG = (DOSE_RESPONSE, LOT_RELEASE_TESTING, STABILITY_STUDY, PREP_VERIFICATION)
 
 
 @cache
@@ -109,11 +220,13 @@ def list_starters(project: Project | None = None) -> list[dict[str, Any]]:
             "version": s.version,
             "label": s.label,
             "description": s.description,
+            "governs": s.governs,
             "flows": [
                 {
                     "id": f,
                     "label": FLOW_LABELS[f],
                     "result_type": t,
+                    "states": list(s.flow_states[f]) if f in s.flow_states else None,
                     "required_roles": list(s.required_roles[f]),
                 }
                 for f, t in s.flows.items()

@@ -105,6 +105,9 @@ a Tecan worklist (`.gwl`) for Freedom EVOware and FluentControl. Liquid
 handlers commonly run cherry-picks from these files, and no format Iki ships
 covers them.
 
+> Note, 2026-11-26: the example now uses the `acme/` placeholder namespace like
+> every other example, so its writer is `acme/liquid_handling.tecan-worklist`.
+
 ```yaml
 formats:
   tecan-gwl:

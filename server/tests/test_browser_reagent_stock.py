@@ -44,6 +44,7 @@ OTHER = {
     "id": str(UUID(int=2)),
     "hrid": "SCI-000002",
     "name": "Synthetic spare powder",
+    "threshold": None,
     "physical": "55",
     "stored": "55",
     "available": "55",
@@ -128,6 +129,7 @@ def supply_catalogue(page: Page, world: World) -> None:
         for name, label in [
             ("place_order", "Place order"),
             ("receive_delivery", "Receive delivery"),
+            ("receive_stock", "Receive stock without an order"),
         ]:
             actions.append(
                 {
@@ -201,6 +203,18 @@ def test_project_stock_and_outstanding_deliveries(
         expect(item.locator(":scope > td, :scope > th").nth(index)).to_contain_text(f"{amount} mg")
     spare = catalogue.get_by_role("link", name=OTHER["name"], exact=True)
     expect(spare).to_be_visible()
+    # An item the lab doesn't reorder by its level has no threshold, and is never low.
+    spare_row = catalogue.get_by_role("row").filter(
+        has=page.get_by_role("link", name=OTHER["name"], exact=True)
+    )
+    expect(spare_row.get_by_text("Not reordered by level", exact=True)).to_be_visible()
+    expect(spare_row.get_by_text("Low stock", exact=True)).to_have_count(0)
+    check_action(
+        spare_row.get_by_role("link", name="Receive without an order"),
+        world.project.slug,
+        "receive_stock",
+        str(OTHER["hrid"]),
+    )
     low_only = page.get_by_role("checkbox", name="Low stock only")
     low_only.focus()
     low_only.press("Space")

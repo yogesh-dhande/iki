@@ -15,19 +15,33 @@ whole-plasmid long reads or the consensus a sequencing service sent ([ADR
    needs for the consensus to call it (10 by default).
 
 Basecalling is your own licensed tool, and Iki ships no basecaller. The
-action aligns the reads round the circle with minimap2, calls a majority
-consensus, polishes it against the reads, and compares it with the record.
+action aligns the reads round the circle with minimap2 2.31 and calls their
+consensus with this plugin's own caller, **Iki majority consensus, version 1**
+(`iki_majority_1`): each base takes the majority of at least the minimum depth
+of reads, each indel is moved 3' first, and the reads are aligned again to
+their consensus until it holds. It then compares the consensus with the record.
+The result names the caller in `consensus_caller` and its run lists it as
+software. The platform, depths, read counts and polishing rounds describe that
+caller's call.
 
-## From a service's consensus
+The caller is a reference-inspection method, not a validated release method.
+Its handling of ties and homopolymers is its own. If your lab's acceptance
+criteria require a validated caller, call the consensus with it and compare
+that consensus instead, as below.
+
+## From a supplied consensus
 
 Run **Verify a plasmid from a service's consensus** with the one FASTA
-sequence the service assembled for the prep, and name the provider. The
-comparison finds the consensus whatever its rotation or strand.
+sequence a service assembled for the prep, or your lab's own validated caller
+did. In **Assembled by**, name the service and its order or sample ID, or the
+caller and its version. The comparison finds the consensus whatever its
+rotation or strand. The result's `consensus_caller` is `supplied`. It has no
+depths, read counts or per-read support, because none were given.
 
 ## The result
 
-A **Whole-plasmid alignment** (WPA) records whether the consensus
-**matches** the record, **differs** from it, or is **incomplete**:
+A **Whole-plasmid alignment** (WPA) records in its verdict whether the
+consensus **matches** the record, **differs** from it, or is **incomplete**:
 nothing differs, but some bases aren't called. A consensus with more
 sequence than the plasmid, or with some of it twice over, differs: those
 bases are listed as not placed once.

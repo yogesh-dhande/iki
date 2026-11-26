@@ -2,7 +2,9 @@
 #
 # ImmuneBuilder on the container tier: the image built from images/structure-tools,
 # which Iki's publish workflow signed (ADR 0065), with its weights in it. Pinned by its
-# multi-arch digest; changing the image is a commit to its Dockerfile, then one here.
+# multi-arch digest; changing the image is a commit to its Dockerfile, then one here. The
+# image keeps the name it had in the antibody plugin, iki-antibody-structure-tools, so its
+# published digests stay valid.
 apiVersion: iki/v1
 kind: Environment
 name: structure-tools
