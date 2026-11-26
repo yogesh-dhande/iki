@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: ReadSet
 label: FASTQ read set
-schema_version: 1
+schema_version: 2
 hrid: { prefix: READ }
 description: Single-end reads or two synchronized mates from one library in one run and lane.
 fields:
@@ -30,6 +30,15 @@ fields:
       [text/x-fastq, text/plain, application/gzip, application/x-gzip, application/octet-stream]
     max_size: 100GiB
     description: The corresponding mate file for a paired-end run. Leave blank for a single-end run.
+  run_accession:
+    type: string
+    label: INSDC run accession
+    max_length: 30
+    pattern: "^(SRR|ERR|DRR)[0-9]+$"
+    link: https://www.ebi.ac.uk/ena/browser/view/{value}
+    description: >-
+      The archive run these files were submitted as, when they were. An archive run belongs to
+      one library and can hold several lanes' files, so read sets from one run can share it.
 rules:
   distinct_mates:
     check: record.read_2 == null || record.read_1 != record.read_2
