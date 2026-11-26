@@ -616,6 +616,9 @@ def _file(f: File) -> dict[str, Any]:
             if f.acquired_on is not None
             else None
         ),
+        # What it states about its instrument and read groups, as read when added (ADR 0224).
+        "facts": f.facts,
+        "read_groups": f.read_groups,
     }
 
 

@@ -2048,9 +2048,9 @@ export interface paths {
         /**
          * Files you can read
          * @description A project's files, or every file you can read: those added to the projects, and
-         *     those their records hold (ADR 0177). Found by part of the name, format, when acquired,
-         *     sample and run; newest first unless ``sort`` says otherwise. Each says how many records
-         *     and runs you can read use it.
+         *     those their records hold (ADR 0177). Found by part of the name or of what the file
+         *     states (ADR 0224), format, when acquired, sample and run; newest first unless ``sort``
+         *     says otherwise. Each says how many records and runs you can read use it.
          */
         get: operations["iki_server_api_files_list_files"];
         put?: never;
@@ -8899,6 +8899,7 @@ export interface components {
             project?: string | null;
             /**
              * Q
+             * @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.
              * @default
              */
             q: string;
@@ -9115,6 +9116,8 @@ export interface components {
              * @description Registered where it already was, rather than uploaded.
              */
             external: boolean;
+            /** @description Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224). */
+            facts: components["schemas"]["FileFactsOut"];
             /**
              * Id
              * Format: uuid
@@ -9127,6 +9130,11 @@ export interface components {
             origin: components["schemas"]["FileOriginOut"];
             /** @description Where it was added. Null if you can't see it. */
             project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * Read Groups
+             * @description A SAM or BAM file's read groups, each @RG line as it gives it (ADR 0224): every one, or none when any can't be read as the specification defines.
+             */
+            read_groups: components["schemas"]["ReadGroupOut"][];
             /**
              * Samples
              * @description The samples it belongs to that you can read.
@@ -9163,6 +9171,27 @@ export interface components {
              * @description The field it's written from: a string field with a DNA or RNA format, or a reference to a record of a type that exports a sequence.
              */
             sequence: string;
+        };
+        /**
+         * FileFactsOut
+         * @description What the file says about where its data came from (ADR 0224), read when it was
+         *     added. Each is null when the file doesn't say, or doesn't say clearly.
+         */
+        FileFactsOut: {
+            /** @description The instrument's model, such as Aurora or Orbitrap Eclipse. */
+            instrument: components["schemas"]["StatedOut"] | null;
+            /** @description The name the instrument was given, such as an AB1 trace's MCHN. */
+            instrument_name: components["schemas"]["StatedOut"] | null;
+            /** @description Who made the instrument. */
+            manufacturer: components["schemas"]["StatedOut"] | null;
+            /** @description Who operated the instrument. */
+            operator: components["schemas"]["StatedOut"] | null;
+            /** @description The instrument's protocol, such as a plate reader's test. */
+            protocol: components["schemas"]["StatedOut"] | null;
+            /** @description The instrument's serial number. */
+            serial: components["schemas"]["StatedOut"] | null;
+            /** @description The software that recorded the data, and its version where given. */
+            software: components["schemas"]["StatedOut"] | null;
         };
         /** FileFilters */
         FileFilters: {
@@ -9209,7 +9238,7 @@ export interface components {
             project?: string | null;
             /**
              * Q
-             * @description Part of its name, in any case.
+             * @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.
              * @default
              */
             q: string;
@@ -9298,6 +9327,8 @@ export interface components {
              * @description Registered where it already was, rather than uploaded.
              */
             external: boolean;
+            /** @description Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224). */
+            facts: components["schemas"]["FileFactsOut"];
             /**
              * Id
              * Format: uuid
@@ -9356,6 +9387,8 @@ export interface components {
              * @description Registered where it already was, rather than uploaded.
              */
             external: boolean;
+            /** @description Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224). */
+            facts: components["schemas"]["FileFactsOut"];
             /**
              * Id
              * Format: uuid
@@ -13709,6 +13742,41 @@ export interface components {
              */
             team_id: string | null;
         };
+        /**
+         * ReadGroupOut
+         * @description A SAM or BAM file's @RG line: the SAM specification's tags it gives (section 1.3),
+         *     by their two-letter names, such as ID, SM (sample), LB (library) and PU (platform unit).
+         */
+        ReadGroupOut: {
+            /** Bc */
+            BC?: string;
+            /** Cn */
+            CN?: string;
+            /** Ds */
+            DS?: string;
+            /** Dt */
+            DT?: string;
+            /** Fo */
+            FO?: string;
+            /** Id */
+            ID: string;
+            /** Ks */
+            KS?: string;
+            /** Lb */
+            LB?: string;
+            /** Pg */
+            PG?: string;
+            /** Pi */
+            PI?: string;
+            /** Pl */
+            PL?: string;
+            /** Pm */
+            PM?: string;
+            /** Pu */
+            PU?: string;
+            /** Sm */
+            SM?: string;
+        };
         /** ReadIn */
         ReadIn: {
             /** Read */
@@ -17946,6 +18014,19 @@ export interface components {
              */
             signatures: components["schemas"]["WantedSignatureOut"][];
         };
+        /** StatedOut */
+        StatedOut: {
+            /**
+             * Stated In
+             * @description Where in the file it's stated, such as ``FCS keyword $CYT``, to check it by.
+             */
+            stated_in: string;
+            /**
+             * Value
+             * @description As the file gives it.
+             */
+            value: string;
+        };
         /** StepBatchOut */
         StepBatchOut: {
             /**
@@ -19729,7 +19810,7 @@ export interface components {
             label: string;
             /**
              * Name
-             * @description Qualified, such as `protein.translate_and_characterize`.
+             * @description Workflow name in `namespace/plugin.workflow` form.
              */
             name: string;
             /** Params */
@@ -22700,7 +22781,7 @@ export interface operations {
                 limit?: number;
                 /** @description Its files; every one you can read if left out. */
                 project?: string | null;
-                /** @description Part of its name, in any case. */
+                /** @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case. */
                 q?: string;
                 /** @description Format IDs, media types such as application/x-abi, or image/* for any image. */
                 format?: string[];
@@ -22740,6 +22821,7 @@ export interface operations {
         parameters: {
             query?: {
                 project?: string | null;
+                /** @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case. */
                 q?: string;
                 acquired_from?: string | null;
                 acquired_to?: string | null;
@@ -22770,6 +22852,7 @@ export interface operations {
         parameters: {
             query?: {
                 project?: string | null;
+                /** @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case. */
                 q?: string;
                 acquired_from?: string | null;
                 acquired_to?: string | null;

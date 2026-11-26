@@ -8,7 +8,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { queryClient } from "./api";
-import { entity, KINASE, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
+import { entity, KINASE, NO_FACTS, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import {
   columnName,
   columnsWith,
@@ -374,6 +374,7 @@ describe("where an import starts", () => {
       created_at: "2026-11-11T09:00:00Z",
       external: false,
       acquired: null,
+      facts: NO_FACTS,
       used_by: { records: 0, runs: 0 },
     };
     answer("GET /api/v1/files", page([workbook]));

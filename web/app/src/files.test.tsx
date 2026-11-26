@@ -7,8 +7,17 @@ import type { Schemas } from "@ikisci/sdk";
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { field, KINASE, PROTEIN, renderApp, STRUCTURE } from "./entity-fixtures";
-import { acquiredText, filterOf, searchOf, spanText, usedByText } from "./files";
+import { field, KINASE, NO_FACTS, PROTEIN, renderApp, STRUCTURE } from "./entity-fixtures";
+import {
+  acquiredText,
+  factsLine,
+  filterOf,
+  readGroupColumns,
+  searchOf,
+  spanText,
+  statedFacts,
+  usedByText,
+} from "./files";
 import { answer, calls, page, project, signedIn } from "./test-server";
 
 type Row = Schemas["FileRowOut"];
@@ -26,6 +35,7 @@ function file(id: string, name: string, overrides: Partial<Row> = {}): Row {
     created_at: "2026-11-11T09:00:00Z",
     external: false,
     acquired: null,
+    facts: NO_FACTS,
     used_by: { records: 0, runs: 0 },
     ...overrides,
   };
@@ -149,7 +159,7 @@ describe("the file picker", () => {
     await user.type(within(picker).getByRole("searchbox", { name: "Search" }), "clone-17");
     expect(
       await within(picker).findByText(
-        "No files match. Try another part of the name, or fewer filters.",
+        "No files match. Try another part of the name or instrument, or fewer filters.",
       ),
     ).toBeInTheDocument();
     expect(calls("GET", "/api/v1/files").at(-1)?.query.get("q")).toBe("clone-17");
@@ -212,7 +222,16 @@ describe("a project's Files", () => {
         source_label: "from the ABIF trace’s run start (RUND and RUNT)",
       },
     });
-    answerFiles([acquired, A]);
+    const tube = file("5", "Tube_003.fcs", {
+      media_type: "application/vnd.isac.fcs",
+      facts: {
+        ...NO_FACTS,
+        instrument: { value: "LSRFortessa X-20", stated_in: "FCS keyword $CYT" },
+        serial: { value: "R658222R1012", stated_in: "FCS keyword $CYTSN" },
+        operator: { value: "Priya Raman", stated_in: "FCS keyword $OP" },
+      },
+    });
+    answerFiles([acquired, A, tube]);
     const { user, router } = await renderApp("/projects/kinase-atlas/files/");
     const table = await screen.findByRole("table", { name: "Files in Kinase Atlas" });
     const rows = within(table).getAllByRole("row");
@@ -220,7 +239,19 @@ describe("a project's Files", () => {
       "NameFormatSizeAcquiredAddedUsed by",
       expect.stringContaining("A01_clone-17-F.ab1"),
       expect.stringContaining("1abc.pdb"),
+      expect.stringContaining("Tube_003.fcs"),
     ]);
+    // What a file states of its instrument, beneath its name; nothing where it states none.
+    const stating = rows[3];
+    if (!stating) throw new Error("no fourth row");
+    expect(within(stating).getByText("LSRFortessa X-20 · R658222R1012 · Priya Raman")).toHaveClass(
+      "cell-meta",
+    );
+    expect(rows[2]?.querySelector(".list-fill .cell-meta")).toBeNull();
+    expect(screen.getByRole("searchbox", { name: "Search" })).toHaveAttribute(
+      "placeholder",
+      "Search by name, instrument or operator",
+    );
     expect(within(table).getByText("2026-03-14")).toHaveAttribute(
       "title",
       "2026-03-14 09:21:07, from the ABIF trace’s run start (RUND and RUNT)",
@@ -237,7 +268,7 @@ describe("a project's Files", () => {
       "href",
       `/files/${A.id}/`,
     );
-    expect(screen.getByText("2 files")).toBeInTheDocument();
+    expect(screen.getByText("3 files")).toBeInTheDocument();
 
     await user.type(screen.getByRole("searchbox", { name: "Search" }), "clone");
     await waitFor(() => {
@@ -335,6 +366,7 @@ describe("a project's Files", () => {
       },
       origin: { kind: "upload", run: null, uri: null, version: null },
       samples: [],
+      read_groups: [],
     });
     answer(
       `GET /api/v1/files/${A.id}/records`,
@@ -398,9 +430,105 @@ describe("a project's Files", () => {
     );
     expect(within(runs).getByText("Given as a param")).toBeInTheDocument();
   });
+
+  it("shows what a file states of its instrument, and where it states it", async () => {
+    signedIn();
+    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    const fcs = file("6", "Tube_003.fcs", {
+      media_type: "application/vnd.isac.fcs",
+      facts: {
+        ...NO_FACTS,
+        instrument: { value: "LSRFortessa X-20", stated_in: "FCS keyword $CYT" },
+        operator: { value: "Priya Raman", stated_in: "FCS keyword $OP" },
+      },
+    });
+    answer(`GET /api/v1/files/${fcs.id}`, {
+      ...fcs,
+      origin: { kind: "upload", run: null, uri: null, version: null },
+      samples: [],
+      read_groups: [],
+    });
+    answer(`GET /api/v1/files/${fcs.id}/records`, page([]));
+    answer(`GET /api/v1/files/${fcs.id}/runs`, page([]));
+    await renderApp(`/files/${fcs.id}/`);
+    await screen.findByRole("heading", { level: 1, name: "Tube_003.fcs" });
+    const summary = screen.getByText("Instrument").closest("dl");
+    if (!summary) throw new Error("no summary");
+    expect(within(summary).getByText("LSRFortessa X-20").closest("dd")).toHaveTextContent(
+      "LSRFortessa X-20 from FCS keyword $CYT",
+    );
+    expect(within(summary).getByText("from FCS keyword $OP")).toHaveClass("muted");
+    // What it doesn't state has no row, and a file without read groups no table of them.
+    expect(within(summary).queryByText("Serial number")).toBeNull();
+    expect(screen.queryByRole("heading", { name: /Read groups/ })).toBeNull();
+  });
+
+  it("shows an alignment's read groups as its header gives them", async () => {
+    signedIn();
+    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    const bam = file("7", "NA12878.bam", { media_type: "application/x-bam" });
+    answer(`GET /api/v1/files/${bam.id}`, {
+      ...bam,
+      origin: { kind: "upload", run: null, uri: null, version: null },
+      samples: [],
+      read_groups: [
+        { ID: "HV7KCDSX5.1", SM: "NA12878", LB: "lib1", PL: "ILLUMINA", DT: "2026-03-15" },
+        { ID: "HV7KCDSX5.2", SM: "NA12878", LB: "lib1", PL: "ILLUMINA" },
+      ],
+    });
+    answer(`GET /api/v1/files/${bam.id}/records`, page([]));
+    answer(`GET /api/v1/files/${bam.id}/runs`, page([]));
+    await renderApp(`/files/${bam.id}/`);
+    await screen.findByRole("heading", { level: 1, name: "NA12878.bam" });
+    expect(screen.getByRole("heading", { name: "Read groups 2" })).toBeInTheDocument();
+    const groups = screen.getByRole("table", { name: "Read groups in NA12878.bam" });
+    expect(
+      within(groups)
+        .getAllByRole("row")
+        .map((r) => r.textContent),
+    ).toEqual([
+      "IDSampleLibraryPlatformRun date",
+      "HV7KCDSX5.1NA12878lib1ILLUMINA2026-03-15",
+      "HV7KCDSX5.2NA12878lib1ILLUMINA—",
+    ]);
+    expect(within(groups).getByRole("columnheader", { name: "Sample" })).toHaveAttribute(
+      "title",
+      "@RG SM",
+    );
+    expect(screen.queryByText("Instrument")).toBeNull();
+  });
 });
 
 describe("a list of files says", () => {
+  it("what a file states, in the order its page shows it", () => {
+    const facts = {
+      ...NO_FACTS,
+      operator: { value: "USER", stated_in: "BMG MARS export header, User" },
+      protocol: { value: "472 ABS 384 QC", stated_in: "BMG MARS export header, Test name" },
+      instrument_name: { value: "ABI-3730-XL-1404-021", stated_in: "ABIF tag MCHN 1" },
+    };
+    expect(statedFacts(facts).map((f) => [f.label, f.value])).toEqual([
+      ["Instrument name", "ABI-3730-XL-1404-021"],
+      ["Operator", "USER"],
+      ["Protocol", "472 ABS 384 QC"],
+    ]);
+    // The instrument's name stands in for its model when that's all it states.
+    expect(factsLine(facts)).toBe("ABI-3730-XL-1404-021 · USER");
+    expect(factsLine(NO_FACTS)).toBe("");
+    expect(statedFacts(NO_FACTS)).toEqual([]);
+  });
+
+  it("the read groups' tags, a column for each any of them gives", () => {
+    expect(
+      readGroupColumns([
+        { ID: "a", DS: "Tumour" },
+        { ID: "b", PU: "HV7KCDSX5.1" },
+      ]).map(([tag]) => tag),
+    ).toEqual(["ID", "PU", "DS"]);
+  });
+
   it("when its data was acquired, as precisely as its source gave it", () => {
     expect(acquiredText("2026-03-14")).toBe("2026-03-14");
     expect(acquiredText("2026-03-14T09:21:07.25")).toBe("2026-03-14 09:21:07.25");

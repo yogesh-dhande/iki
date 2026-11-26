@@ -348,7 +348,12 @@ def build() -> MCPServer:
     async def find_files(
         project: Annotated[UUID | None, Field(description="Only this project's files.")] = None,
         q: Annotated[
-            str | None, Field(max_length=255, description="Part of the name, in any case.")
+            str | None,
+            Field(
+                max_length=255,
+                description="Part of the name, or of what the file states (instrument, serial "
+                "number, operator, software, protocol, read groups), in any case.",
+            ),
         ] = None,
         format: Annotated[
             list[str] | None,
@@ -396,7 +401,9 @@ def build() -> MCPServer:
         records and runs you can read that use it. Pass next_cursor to continue. The total
         stops at 1,000, with more_than_total true when more match. Each formats entry gives
         the format ID if declared, its label, media type and count under the other filters.
-        A format's aliases count together. Use get_file for the file's origin and uses."""
+        A format's aliases count together. Each file gives the facts it states (instrument,
+        serial, operator, software, protocol). Use get_file for its read groups, origin and
+        uses."""
         filters: Query = {
             "project": str(project) if project else None,
             "q": q,
@@ -427,9 +434,11 @@ def build() -> MCPServer:
         ] = None,
     ) -> CallToolResult:
         """Read a file's metadata, SHA-256, byte size, acquisition date, samples and origin
-        (including the URI and pinned version for a registration). The records page gives the
-        revisions that held it. The runs page lists the runs that read or made it. Each has
-        its own next_cursor. Use get_file_download_link when you need the bytes."""
+        (including the URI and pinned version for a registration), and what the file states
+        about itself: its facts (instrument, serial, operator, software, protocol, each with
+        where in the file it's stated) and a SAM or BAM file's read groups. The records page
+        gives the revisions that held it. The runs page lists the runs that read or made it.
+        Each has its own next_cursor. Use get_file_download_link when you need the bytes."""
         where = path("/files/{id}", id=str(file_id))
         file = await call("GET", where)
         records = await call(
@@ -1292,9 +1301,7 @@ def build() -> MCPServer:
 
     @server.tool(annotations=READ, title="Describe a workflow")
     async def describe_workflow(
-        name: Annotated[
-            str, Field(description="Its name, such as protein.translate_and_characterize.")
-        ],
+        name: Annotated[str, Field(description="A qualified workflow name from list_workflows.")],
     ) -> CallToolResult:
         """One workflow: its inputs, params (with a JSON Schema), and its steps in the order
         they start: the action each runs, where each input comes from, what it waits for,
@@ -1303,9 +1310,7 @@ def build() -> MCPServer:
 
     @server.tool(annotations=ADD, title="Run a workflow")
     async def run_workflow(
-        name: Annotated[
-            str, Field(description="The workflow, such as protein.translate_and_characterize.")
-        ],
+        name: Annotated[str, Field(description="The qualified name returned by list_workflows.")],
         project: Annotated[
             UUID, Field(description="Where its steps run. Entities they create belong to it.")
         ],
