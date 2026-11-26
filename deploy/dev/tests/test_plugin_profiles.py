@@ -10,7 +10,7 @@ from deploy.dev.fixtures.config import DEV, compose
 
 from iki_spec import lockfile, naming
 
-FIXTURE_PLUGINS = {"acme/lims_connector", "lab/hosted_models", "acme/example"}
+FIXTURE_PLUGINS = {"acme/lims_connector", "lab/hosted_models", "fixtures/worker_execution"}
 
 
 def test_fixture_lock_only_adds_its_plugins_and_compute(tmp_path: Path) -> None:

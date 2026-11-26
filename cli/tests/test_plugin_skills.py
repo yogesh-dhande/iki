@@ -21,7 +21,6 @@ from iki_cli.workers import bundle
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / "plugin-template"
 SKILLS = TEMPLATE / ".agents/skills"
-DNA = ROOT / "plugins/dna"
 MAIN_LINK = re.compile(r"https://github\.com/yogesh-dhande/iki/(?:blob|tree)/main/([^\s)#]+)")
 
 
@@ -119,9 +118,7 @@ def run_skill(
 
 def test_write_skill_generates_the_initial_migration(template: Path) -> None:
     shutil.rmtree(template / "migrations")
-    checked = run_skill(
-        template, "iki-write-plugin/scripts/validate-and-migrate.sh", ".", "--with", DNA
-    )
+    checked = run_skill(template, "iki-write-plugin/scripts/validate-and-migrate.sh", ".")
     assert checked.returncode == 0, checked.stdout + checked.stderr
     assert (template / "migrations/0001_initial.py").is_file()
 
@@ -150,7 +147,6 @@ def test_upgrade_skill_sends_the_built_candidate(
                 "iki-upgrade-plugin/scripts/build-and-preflight.sh",
                 "acme/example",
                 ".",
-                DNA,
                 IKI_URL=f"http://127.0.0.1:{server.server_port}",
                 IKI_TOKEN="fixture-token",
                 TMPDIR=str(tmp_path),

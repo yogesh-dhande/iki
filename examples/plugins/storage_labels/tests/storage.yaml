@@ -1,0 +1,16 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: assign_default_storage
+description: Only the sample without a location receives the lab's configured code.
+action: assign_storage
+settings: { default_storage: "ln2" }
+inputs:
+  sample:
+    - values: { name: Frozen blood aliquot, kind: blood }
+    - values: { name: Cell suspension, kind: cells, storage: "4 °C fridge" }
+expect:
+  output:
+    updates:
+      sample:
+        - entity: "00000000-0000-7000-8003-000000000001"
+          values: { storage: "ln2" }

@@ -1,30 +1,36 @@
-# Action tests: `iki plugin test . --with …` makes the run input the server
-# would, runs each action with `iki-worker run --local`, and compares what it
-# writes with `expect`. Only what `expect` gives is compared.
 apiVersion: iki/v1
 kind: ActionTest
 name: default_storage
-description: A sample with no storage gets the deployment's default; one with storage keeps it.
+description: Assign the default location to a new sample.
 action: assign_storage
 inputs:
-  sample:
-    - values: { name: S1, kind: blood }
-    - values: { name: S2, kind: cells, storage: "4 °C fridge" }
+  sample: [{ values: { name: Reference vial } }]
 expect:
   output:
     updates:
-      sample:
-        - values: { storage: "-80 °C freezer" }
+      sample: [{ values: { storage: "-80 °C freezer" } }]
 ---
 apiVersion: iki/v1
 kind: ActionTest
-name: tidied
-action: tidy_storage
+name: chosen_storage
+description: Use the lab's chosen location when one is supplied.
+action: assign_storage
+params: { location: Cold room }
 inputs:
-  sample:
-    - values: { name: S1, kind: blood, storage: "  -80C   freezer " }
+  sample: [{ values: { name: Reference vial } }]
 expect:
   output:
     updates:
-      sample:
-        - values: { storage: "-80 °C freezer" }
+      sample: [{ values: { storage: Cold room } }]
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: existing_storage
+description: Keep the location already recorded.
+action: assign_storage
+inputs:
+  sample: [{ values: { name: Reference vial, storage: Cold room } }]
+expect:
+  output:
+    updates:
+      sample: []
