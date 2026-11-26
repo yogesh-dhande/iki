@@ -2681,7 +2681,7 @@ def signatures(alice: requests.Session, project: dict[str, Any]) -> None:
     )
     work = created(alice, project, "iki/requests.PlainRequest", {"title": "Training measurement"})
     sample = created(
-        alice, project, "iki/samples.Sample", {"source": tube["id"], "purpose": work["id"]}
+        alice, project, "iki/samples.ReviewedSample", {"source": tube["id"], "purpose": work["id"]}
     )
     draw = api_call(
         alice,

@@ -22,7 +22,7 @@ FIXTURES = ROOT / "web" / "app" / "src" / "flow-fixtures.json"
 DRAWN = {
     "lab_roles": (),
     "requests": ("QCDeliverable", "Request"),
-    "samples": ("Sample",),
+    "samples": ("ReviewedSample", "PlainSample"),
     "lots": ("Lot",),
     "plate_assays": ("ResearchAssayResult", "QCAssayResult"),
 }

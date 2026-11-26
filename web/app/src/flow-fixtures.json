@@ -498,8 +498,8 @@
       ]
     },
     {
-      "type": "iki/samples.Sample",
-      "label": "Sample",
+      "type": "iki/samples.ReviewedSample",
+      "label": "Reviewed sample",
       "fields": [
         {
           "name": "status",
@@ -686,6 +686,143 @@
             },
             {
               "from": "reviewed",
+              "to": "retesting",
+              "conditional": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "iki/samples.PlainSample",
+      "label": "Plain sample",
+      "fields": [
+        {
+          "name": "status",
+          "label": "Status",
+          "initial": "pending",
+          "states": [
+            {
+              "name": "pending",
+              "label": "Awaiting draw",
+              "description": null,
+              "set_by": [],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [],
+              "signatures": []
+            },
+            {
+              "name": "received",
+              "label": "Received",
+              "description": null,
+              "set_by": ["iki/lab_roles.coordinator", "iki/lab_roles.analyst"],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "drawn",
+                  "description": null,
+                  "check": "state.from == \"pending\" && size(draws) == 1",
+                  "when": null,
+                  "message": "Record the draw from the assigned source before receiving this sample."
+                }
+              ],
+              "signatures": []
+            },
+            {
+              "name": "in_testing",
+              "label": "In testing",
+              "description": null,
+              "set_by": ["iki/lab_roles.analyst"],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "received",
+                  "description": null,
+                  "check": "state.from == \"received\"",
+                  "when": null,
+                  "message": "Receive the sample before testing it."
+                }
+              ],
+              "signatures": []
+            },
+            {
+              "name": "done",
+              "label": "Done",
+              "description": "Used or measured. Return it to testing, with a reason, to correct it.",
+              "set_by": ["iki/lab_roles.analyst"],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "started",
+                  "description": null,
+                  "check": "state.from in [\"received\", \"in_testing\", \"retesting\"]",
+                  "when": null,
+                  "message": "Receive the sample before completing it."
+                }
+              ],
+              "signatures": []
+            },
+            {
+              "name": "retesting",
+              "label": "Returned to testing",
+              "description": null,
+              "set_by": ["iki/lab_roles.analyst"],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": "required",
+              "guards": [
+                {
+                  "name": "done",
+                  "description": null,
+                  "check": "state.from == \"done\"",
+                  "when": null,
+                  "message": "Return a completed sample to testing."
+                }
+              ],
+              "signatures": []
+            }
+          ],
+          "transitions": [
+            {
+              "from": "pending",
+              "to": "received",
+              "conditional": true
+            },
+            {
+              "from": "received",
+              "to": "in_testing",
+              "conditional": false
+            },
+            {
+              "from": "received",
+              "to": "done",
+              "conditional": false
+            },
+            {
+              "from": "in_testing",
+              "to": "done",
+              "conditional": false
+            },
+            {
+              "from": "retesting",
+              "to": "done",
+              "conditional": false
+            },
+            {
+              "from": "done",
               "to": "retesting",
               "conditional": false
             }

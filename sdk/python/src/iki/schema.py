@@ -3132,7 +3132,7 @@ class NotificationOut(TypedDict):
     count: int
     created_at: str
     id: str
-    #: What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.Sample.in_review.
+    #: What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.ReviewedSample.in_review.
     kind: str
     #: What people's settings call its kind.
     kind_label: str
