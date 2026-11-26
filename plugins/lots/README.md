@@ -12,7 +12,7 @@ finds them all.
 | ------------------------ | -------------- | --------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `iki/lots.OligoLot`      | `OLOT-000001`  | `iki/oligo.Oligonucleotide`                               | nmol, by µM    | Synthesis scale, purification, counterion, purity; yield in OD260 and nmol; mass by ESI-MS against the one its HELM gives                       |
 | `iki/lots.PlasmidPrep`   | `PREP-000001`  | `iki/plasmid.Plasmid`                                     | µg, by ng/µL   | Prep scale and method, kit, host strain; concentration from A260; A260/A280, A260/A230, supercoiled share, endotoxin; how it was verified       |
-| `iki/lots.ProteinLot`    | `PLOT-000001`  | `iki/protein.Protein`, `iki/core.Complex`                 | mg, by mg/mL   | Concentration from A280 and its sequence's ε280; purity and aggregates by SEC; endotoxin; formulation                                           |
+| `iki/lots.ProteinLot`    | `PLOT-000001`  | `iki/protein.Protein`, `iki/core.Complex`                 | mg, by mg/mL   | Concentration from A280 and its sequence's ε280; purity and aggregates, by SEC unless named; endotoxin; formulation                             |
 | `iki/lots.ConjugateLot`  | `CJLOT-000001` | `iki/conjugate.Conjugate`                                 | mg, by mg/mL   | As a protein lot's, with its own measured ε280; DAR from its drug load distribution (HIC, LC-MS, reduced chains), unconjugated share, free drug |
 | `iki/lots.PolymerLot`    | `PYLOT-000001` | `iki/polymer.Polymer`                                     | mg             | Mn, Mw, Mp, dispersity (Mw/Mn), how each was measured and against which standards                                                               |
 | `iki/lots.GenericLot`    | `GLOT-000001`  | any entity                                                | mg, by mg/mL   | Concentration and purity                                                                                                                        |
@@ -20,7 +20,18 @@ finds them all.
 
 `iki/lots.BiologicLot` is the abstract parent of the protein and conjugate
 lots: their A280, path length, dilution, ε280, concentration and
-its method, SEC purity and aggregates, endotoxin and formulation.
+its method, purity and aggregates with the methods that measured them (SEC unless
+named), endotoxin and formulation.
+
+### A lab's own methods
+
+Each menu of methods lists the common ones, and **Other** for a lab's own, which the
+record then names in the field beside it: a biologic lot's and a plasmid prep's
+concentration method, a plasmid prep's purification and how it was verified, and a
+polymer lot's Mn and Mw methods and SEC calibration standards. A rule keeps the two
+consistent: Other needs its name, and a name beside a listed method is refused. Iki's
+own calculations run only for the methods they implement, A260 and A280, so a lab's
+method is entered as measured.
 
 ## What every lot has
 
