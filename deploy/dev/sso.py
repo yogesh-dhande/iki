@@ -5401,11 +5401,16 @@ def mouse_stocks(alice: requests.Session, project: dict[str, Any]) -> None:
         project,
         plugin + "register_mgi_strain",
         {},
-        {"file": report, "mgi_id": "MGI:3028467", "jax_stock": "000664"},
+        {"file": report, "mgi_id": "MGI:3028467"},
     )
     [effect] = imported["effects"]
     reference = record(alice, effect["entity"])["values"]
-    if (reference["nomenclature"], reference["jax_stock"]) != ("C57BL/6J", "000664"):
+    # The MGI report has no repository stocks: a JAX stock comes from the JAX catalogue.
+    if (reference["catalogue"], reference["nomenclature"], reference.get("jax_stock")) != (
+        "mgi",
+        "C57BL/6J",
+        None,
+    ):
         fail(f"{imported['hrid']} registered an unexpected catalogue strain {reference}")
     # https://www.jax.org/strain/000058 and https://www.informatics.jax.org/allele/MGI:1855985
     allele = created(
@@ -5437,14 +5442,26 @@ def mouse_stocks(alice: requests.Session, project: dict[str, Any]) -> None:
         alice,
         project,
         plugin + "MouseCryostock",
-        {**banked, "kind": "sperm", "genotype": donor["id"], "barcode": f"SYNTHETIC-S-{tag}"},
+        {
+            **banked,
+            "kind": "sperm",
+            "carrier": "straw",
+            "genotype": donor["id"],
+            "barcode": f"SYNTHETIC-S-{tag}",
+        },
     )
     embryo_code = f"SYNTHETIC-E-{tag}"
     embryos = created(
         alice,
         project,
         plugin + "MouseCryostock",
-        {**banked, "kind": "embryos", "embryos_at_banking": 4, "barcode": embryo_code},
+        {
+            **banked,
+            "kind": "embryos",
+            "carrier": "cryovial",
+            "embryos_at_banking": 4,
+            "barcode": embryo_code,
+        },
         {"value": 100, "unit": "uL"},
     )
     box = created(alice, project, plugin + "MouseCryobox", {"name": "Synthetic mouse cryobox"})
