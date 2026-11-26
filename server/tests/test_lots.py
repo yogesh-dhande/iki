@@ -15,7 +15,7 @@ import pytest
 from first_party_dependencies import FIRST_PARTY, PLUGINS, ROOT, build_order
 from test_plugin_migrations import database, iki, migrate, orm, sync
 
-from iki_spec import schemas
+from iki_spec import rules, schemas
 from iki_spec.validate import load_plugin
 
 LOTS = PLUGINS / "lots"
@@ -137,6 +137,50 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "a_person",
     }
     assert {s for st in states.values() for s in st.set_by} == {"iki/lots.qa"}
+
+
+#: Each lot type's methods chosen from a menu, with Other for a lab's own, which it names.
+OTHER_METHODS = {
+    # Protein and conjugate lots have their biologic lot's.
+    "iki/lots.BiologicLot": ("concentration_method",),
+    "iki/lots.PlasmidPrep": ("method", "concentration_method", "verified_by"),
+    "iki/lots.PolymerLot": ("mn_method", "mw_method", "calibration_standard"),
+}
+
+
+@pytest.mark.parametrize(("type_name", "fields"), OTHER_METHODS.items())
+def test_a_lab_names_its_own_method_as_other(type_name: str, fields: tuple[str, ...]) -> None:
+    """A method outside the menu is Other with the lab's name for it; a name beside a
+    listed method is refused, so a record never says two things."""
+    plugin = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS]).plugin
+    assert plugin is not None
+    spec = plugin.types[type_name]
+    variables = rules.rule_variables(rules.record_schema(spec.label, spec.fields, None))
+    for name in fields:
+        assert "other" in (spec.fields[name].values or ())
+        rule = spec.rules[f"{name}_other_is_named"]
+        assert rule.check is not None
+        listed = next(v for v in spec.fields[name].values or () if v != "other")
+        named = "A lab method (SOP-AN-112 rev 3)"
+        cases = [
+            ({name: "other", f"{name}_other": named}, True),
+            ({name: "other"}, False),
+            ({name: listed, f"{name}_other": named}, False),
+            ({name: listed}, True),
+            ({}, True),
+        ]
+        outcomes = rules.evaluate(
+            variables, [(rule.check, rules.CONDITION)], [{"record": v} for v, _ in cases]
+        )
+        assert [row[0].value for row in outcomes] == [ok for _, ok in cases], name
+
+
+def test_a_biologics_purity_and_aggregates_say_how_they_were_measured() -> None:
+    plugin = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS]).plugin
+    assert plugin is not None
+    fields = plugin.types["iki/lots.BiologicLot"].fields
+    assert fields["purity"].label == "Purity"
+    assert fields["purity_method"].type == fields["aggregates_method"].type == "string"
 
 
 def test_each_kind_of_lot_works_out_its_values_when_its_recorded_and_measured() -> None:
