@@ -1926,6 +1926,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entity-types/{name}/import-template.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A type's import template
+         * @description A CSV file with a heading for each field of the type a spreadsheet import can set
+         *     (ADR 0178), in the type's order, a quantity's with its unit: `Concentration (mg/mL)`.
+         *     The import maps each heading back to its field. No heading starts as a formula would
+         *     (ADR 0175), and the file starts with a byte order mark, so a spreadsheet opens its
+         *     units' symbols as they are.
+         */
+        get: operations["iki_server_api_sheets_import_template"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entries/{ref}": {
         parameters: {
             query?: never;
@@ -3138,6 +3162,54 @@ export interface paths {
         get: operations["iki_server_api_requests_list_services"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/sheet-edits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save a sheet's changes, all or none
+         * @description Makes the changes reviewed (ADR 0228, 0207): each record's, from the revision read,
+         *     as a revision with the reason; each new record, with its starting amount and place.
+         *     All of them are made, or none. If a record changed since its revision, nothing is
+         *     (412, ``stale``, its rows in ``rows``); if any row has a problem, nothing is (422,
+         *     each problem at ``#/rows/<n>/values/<field>``, ``…/location``, ``…/amount`` or the row).
+         *     The audit trail records them as one change, ``records.sheet_saved``.
+         */
+        post: operations["iki_server_api_sheets_save_sheet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/sheet-edits/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a sheet's changes
+         * @description Reads each row's cells as the type's fields read a spreadsheet's (ADR 0178), and
+         *     finds what saving them would do by making the changes, then undoing them: so a cell
+         *     is held to every rule an edit is. Nothing is saved, and no HRID is spent. Needs Editor
+         *     in the project, and in each record's own.
+         */
+        post: operations["iki_server_api_sheets_check_sheet"];
         delete?: never;
         options?: never;
         head?: never;
@@ -16770,6 +16842,250 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /** SheetEditCheckIn */
+        SheetEditCheckIn: {
+            locale?: components["schemas"]["SheetEditLocaleIn"] | null;
+            /** Rows */
+            rows: components["schemas"]["SheetEditCheckRowIn"][];
+            /**
+             * Type
+             * @description The type of the sheet's records, such as acme/protein.Sample.
+             */
+            type: string;
+        };
+        /** SheetEditCheckOut */
+        SheetEditCheckOut: {
+            /** Rows */
+            rows: components["schemas"]["SheetEditRowOut"][];
+        };
+        /** SheetEditCheckRowIn */
+        SheetEditCheckRowIn: {
+            /**
+             * Amount
+             * @description How much a new record starts with, in its type's amount unit or its own: `500`, `0.5 mL`.
+             */
+            amount?: string | null;
+            /**
+             * Cells
+             * @description Each changed cell's text, by its field: null or empty to empty it.
+             */
+            cells?: {
+                [key: string]: string | null;
+            };
+            /**
+             * Entity
+             * @description The record it is; none for a new one.
+             */
+            entity?: string | null;
+            /**
+             * Key
+             * @description The row, as the caller names it.
+             */
+            key: string;
+            /**
+             * Location
+             * @description A new record's place in storage: a container by its ID, code or name, and its position, such as `BOX-000002 A1`; just the container for its next free one.
+             */
+            location?: string | null;
+            /**
+             * Revision
+             * @description The record's revision the cells were read from.
+             */
+            revision?: number | null;
+        };
+        /**
+         * SheetEditLocaleIn
+         * @description How the sheet's text writes numbers and dates, as the person says (ADR 0178). Until
+         *     it's said, a cell that reads two ways (1,234; 03/04/2026) is a problem, never a guess.
+         */
+        SheetEditLocaleIn: {
+            /**
+             * Dates
+             * @description day_first: 31/12/2026; month_first: 12/31/2026. Null until you know.
+             */
+            dates?: ("day_first" | "month_first") | null;
+            /**
+             * Decimal
+             * @description point: 1,234.5; comma: 1.234,5. Null until you know.
+             */
+            decimal?: ("point" | "comma") | null;
+            /**
+             * Serial Dates
+             * @description Plain numbers in date columns are Excel serial dates (46023).
+             * @default false
+             */
+            serial_dates: boolean;
+            /**
+             * Time Zone
+             * @description The IANA time zone of a date and time that gives none, such as the person's own: Europe/London. Without one, such a cell is a problem.
+             */
+            time_zone?: string | null;
+        };
+        /** SheetEditPlaceIn */
+        SheetEditPlaceIn: {
+            /**
+             * Container
+             * Format: uuid
+             * @description The container it goes in.
+             */
+            container: string;
+            /**
+             * Position
+             * @description Its position, such as A1; none for the next free one.
+             */
+            position?: string | null;
+        };
+        /** SheetEditPlaceOut */
+        SheetEditPlaceOut: {
+            /**
+             * Container
+             * Format: uuid
+             */
+            container: string;
+            /** Hrid */
+            hrid: string;
+            /** Position */
+            position: string | null;
+            /**
+             * Shown
+             * @description As the sheet says it: `BOX-000002 A1`.
+             */
+            shown: string;
+            /** Title */
+            title: string;
+        };
+        /** SheetEditProblemOut */
+        SheetEditProblemOut: {
+            /**
+             * At
+             * @description Where: `values/<field>` for a cell, `location`, `amount`, or `` for the row.
+             */
+            at: string;
+            /** Detail */
+            detail: string;
+            /**
+             * Kind
+             * @description `ambiguous`: the cell reads two ways, by how the sheet writes numbers or dates; `stale`: the record changed since its revision was read.
+             * @enum {string}
+             */
+            kind: "invalid" | "ambiguous" | "stale";
+        };
+        /** SheetEditRowOut */
+        SheetEditRowOut: {
+            amount?: components["schemas"]["AmountIn"] | null;
+            /** Amount Shown */
+            amount_shown?: string | null;
+            /**
+             * Entity
+             * @description The record it changes; none for a new one.
+             */
+            entity: string | null;
+            /**
+             * Held
+             * @description Rules that hold it for review once saved (ADR 0127): saving needs `hold_reason`.
+             */
+            held: string[];
+            /** Hrid */
+            hrid: string | null;
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @description What saving it does: `edited`; `unchanged`; `created`, `registered` (a new registry entry) or `added` (a record of an entry already registered); `blank`, a new row with nothing in it; or `failed`, with its problems.
+             * @enum {string}
+             */
+            kind: "edited" | "unchanged" | "created" | "registered" | "added" | "blank" | "failed";
+            location?: components["schemas"]["SheetEditPlaceOut"] | null;
+            /** Problems */
+            problems: components["schemas"]["SheetEditProblemOut"][];
+            /**
+             * Revision
+             * @description The record's revision the check read.
+             */
+            revision: number | null;
+            /**
+             * Shown
+             * @description Each cell as the record would have it, as the grid and its CSV say it.
+             */
+            shown: {
+                [key: string]: string;
+            };
+            /**
+             * Values
+             * @description Each cell as it reads, as an edit gives it: send these to save.
+             */
+            values: {
+                [key: string]: unknown;
+            };
+        };
+        /** SheetEditSaveIn */
+        SheetEditSaveIn: {
+            /**
+             * Hold Reason
+             * @description Why to save rows that break rules holding records for review (ADR 0127).
+             */
+            hold_reason?: string | null;
+            /** @description How the cells were read, for the audit trail. */
+            locale?: components["schemas"]["SheetEditLocaleIn"] | null;
+            /**
+             * Reason
+             * @description Why, for each revision and the audit trail.
+             */
+            reason: string;
+            /** Rows */
+            rows: components["schemas"]["SheetEditSaveRowIn"][];
+            /** Type */
+            type: string;
+        };
+        /** SheetEditSaveOut */
+        SheetEditSaveOut: {
+            /** Created */
+            created: number;
+            /** Edited */
+            edited: number;
+            /** Rows */
+            rows: components["schemas"]["SheetEditSavedRowOut"][];
+        };
+        /** SheetEditSaveRowIn */
+        SheetEditSaveRowIn: {
+            amount?: components["schemas"]["AmountIn"] | null;
+            /**
+             * Entity
+             * @description The record it changes; none for a new one.
+             */
+            entity?: string | null;
+            /** Key */
+            key: string;
+            location?: components["schemas"]["SheetEditPlaceIn"] | null;
+            /**
+             * Revision
+             * @description The revision of the record that was read and reviewed: required for a record. If it's changed since, nothing is saved.
+             */
+            revision?: number | null;
+            /**
+             * Values
+             * @description Each field's value, as the check read it.
+             */
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        /** SheetEditSavedRowOut */
+        SheetEditSavedRowOut: {
+            /** Entity */
+            entity: string | null;
+            /** Hrid */
+            hrid: string | null;
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "edited" | "unchanged" | "created" | "registered" | "added" | "blank" | "failed";
+            /** Revision */
+            revision: number | null;
+        };
         /**
          * SheetLocaleIn
          * @description How the sheet's text writes numbers and dates. Until it's said, a cell that reads
@@ -22607,6 +22923,28 @@ export interface operations {
             };
         };
     };
+    iki_server_api_sheets_import_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description As CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
+                };
+            };
+        };
+    };
     iki_server_api_registries_get_entry: {
         parameters: {
             query?: never;
@@ -24304,6 +24642,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServiceOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_sheets_save_sheet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SheetEditSaveIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SheetEditSaveOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_sheets_check_sheet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SheetEditCheckIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SheetEditCheckOut"];
                 };
             };
         };

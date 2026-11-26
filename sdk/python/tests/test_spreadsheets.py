@@ -1,9 +1,11 @@
 """Importing spreadsheets through the SDK (ADR 0178): start, map, preview, commit."""
 
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
 from fake_iki import FakeIki, config, isolated, problem, store_with
 
@@ -200,3 +202,74 @@ def test_waiting_longer_than_allowed_raises(fake: FakeIki, client: Client) -> No
     fake.on("GET", BASE, imported("previewing"))
     with pytest.raises(iki.TimedOut, match="still previewing"):
         client.spreadsheets.preview(IMPORT, revision=2, timeout=0)
+
+
+# --- Editing records as a sheet (ADR 0228) ----------------------------------------------
+
+EDITS = f"/api/v1/projects/{PROJECT}/sheet-edits"
+SAMPLE = "00000000-0000-7000-8000-0000000000c1"
+
+
+def checked_row(key: str, **extra: Any) -> dict[str, Any]:
+    return {
+        "key": key,
+        "kind": "edited",
+        "entity": SAMPLE,
+        "hrid": "SMP-000004",
+        "revision": 3,
+        "values": {"purity": 98.5},
+        "shown": {"purity": "98.5"},
+        "location": None,
+        "amount": None,
+        "amount_shown": None,
+        "problems": [],
+        "held": False,
+        **extra,
+    }
+
+
+def test_edits_are_checked_in_parts_and_saved_as_checked(fake: FakeIki, client: Client) -> None:
+    fake.on(
+        "POST",
+        f"{EDITS}/check",
+        lambda r: httpx2.Response(
+            200, json={"rows": [checked_row(row["key"]) for row in json.loads(r.content)["rows"]]}
+        ),
+    )
+    rows = [
+        {"key": f"r{i}", "entity": SAMPLE, "revision": 3, "cells": {"purity": "98,5"}}
+        for i in range(250)
+    ]
+    found = client.spreadsheets.check_edits(
+        PROJECT, type="acme/protein.Sample", rows=rows, locale={"decimal": "comma"}
+    )
+    sent = [json.loads(r.content) for r in fake.sent("POST", f"{EDITS}/check")]
+    assert [len(b["rows"]) for b in sent] == [200, 50]
+    assert sent[0]["locale"] == {"decimal": "comma"}
+    assert len(found) == 250
+
+    fake.on("POST", EDITS, {"rows": [], "edited": 1, "created": 0})
+    client.spreadsheets.save_edits(
+        PROJECT, type="acme/protein.Sample", rows=found[:1], reason="Purity by SEC"
+    )
+    assert fake.body("POST", EDITS) == {
+        "type": "acme/protein.Sample",
+        "reason": "Purity by SEC",
+        "rows": [{"key": "r0", "values": {"purity": 98.5}, "entity": SAMPLE, "revision": 3}],
+    }
+
+
+def test_a_record_changed_since_its_check_raises_and_saves_nothing(
+    fake: FakeIki, client: Client
+) -> None:
+    fake.on("POST", EDITS, problem(412, "SMP-000004 changed since you read it.", "stale"))
+    with pytest.raises(iki.Conflict):
+        client.spreadsheets.save_edits(
+            PROJECT, type="acme/protein.Sample", rows=[checked_row("a")], reason="QC"
+        )
+
+
+def test_a_types_template_is_its_csv_text(fake: FakeIki, client: Client) -> None:
+    path = "/api/v1/entity-types/acme/protein.Sample/import-template.csv"
+    fake.on("GET", path, httpx2.Response(200, content='﻿"Label","Purity"\r\n'.encode()))
+    assert client.spreadsheets.template("acme/protein.Sample") == '"Label","Purity"\r\n'

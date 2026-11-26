@@ -96,6 +96,7 @@ ACTIONS: dict[str, str] = {
     "file.added": "Added a file",
     "file.download_link_issued": "Issued a file download link",
     "spreadsheet.imported": "Imported a spreadsheet's rows as records",
+    "records.sheet_saved": "Changed and added records in a sheet, all at once, with a reason",
     "spreadsheet_mapping.saved": "Saved a mapping of a spreadsheet's columns",
     "spreadsheet_mapping.changed": "Changed a saved mapping of a spreadsheet's columns",
     "spreadsheet_mapping.deleted": "Deleted a saved mapping of a spreadsheet's columns",
