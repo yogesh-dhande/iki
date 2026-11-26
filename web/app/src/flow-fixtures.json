@@ -12,6 +12,9 @@
     "iki/plate_assays.analyst": "Assay analyst",
     "iki/plate_assays.qa": "Assay QA",
     "iki/plate_assays.reviewer": "Assay reviewer",
+    "iki/proteomics.analyst": "Proteomics analyst",
+    "iki/proteomics.qa": "Proteomics QA",
+    "iki/proteomics.reviewer": "Proteomics reviewer",
     "iki/stability.analyst": "Stability analyst",
     "iki/stability.coordinator": "Stability coordinator",
     "iki/stability.qa": "Stability QA",
@@ -1591,6 +1594,231 @@
             {
               "from": "recorded",
               "to": "signed",
+              "conditional": true
+            },
+            {
+              "from": "recorded",
+              "to": "submitted",
+              "conditional": true
+            },
+            {
+              "from": "submitted",
+              "to": "reviewed",
+              "conditional": true
+            },
+            {
+              "from": "reviewed",
+              "to": "released",
+              "conditional": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "iki/proteomics.ProteomicsResult",
+      "label": "Proteomics search result",
+      "fields": [
+        {
+          "name": "review",
+          "label": "Review",
+          "initial": "recorded",
+          "states": [
+            {
+              "name": "recorded",
+              "label": "Recorded",
+              "description": null,
+              "set_by": ["iki/proteomics.analyst", "iki/proteomics.reviewer", "iki/proteomics.qa"],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": "required",
+              "guards": [],
+              "signatures": []
+            },
+            {
+              "name": "signed_off",
+              "label": "Signed off",
+              "description": null,
+              "set_by": ["iki/proteomics.reviewer"],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "reviewed_procedure",
+                  "description": null,
+                  "check": "record.review_flow != \"record_only\"",
+                  "when": null,
+                  "message": "This result was recorded under Record only, which has no sign-off."
+                },
+                {
+                  "name": "research",
+                  "description": null,
+                  "check": "record.review_flow == \"research\" && state.from == \"recorded\"",
+                  "when": null,
+                  "message": "Sign off a recorded research result."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "review",
+                  "meaning_label": "Review",
+                  "verb": "Reviewed",
+                  "label": "Review",
+                  "statement": "I reviewed this record and found it in order.",
+                  "roles": ["iki/proteomics.reviewer"]
+                }
+              ]
+            },
+            {
+              "name": "submitted",
+              "label": "Submitted",
+              "description": null,
+              "set_by": ["iki/proteomics.analyst"],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "reviewed_procedure",
+                  "description": null,
+                  "check": "record.review_flow != \"record_only\"",
+                  "when": null,
+                  "message": "This result was recorded under Record only, which has no sign-off."
+                },
+                {
+                  "name": "qc",
+                  "description": null,
+                  "check": "record.review_flow == \"regulated_qc\" && state.from == \"recorded\"",
+                  "when": null,
+                  "message": "Submit a recorded result in the regulated QC flow."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "authorship",
+                  "meaning_label": "Authorship",
+                  "verb": "Authored",
+                  "label": "Authorship",
+                  "statement": "I made this record, and what it says is accurate and complete.",
+                  "roles": ["iki/proteomics.analyst"]
+                }
+              ]
+            },
+            {
+              "name": "reviewed",
+              "label": "Independently reviewed",
+              "description": null,
+              "set_by": ["iki/proteomics.reviewer"],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "reviewed_procedure",
+                  "description": null,
+                  "check": "record.review_flow != \"record_only\"",
+                  "when": null,
+                  "message": "This result was recorded under Record only, which has no sign-off."
+                },
+                {
+                  "name": "submitted",
+                  "description": null,
+                  "check": "record.review_flow == \"regulated_qc\" && state.from == \"submitted\"",
+                  "when": null,
+                  "message": "Review the analyst's signed submission."
+                },
+                {
+                  "name": "independent",
+                  "description": null,
+                  "check": "history.review[0].by != actor.person && last.review.submitted.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)",
+                  "when": null,
+                  "message": "A reviewer independent of the creator, submitter and editors must sign."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "review",
+                  "meaning_label": "Review",
+                  "verb": "Reviewed",
+                  "label": "Review",
+                  "statement": "I reviewed this record and found it in order.",
+                  "roles": ["iki/proteomics.reviewer"]
+                }
+              ]
+            },
+            {
+              "name": "released",
+              "label": "QA released",
+              "description": null,
+              "set_by": ["iki/proteomics.qa"],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "reviewed_procedure",
+                  "description": null,
+                  "check": "record.review_flow != \"record_only\"",
+                  "when": null,
+                  "message": "This result was recorded under Record only, which has no sign-off."
+                },
+                {
+                  "name": "reviewed",
+                  "description": null,
+                  "check": "state.from == \"reviewed\" && last.review.reviewed.from == \"submitted\"",
+                  "when": null,
+                  "message": "Release a result after its independent review."
+                },
+                {
+                  "name": "independent",
+                  "description": null,
+                  "check": "history.review[0].by != actor.person && last.review.submitted.by != actor.person && last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)",
+                  "when": null,
+                  "message": "QA release requires a signer independent of the creator, analyst, reviewer and editors."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "approval",
+                  "meaning_label": "Approval",
+                  "verb": "Approved",
+                  "label": "QA release",
+                  "statement": "I approve this record.",
+                  "roles": ["iki/proteomics.qa"]
+                }
+              ]
+            }
+          ],
+          "transitions": [
+            {
+              "from": "signed_off",
+              "to": "recorded",
+              "conditional": false
+            },
+            {
+              "from": "submitted",
+              "to": "recorded",
+              "conditional": false
+            },
+            {
+              "from": "reviewed",
+              "to": "recorded",
+              "conditional": false
+            },
+            {
+              "from": "released",
+              "to": "recorded",
+              "conditional": false
+            },
+            {
+              "from": "recorded",
+              "to": "signed_off",
               "conditional": true
             },
             {

@@ -1,4 +1,5 @@
-"""Each project chooses its release testing, stability and prep verification review (ADR 0240).
+"""Each project chooses its release testing, stability, prep verification and omics results'
+review (ADRs 0240 and 0266).
 
 The recipes are checked against the plugins' own manifests. The installed plugins then
 show that a project's choice reaches its runs, that a Research project needs no QA grant
@@ -30,6 +31,7 @@ from iki_server.entities import services, states
 from iki_server.entities.models import Entity
 from iki_server.files.models import File
 from iki_server.org.models import LabRoleGrant, Project, ProjectMembership, ProjectRole
+from iki_server.org.services import Refused
 from iki_server.runs import catalog, queue, results
 from iki_server.runs import services as runs
 from iki_server.runs.models import ActionRun, EffectKind, Job, RunEffect
@@ -41,10 +43,13 @@ from iki_spec.validate import load_plugin
 __all__ = ["database"]
 
 PROCEDURES = (starters.LOT_RELEASE_TESTING, starters.STABILITY_STUDY, starters.PREP_VERIFICATION)
+#: Omics results pin their flow when an import records them, and may be kept without
+#: sign-off (ADR 0266).
+RESULT_REVIEWS = (starters.PROTEOMICS_REVIEW, starters.BIOLOGICS_MS_REVIEW)
 QC = "iki/qc_release."
 
 
-@pytest.mark.parametrize("recipe", PROCEDURES, ids=lambda r: r.id)
+@pytest.mark.parametrize("recipe", PROCEDURES + RESULT_REVIEWS, ids=lambda r: r.id)
 def test_each_recipe_is_its_plugins_own(recipe: starters.Starter) -> None:
     """Its roles, setting, types and states are declared by the plugin that offers it, and
     each flow asks for exactly the roles that sign its route."""
@@ -77,13 +82,22 @@ def test_each_recipe_is_its_plugins_own(recipe: starters.Starter) -> None:
             assert flow not in recipe.independent_roles
             assert required < set(recipe.required_roles["regulated_qc"])
             assert not [r for r in required if r.endswith("analyst")]
+        # Record only stays where records start: no state to sign, no one to name.
+        if flow == "record_only":
+            assert list(route) == [field["initial"]]
+            assert required == set() and flow not in recipe.independent_roles
 
 
 def test_the_installed_procedures_follow_each_projects_choice(
     tmp_path: Path, database: str
 ) -> None:
     build = tmp_path / "build"
-    plugins = build_order(PLUGINS / "qc_release", PLUGINS / "stability")
+    plugins = build_order(
+        PLUGINS / "qc_release",
+        PLUGINS / "stability",
+        PLUGINS / "proteomics",
+        PLUGINS / "biologics_ms",
+    )
     built = iki("plugin", "build", *plugins, "--output", build, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     # The deployment's default is the stricter flow. A project chooses Research over it.
@@ -108,7 +122,7 @@ def exercise_procedures() -> None:
     world = build_world()
     ready(world)
     project, editor, admin = world.project, world.users["editor"], world.users["admin"]
-    assert {r.id for r in PROCEDURES} <= starters.installed_starters().keys()
+    assert {r.id for r in PROCEDURES + RESULT_REVIEWS} <= starters.installed_starters().keys()
     member = {
         name: project.memberships.get(user=world.users[name]).pk
         for name in ("editor", "runner", "admin")
@@ -157,6 +171,33 @@ def exercise_procedures() -> None:
     assert setting("iki/qc_release", "review_flow") == "research"
     assert setting("iki/stability", "review_flow") == "research"
     assert setting("iki/lots", "verification_flow") == "research"
+
+    # Proteomics records its search results without sign-off: no one is named, nothing
+    # granted. Mass spectrometry chooses Regulated QC, with three different signers.
+    choose(starters.PROTEOMICS_REVIEW, "record_only", {})
+    assert not LabRoleGrant.objects.filter(
+        membership__project=project, role__startswith="iki/proteomics."
+    ).exists()
+    ms = "iki/biologics_ms."
+    choose(
+        starters.BIOLOGICS_MS_REVIEW,
+        "regulated_qc",
+        {ms + "analyst": ["editor"], ms + "reviewer": ["runner"], ms + "qa": ["admin"]},
+    )
+    assert setting("iki/proteomics", "review_flow") == "record_only"
+    assert setting("iki/biologics_ms", "review_flow") == "regulated_qc"
+    assert setting("iki/proteomics", "review_flow", elsewhere) == "research"
+    assert setting("iki/biologics_ms", "review_flow", elsewhere) == "research"
+    # Regulated QC still needs its three independent signers.
+    with pytest.raises(Refused, match="three different people"):
+        starters.preview(
+            project,
+            starters.BIOLOGICS_MS_REVIEW.id,
+            starters.BIOLOGICS_MS_REVIEW.version,
+            "regulated_qc",
+            {ms + r: [member["editor"]] for r in ("analyst", "reviewer", "qa")},
+            by=admin,
+        )
 
     environment = QC + "qc-tools"
     catalog.compute().bindings[environment] = Binding(

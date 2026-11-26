@@ -1345,7 +1345,8 @@
           "flow": {
             "enum": [
               "research",
-              "regulated_qc"
+              "regulated_qc",
+              "record_only"
             ],
             "title": "Flow",
             "type": "string"
@@ -28802,7 +28803,8 @@
           "flow": {
             "enum": [
               "research",
-              "regulated_qc"
+              "regulated_qc",
+              "record_only"
             ],
             "title": "Flow",
             "type": "string"
@@ -28853,7 +28855,8 @@
           "id": {
             "enum": [
               "research",
-              "regulated_qc"
+              "regulated_qc",
+              "record_only"
             ],
             "title": "Id",
             "type": "string"
@@ -29006,7 +29009,8 @@
           "flow": {
             "enum": [
               "research",
-              "regulated_qc"
+              "regulated_qc",
+              "record_only"
             ],
             "title": "Flow",
             "type": "string"
@@ -29055,7 +29059,8 @@
           "flow": {
             "enum": [
               "research",
-              "regulated_qc"
+              "regulated_qc",
+              "record_only"
             ],
             "title": "Flow",
             "type": "string"

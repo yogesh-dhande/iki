@@ -68,8 +68,12 @@ The original report and its SHA-256 stay linked to the result.
 
 ## Review
 
-The deployment setting `review_flow` controls new results. Each result keeps the
-procedure it was recorded under, so a change applies to new results only.
+A project's Admin chooses the procedure for the project's new results with the
+`biologics-ms-review` starter, in the project's settings under Starters, and picks who
+holds each lab role it asks for. A project that hasn't chosen uses the
+deployment setting `review_flow`. Each result keeps the procedure it was
+recorded under, so a change applies to new results only
+([ADR 0266](../../docs/adr/0266-a-project-chooses-its-omics-results-review.md)).
 
 | Procedure                          | What a result needs                                                                                                           | Lab roles                |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
@@ -77,8 +81,8 @@ procedure it was recorded under, so a change applies to new results only.
 | **Regulated QC** (`regulated_qc`)  | An analyst signs submission, a reviewer independent of the creator, submitter and editors signs review, and QA signs release. | Analyst, reviewer and QA |
 | **Record only** (`record_only`)    | Nothing: the result is kept as evidence and offers no sign-off.                                                               | None                     |
 
-To review a result recorded under Record only, import it again once the setting
-names a review procedure. Changes to signed findings return a result to
+To review a result recorded under Record only, import it again once the project
+or the deployment names a review procedure. Changes to signed findings return a result to
 Recorded. See [ADR 0258](../../docs/adr/0258-mass-spectrometry-results-name-their-report-format.md).
 
 ## Public observations

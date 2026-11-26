@@ -157,6 +157,9 @@ export function independentEnough(
 
 /** What a flow asks of people, in a sentence, for the flows starters offer. */
 export function flowSummary(flow: Pick<StarterFlow, "id" | "label">): string {
+  if (flow.id === "record_only") {
+    return "A result is kept as evidence, as it was recorded, and no one signs it. For work whose review happens elsewhere, or not at all.";
+  }
   if (flow.id === "research") {
     return "A result is recorded, then one reviewer signs it off. For discovery work, where one check is enough.";
   }

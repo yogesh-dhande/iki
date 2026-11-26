@@ -311,14 +311,21 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
         ) : null}
 
         <h3 className="starter-step">Who does what</h3>
-        <p className="field-help starter-help">
-          Choose members of {project.name} for each lab role. To add someone, open{" "}
-          <Link to="/projects/$slug/members/" params={{ slug: project.slug }}>
-            Members
-          </Link>
-          .
-        </p>
-        {members.isPending ? <Loading label="Loading members" /> : null}
+        {required.length ? (
+          <p className="field-help starter-help">
+            Choose members of {project.name} for each lab role. To add someone, open{" "}
+            <Link to="/projects/$slug/members/" params={{ slug: project.slug }}>
+              Members
+            </Link>
+            .
+          </p>
+        ) : (
+          <p className="field-help starter-help">
+            No one signs in {flow?.label ?? "this flow"}, so it grants no lab roles. Anyone who can
+            run the import records results.
+          </p>
+        )}
+        {members.isPending && required.length ? <Loading label="Loading members" /> : null}
         {required.map((role) => {
           const options = people(role);
           const minimum = roleOf(role)?.minimum_project_role ?? "viewer";

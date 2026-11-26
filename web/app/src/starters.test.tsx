@@ -14,7 +14,15 @@ import { describe, expect, it } from "vitest";
 import { queryClient } from "./api";
 import fixtures from "./flow-fixtures.json";
 import { createAppRouter } from "./router";
-import { eligible, independentEnough, routeOf, signingRoles, type Member } from "./starters";
+import {
+  eligible,
+  flowSummary,
+  independentEnough,
+  routeOf,
+  signingRoles,
+  type Member,
+  type StarterFlow,
+} from "./starters";
 import { answer, calls, page, problem, project, signedIn, TEAM } from "./test-server";
 
 const SERVICE = project({
@@ -186,6 +194,15 @@ describe("who can do what", () => {
     expect(signingRoles(qc)).toEqual([`${st}analyst`, `${st}reviewer`, `${st}qa`]);
     expect(routeOf(field, null)).toBe(field);
   });
+
+  it("draws Record only as a result that stays recorded, with no one to sign", () => {
+    const field = flowOf("iki/proteomics.ProteomicsResult").fields[0];
+    const recorded = routeOf(field, ["recorded"]);
+    expect(recorded?.states.map((s) => s.name)).toEqual(["recorded"]);
+    expect(recorded?.transitions).toEqual([]);
+    expect(signingRoles(recorded)).toEqual([]);
+    expect(flowSummary({ id: "record_only", label: "Record only" })).toMatch(/no one signs it/);
+  });
 });
 
 describe("a project's starters", () => {
@@ -295,6 +312,101 @@ describe("a project's starters", () => {
       ...(calls("POST", "/api/v1/starters/dose-response/preview")[0]?.body as object),
       plan: plan.plan,
     });
+  });
+
+  it("lets a project record results without sign-off, granting no lab roles", async () => {
+    const PROTEOMICS = "iki/proteomics.";
+    const result = `${PROTEOMICS}ProteomicsResult`;
+    const flow = (
+      id: StarterFlow["id"],
+      label: string,
+      states: string[],
+      required_roles: string[],
+    ): StarterFlow => ({
+      id,
+      label,
+      result_type: result,
+      states,
+      required_roles,
+    });
+    onStarters(
+      starter({
+        id: "proteomics-search-review",
+        version: "1.0.0",
+        label: "Proteomics search results",
+        description: "Choose how newly imported search results are reviewed.",
+        governs: "proteomics search results",
+        flows: [
+          flow("research", "Research", ["recorded", "signed_off"], [`${PROTEOMICS}reviewer`]),
+          flow(
+            "regulated_qc",
+            "Regulated QC",
+            ["recorded", "submitted", "reviewed", "released"],
+            [`${PROTEOMICS}analyst`, `${PROTEOMICS}reviewer`, `${PROTEOMICS}qa`],
+          ),
+          flow("record_only", "Record only", ["recorded"], []),
+        ],
+        roles: [
+          {
+            id: `${PROTEOMICS}analyst`,
+            label: "Proteomics analyst",
+            minimum_project_role: "editor",
+          },
+          {
+            id: `${PROTEOMICS}reviewer`,
+            label: "Proteomics reviewer",
+            minimum_project_role: "viewer",
+          },
+          { id: `${PROTEOMICS}qa`, label: "Proteomics QA", minimum_project_role: "viewer" },
+        ],
+      }),
+    );
+    answer(`GET /api/v1/entity-types/${result}/flow`, flowOf(result));
+    const { user } = await renderApp("/projects/assay-core/settings/starters/");
+    const card = await screen.findByRole("region", { name: "Proteomics search results" });
+    const flows = within(card).getByRole("group", { name: "Review flow" });
+    // Research, the deployment's default, is chosen until the Admin picks another.
+    expect(within(flows).getByRole("radio", { name: /^Research/ })).toBeChecked();
+    expect(within(card).getByRole("group", { name: "Proteomics reviewer" })).toBeInTheDocument();
+
+    await user.click(within(flows).getByRole("radio", { name: /^Record only: .*no one signs it/ }));
+    const states = await within(card).findByRole("list", { name: "Review’s states" });
+    await waitFor(() => {
+      expect(
+        within(states)
+          .getAllByRole("button")
+          .map((b) => b.textContent),
+      ).toEqual([
+        "Recorded, where records start. Set by Proteomics analyst, Proteomics reviewer or Proteomics QA",
+      ]);
+    });
+    expect(within(card).getByText(/No one signs in Record only/)).toBeInTheDocument();
+    expect(within(card).queryByRole("group", { name: "Proteomics reviewer" })).toBeNull();
+
+    answer("POST /api/v1/starters/proteomics-search-review/preview", {
+      starter: "proteomics-search-review",
+      version: "1.0.0",
+      project: SERVICE.id,
+      flow: "record_only",
+      result_type: result,
+      changed: true,
+      role_assignments: {},
+      grants_to_add: {},
+      plan: "b2".repeat(32),
+    });
+    await user.click(within(card).getByRole("button", { name: "Preview" }));
+    const preview = await within(card).findByRole("status", { name: "What applying will do" });
+    expect(calls("POST", "/api/v1/starters/proteomics-search-review/preview")[0]?.body).toEqual({
+      project: SERVICE.id,
+      version: "1.0.0",
+      flow: "record_only",
+      role_assignments: {},
+    });
+    expect(
+      within(preview)
+        .getAllByRole("listitem")
+        .map((i) => i.textContent),
+    ).toEqual(["New results follow the Record only flow."]);
   });
 
   it("applies nothing that changed since its preview, and shows what applying does now", async () => {

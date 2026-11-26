@@ -54,7 +54,7 @@ class Starter:
 
 PLATE = "iki/plate_assays."
 ANALYST, REVIEWER, QA = PLATE + "analyst", PLATE + "reviewer", PLATE + "qa"
-FLOW_LABELS = {"research": "Research", "regulated_qc": "Regulated QC"}
+FLOW_LABELS = {"research": "Research", "regulated_qc": "Regulated QC", "record_only": "Record only"}
 
 DOSE_RESPONSE = Starter(
     id="dose-response",
@@ -177,7 +177,66 @@ PREP_VERIFICATION = Starter(
     governs="plasmid verifications",
     pinned_by=LOTS + "PlasmidVerification",
 )
-CATALOG = (DOSE_RESPONSE, LOT_RELEASE_TESTING, STABILITY_STUDY, PREP_VERIFICATION)
+# Mass spectrometry results pin their flow when the import records them (ADR 0266).
+# Record only keeps the report as evidence: its results stay recorded, and no one signs.
+MS_STATES = {
+    "research": ("recorded", "signed_off"),
+    "regulated_qc": ("recorded", "submitted", "reviewed", "released"),
+    "record_only": ("recorded",),
+}
+
+
+def _ms_review(plugin: str, result: str, **more: str) -> Starter:
+    analyst, reviewer, qa = (f"{plugin}.{r}" for r in ("analyst", "reviewer", "qa"))
+    return Starter(
+        version="1.0.0",
+        plugin=plugin,
+        setting="review_flow",
+        result_base=f"{plugin}.{result}",
+        flows=dict.fromkeys(MS_STATES, f"{plugin}.{result}"),
+        flow_states=MS_STATES,
+        roles={analyst: ProjectRole.EDITOR, reviewer: ProjectRole.VIEWER, qa: ProjectRole.VIEWER},
+        required_roles={
+            "research": (reviewer,),
+            "regulated_qc": (analyst, reviewer, qa),
+            "record_only": (),
+        },
+        independent_roles={"regulated_qc": (analyst, reviewer, qa)},
+        pinned_by=f"{plugin}.{result}",
+        **more,
+    )
+
+
+PROTEOMICS_REVIEW = _ms_review(
+    "iki/proteomics",
+    "ProteomicsResult",
+    id="proteomics-search-review",
+    label="Proteomics search results",
+    description=(
+        "Choose how newly imported search results are reviewed, or recorded without sign-off, "
+        "and assign who submits, reviews and releases them."
+    ),
+    governs="proteomics search results",
+)
+BIOLOGICS_MS_REVIEW = _ms_review(
+    "iki/biologics_ms",
+    "MSResult",
+    id="biologics-ms-review",
+    label="Biologics mass spectrometry",
+    description=(
+        "Choose how new intact mass and peptide map results are reviewed, or recorded without "
+        "sign-off, and assign who submits, reviews and releases them."
+    ),
+    governs="mass spectrometry results",
+)
+CATALOG = (
+    DOSE_RESPONSE,
+    LOT_RELEASE_TESTING,
+    STABILITY_STUDY,
+    PREP_VERIFICATION,
+    PROTEOMICS_REVIEW,
+    BIOLOGICS_MS_REVIEW,
+)
 
 
 @cache

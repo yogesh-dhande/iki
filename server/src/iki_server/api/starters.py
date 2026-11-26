@@ -14,7 +14,7 @@ from iki_server.setup import starters
 
 router = Router(tags=["starters"])
 
-StarterFlow = Literal["research", "regulated_qc"]
+StarterFlow = Literal["research", "regulated_qc", "record_only"]
 
 
 class StarterFlowOut(Schema):
