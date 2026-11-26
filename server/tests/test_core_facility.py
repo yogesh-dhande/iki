@@ -371,12 +371,16 @@ def _private_work_and_basic_deliveries(
     assert item.owner_project_id == core.pk
     assert states.values_of(item)["status"] == "queued"
     assert services.current_values(services.specific(item))["priority"] == "routine"
-    with pytest.raises(Refused):
-        _status(world, item, "editor", "running")
     with pytest.raises(PermissionDenied):
         _status(world, item, "admin", "scheduled")
     for target in ("scheduled", "running", "done"):
         _status(world, item, "editor", target)
+    # Done is done: it isn't started or finished again.
+    with pytest.raises(Refused):
+        _status(world, item, "editor", "running")
+    # A desk-based task is finished without being scheduled or started.
+    desk = _make(world, "editor", WORK, core, request=str(request.pk))
+    _status(world, desk, "editor", "done")
     with pytest.raises(Invalid, match="needs a reason"):
         _status(world, cancelled, "editor", "cancelled")
     states.set_state(

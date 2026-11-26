@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/requests
-version: 0.2.0
+version: 0.3.0
 title: Requests
 description: Work sent between projects, private service work items and released deliverables.
 license: Apache-2.0

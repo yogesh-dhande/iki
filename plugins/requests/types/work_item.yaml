@@ -41,20 +41,22 @@ fields:
           queued:
             check: state.from == "queued"
             message: Schedule a work item from Queued.
+      # Scheduling and starting are steps a service takes when they help it: a desk-based
+      # service finishes what it never scheduled.
       running:
         label: Running
         set_by: [iki/lab_roles.analyst]
         guards:
-          scheduled:
-            check: state.from == "scheduled"
-            message: Start a work item from Scheduled.
+          waiting:
+            check: state.from in ["queued", "scheduled"]
+            message: Start a work item that's queued or scheduled.
       done:
         label: Done
         set_by: [iki/lab_roles.analyst]
         guards:
-          running:
-            check: state.from == "running"
-            message: Finish a work item from Running.
+          open:
+            check: state.from in ["queued", "scheduled", "running"]
+            message: Finish a work item that's queued, scheduled or running.
       cancelled:
         label: Cancelled
         set_by: [iki/lab_roles.analyst]
