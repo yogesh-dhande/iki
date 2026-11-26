@@ -93,6 +93,14 @@ name the host. The backend worker trusts the dev CA through
 `LIMS_TOKEN` from `acme__lims_connector.LIMS_TOKEN` in `iki-run-secrets`.
 The fake LIMS mounts that same key to authenticate each request.
 
+The fixture cluster runs the export sandbox (`iki-sandbox`, ADR 0230) for the
+[liquid handling example](../../examples/plugins/liquid_handling)'s Tecan worklist
+writer. The seed downloads a transfer's worklist through it, and `make dev-e2e`
+checks that the sandbox holds no token or credentials and reaches nothing: not
+DNS, Postgres, the web pods, the Kubernetes API, a metadata service or the
+internet. Only web pods and task runners reach it. The product cluster has no
+plugin writers, so it doesn't run the sandbox.
+
 The dna plugin's `ncbi_email` setting is set (`settings/dna.yaml`), so the
 cluster can fetch from NCBI, through the egress proxy; a deployment that
 leaves it unset doesn't offer the fetch (ADR 0169).
@@ -144,7 +152,7 @@ The dev cluster is deliberately close to production:
 - The chart's NetworkPolicies are enforced (kindnet), so Iki pods can reach
   only DNS, Postgres, the OTLP collector and (web pods only) Keycloak.
   Workers and run pods reach only the server, object storage and the
-  egress proxy (ADR 0155).
+  egress proxy (ADR 0155). The export sandbox reaches nothing (ADR 0230).
 - Every credential is random, generated per cluster by `up.sh`, and never
   written to the repo.
 - Every image and the CloudNativePG chart are pinned by digest.

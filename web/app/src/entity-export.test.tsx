@@ -1,6 +1,7 @@
 /** Exporting a record as a file (ADR 0171): from its page's ⋯ menu, or a revision from its
  * audit trail. */
 
+import type { Schemas } from "@ikisci/sdk";
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,7 +19,7 @@ import { answer, calls, page, problem } from "./test-server";
 
 const ID = "00000000-0000-7000-8000-00000000d001";
 
-const SEQUENCE_TYPE = {
+const SEQUENCE_TYPE: Schemas["EntityTypeOut"] = {
   ...PROTEIN,
   name: "iki/dna.DNASequence",
   plugin: "iki/dna",
@@ -40,6 +41,7 @@ const SEQUENCE_TYPE = {
           media_type: "chemical/seq-na-genbank",
           description: "The bases, topology and features, with their qualifiers.",
           many: "file" as const,
+          plugin: null,
         },
         {
           format: "fasta" as const,
@@ -48,6 +50,7 @@ const SEQUENCE_TYPE = {
           media_type: "chemical/seq-na-fasta",
           description: "The bases, with the record's ID, name and topology in its header.",
           many: "file" as const,
+          plugin: null,
         },
       ],
       sequence: "bases",
@@ -173,6 +176,61 @@ describe("exporting a record", () => {
     const dialog = await screen.findByRole("dialog", { name: "Export pTest" });
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "Its sequence isn't a record you can read.",
+    );
+    expect(saved).toEqual([]);
+  });
+
+  it("downloads a plugin's format, saying which plugin writes it", async () => {
+    const worklist = {
+      format: "acme/liquid_handling.tecan-worklist",
+      label: "Tecan worklist",
+      extension: "gwl",
+      media_type: "text/x-tecan-gwl",
+      description: "An aspirate, a dispense and a wash for each transfer.",
+      many: "file" as const,
+      plugin: "acme/liquid_handling",
+    };
+    onSequence([
+      PROTEIN,
+      {
+        ...SEQUENCE_TYPE,
+        exports: [
+          ...(SEQUENCE_TYPE.exports ?? []),
+          { export: "plugin" as const, writer: worklist.format, formats: [worklist], fields: {} },
+        ],
+      },
+    ]);
+    answer(`GET /api/v1/entities/${ID}/export`, file("pTest.gwl", 1));
+    const { user } = await renderApp("/entities/DNA-000001/");
+    await moreAction(user, "DNA-000001", "Export…");
+    const dialog = await screen.findByRole("dialog", { name: "Export pTest" });
+    expect(dialog).toHaveTextContent(
+      "An aspirate, a dispense and a wash for each transfer. Written by the acme/liquid_handling plugin.",
+    );
+    await user.click(within(dialog).getByRole("radio", { name: /^Tecan worklist/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Download" }));
+    expect(
+      await screen.findByText(
+        "Downloaded pTest.gwl. Its writer couldn’t hold 1 thing of the record as it is: the download’s audit event says which.",
+      ),
+    ).toBeInTheDocument();
+    const [sent] = calls("GET", `/api/v1/entities/${ID}/export`);
+    expect(sent?.query.get("format")).toBe("acme/liquid_handling.tecan-worklist");
+    expect(saved.map((s) => s.name)).toEqual(["pTest.gwl"]);
+  });
+
+  it("says when the export sandbox is busy", async () => {
+    onSequence();
+    answer(
+      `GET /api/v1/entities/${ID}/export`,
+      problem(503, "sandbox_unavailable", "The export sandbox is busy. Try again in a moment."),
+    );
+    const { user } = await renderApp("/entities/DNA-000001/");
+    await moreAction(user, "DNA-000001", "Export…");
+    await user.click(await screen.findByRole("button", { name: "Download" }));
+    const dialog = await screen.findByRole("dialog", { name: "Export pTest" });
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "The export sandbox is busy. Try again in a moment.",
     );
     expect(saved).toEqual([]);
   });

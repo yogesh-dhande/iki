@@ -29,8 +29,8 @@ data:
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from urllib.parse import urlsplit
 
-    KEY = open("/secrets/lab__hosted_models.FOLDCLOUD_API_KEY").read().strip()
-    HOOK = open("/secrets/lab__hosted_models.FOLDCLOUD_WEBHOOK_SECRET").read().strip()
+    KEY = open("/secrets/acme__hosted_models.FOLDCLOUD_API_KEY").read().strip()
+    HOOK = open("/secrets/acme__hosted_models.FOLDCLOUD_WEBHOOK_SECRET").read().strip()
     # Iki's public URL isn't reachable from inside the cluster: call its web pods.
     CALLBACKS = os.environ["CALLBACK_ORIGIN"]
     VERSION = "2.1.0"
@@ -240,10 +240,10 @@ spec:
           secret:
             secretName: iki-run-secrets
             items:
-              - key: lab__hosted_models.FOLDCLOUD_API_KEY
-                path: lab__hosted_models.FOLDCLOUD_API_KEY
-              - key: lab__hosted_models.FOLDCLOUD_WEBHOOK_SECRET
-                path: lab__hosted_models.FOLDCLOUD_WEBHOOK_SECRET
+              - key: acme__hosted_models.FOLDCLOUD_API_KEY
+                path: acme__hosted_models.FOLDCLOUD_API_KEY
+              - key: acme__hosted_models.FOLDCLOUD_WEBHOOK_SECRET
+                path: acme__hosted_models.FOLDCLOUD_WEBHOOK_SECRET
 ---
 apiVersion: v1
 kind: Service

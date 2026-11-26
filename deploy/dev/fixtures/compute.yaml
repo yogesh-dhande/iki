@@ -6,14 +6,14 @@ templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: lab/hosted_models.model-tools
+environment: acme/hosted_models.model-tools
 templates: [{ template: backend-small }]
 ---
 # What the fake FoldCloud's calls cost, so runs that call it have costs to
 # show and count against budgets (ADR 0130).
 apiVersion: iki/v1
 kind: ApiPrice
-api: lab/hosted_models.foldcloud
+api: acme/hosted_models.foldcloud
 per_call: 0.01
 usage: { gpu_seconds: 0.0011 }
 currency: USD

@@ -8,6 +8,7 @@ members = [
   "crates/iki-wasm/standalone/oligo-checks",
   "crates/iki-wasm/standalone/plasmid-tools",
   "crates/iki-worker",
+  "crates/iki-writer",
 ]
 
 [workspace.package]

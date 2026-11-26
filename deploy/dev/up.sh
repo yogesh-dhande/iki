@@ -188,8 +188,8 @@ if [[ "$fixtures" == 1 ]]; then
     fi
   }
   ensure_run_secret acme__lims_connector.LIMS_TOKEN "$(rand 32 32)"
-  ensure_run_secret lab__hosted_models.FOLDCLOUD_API_KEY "$(rand 32 32)"
-  ensure_run_secret lab__hosted_models.FOLDCLOUD_WEBHOOK_SECRET \
+  ensure_run_secret acme__hosted_models.FOLDCLOUD_API_KEY "$(rand 32 32)"
+  ensure_run_secret acme__hosted_models.FOLDCLOUD_WEBHOOK_SECRET \
     "whsec_$(openssl rand -base64 32)"
 fi
 # The egress proxy's key for calling outside APIs (egressProxy.gatewayKey, ADR 0130).

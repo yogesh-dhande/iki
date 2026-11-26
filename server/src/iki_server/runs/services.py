@@ -50,6 +50,7 @@ from iki_server.runs import (
     queue,
     quotas,
     reuse,
+    scan_waits,
     setups,
     workers,
 )
@@ -555,8 +556,14 @@ def _queue(
             for index, entity in enumerate(chosen)
         )
         included.record(run, made.pins)
-    input_files.record_given(run, included.manifest(run))
-    Job.objects.create(
+    pending: set[UUID] = set()
+    try:
+        given = included.manifest(run)
+    except included.WaitingForScan as waiting:
+        # It waits for them, rather than being refused (ADR 0234).
+        given, pending = waiting.found, waiting.pending
+    input_files.record_given(run, given)
+    job = Job.objects.create(
         run=run,
         project=project,
         tier=action.tier,
@@ -567,7 +574,7 @@ def _queue(
         state=JobState.AWAITING_APPROVAL if approval else JobState.QUEUED,
         outside=bool(run.spec.get("apis")),
     )
-    if approval is None:
+    if approval is None and not pending:
         queue.notify(action.tier)
     audit.record(
         "run.launched",
@@ -586,6 +593,8 @@ def _queue(
             **({"reproduces": copy_of.hrid} if copy_of else {}),
         },
     )
+    if pending:
+        scan_waits.begin(job, run, pending)
     return run
 
 
@@ -640,6 +649,11 @@ def _made(
         image_digest=launches.image_digest(image),
     )
     original = reuse.find(user, key, project) if reuse_results and volumes is not None else None
+    if original is not None and included.still_scanning(
+        action, entities, entry_revisions, pins, values
+    ):
+        # It reuses nothing before what it reads is scanned: it runs once that is.
+        original = None
     pull_secret = (bound.pull_secret or "") if bound else ""
     return _Made(
         sha, settings, key, original, pins, volumes, entry_revisions, mask, image, pull_secret
@@ -1014,10 +1028,11 @@ def check_params(
         if name in given and given[name] is not None:
             if f.type == "file" or is_file_list(f):
                 # Files the person can read, in the run's project, of a type and size the
-                # param takes.
+                # param takes. One still being scanned is waited for (ADR 0234).
                 files = files or Refs(
                     access.visible(user),
                     access.readable_files(user) & access.project_files(project),
+                    scanning=True,
                 )
                 chosen = given[name] if isinstance(given[name], list) else [given[name]]
                 if any(_elsewhere(user, project, v) for v in chosen):
