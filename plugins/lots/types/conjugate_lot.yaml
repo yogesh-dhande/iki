@@ -5,7 +5,7 @@ name: ConjugateLot
 label: Conjugate lot
 label_plural: Conjugate lots
 extends: BiologicLot
-schema_version: 2
+schema_version: 3
 description: >-
   Physical material of a registered conjugate, with its measured concentration.
   An antibody–drug conjugate lot can record its drug load distribution, average
@@ -34,10 +34,19 @@ fields:
     values: [hic, lc_ms_intact, lc_ms_reduced, rp_hplc_reduced, uv_vis]
     indexed: true
     description: >-
-      How its DAR was measured: hic by hydrophobic interaction chromatography,
+      How its reported DAR was measured: hic by hydrophobic interaction chromatography,
       lc_ms_intact by the deconvoluted masses of the intact conjugate, lc_ms_reduced or
       rp_hplc_reduced by its reduced light and heavy chains, uv_vis from its absorbance
-      at two wavelengths.
+      at two wavelengths. When it's its distribution's method, its DAR is the one the
+      distribution gives.
+  distribution_method:
+    type: enum
+    label: Distribution by
+    values: [hic, lc_ms_intact, lc_ms_reduced, rp_hplc_reduced]
+    description: >-
+      How its drug load distribution was measured. HIC and intact LC-MS separate the
+      intact conjugate's species; reduced LC-MS and RP-HPLC separate its light and heavy
+      chains. A distribution needs one.
   drug_loads:
     type: list
     label: Drug load distribution
@@ -89,9 +98,9 @@ fields:
     min: 0
     max: 20
     description: >-
-      What its drug load distribution gives, unless its DAR is by UV/Vis. Its DAR
-      follows it when the distribution changes, and is emptied with it if it was what
-      it gave; one entered since is kept.
+      What its drug load distribution gives, kept beside a DAR measured another way. Its
+      DAR follows it when its DAR is by the distribution's method, and is emptied with it
+      if it was what it gave; one entered since is kept.
   unconjugated:
     type: quantity
     label: Unconjugated antibody (area)
@@ -111,6 +120,19 @@ fields:
     max: 100
     description: Its unconjugated payload, by RP-HPLC, as a share of all its payload.
 rules:
+  distribution_by_its_method:
+    label: A distribution is of what its method separates
+    check: >-
+      size(record.drug_loads) == 0 ||
+      (record.distribution_method in ["hic", "lc_ms_intact"] &&
+      record.drug_loads.all(r, r.chain == "intact")) ||
+      (record.distribution_method in ["lc_ms_reduced", "rp_hplc_reduced"] &&
+      record.drug_loads.all(r, r.chain != "intact"))
+    message: >-
+      Say how its drug load distribution was measured. HIC and intact LC-MS give the
+      intact conjugate's species, and reduced LC-MS and RP-HPLC give its light and heavy
+      chains'.
+    fields: [distribution_method, drug_loads]
   one_kind_of_distribution:
     label: Its distribution is of the intact conjugate or of its chains
     check: >-

@@ -15,7 +15,7 @@ import pytest
 from first_party_dependencies import FIRST_PARTY, PLUGINS, ROOT, build_order
 from test_plugin_migrations import database, iki, migrate, orm, sync
 
-from iki_spec import schemas
+from iki_spec import rules, schemas
 from iki_spec.validate import load_plugin
 
 LOTS = PLUGINS / "lots"
@@ -420,25 +420,60 @@ def test_a_concentration_follows_its_reading_not_an_older_one(
 
 
 def test_a_dar_follows_its_distribution_unless_its_measured_another_way() -> None:
-    """A DAR measured by UV/Vis is as entered, whatever distribution there is; one its
-    distribution gave is emptied when the distribution gives none (its areas all 0, or
-    its rows gone)."""
+    """A DAR measured by UV/Vis, or by another method than its distribution's, is as
+    entered, and what the distribution gives is kept beside it. One its distribution gave
+    is emptied when the distribution gives none (its areas all 0, or its rows gone)."""
     intact = [
         {"chain": "intact", "drug_load": 0, "area": 0},
         {"chain": "intact", "drug_load": 4, "area": 0},
     ]
     four = [{"chain": "intact", "drug_load": 4, "area": 100}]
+    hic = {"distribution_method": "hic"}
     out = compute(
         "conjugate",
-        lot(1, dar_method="uv_vis", dar=3.4, drug_loads=four),
-        lot(2, dar_method="hic", dar=4, distribution_dar=4, drug_loads=intact),
-        lot(3, dar_method="hic", dar=4, distribution_dar=4, unconjugated=0),
+        lot(1, dar_method="uv_vis", dar=3.4, drug_loads=four, **hic),
+        lot(2, dar_method="hic", dar=4, distribution_dar=4, drug_loads=intact, **hic),
+        lot(3, dar_method="hic", dar=4, distribution_dar=4, unconjugated=0, **hic),
+        lot(4, dar_method="lc_ms_intact", dar=3.9, drug_loads=four, **hic),
+        lot(5, dar=1, drug_loads=four, **hic),
     )
     assert changes(out) == [
-        {"unconjugated": 0},
+        {"unconjugated": 0, "distribution_dar": 4},
         {"distribution_dar": None, "dar": None},
         {"unconjugated": None, "distribution_dar": None, "dar": None},
+        {"unconjugated": 0, "distribution_dar": 4},
+        # With no DAR method of its own, its DAR is its distribution's.
+        {"unconjugated": 0, "distribution_dar": 4, "dar": 4},
     ]
+
+
+@pytest.mark.parametrize(
+    ("method", "chains", "ok"),
+    [
+        ("hic", ["intact"], True),
+        ("lc_ms_intact", ["intact"], True),
+        ("rp_hplc_reduced", ["light", "heavy"], True),
+        ("lc_ms_reduced", ["light", "heavy"], True),
+        ("hic", ["light", "heavy"], False),
+        ("rp_hplc_reduced", ["intact"], False),
+        (None, ["intact"], False),
+        (None, [], True),
+    ],
+)
+def test_a_distribution_is_of_what_its_method_separates(
+    method: str | None, chains: list[str], ok: bool
+) -> None:
+    directory = PLUGINS / "lots"
+    loaded = load_plugin(directory, dependencies=list(FIRST_PARTY[directory])).plugin
+    assert loaded is not None
+    spec = loaded.types["iki/lots.ConjugateLot"]
+    check = spec.rules["distribution_by_its_method"].check
+    assert check is not None
+    variables = rules.rule_variables(rules.record_schema(spec.label, spec.fields, None))
+    rows = [{"chain": chain, "drug_load": 1, "area": 50.0} for chain in chains]
+    record = dict.fromkeys(spec.fields) | {"distribution_method": method, "drug_loads": rows}
+    (outcome,) = rules.evaluate(variables, [(check, rules.CONDITION)], [{"record": record}])[0]
+    assert outcome.value is ok
 
 
 def test_a_proteins_cystines_take_their_hydrogens_off_as_a_complexs_do(

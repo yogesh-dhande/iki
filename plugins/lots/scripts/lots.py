@@ -418,9 +418,11 @@ def conjugate(lot: Lot) -> None:
             result = round(average, 2)
             print(f"{lot.hrid}: DAR {average:.2f}, from {how}")
     lot.set("unconjugated", None if unconjugated is None else round(unconjugated, 2))
-    if lot.values.get("dar_method") == "uv_vis":
-        # Measured by UV/Vis, its DAR is as entered, whatever a distribution gives.
-        lot.set("distribution_dar", None)
+    method = lot.values.get("dar_method")
+    if method is not None and method != lot.values.get("distribution_method"):
+        # Its DAR was measured another way, such as by UV/Vis: it's kept as entered, and
+        # what the distribution gives is kept beside it, so both can be compared.
+        lot.set("distribution_dar", result)
     else:
         lot.follows("dar", "distribution_dar", result, "drug load distribution")
     by_a280(lot, None, None, "a conjugate")

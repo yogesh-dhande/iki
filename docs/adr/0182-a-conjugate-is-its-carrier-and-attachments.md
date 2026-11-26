@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-11-22
 - Refines: [0162](0162-a-lot-is-a-projects-record-of-an-entrys-material.md)
+- Amended: 2026-11-26 — a lot's distribution names its method, and a DAR measured
+  another way is kept beside the distribution's (see Amendment)
 
 ## Context
 
@@ -52,3 +54,25 @@ unconjugated fraction and concentration. For a reduced-chain distribution
 the lot calculation uses the registered carrier's heavy- and light-chain
 copy counts. Different physical lots can cite the same molecular identity
 and retain different analytical results.
+
+## Amendment. A distribution names its method, and a DAR measured another way is kept beside it
+
+A conjugate lot had one method, `dar_method`, for both its reported DAR and its drug load
+distribution. Two cases didn't fit:
+
+- A lot whose DAR was measured by UV/Vis lost the DAR its HIC distribution gave.
+- Nothing said which separation the distribution's species came from. Intact species
+  (HIC, intact LC-MS) and reduced chains (reduced LC-MS, RP-HPLC) are different evidence.
+
+**A distribution has its own method.** `distribution_method` names the separation, and a
+rule keeps its species to what that method separates: intact species, or light and heavy
+chains. A distribution can't be recorded without its method.
+
+**A DAR measured another way is kept beside the distribution's.** `distribution_dar` is
+always what the distribution gives. The lot's DAR follows it only when `dar_method` is the
+distribution's method, or isn't given. Otherwise the DAR is as measured, and both are kept
+for comparison.
+
+The fields stay on `ConjugateLot` rather than moving to an ADC-only type. They're optional,
+nothing requires them, and a lot of a fluorophore or PEG conjugate leaves them empty. A
+separate type would split one conjugate's lots across two types and gain no check.

@@ -10,6 +10,7 @@ inputs:
   lot:
     - values:
         dar_method: hic
+        distribution_method: hic
         drug_loads:
           - { chain: intact, drug_load: 0, area: 8.11 }
           - { chain: intact, drug_load: 2, area: 38.83 }
@@ -34,6 +35,7 @@ inputs:
   lot:
     - values:
         dar_method: hic
+        distribution_method: hic
         drug_loads:
           - { chain: intact, drug_load: 0, area: 4.3 }
           - { chain: intact, drug_load: 2, area: 26.51 }
@@ -67,6 +69,7 @@ inputs:
               carrier_light_copies: 2
       values:
         dar_method: rp_hplc_reduced
+        distribution_method: rp_hplc_reduced
         a280: 0.9
         dilution_factor: 10
         path_length: 1
@@ -110,6 +113,7 @@ inputs:
               carrier_light_copies: 1
       values:
         dar_method: lc_ms_reduced
+        distribution_method: lc_ms_reduced
         drug_loads:
           - { chain: light, drug_load: 0, area: 100 }
           - { chain: heavy, drug_load: 1, area: 100 }
@@ -118,3 +122,29 @@ expect:
     updates:
       lot:
         - values: { dar: 1, distribution_dar: 1 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_uv_vis_dar_is_kept_beside_its_distributions
+description: >-
+  A synthetic lot whose reported DAR, 3.5, was measured by UV/Vis, and whose drug load
+  distribution was measured by HIC, as brentuximab vedotin's (Agilent application note
+  5994-3522EN, Table 1). The entered DAR is kept, and the distribution's 3.29 beside it.
+action: compute_conjugate_lot
+inputs:
+  lot:
+    - values:
+        dar: 3.5
+        dar_method: uv_vis
+        distribution_method: hic
+        drug_loads:
+          - { chain: intact, drug_load: 0, area: 8.11 }
+          - { chain: intact, drug_load: 2, area: 38.83 }
+          - { chain: intact, drug_load: 4, area: 36.88 }
+          - { chain: intact, drug_load: 6, area: 12.78 }
+          - { chain: intact, drug_load: 8, area: 3.4 }
+expect:
+  output:
+    updates:
+      lot:
+        - values: { distribution_dar: 3.29, unconjugated: 8.11 }
