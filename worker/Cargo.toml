@@ -25,7 +25,7 @@ iki-protocol = { path = "crates/iki-protocol", version = "=0.1.0-dev.0" }
 sha2 = "0.11.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-aho-corasick = "=1.1.4"
+aho-corasick = "=1.1.5"
 # Signals sent to a whole process group, and locks on files, without unsafe code.
 rustix = { version = "1.1.6", features = ["fs", "process", "system"] }
 signal-hook = "0.4.6"
