@@ -1,6 +1,6 @@
 # 0230. Plugins write export formats in a Wasm sandbox that holds only the requester's data
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-25
 - Refines: [0171](0171-a-types-records-export-as-files-iki-writes-from-its-fields.md),
   [0213](0213-plugins-declare-their-file-formats.md),
@@ -12,10 +12,12 @@
 ADR 0171 made a record's download a file Iki writes from its values at a
 revision. The same revision always gives the same file, the download is
 audited with the file's SHA-256, and what the format couldn't hold is listed.
-Only Iki's own writers do this. A format only a plugin knows is still written
-by an action on a worker. `small_molecule.export_sdf` is an example. It needs a
-Runner and a wait, reads only the latest revision, and leaves an artifact that
-expires. Downloading that artifact isn't audited.
+ADR 0229 extended this to many records as one file. Only Iki's own writers
+do either. A format only a plugin knows can still only be written by an action
+on a worker. That needs a Runner and a wait, reads only the latest revision,
+and leaves an artifact that expires. Downloading that artifact isn't audited.
+ADR 0229 removed the small_molecule plugin's SDF action for this reason, once
+Iki wrote SDF itself.
 
 Labs need files Iki won't write itself. A liquid handler needs a pick list. A
 sequencing core needs a sample sheet, a vendor needs an order form, and a
@@ -69,25 +71,61 @@ data the requester could already read, and all it can do is spoil that
 requester's file. Iki audits that file by its hash, as it audits its own
 writers' files.
 
+Accepted with these decisions:
+
+1. **A separate sandbox Deployment.** It has no Secrets, no service-account
+   token, no network egress and no cloud identity. Each export gets a fresh
+   process holding only the records the requester may read. Writers run there
+   under wasmtime-py with no imports, deterministic fuel, a memory cap, a small
+   stack, a wall-clock kill, and the build-time caps on function body size and
+   `br_table` targets. wasmtime-py is pinned at 51.0.0. It's still the latest
+   release, published on 2026-11-20.
+2. **Writers are Rust only, for now.** Python writers may come later. The ABI
+   is about the module, not the language, so they don't need it changed.
+3. **The `iki-writer` SDK crate lives in Iki's repository**
+   (`worker/crates/iki-writer`). It is published to crates.io with each
+   release. Until then the builder supplies it from the Iki that builds the
+   plugin, as a path patch. Claiming the crate's name is a release task.
+4. **Offline sites** can vendor their crates in the plugin repository, or
+   point the build at a registry mirror. Both are supported, and both give the
+   same module.
+5. **A failed export is logged and counted, not audited as a download,**
+   because no file left Iki. Asking for many records is still audited when
+   it's asked (`entities.export_requested`), as in ADR 0229.
+6. **No plugin action keeps writing SDF.** The draft assumed
+   `small_molecule.export_sdf` would stay for coordinates RDKit computes, but
+   ADR 0229 removed it.
+
 ### What a plugin declares
 
 A writer goes under `writers` in `plugin.yaml`. Its ID is qualified like a
-format's: `acme/liquid_handling.echo-picklist`.
+format's: `examples/liquid_handling.tecan-worklist`. That is the example plugin
+(`examples/plugins/liquid_handling`), which writes transfers between plates as
+a Tecan worklist (`.gwl`) for Freedom EVOware and FluentControl. Liquid
+handlers commonly run cherry-picks from these files, and no format Iki ships
+covers them.
 
 ```yaml
+formats:
+  tecan-gwl:
+    label: Tecan worklist
+    media_types: [text/x-tecan-gwl]
+    extensions: [.gwl]
 writers:
-  echo-picklist:
-    label: Echo pick list
-    description: Source and destination wells and transfer volumes for an Echo acoustic transfer.
-    format: iki/core.csv # what the file is: its media type and extension (ADR 0213)
-    module: writers/echo-picklist # a Rust crate in the plugin, with its Cargo.lock
+  tecan-worklist:
+    label: Tecan worklist
+    description: An aspirate, a dispense and a tip wash for each transfer, in order.
+    format: tecan-gwl # what the file is: its media type and extension (ADR 0213)
+    module: writers/tecan-worklist # a Rust crate in the plugin, with its Cargo.lock
     many: file # file | zip | one
-    memory: 64MiB # at most 256MiB; 64MiB unless set
+    memory: 16MiB # at most 256MiB; 64MiB unless set
     roles:
-      source_plate: { type: ref, types: [acme/plates.Plate], required: true }
+      source_plate: { type: ref, types: [Plate], required: true }
       source_well: { type: string, required: true }
+      destination_plate: { type: ref, types: [Plate], required: true }
       destination_well: { type: string, required: true }
-      volume: { type: quantity, dimension: volume, required: true }
+      volume: { type: quantity, unit: uL, required: true }
+      liquid_class: { type: string }
 ```
 
 A type exports through a writer by mapping the writer's roles to its own
@@ -95,12 +133,14 @@ fields, as a type names fields for Iki's own exports (ADR 0171):
 
 ```yaml
 exports:
-  - export: acme/liquid_handling.echo-picklist
+  - export: tecan-worklist
     fields:
       source_plate: source
       source_well: source_well
-      destination_well: well
-      volume: transfer_volume
+      destination_plate: destination
+      destination_well: destination_well
+      volume: volume
+      liquid_class: liquid_class
 ```
 
 - **The format says what the file is.** It may be the plugin's own format or
@@ -108,9 +148,13 @@ exports:
   `dependencies`, as for fields (ADR 0213). The format supplies the media type
   and the extension, so a CSV layout doesn't claim `.csv` against core.
   Validation refuses formats that can carry active content: `text/html`,
-  `application/xhtml+xml`, `image/svg+xml` and script types.
+  `application/xhtml+xml`, `image/svg+xml`, XSLT, script types and
+  `application/wasm`. The server refuses them again at runtime.
 - **Roles take field types.** Validation checks that each mapped field exists
   and is of its role's type, and that every required role is mapped. A
+  quantity role names a unit. The field it reads must measure the same thing,
+  and the writer gets the value converted to the role's unit. A text role also
+  reads a string field, and a float role an int one. A
   subtype inherits its ancestor's exports, as in ADR 0171. A writer sees only
   the roles its type maps, so a reviewer can see which data goes into the
   file.
@@ -122,31 +166,40 @@ exports:
   `writers/echo-picklist.wasm.sha256`, the SHA-256 of the module built for
   Linux x86-64. No `.wasm` is ever tracked in git. The crate depends on
   `iki-writer`, Iki's SDK crate, which gives the ABI below as a trait and
-  typed inputs. A crate must build from the plugin's own directory plus its
-  registry dependencies, because a plugin is exported from its own tree.
+  typed inputs. A crate builds from its own directory alone, plus its
+  registry dependencies. The builder copies the crate, with the SDK inside it,
+  so Cargo's hash of the SDK's path is the same wherever the plugin is. No
+  build script or `include_bytes!` can reach the plugin's other files. Symbolic
+  links are refused.
 
 ### How the module is built, pinned and reviewed
 
-- **One builder.** Each Iki release publishes a builder image, signed and
-  attested like Iki's other images (ADR 0017). It contains Iki's pinned Rust
-  toolchain, the `wasm32-unknown-unknown` target and the writer checker. It
-  always runs as `linux/amd64`, because that is the platform the digest is
-  of. A module built on macOS arm64 doesn't match, and isn't expected to.
+- **One builder.** The builder is the Rust image Iki builds its own modules
+  with (`rust:1.93.0-slim-trixie`), pinned by digest. It is the same stages in
+  `deploy/plugins.Dockerfile` and in `iki plugin writers --update`, and a test
+  keeps them word for word the same (`iki_spec.writers.build`). It always runs
+  as `linux/amd64`, because that is the platform the digest is of. A module built on macOS arm64 doesn't match, and isn't expected to.
   rustc links its own precompiled wasm32 standard library, which differs by
   host (ADR 0200).
 - **The author writes the digest.** `iki plugin writers --update` builds each
   writer in the builder, through Docker, and writes its `.wasm.sha256`. A
   change to the Rust that changes the module changes the digest, and a
   reviewer sees both in the same diff.
-- **The deployment builds from source and compares.** The plugin image build
-  (`deploy/plugins.Dockerfile`) gets a writers stage from the builder image,
-  pinned by digest. `cargo fetch --locked` runs first, from crates.io or the
-  site's registry mirror. Cargo checks every crate against the checksum in
-  `Cargo.lock`. Then `cargo build --locked --offline` runs with the network
-  off (`RUN --network=none`), with no credentials and with paths remapped. So
-  a build script or proc macro runs where it can't reach anything. If the
-  module's SHA-256 doesn't match the tracked digest, the build fails and
-  names the writer and both digests.
+- **The deployment builds from source and compares.** `iki deploy build`
+  stages each writer's crate and digest, and the SDK, under
+  `iki_installed_plugins/writers`. The plugin image build
+  (`deploy/plugins.Dockerfile`) rebuilds each one from that source. Fetching
+  the crates comes first, from crates.io, the site's registry mirror
+  (`IKI_CARGO_MIRROR`), or the plugin's vendored crates
+  (`cargo vendor --versioned-dirs`). Cargo checks every crate against the
+  checksum in `Cargo.lock`. Then the build runs with the network off
+  (`RUN --network=none`), with no credentials, and with paths remapped: the
+  crate to `/writer` and registry or vendored crates to `/crates`. So a build
+  script or proc macro runs where it can't reach anything, and a mirror or
+  vendored build gives the same bytes as crates.io. If the module's SHA-256
+  doesn't match the tracked digest, the build fails and names the writer and
+  both digests. The image carries the checked modules, not the writers'
+  sources.
 - **The checker refuses what can't be a writer.** It runs on every built
   module in the writers stage, and again in `iki plugin validate`. It
   refuses:
@@ -172,11 +225,12 @@ exports:
   event names the module that wrote the file.
 - **People review the source.** Deployed plugins are trusted and reviewed by
   the enterprise (ADR 0006). A writer's review covers its Rust and its
-  `Cargo.lock`. `iki plugin validate` lists each writer's crates with their
-  versions and licences. The plugin template's CI runs OSV-Scanner on each
-  `Cargo.lock`. Iki's first-party writers go through the same path. Their
-  digest files are part of the plugin trees that `first_party_trees.json`
-  pins for mirrors (ADR 0114).
+  `Cargo.lock`. `iki plugin writers` lists each writer's digest and the
+  crates its `Cargo.lock` pins, with their versions. Licences and advisories
+  come from the lab's own dependency scanning of that lock, as for any Rust
+  project. A first-party writer would go through the same path, its digest
+  file part of the plugin tree that `first_party_trees.json` pins for mirrors
+  (ADR 0114). None ships yet.
 
 ### The ABI
 
@@ -187,7 +241,7 @@ A writer is a core WebAssembly module, ABI 1. It has no imports. It exports
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `iki_abi() -> i32`                 | Returns 1.                                                                                                     |
 | `iki_input(len) -> ptr`            | A buffer of `len` bytes for the next request. Iki writes canonical JSON into it.                               |
-| `iki_begin() -> status`            | Starts a file. The request is the export: `{abi, writer, format, records, type, roles}`.                       |
+| `iki_begin() -> status`            | Starts a file. The request is the export: `{abi, writer, format, records}`.                                    |
 | `iki_record() -> status`           | Writes one record. The request is the record, as below.                                                        |
 | `iki_end() -> status`              | Finishes the file.                                                                                             |
 | `iki_output()`, `iki_output_len()` | The bytes this call adds to the file.                                                                          |
@@ -218,7 +272,9 @@ A record's request is:
   record's latest, as ADR 0171 reads a plasmid's sequence.
 - **A reference the requester can't read is left out and named in
   `withheld`.** Iki adds its own note for it, so the file is never silently
-  short.
+  short. A writer that can't do without it refuses the record, as the Tecan
+  writer does.
+- **A quantity is `{value, unit}`, in the role's unit.**
 - **The JSON is canonical:** keys sorted, no insignificant whitespace, UTF-8.
 - **There is no clock, no randomness, no requester and no export time.**
   The file depends only on the records at their revisions, their order and
@@ -250,9 +306,10 @@ behind most of this year's advisories.
 | fuel per call              | 1,000,000,000 + 2,000 per request byte | wasmtime fuel                          |
 | output per call            | 64 MiB                                 | sandbox                                |
 | notes                      | 1,000 per record, 500 characters each  | sandbox                                |
-| wall clock, one record     | 10 s                                   | sandbox kills the process              |
-| wall clock, many records   | 62j's export deadline                  | sandbox kills the process              |
-| concurrent exports per pod | 4                                      | sandbox queue, then 503                |
+| request per call           | 64 MiB                                 | sandbox, before it's written           |
+| wall clock, a waiting file | 120 s                                  | sandbox kills the process              |
+| wall clock, in background  | 30 minutes                             | sandbox kills the process              |
+| concurrent exports per pod | 4                                      | `busy`, then 503 with `Retry-After`    |
 
 A deployment may lower any of these, and may raise fuel and the wall clock.
 A plugin may ask only for less memory than the cap. Fuel is deterministic:
@@ -273,29 +330,42 @@ writers.
 - **The network.** The chart's default-deny NetworkPolicy covers it, and the
   rule that gives other Iki pods DNS and the database leaves it out. So it
   has no egress at all. Only web and tasks pods may connect to it.
-- **The launcher.** It accepts an export as a stream of length-prefixed
-  frames: the export, then the records. It hands the stream to a child
-  process and relays the child's frames back: parts, notes and a final
-  status. It never parses records.
+- **The launcher.** `python -I -m iki_spec.writer_sandbox` re-executes
+  itself with an empty environment, whatever the image set. It accepts each
+  export as a stream of length-prefixed frames: a header naming the writer,
+  its module's digest, its memory and a deadline, then one frame per call.
+  It hands the stream to a child process and relays the child's answers
+  back: the bytes, the notes, the fuel used, or why it failed. It reads only
+  the header, never a record. Past its concurrency it answers `busy`. At an
+  export's deadline it kills the child and says so. On SIGTERM it takes no
+  more exports and lets those running finish. Its readiness probe passes
+  only once a child has loaded and checked every installed writer, so an
+  image with a bad module doesn't roll out.
 - **The child.** Each child is a fresh `python -I` process with an empty
   environment and only its pipes open. It loads the precompiled module,
-  instantiates it in a new store with its limits, runs `begin`, one `record`
-  per record and `end`, then exits. The launcher keeps a child or two
-  started and waiting, so the one-record path doesn't pay for the start.
-  No child is ever used twice.
+  instantiates it in a new store with its limits, then gives up what a writer
+  never needs: it can't create a file, open a descriptor or start a process
+  (rlimits). It runs `begin`, one `record` per record and `end`, then exits.
+  Each `begin` starts from a fresh instance, so a ZIP's files share nothing.
+  The launcher keeps two children started and waiting, so the one-record path
+  doesn't pay for the start. No child is ever used twice.
+- **The server's side.** Web and task pods get `IKI_EXPORT_SANDBOX`, the
+  sandbox's Service address (`tcp://host:port`). They take the module's
+  digest from the image's manifest and check that it is the one the plugin
+  pins.
 - **Development and tests.** The server can start the child itself
-  (`exports.sandbox: local`). The server refuses that setting unless local
+  (`IKI_EXPORT_SANDBOX=local`). The server refuses that setting unless local
   plugins are allowed, as only a development build allows them (ADR 0034).
 
 wasmtime-py is the runtime, the binding the server already pins. It is
 licensed Apache-2.0 WITH LLVM-exception, ships `py3-none` wheels for Linux
 x86-64 and arm64, and supports Python 3.9 to 3.14. The current release is
-51.0.0, published on 2026-11-20. The server pins 50.0.1, which ships the
+51.0.0, published on 2026-11-20. The server pinned 50.0.1, which ships the
 50.0.0 engine. That engine is in the range of GHSA-43j2-gcp4-m22g, which
-needs the GC proposal. iki-wasm runs with no host functions, so it isn't
-exposed. The sandbox's engine has GC off. Implementation moves the pin to
-51.0.0. Dependabot keeps it moving (ADR 0017), and a wasmtime advisory is
-treated as a runtime bump.
+needs the GC proposal. iki-wasm runs with no host functions, so it wasn't
+exposed. The sandbox's engine has GC off. The pin moves to 51.0.0 with this
+ADR, and with it the server's precompiled iki-wasm code. Dependabot keeps it
+moving (ADR 0017), and a wasmtime advisory is treated as a runtime bump.
 
 ### One record and many
 
@@ -320,19 +390,20 @@ audit and the size limits.
   record in 62j's order, then `end`. The records all belong to one requester,
   so one process may hold them all.
 - **Many records with `many: zip`** are `begin`/`record`/`end` per record,
-  in the same child. Iki writes the ZIP deterministically: entries in
-  order, each named as its record's download would be, each dated by its
-  revision.
+  in the same child, each file from a fresh instance. Iki writes the ZIP
+  deterministically: entries in order, each named as its record's download
+  would be, each dated by its revision, stored uncompressed.
 - **`many: one`** isn't offered for a selection.
 
 **Nothing reaches the requester before `end` succeeds.** The server spools
 the parts, hashes them as they arrive, and serves the file only when the
-whole file is written. If the format declares byte signatures (ADR 0214),
-the file must match one, or it isn't served.
+whole file is written. If the format declares byte signatures (ADR 0213),
+the file must start with one, or it isn't served. In a ZIP, each record's file
+must.
 
 **Every export is audited as Iki's own are.** `entity.exported`, and 62j's
 many-record event, gain
-`writer: {plugin, commit, module_sha256, abi}` beside the file's name,
+`writer: {plugin, writer, commit, module_sha256, abi}` beside the file's name,
 size, SHA-256 and the notes per record. An auditor can therefore tell which
 code wrote the file someone took. The response sets `Iki-Left-Out`, as in
 ADR 0171. The export dialog lists a plugin's formats with their
@@ -353,12 +424,14 @@ No partial file is ever served.
   The log has the plugin, the writer, the module digest, the trap and the
   record ID. The values don't go in the log.
 - **A sandbox that's down or full** is a 503 `sandbox_unavailable` with
-  `Retry-After`. Iki's own formats keep working.
+  `Retry-After`. Iki's own formats keep working. An export of many records
+  written in the background tries again, four times 30 seconds apart, before
+  it fails.
 - **A failed export isn't audited,** because no file left Iki. It is logged
   and counted.
-- **A module that fails its digest or checks at load is unavailable.** Its
-  formats are not offered, and the sandbox reports the problem in its
-  readiness, so a bad image doesn't roll out.
+- **A module that fails its digest or checks at load is unavailable.** The
+  sandbox refuses it, so its exports are 503 rather than a file. Its
+  readiness reports the problem, so a bad image doesn't roll out.
 
 ## Consequences
 
@@ -373,11 +446,14 @@ No partial file is ever served.
   own records, and no way out.
 - A deployment with writers runs one more small Deployment. Its pods need
   memory for 4 × (the largest writer's `memory` + about 50 MB). The 50 MB is
-  what a child measured after importing wasmtime (46 MB on macOS arm64), and
-  implementation measures it on Linux.
+  what a child measured after importing wasmtime (46 MB on macOS arm64). The
+  chart's default limit, 768 MiB, fits four 64 MiB writers. Its values say
+  how to size it for larger ones.
 - A one-record export pays a network hop and a frame or two on top of the
   writer. The process start, about 80 to 160 ms natively, is hidden by the
   child that's already waiting.
+- Writer crates pin `iki-writer = "=0.1.0-dev.0"`, so a release that bumps
+  the SDK's version bumps each writer's `Cargo.toml` and `Cargo.lock` too.
 - Writers are Rust in v1, because the builder has to rebuild them and
   reproduce their digest. The ABI isn't tied to Rust. A language is added
   by adding its toolchain to the builder, and that needs a reproducible
@@ -385,8 +461,7 @@ No partial file is ever served.
 - Writers can't use chemistry toolkits that need a host, such as RDKit.
   RDKit's Wasm build expects JavaScript imports. A writer that needs
   computed coordinates reads them from the record, and computing them is an
-  action's job. `export_sdf` stays an action for coordinates RDKit
-  computes. 62j's built-in SDF covers stored structures.
+  action's job. Iki's built-in SDF (ADR 0229) writes stored structures.
 - Iki's own writers stay in the server process, in Python, as ADR 0171 has
   them. iki-wasm stays in the server. It's Iki's code, built from Iki's
   repository, and it runs on every save, where a hop would cost too much.
@@ -446,11 +521,13 @@ No partial file is ever served.
 
 ## Spike
 
-`scripts/spikes/export_writer_sandbox.py` runs writers written in the Wasm
-text format through the engine and ABI above, on Python 3.12 and 3.14 with
-wasmtime-py 50.0.1 and 51.0.0. It ran on macOS arm64, and on Linux arm64 and
-amd64 in Docker; amd64 was emulated, so its timings are upper bounds. Every
-check passed on every combination:
+The spike, `scripts/spikes/export_writer_sandbox.py`, ran writers written in
+the Wasm text format through the engine and ABI above. Its checks are now
+tests (`spec/tests/test_writer_sandbox.py`), against the real runtime, child
+and launcher, and the spike is gone. It ran on Python 3.12 and 3.14 with
+wasmtime-py 50.0.1 and 51.0.0, on macOS arm64, and on Linux arm64 and amd64
+in Docker. amd64 was emulated, so its timings are upper bounds. Every check
+passed on every combination:
 
 | check                                                 | result                                                                  |
 | ----------------------------------------------------- | ----------------------------------------------------------------------- |

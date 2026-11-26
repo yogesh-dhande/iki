@@ -2,7 +2,8 @@
  * Exporting a record as a file other tools read, such as GenBank (ADR 0171): from its
  * page's ⋯ menu, or a revision as it was from its audit trail. Iki writes the file from the
  * record's values at that revision, and audits the download. A file that couldn't hold
- * all of the record says so, and the page says so too.
+ * all of the record says so, and the page says so too. A plugin's format (ADR 0230) is
+ * offered as Iki's own are, saying which plugin writes it.
  */
 
 import { unwrap, type Schemas } from "@ikisci/sdk";
@@ -28,9 +29,11 @@ function fileName(response: Response, fallback: string): string {
   return /filename="([^"]+)"/.exec(header)?.[1] ?? fallback;
 }
 
-function leftOutText(saved: Saved, format: FormatName): string {
+function leftOutText(saved: Saved, format: FormatName, plugin?: string | null): string {
   if (!saved.leftOut) return "";
   const things = saved.leftOut === 1 ? "1 thing" : `${String(saved.leftOut)} things`;
+  if (plugin)
+    return ` Its writer couldn’t hold ${things} of the record as it is: the download’s audit event says which.`;
   if (format === "genbank")
     return ` It couldn’t hold ${things} of the record: the file’s COMMENT says which.`;
   if (format === "sdf")
@@ -38,6 +41,13 @@ function leftOutText(saved: Saved, format: FormatName): string {
   if (format === "fasta")
     return ` It couldn’t hold ${things} of the record, such as its features, which GenBank holds.`;
   return ` It couldn’t hold ${things} of the record, such as all of a long name.`;
+}
+
+/** What the format dialog says of a format: what it holds, and who writes it if not Iki. */
+export function formatDescription(format: Format): string {
+  return format.plugin
+    ? `${format.description} Written by the ${format.plugin} plugin.`
+    : format.description;
 }
 
 /** The files a type's records export as: none, for most. */
@@ -186,7 +196,7 @@ export function ExportDialog({
             options={formats.map((f) => ({
               value: f.format,
               label: f.label,
-              description: f.description,
+              description: formatDescription(f),
             }))}
             help={
               revision === undefined
@@ -203,7 +213,8 @@ export function ExportDialog({
                 download.mutate(format, {
                   onSuccess: (saved) => {
                     close();
-                    say(`Downloaded ${saved.name}.${leftOutText(saved, format)}`);
+                    const plugin = formats.find((f) => f.format === format)?.plugin;
+                    say(`Downloaded ${saved.name}.${leftOutText(saved, format, plugin)}`);
                   },
                 });
               }}

@@ -12,7 +12,7 @@ dependencies = [
   "pyyaml>=6.0.3",
   # Runs iki-wasm, which browsers evaluate CEL with, to check and evaluate plugins' rules
   # and guards (ADR 0127) and apps' expressions (ADR 0090) as browsers will.
-  "wasmtime>=50.0.1",
+  "wasmtime>=51.0.0",
 ]
 
 # uv_build, after scripts/build-wasm.sh: a wheel can't be built without iki-wasm, nor with a

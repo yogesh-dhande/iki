@@ -10,6 +10,11 @@ from pathlib import Path
 
 WASM_HEADER = b"\x00asm\x01\x00\x00\x00"
 
+# Plugins' writers (ADR 0230): writers/<name>/ is a Rust crate, beside the digest of its
+# module, writers/<name>.wasm.sha256. One builder takes each crate as an argument.
+WRITER_BUILDER = Path("scripts/build-writer-wasm.sh")
+WRITER_PLUGINS = ("plugins", "examples/plugins", "spec/tests/plugins")
+
 
 def populated(path: Path, fix: str) -> None:
     if not path.is_file() or not path.stat().st_size:
@@ -87,7 +92,7 @@ def wasm() -> None:
     modules.update(
         p.name.removeprefix("build-").removesuffix("-wasm.sh")
         for p in Path("scripts").glob("build-*-wasm.sh")
-        if p != oligo_builder
+        if p not in (oligo_builder, WRITER_BUILDER)
     )
     for name in sorted(modules):
         builder = Path("scripts") / f"build-{name}-wasm.sh"
@@ -129,6 +134,38 @@ def wasm() -> None:
             if not binary.startswith(WASM_HEADER) or hashlib.sha256(binary).hexdigest() != pin[0]:
                 raise SystemExit(f"{module} does not match {lock}. Run {builder} --check.")
             populated(package / "rust-standard-library.html", str(builder))
+    writers()
+
+
+def writers() -> None:
+    """Build every plugin writer whose crate is here, and check it against its digest."""
+    for root in WRITER_PLUGINS:
+        for lock in sorted(Path(root).glob("*/writers/*.wasm.sha256")):
+            crate = lock.with_name(lock.name.removesuffix(".wasm.sha256"))
+            if not (crate / "Cargo.toml").is_file():
+                continue
+            filename = f"{crate.name}.wasm"
+            pin = lock.read_text().split()
+            if (
+                len(pin) != 2
+                or not re.fullmatch(r"[0-9a-f]{64}", pin[0])
+                or pin[1].removeprefix("*") != filename
+            ):
+                raise SystemExit(f"Invalid digest in {lock}. Expected '<sha256>  {filename}'.")
+            try:
+                subprocess.run([str(WRITER_BUILDER), str(crate)], check=True)  # noqa: S603
+            except (OSError, subprocess.CalledProcessError) as exc:
+                raise SystemExit(f"Failed to build {crate}. Run {WRITER_BUILDER} {crate}.") from exc
+            module = lock.with_name(filename)
+            populated(module, f"{WRITER_BUILDER} {crate}")
+            binary = module.read_bytes()
+            if not binary.startswith(WASM_HEADER):
+                raise SystemExit(f"{module} isn't WebAssembly. Run {WRITER_BUILDER} {crate}.")
+            if linux_x86_64() and hashlib.sha256(binary).hexdigest() != pin[0]:
+                raise SystemExit(
+                    f"{module} does not match {lock}. If the Rust changed on purpose, run "
+                    f"uv run iki plugin writers {lock.parent.parent} --update."
+                )
 
 
 def story_assets(packages: Path) -> None:

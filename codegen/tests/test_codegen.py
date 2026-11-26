@@ -257,3 +257,26 @@ def test_the_python_sdk_types_are_current() -> None:
     assert sdk.generate(document) == committed, (
         "The Python SDK's types are out of date. Run `make client` and commit sdk/python/."
     )
+
+
+def test_a_plugins_writers_are_staged_for_the_image_to_build(tmp_path: Path) -> None:
+    """Each writer's crate, its tracked digest and the SDK, for the plugin image's builder
+    (ADR 0230); and the lock names each writer's digest beside its plugin's commit."""
+    example = Path(__file__).resolve().parents[2] / "examples" / "plugins" / "liquid_handling"
+    loaded = load_plugin(example)
+    assert loaded.plugin is not None, loaded.problems
+    name = loaded.plugin.name
+    lock = {"plugins": [{"name": name, "sha": "a" * 40}]}
+    build([loaded.plugin], tmp_path, sources={name: example}, lock=lock)
+    writers = tmp_path / "iki_installed_plugins" / "writers"
+    crate = "examples__liquid_handling/tecan-worklist"
+    assert (writers / "writers.txt").read_text() == f"{crate}\n"
+    described = json.loads((writers / "writers.json").read_text())
+    entry = described["writers"]["examples/liquid_handling.tecan-worklist"]
+    tracked = (example / "writers" / "tecan-worklist.wasm.sha256").read_text().split()[0]
+    assert (entry["crate"], entry["sha256"]) == (crate, tracked)
+    assert (writers / crate / "Cargo.lock").is_file()
+    assert not (writers / crate / "target").exists()
+    assert (writers / "sdk" / "iki-writer" / "build-writer.sh").is_file()
+    locked = json.loads((tmp_path / "iki_installed_plugins" / "lock.json").read_text())
+    assert locked["plugins"][0]["writers"] == {"examples/liquid_handling.tecan-worklist": tracked}

@@ -327,6 +327,38 @@ tasks:
   affinity: {}
   podAnnotations: {}
 
+sandbox:
+  # Runs plugins' export writers (ADR 0230). Web pods and task runners send it an
+  # export's records; it runs the plugin's Wasm writer in a fresh child process and
+  # sends the file back. It runs this deployment's image with no Secrets, no
+  # environment, no Kubernetes token and no cloud identity (serviceAccount.annotations
+  # never reach it), and the NetworkPolicy gives it no egress at all, not even DNS.
+  # Only web pods and task runners reach it.
+  # Off by default: turn it on when your plugins declare writers. Without it, the
+  # server doesn't offer plugins' formats; Iki's own (FASTA, GenBank, SDF, ...) work
+  # either way.
+  enabled: false
+  replicas: 2
+  # Exports each pod runs at once. More wait briefly, then get a 503 with Retry-After.
+  concurrency: 4
+  # Each export running needs its writer's `memory` (64 MiB by default, 256 MiB at
+  # most) plus about 50 MB for its process; the launcher and a child kept waiting
+  # take about 100 MB more. The limit fits the default concurrency with writers at
+  # the default (4 x 114 MB + 100 MB, about 560 MB) with room to spare. For writers
+  # that ask for more, set it to about concurrency x (largest memory + 50 MB) +
+  # 150 MB: 1.4 GiB for four exports by 256 MiB writers. The request is what an
+  # idle pod holds; exports are short.
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 768Mi }
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
 migrate:
   # Runs `iki-server migrate_deployment` before installation, upgrade or rollback.
   enabled: true
