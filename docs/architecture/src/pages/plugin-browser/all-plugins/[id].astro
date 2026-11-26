@@ -1,0 +1,16 @@
+---
+// One plugin's page in the browser, for every plugin in the repository but the core one,
+// whose page is Core types.
+import PluginPage from "../../../components/PluginPage.astro";
+import { browser, type PluginRec } from "../../../lib/browser.ts";
+
+export function getStaticPaths() {
+  return browser()
+    .plugins.filter((p) => p.group !== "core")
+    .map((p) => ({ params: { id: p.id }, props: { plugin: p } }));
+}
+
+const { plugin } = Astro.props as { plugin: PluginRec };
+---
+
+<PluginPage plugin={plugin} />

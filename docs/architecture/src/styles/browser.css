@@ -1,0 +1,494 @@
+/* The plugin browser: highlighted YAML, its key documentation, and the schema reference.
+   Colours are Iki's tokens, so both themes follow the site's. */
+
+/* --- YAML ----------------------------------------------------------------------------- */
+pre.yaml {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: var(--code-bg);
+  max-height: none;
+  tab-size: 2;
+}
+pre.yaml a {
+  text-decoration: none;
+}
+pre.yaml .yc a {
+  color: inherit;
+  text-decoration: underline;
+}
+pre.yaml a:hover,
+pre.yaml a:focus-visible {
+  text-decoration: underline;
+}
+.yk {
+  color: var(--sidebar-current-text);
+}
+a.yk {
+  color: var(--sidebar-current-text);
+}
+.ys {
+  color: var(--swatch-1);
+}
+.yn {
+  color: var(--swatch-3);
+}
+.yb {
+  color: var(--swatch-4);
+}
+.yc {
+  color: var(--muted);
+  font-style: italic;
+}
+.yd {
+  color: var(--muted);
+}
+pre.yaml .ref {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+pre.yaml .ref:hover {
+  text-decoration-style: solid;
+}
+pre.yaml .unres {
+  text-decoration: underline wavy var(--error);
+  text-underline-offset: 3px;
+  background: var(--error-bg);
+  cursor: help;
+}
+pre.yaml .nokey {
+  text-decoration: underline dashed var(--warning);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+/* Anchored keys, such as a type's fields, are targets of links from other plugins. */
+pre.yaml [id]:target {
+  background: var(--accent-soft);
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+pre.yaml [id] {
+  scroll-margin-top: 40vh;
+}
+
+/* The key-documentation popup. */
+.key-doc {
+  position: absolute;
+  z-index: 20;
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-menu);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.key-doc p {
+  margin: 0;
+}
+.key-doc .kd-where {
+  font-family: var(--mono);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.key-doc .kd-where a {
+  color: var(--muted);
+}
+.key-doc .kd-none {
+  color: var(--muted);
+  font-style: italic;
+}
+.key-doc .kd-ref {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* --- A plugin's page -------------------------------------------------------------------- */
+.pb-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin: 14px 0 16px;
+  padding: 0;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.pb-meta div {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.pb-meta dt {
+  font-weight: 600;
+}
+.pb-meta dd {
+  margin: 0;
+  color: var(--text);
+}
+.badge {
+  display: inline-block;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.badge.g-official {
+  border-color: var(--accent);
+  color: var(--sidebar-current-text);
+  background: var(--accent-soft);
+}
+.badge.g-core {
+  border-color: var(--swatch-4);
+  color: var(--swatch-4);
+}
+.badge.g-example {
+  border-color: var(--swatch-3);
+  color: var(--swatch-3);
+}
+.badge.g-test {
+  border-color: var(--swatch-8);
+  color: var(--swatch-8);
+}
+.pb-section {
+  margin-top: 40px;
+}
+.pb-section > h2 {
+  scroll-margin-top: 16px;
+}
+.pb-kind h3 {
+  scroll-margin-top: 16px;
+}
+
+/* One YAML file, and each document in it. */
+.yfile {
+  margin: 18px 0 22px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  scroll-margin-top: 16px;
+}
+.yfile-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.yfile-head .path {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.yfile-head .gh {
+  margin-left: auto;
+  font-size: 12.5px;
+}
+.ydoc {
+  scroll-margin-top: 56px;
+}
+.ydoc + .ydoc {
+  border-top: 1px dashed var(--border-strong);
+}
+.ydoc-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  padding: 8px 12px 0;
+  background: var(--code-bg);
+  font-size: 13px;
+}
+.ydoc-head .kind {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.ydoc-head .pname {
+  font-weight: 600;
+  font-family: var(--mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.ydoc-head .schema {
+  font-size: 12.5px;
+}
+.ydoc:target .ydoc-head .pname {
+  color: var(--sidebar-current-text);
+}
+.links-in {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  width: 100%;
+  font-size: 12.5px;
+}
+.links-in details {
+  max-width: 100%;
+}
+.links-in summary {
+  cursor: pointer;
+  color: var(--sidebar-current-text);
+}
+.links-in ul {
+  margin: 4px 0 6px;
+  padding-left: 18px;
+  max-height: 260px;
+  overflow: auto;
+}
+.links-in li {
+  font-size: 12.5px;
+  margin: 0 0 2px;
+}
+.links-in .via {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+/* Files that aren't YAML. */
+.pb-files ul {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 14px;
+  columns: 2 320px;
+  column-gap: 24px;
+}
+.pb-files li {
+  break-inside: avoid;
+  font-size: 13px;
+  margin: 0 0 3px;
+  scroll-margin-top: 30vh;
+}
+.pb-files li:target {
+  background: var(--accent-soft);
+  border-radius: 4px;
+}
+.pb-files details summary {
+  cursor: pointer;
+}
+.pb-files details pre {
+  max-height: 360px;
+  font-size: 12px;
+  margin: 6px 0;
+}
+.pb-files h3 {
+  margin: 14px 0 4px;
+  font-size: 14px;
+}
+td.links-count {
+  white-space: nowrap;
+}
+.size {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* --- The list --------------------------------------------------------------------------- */
+.pb-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  margin: 18px 0 8px;
+}
+.pb-filter label {
+  font-size: 13px;
+  color: var(--muted);
+}
+.pb-filter input[type="search"] {
+  height: 32px;
+  width: min(360px, 100%);
+  padding: 0 10px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+.pb-filter fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+.pb-filter fieldset label {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--text);
+}
+.pb-count {
+  font-size: 13px;
+  color: var(--muted);
+}
+.pb-list td.desc {
+  min-width: 260px;
+}
+.pb-list td.counts {
+  font-size: 12.5px;
+  color: var(--muted);
+  min-width: 140px;
+}
+.pb-list td.counts b {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pb-list .from {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.pb-list tr.group-row th {
+  background: var(--surface-3);
+}
+.comma > * + *::before {
+  content: ", ";
+}
+.pb-list td code,
+.pb-kind td code {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+.pb-list .dir {
+  margin-top: 2px;
+  font-size: 12px;
+}
+.pb-list .dir code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.pb-named ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  columns: 2 300px;
+}
+.pb-named li {
+  font-size: 13px;
+}
+.pb-named summary {
+  cursor: pointer;
+}
+
+/* --- Schemas ---------------------------------------------------------------------------- */
+.snode {
+  scroll-margin-top: 16px;
+}
+.snode .snode {
+  margin-top: 6px;
+}
+.skids {
+  margin: 6px 0 2px 6px;
+  padding-left: 14px;
+  border-left: 2px solid var(--border);
+}
+.shead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+  position: relative;
+}
+.sanchor {
+  color: var(--border-strong);
+  text-decoration: none;
+  font-size: 12px;
+  width: 10px;
+  margin-left: -16px;
+}
+.snode:hover > .shead .sanchor {
+  color: var(--muted);
+}
+.snode:target > .shead {
+  background: var(--accent-soft);
+  border-radius: 4px;
+}
+.sname {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.sname.smeta {
+  font-weight: 500;
+  color: var(--muted);
+}
+.sbranch {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--muted);
+}
+.ssum {
+  font-size: 12.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.ssum code {
+  font-size: 11.5px;
+}
+.st {
+  color: var(--swatch-1);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.sf {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.req {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--warning);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+main p.sdesc {
+  margin: 2px 0 2px;
+  font-size: 14px;
+  max-width: 820px;
+}
+main p.sdesc.shared {
+  color: var(--muted);
+}
+main p.suses {
+  margin: 0 0 2px;
+  font-size: 12.5px;
+  color: var(--muted);
+  max-width: 820px;
+}
+.s-def {
+  margin-top: 18px;
+}
+.s-def > .shead .sname {
+  font-size: 15px;
+}
+
+@media (max-width: 720px) {
+  pre.yaml {
+    font-size: 12px;
+  }
+  .skids {
+    margin-left: 2px;
+    padding-left: 10px;
+  }
+  .sanchor {
+    display: none;
+  }
+}

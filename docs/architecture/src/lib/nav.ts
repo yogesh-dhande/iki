@@ -83,6 +83,7 @@ export const NAV: NavGroup[] = [
     "Builds and deploys",
     "Migrations and versions",
   ]),
+  nested("Plugin browser", ["How the pieces fit", "All plugins", "Core types", "Schemas"]),
   nested("Requests", [
     "A request's life",
     "Asking and serving",
@@ -126,8 +127,6 @@ export const NAV: NavGroup[] = [
     items: [
       { label: "ADRs", href: "/adrs/" },
       { label: "Routes", href: "/routes/" },
-      { label: "Core types", href: "/core-types/" },
-      { label: "First-party plugins", href: "/first-party-plugins/" },
     ],
   },
 ];

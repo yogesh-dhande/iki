@@ -122,8 +122,3 @@ export function firstPartyPlugins(): Plugin[] {
   );
   return [...dirs].map(readPlugin).sort((a, b) => a.name.localeCompare(b.name));
 }
-
-/** The core plugin, released with Iki itself and built into the server by `make core`. */
-export function corePlugin(): Plugin {
-  return readPlugin("spec/src/iki_spec/core");
-}

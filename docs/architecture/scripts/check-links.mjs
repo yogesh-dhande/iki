@@ -106,7 +106,51 @@ for (const [file, text] of html) {
   }
 }
 
+// The plugin browser lists every plugin in the repository (a directory with plugin.yaml),
+// each linked to a page that was built, and has a page for every JSON Schema in spec/.
+const listPage = path.join(dist, "plugin-browser/all-plugins/index.html");
+let browserPlugins = 0;
+let unresolved = 0;
+if (!html.has(listPage)) {
+  problems.push("/plugin-browser/all-plugins/ wasn't built");
+} else {
+  const rows = new Map(
+    [
+      ...html
+        .get(listPage)
+        .matchAll(/<tr[^>]*\sdata-dir="([^"]+)"[^>]*>[\s\S]*?<a href="([^"]+)"/g),
+    ].map((m) => [m[1], m[2]]),
+  );
+  const pluginDirs = [...files]
+    .filter((f) => /(^|\/)plugin\.ya?ml$/.test(f))
+    .map((f) => f.replace(/\/?plugin\.ya?ml$/, ""));
+  for (const dir of new Set(pluginDirs)) {
+    const href = rows.get(dir);
+    if (!href) problems.push(`/plugin-browser/all-plugins/: the plugin in ${dir} isn't listed`);
+    else if (!target(href.split("#")[0]))
+      problems.push(`/plugin-browser/all-plugins/: ${dir}'s page ${href} wasn't built`);
+  }
+  for (const dir of rows.keys()) {
+    if (!pluginDirs.includes(dir))
+      problems.push(`/plugin-browser/all-plugins/ lists ${dir}, which has no plugin.yaml`);
+  }
+  browserPlugins = rows.size;
+  for (const [file, text] of html) {
+    if (file.includes(`${path.sep}plugin-browser${path.sep}`))
+      unresolved += (text.match(/class="[^"]*\bunres\b/g) ?? []).length;
+  }
+}
+for (const f of files) {
+  const m = /^spec\/src\/iki_spec\/schemas\/([^/]+)\/v1\.json$/.exec(f);
+  if (m && !target(`/plugin-browser/schemas/${m[1]}/`)) {
+    problems.push(`/plugin-browser/schemas/${m[1]}/ wasn't built for ${f}`);
+  }
+}
+
 for (const p of problems) console.error(p);
+console.log(
+  `Plugin browser: ${browserPlugins} plugins listed, each with a page; ${unresolved} unresolved reference(s) marked.`,
+);
 console.log(
   `${html.size} pages: ${internal} links within the site, ${github} to the repository at main, ` +
     `${outside} outside (not fetched). ${problems.length} problem(s).`,

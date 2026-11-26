@@ -1,0 +1,20 @@
+---
+// The core plugin, iki/core: the types every plugin's types extend, shown as any plugin is.
+import PluginPage from "../../components/PluginPage.astro";
+import Path from "../../components/Path.astro";
+import Adr from "../../components/Adr.astro";
+import { browser } from "../../lib/browser.ts";
+
+const core = browser().plugins.find((p) => p.group === "core");
+if (!core) throw new Error("There's no core plugin at spec/src/iki_spec/core.");
+---
+
+<PluginPage plugin={core} nav>
+  <p>
+    Released with Iki itself, not listed in lockfiles, and built into the server as <Path
+      p="server/src/iki_plugin_iki__core"
+    /> by <code>make core</code> (<Adr n="0038" />). Every type is an <code>iki/core.Entity</code>,
+    whether it says so or not; <code>Entity</code>'s own columns are the server's model, not fields
+    here.
+  </p>
+</PluginPage>

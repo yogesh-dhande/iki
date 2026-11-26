@@ -1,0 +1,309 @@
+---
+// One plugin in the browser: what it declares, every YAML file it ships as the spec reads
+// it, and its other files. Keys link to their schema's description; values that name
+// another part link to it, and each part lists what links to it.
+import "../styles/browser.css";
+import Layout from "./Layout.astro";
+import KeyDocs from "./KeyDocs.astro";
+import {
+  browser,
+  fileAnchor,
+  firstSentence,
+  github,
+  GROUPS,
+  KeyDocTable,
+  PART_LABELS,
+  renderYaml,
+  type Part,
+  type PartKind,
+  type PluginRec,
+} from "../lib/browser.ts";
+import { linksInHtml, linksInCount } from "../lib/browser-html.ts";
+import { SCHEMA_HREF, esc } from "../lib/schemas.ts";
+import { readRepo } from "../lib/repo.ts";
+
+type Props = { plugin: PluginRec; nav?: boolean };
+const { plugin: p, nav = false } = Astro.props;
+const b = browser();
+const table = new KeyDocTable(b);
+const group = GROUPS.find((g) => g.id === p.group)!;
+const keyOf = (x: Part) => `${p.id}#${x.anchor}`;
+const ORDER: PartKind[] = ["type", "extension", "action", "environment", "workflow", "trigger", "component", "role", "setting", "format", "writer", "api", "starter", "test"];
+const kinds = ORDER.map((k) => ({ kind: k, parts: p.parts.filter((x) => x.kind === k) })).filter((g) => g.parts.length);
+const unresolved = b.unresolved.filter((u) => u.plugin === p);
+const depByName = (name: string) => b.plugins.find((x) => x.name === name);
+const firstLine = (s?: string) => (s ? firstSentence(s) : "");
+/** A type's parent as written, linked as the spec resolves it. */
+const typeHref = (raw: string) => {
+  const q = raw.includes(".") ? raw : `${p.name}.${raw}`;
+  const owner = b.plugins.find((x) => x.name === q.slice(0, q.lastIndexOf(".")));
+  const part = owner?.parts.find((y) => y.kind === "type" && y.qualified === q);
+  return part && owner ? `${owner.href}#${part.anchor}` : undefined;
+};
+
+// Each YAML file, a block per document, rendered once.
+const files = p.yaml.map((f) => ({
+  f,
+  docs: f.docs.map((d) => ({ d, html: renderYaml(f, d.start, d.end, table) })),
+}));
+
+// Other files, by their top directory; the small text ones can be opened in place.
+const SMALL = 4000;
+const TEXT = /\.(py|js|mjs|ts|sh|txt|in|md|json|r|R|toml|cfg|csv|tsv|fasta|fa|gb|gbk|sdf|mol|pdb|xml|ini|lock|Dockerfile)$|Dockerfile$|LICENSE$|NOTICE$/;
+const others = new Map<string, { rel: string; path: string; size: number; preview?: string }[]>();
+for (const path of p.others) {
+  const rel = path.slice(p.dir.length + 1);
+  const top = rel.includes("/") ? rel.split("/")[0] + "/" : "(root)";
+  let size = 0;
+  let preview: string | undefined;
+  try {
+    const t = readRepo(path);
+    size = Buffer.byteLength(t);
+    if (size <= SMALL && TEXT.test(rel) && !t.includes("\u0000")) preview = t;
+  } catch {
+    size = 0;
+  }
+  const list = others.get(top) ?? [];
+  list.push({ rel, path, size, ...(preview !== undefined ? { preview } : {}) });
+  others.set(top, list);
+}
+const sizeText = (n: number) => (n >= 1024 ? `${(n / 1024).toFixed(n >= 10240 ? 0 : 1)} KB` : `${n} B`);
+
+const toc = [
+  { id: "declares", label: "What it declares" },
+  { id: "manifests", label: "YAML files" },
+  ...(p.others.length ? [{ id: "files", label: "Other files" }] : []),
+  ...(unresolved.length ? [{ id: "unresolved", label: "Unresolved references" }] : []),
+];
+const docHead = (d: (typeof files)[number]["docs"][number]["d"], rel: string) => {
+  if (!d.kind) return "";
+  const x = d.part;
+  const schema = d.schema ? `<a class="schema" href="${SCHEMA_HREF}${d.schema}/">${d.schema} schema</a>` : `<span class="schema">no schema</span>`;
+  const name = x ? `<span class="pname">${esc(x.qualified)}</span>` : rel === "plugin.yaml" || rel === "plugin.yml" ? `<span class="pname">${esc(p.name)}</span>` : "";
+  const extra = x?.abstract ? ` <span class="badge">abstract</span>` : "";
+  const links = x ? linksInHtml(b, keyOf(x)) : linksInHtml(b, p.id);
+  return `<div class="ydoc-head"><span class="kind">${esc(d.kind)}</span>${name}${extra}${schema}${links}</div>`;
+};
+---
+
+<Layout title={nav ? undefined : p.name} toc={toc} wide>
+  <dl class="pb-meta">
+    <div><dt>Kind</dt><dd><span class={`badge g-${p.group}`}>{group.one}</span></dd></div>
+    {nav && <div><dt>Name</dt><dd><code>{p.name}</code></dd></div>}
+    <div><dt>Version</dt><dd>{p.version}</dd></div>
+    <div><dt>Directory</dt><dd><a href={github(p.dir)}><code>{p.dir}</code></a></dd></div>
+    {p.iki && <div><dt>Iki</dt><dd><code>{p.iki}</code></dd></div>}
+    {p.license && <div><dt>License</dt><dd>{p.license}</dd></div>}
+  </dl>
+  {p.title && p.title !== p.name && <p><strong>{p.title}.</strong> {p.description}</p>}
+  {(!p.title || p.title === p.name) && p.description && <p>{p.description}</p>}
+  <slot />
+  {
+    p.dependencies.length > 0 && (
+      <p>
+        Depends on{" "}
+        <span class="comma">
+          {p.dependencies.map((d) => {
+            const t = depByName(d.name);
+            const types = Object.entries(d.types).map(([k, v]) => `${k} ${v}`).join(", ");
+            return (
+              <span>
+                {t ? <a href={t.href}>{d.name}</a> : <code class="unres" title="No plugin with this name is in the repository">{d.name}</code>}
+                {types && <span class="size"> ({types})</span>}
+              </span>
+            );
+          })}
+        </span>
+        .
+      </p>
+    )
+  }
+  <Fragment set:html={linksInHtml(b, p.id, true)} />
+  {
+    p.group === "test" && (
+      <details class="pb-named">
+        <summary>
+          Named in {p.usedFrom.length} other file{p.usedFrom.length === 1 ? "" : "s"}, by its directory or its name
+        </summary>
+        <ul>
+          {p.usedFrom.map((f) => (
+            <li>
+              <a href={github(f)}>
+                <code>{f}</code>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </details>
+    )
+  }
+
+  <section class="pb-section" id="declares">
+    <h2>What it declares</h2>
+    {kinds.length === 0 && <p>Nothing but its plugin.yaml.</p>}
+    {
+      kinds.map(({ kind, parts }) => (
+        <div class="pb-kind">
+          <h3 id={`kind-${kind}`}>
+            {PART_LABELS[kind][1]} <span class="size">{parts.length}</span>
+          </h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{PART_LABELS[kind][0]}</th>
+                  <th>What it is</th>
+                  {kind === "type" && <th>Extends</th>}
+                  {kind === "starter" && <th>Types and roles</th>}
+                  <th>Links in</th>
+                </tr>
+              </thead>
+              <tbody>
+                {parts.map((x) => (
+                  <tr>
+                    <td>
+                      <a href={`#${x.anchor}`}>
+                        <code>{x.name}</code>
+                      </a>
+                      {x.abstract && <span class="size"> abstract</span>}
+                    </td>
+                    <td>
+                      {x.label && x.label !== x.name && <strong>{x.label}. </strong>}
+                      {firstLine(x.description)}
+                    </td>
+                    {kind === "type" && (
+                      <td>
+                        {x.extends &&
+                          (typeHref(x.extends) ? (
+                            <a href={typeHref(x.extends)}>
+                              <code>{x.extends}</code>
+                            </a>
+                          ) : (
+                            <code class="unres">{x.extends}</code>
+                          ))}
+                      </td>
+                    )}
+                    {kind === "starter" && (
+                      <td>
+                        {x.starter ? (
+                          <span class="comma">
+                            {[x.starter.resultBase, ...Object.values(x.starter.flows), ...(x.starter.pinnedBy ? [x.starter.pinnedBy] : [])]
+                              .filter((v, i, a) => a.indexOf(v) === i)
+                              .map((t) => {
+                                const owner = b.plugins.find((q) => t.startsWith(`${q.name}.`));
+                                const part = owner?.parts.find((y) => y.kind === "type" && y.qualified === t);
+                                return part ? <a href={`${owner!.href}#${part.anchor}`}><code>{t}</code></a> : <code class="unres" title="No such type in the repository">{t}</code>;
+                              })}
+                            {x.starter.roles.map((r) => {
+                              const owner = b.plugins.find((q) => r.startsWith(`${q.name}.`));
+                              const part = owner?.parts.find((y) => y.kind === "role" && y.qualified === r);
+                              return part ? <a href={`${owner!.href}#${part.anchor}`}><code>{r}</code></a> : <code class="unres" title="No such lab role in the repository">{r}</code>;
+                            })}
+                          </span>
+                        ) : (
+                          <span class="unres" title="The server's starters.py has no recipe with this ID for this plugin">no recipe in the server</span>
+                        )}
+                        {" "}
+                        <a class="size" href={github("server/src/iki_server/setup/starters.py")}>recipe</a>
+                      </td>
+                    )}
+                    <td class="size links-count">{linksInCount(b, keyOf(x)) && <a href={`#${x.anchor}`}>{linksInCount(b, keyOf(x))}</a>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))
+    }
+  </section>
+
+  <section class="pb-section" id="manifests">
+    <h2>YAML files</h2>
+    <p class="size">
+      Hover or focus a key for its schema's description; it links to the key in the schema reference.
+      Dotted values link to what they name; a wavy one names something this repository doesn't have.
+    </p>
+    {
+      files.map(({ f, docs }) => (
+        <section class="yfile" id={fileAnchor(f.rel)}>
+          <div class="yfile-head">
+            <span class="path">{f.rel}</span>
+            {f.plain && <span class="size">not a manifest; no schema</span>}
+            {docs.length > 1 && <span class="size">{docs.length} documents</span>}
+            <a class="gh" href={github(f.path)}>on GitHub</a>
+          </div>
+          {docs.map(({ d, html }) => (
+            <div class="ydoc" id={d.part?.anchor}>
+              <Fragment set:html={docHead(d, f.rel)} />
+              <pre class="yaml"><code set:html={html} /></pre>
+            </div>
+          ))}
+        </section>
+      ))
+    }
+  </section>
+
+  {
+    p.others.length > 0 && (
+      <section class="pb-section pb-files" id="files">
+        <h2>Other files</h2>
+        <p class="size">Scripts, migrations, web components and data, linked to GitHub. Small text files open in place.</p>
+        {[...others.entries()].map(([top, list]) => (
+          <>
+            <h3>
+              {top} <span class="size">{list.length}</span>
+            </h3>
+            <ul>
+              {list.map((o) => (
+                <li id={fileAnchor(o.rel)}>
+                  {o.preview !== undefined ? (
+                    <details>
+                      <summary>
+                        <code>{o.rel}</code> <span class="size">{sizeText(o.size)}</span>
+                      </summary>
+                      <a class="size" href={github(o.path)}>on GitHub</a>
+                      <pre><code>{o.preview}</code></pre>
+                    </details>
+                  ) : (
+                    <>
+                      <a href={github(o.path)}>
+                        <code>{o.rel}</code>
+                      </a>{" "}
+                      <span class="size">{sizeText(o.size)}</span>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
+        ))}
+      </section>
+    )
+  }
+
+  {
+    unresolved.length > 0 && (
+      <section class="pb-section" id="unresolved">
+        <h2>Unresolved references</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Where</th><th>Value</th><th>Why</th></tr>
+            </thead>
+            <tbody>
+              {unresolved.map((u) => (
+                <tr>
+                  <td><a href={u.href}><code>{u.file.slice(p.dir.length + 1)}</code></a> <span class="size">{u.path}</span></td>
+                  <td><code>{u.value}</code></td>
+                  <td>{u.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    )
+  }
+  <KeyDocs table={table} />
+</Layout>
