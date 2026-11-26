@@ -75,10 +75,8 @@ found.first()  # the first, or None
 found.to_pandas(limit=1000)  # a DataFrame, indexed by HRID
 
 abl1 = iki.entities.get("PRT-000123")
-# By a unique field, such as the ID a LIMS gives its record: one per project, at most.
-[protein] = iki.entities.lookup(
-    "iki/protein.Protein", "lims_id", "LIMS-0042", project="kinase-atlas"
-)
+# Look up a tube by its unique barcode in an Inventory project.
+tubes = iki.entities.lookup("iki/inventory.Tube", "barcode", "TUBE-0042", project="kinase-atlas")
 
 made = iki.entities.create(
     "iki/protein.Protein",

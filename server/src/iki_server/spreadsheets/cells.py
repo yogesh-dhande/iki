@@ -42,6 +42,7 @@ __all__ = [
     "convert",
     "header_unit_label",
     "not_mappable",
+    "quantity",
     "ucum",
     "unit_in",
     "unit_problem",
@@ -420,9 +421,11 @@ def shown(number: float | int | None) -> str:
     return text.replace(",", THOUSANDS)
 
 
-def _quantity(f: Field, column: Column, value: Cell) -> dict[str, Any]:
-    assert f.unit is not None  # noqa: S101 - quantities have units
-    unit = ucum(column.unit) if column.unit else f.unit
+def quantity(column: Column, value: Cell, unit: str) -> dict[str, Any]:
+    """A cell's quantity, ``{"value": 2.1, "unit": "mg/mL"}``: in the unit it gives, as
+    ``2.1 mg/mL`` does, or else in ``unit``; its number read as the column's locale says.
+    Whether the unit converts to what it's kept in is for its reader to say."""
+    unit = ucum(column.unit) if column.unit else unit
     if isinstance(value, str):
         found = _QUANTITY.fullmatch(value)
         if found is not None and found.group("unit"):
@@ -432,6 +435,13 @@ def _quantity(f: Field, column: Column, value: Cell) -> dict[str, Any]:
             number = _number(column, value)
     else:
         number = _number(column, value)
+    return {"value": number, "unit": unit}
+
+
+def _quantity(f: Field, column: Column, value: Cell) -> dict[str, Any]:
+    assert f.unit is not None  # noqa: S101 - quantities have units
+    read = quantity(column, value, f.unit)
+    number, unit = read["value"], read["unit"]
     problem = unit_problem(f, unit)
     if problem is not None:
         raise ValueError(f"is in a unit Iki can't convert to {f.unit}: {problem}")

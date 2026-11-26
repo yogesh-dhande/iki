@@ -42,6 +42,9 @@ def test_it_sets_browser_uploads_and_cleanup_rules_and_keeps_others(bucket: Any)
     assert set(rules) == {"analytics", "iki-browser-uploads"}
     assert rules["iki-browser-uploads"]["AllowedOrigins"] == ["https://iki.example.com"]
     assert rules["iki-browser-uploads"]["AllowedMethods"] == ["GET", "PUT"]
+    # Previews read large files in ranges, and check which bytes came back (ADR 0227).
+    assert sorted(rules["iki-browser-uploads"]["AllowedHeaders"]) == ["content-type", "range"]
+    assert rules["iki-browser-uploads"]["ExposeHeaders"] == ["content-range"]
     (rule,) = bucket.get_bucket_lifecycle_configuration(Bucket=S3_BUCKET)["Rules"]
     assert rule["Filter"]["Prefix"].endswith("/uploads/")
     assert rule["AbortIncompleteMultipartUpload"] == {"DaysAfterInitiation": 2}
@@ -84,3 +87,18 @@ def test_it_lets_browsers_read_where_it_let_them_only_upload(bucket: Any) -> Non
     run()
     (rule,) = bucket.get_bucket_cors(Bucket=S3_BUCKET)["CORSRules"]
     assert rule["AllowedMethods"] == ["GET", "PUT"]
+
+
+def test_it_lets_previews_read_ranges_where_it_let_browsers_read_whole_files(bucket: Any) -> None:
+    """Buckets set up before previews read large files in ranges (ADR 0227)."""
+    bucket.put_bucket_versioning(Bucket=S3_BUCKET, VersioningConfiguration={"Status": "Enabled"})
+    old = {**setup_storage.cors_rule(), "AllowedHeaders": ["content-type"]}
+    del old["ExposeHeaders"]
+    bucket.put_bucket_cors(Bucket=S3_BUCKET, CORSConfiguration={"CORSRules": [old]})
+    run()  # the lifecycle rule, then only CORS is missing
+    bucket.put_bucket_cors(Bucket=S3_BUCKET, CORSConfiguration={"CORSRules": [old]})
+    with pytest.raises(CommandError, match=r"missing: CORS for browsers' uploads and reads\.$"):
+        run("--check")
+    run()
+    (rule,) = bucket.get_bucket_cors(Bucket=S3_BUCKET)["CORSRules"]
+    assert "range" in rule["AllowedHeaders"] and rule["ExposeHeaders"] == ["content-range"]

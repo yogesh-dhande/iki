@@ -65,6 +65,8 @@ verify() {
 }
 
 verify iki_wasm.wasm server/iki_wasm.wasm.sha256
+# The file previews' readers, which the web app's previews worker runs (ADR 0226).
+verify iki_previews.wasm web/app/iki_previews.wasm.sha256
 verify dna-annotation.wasm plugins/plasmid/data/dna-annotation.wasm.sha256
 verify oligo-measurement.wasm plugins/dna/data/oligo-measurement.sha256
 # The modules first-party plugins' actions call (ADR 0200, ADR 0201).

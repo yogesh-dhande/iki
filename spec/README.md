@@ -139,8 +139,14 @@ of their input record types. A deployment refuses two plugins that claim the
 same extension or media type.
 
 A format can name a built-in metadata `reader` and a `viewer` that understands
-its contents. For a record tab, [configure the viewer](#viewers) under the
-type's `display.viewers` so it knows which field to show. See the
+its contents. A file whose format names a viewer is previewed on its page, and
+from the records and runs that hold it, without being downloaded: `pdf`,
+`image` (PNG, JPEG), `image-tiff` (TIFF and OME-TIFF, read in tiles),
+`table-csv`, `table-tsv`, `table-xlsx`, `chromatogram-abif` (Sanger traces
+with their calls and qualities), `spectrum-mzml` and `spectrum-jcamp-dx`.
+`structure-pdb`, `structure-mmcif` and `alignment` show a record's file in a
+tab instead: [configure the viewer](#viewers) under the type's
+`display.viewers` so it knows which field to show. See the
 [generated format reference](../docs/site/src/content/reference/file-formats.mdx) for the IDs,
 aliases, readers, viewers and actions that ship with Iki.
 
@@ -944,7 +950,8 @@ as the record in the LIMS. `{value}` is the value, and `{settings.name}` one
 of the plugin's settings, so each deployment can point at its own LIMS. A
 link starts with `https://` or a setting, and Iki shows only links that are
 https once the settings are filled in. The API, SDK and MCP look entities
-up by a unique field's value.
+up by a unique field's value. The [LIMS connector example](../examples/plugins/lims_connector/README.md)
+extends Protein with a field of this kind and uses it to match repeated imports.
 
 ```yaml
 lims_id:
@@ -1396,17 +1403,20 @@ A workflow runs several of its own plugin's actions as one (ADR 0079).
 Each step names an action declared in that plugin. Dependencies can supply
 the types those actions read or write. To run actions belonging to several
 plugins in sequence, call them from a client.
+The [translation workflow example](../examples/plugins/protein_translation)
+declares both actions locally and uses DNA and Protein record types from its dependencies.
 
-A step can read the workflow's input (`$inputs.<name>`), the entities an
-earlier step created of a type (`$steps.<id>.created.<Type>`), or what a step was given
-(`$steps.<id>.inputs.<name>`), once that step has run. A param takes a value,
-or the workflow's param (`$params.<name>`); a value that starts with `$` is
-written `$$`.
+A step can take its inputs from the workflow (`$inputs.<name>`), from records
+an earlier step created (`$steps.<id>.created.<Type>`), or from the inputs an
+earlier step received (`$steps.<id>.inputs.<name>`). For a type supplied by a
+dependency, use its qualified name in the created-output reference. A step
+parameter can take a literal value or a workflow parameter (`$params.<name>`).
+Write an initial `$` as `$$` in a literal string.
 
 ```yaml
 apiVersion: iki/v1
 kind: Workflow
-name: translate_and_characterize # snake_case; qualified as iki/protein.translate_and_characterize
+name: translate_and_characterize # acme/protein_translation.translate_and_characterize
 label: Translate and characterize
 inputs:
   sequence: { type: iki/dna.DNASequence, schema: ">=1" } # as an action's inputs
@@ -1419,7 +1429,7 @@ steps:
     params: { frame: $params.frame }
   properties:
     action: compute_properties
-    inputs: { protein: $steps.translate.created.Protein }
+    inputs: { protein: $steps.translate.created.iki/protein.Protein }
     # needs: [other_step]  # wait for a step it doesn't take from
 ```
 

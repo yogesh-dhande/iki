@@ -3267,14 +3267,23 @@ def test_a_records_lists_of_objects_and_its_map_from_another_records_sequence(
     assert_clean(page, axe_in_firefox=False)
 
 
-def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_type: str) -> Any:
-    """A file in the project, its bytes put straight into the store the server reads."""
+def _stored_file(
+    world: World,
+    s3_endpoint: str,
+    bucket: str,
+    path: Path,
+    media_type: str,
+    *,
+    scanned: bool = True,
+) -> Any:
+    """A file in the project, its bytes put straight into the store the server reads: found
+    clean by the scan, or, if not ``scanned``, still waiting for it."""
     import hashlib
 
     import boto3
     from scan_fixtures import clean_blob
 
-    from iki_server.files.models import File
+    from iki_server.files.models import Blob, File
 
     data = path.read_bytes()
     sha256 = hashlib.sha256(data).hexdigest()
@@ -3286,7 +3295,12 @@ def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_
         aws_access_key_id=S3_ACCESS_KEY,
         aws_secret_access_key=S3_SECRET_KEY,
     ).put_object(Bucket=bucket, Key=key, Body=data)
-    blob = clean_blob(sha256=sha256, size=len(data), storage_uri=f"s3://{bucket}/{key}")
+    uri = f"s3://{bucket}/{key}"
+    blob = (
+        clean_blob(sha256=sha256, size=len(data), storage_uri=uri)
+        if scanned
+        else Blob.objects.create(sha256=sha256, size=len(data), storage_uri=uri)
+    )
     return File.objects.create(
         blob=blob,
         name=path.name,

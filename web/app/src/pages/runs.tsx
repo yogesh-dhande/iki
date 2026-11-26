@@ -30,6 +30,7 @@ import { ENTITIES, formatSize, typeLabel, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
 import { useReadableProjects } from "../lists";
 import { useMedia } from "../media";
+import { PreviewButton } from "../previews/preview-places";
 import { consentFor, destinations, SendsOutside, type Statement } from "../outside-apis";
 import {
   actionLabel,
@@ -1082,7 +1083,8 @@ function ParamValue({
         </a>{" "}
         <span className="muted">
           {formatSize(file.size)} · {media.named(file.media_type)}
-        </span>
+        </span>{" "}
+        <PreviewButton id={value} name={file.name} mediaType={file.media_type} />
       </span>
     );
   }

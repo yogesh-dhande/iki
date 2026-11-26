@@ -75,8 +75,8 @@ run "abandoned_uploads_go_and_browsers_upload_from_iki_only" {
     error_message = "Only under Iki's staging prefix: nothing else expires by lifecycle."
   }
   assert {
-    condition     = one(google_storage_bucket.files.cors).origin == tolist(["https://iki.example.com"]) && toset(one(google_storage_bucket.files.cors).method) == toset(["GET", "PUT"])
-    error_message = "Browsers should reach the bucket only from Iki's URL, to GET and PUT."
+    condition     = one(google_storage_bucket.files.cors).origin == tolist(["https://iki.example.com"]) && toset(one(google_storage_bucket.files.cors).method) == toset(["GET", "PUT"]) && toset(one(google_storage_bucket.files.cors).response_header) == toset(["content-type", "range", "content-range"])
+    error_message = "Browsers should reach the bucket only from Iki's URL, to GET and PUT, reading ranges."
   }
 }
 

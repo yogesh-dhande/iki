@@ -85,13 +85,13 @@ its data.
 
 The fixture cluster also exposes the requests received by
 [the fake LIMS](http://localhost:8091/requests) and [FoldCloud](http://localhost:8092/requests).
-The example LIMS connector imports from the fake LIMS
-as it would from a lab's: over HTTPS, through the egress proxy, to the host
-its `lims_host` setting gives ([`fixtures/settings/lims_connector_example.yaml`](fixtures/settings/lims_connector_example.yaml)). The LIMS's
-certificate comes from a dev CA that `up.sh` makes; the backend worker
-trusts it, with the public CAs, through `backendWorkers.caSecret`, as a
-deployment would trust its internal CA. Its token is in `iki-run-secrets`
-(`runSecrets`), which the fake LIMS checks.
+The [LIMS connector example](../../examples/plugins/lims_connector/README.md)
+imports from the [fake LIMS](fixtures/fake-lims.yaml) over HTTPS through the
+egress proxy. Its [fixture settings](fixtures/settings/lims_connector.yaml)
+name the host. The backend worker trusts the dev CA through
+`backendWorkers.caSecret`. The connector's actions receive their
+`LIMS_TOKEN` from `acme__lims_connector.LIMS_TOKEN` in `iki-run-secrets`.
+The fake LIMS mounts that same key to authenticate each request.
 
 The dna plugin's `ncbi_email` setting is set (`settings/dna.yaml`), so the
 cluster can fetch from NCBI, through the egress proxy; a deployment that

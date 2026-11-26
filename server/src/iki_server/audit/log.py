@@ -99,6 +99,7 @@ ACTIONS: dict[str, str] = {
     "file.not_scanned": "Recorded an incomplete malware inspection and its policy decision",
     "file.quarantine_released": "Released a quarantined malware finding",
     "spreadsheet.imported": "Imported a spreadsheet's rows as records",
+    "records.sheet_saved": "Changed and added records in a sheet, all at once, with a reason",
     "spreadsheet_mapping.saved": "Saved a mapping of a spreadsheet's columns",
     "spreadsheet_mapping.changed": "Changed a saved mapping of a spreadsheet's columns",
     "spreadsheet_mapping.deleted": "Deleted a saved mapping of a spreadsheet's columns",

@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+  "crates/iki-previews",
   "crates/iki-protocol",
   "crates/iki-wasm",
   "crates/iki-wasm/standalone/dna-annotation",

@@ -19,6 +19,8 @@ PARSER_COPIES = (
     "web/packages/science/wasm/iki_wasm.wasm",
     "spec/src/iki_spec/iki_wasm.wasm",
 )
+# scripts/build-wasm.sh also builds the file previews' readers (ADR 0226).
+PREVIEWS = "web/app/wasm/iki_previews.wasm"
 
 
 def write(root: Path, name: str, data: bytes) -> Path:
@@ -26,6 +28,12 @@ def write(root: Path, name: str, data: bytes) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
     return path
+
+
+def build_wasm(root: Path) -> None:
+    """Deliver what scripts/build-wasm.sh builds: the parser's copies and the previews."""
+    for name in (*PARSER_COPIES, PREVIEWS):
+        write(root, name, WASM)
 
 
 def run_check(root: Path, group: str) -> subprocess.CompletedProcess[str]:
@@ -72,8 +80,7 @@ def test_scale_targets_fail_before_pytest_without_wasm(
 
 
 def test_builds_modules_declared_on_this_branch(tmp_path: Path) -> None:
-    for name in PARSER_COPIES:
-        write(tmp_path, name, WASM)
+    build_wasm(tmp_path)
     assert run_check(tmp_path, "wasm").returncode == 0
     sdk = tmp_path / "spec/src/iki_spec/iki_wasm.wasm"
     sdk.write_bytes(b"")
@@ -117,8 +124,7 @@ def test_mirrored_modules_use_the_release_pin_on_its_build_host(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plugin: str, name: str
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    for path in PARSER_COPIES:
-        write(tmp_path, path, WASM)
+    build_wasm(tmp_path)
     filename = f"{name}.wasm"
     plugin_copy = write(tmp_path, f"plugins/{plugin}/data/{filename}", WASM)
     package_copy = write(tmp_path, f"spec/src/iki_spec/modules/{filename}", WASM)
@@ -214,8 +220,7 @@ def test_all_web_prerequisites(tmp_path: Path, missing: str, fix: str) -> None:
 
 @pytest.mark.parametrize("marker", ["sample.sha256", "sample.wasm.sha256"])
 def test_builds_packaged_module_and_checks_delivered_bytes(tmp_path: Path, marker: str) -> None:
-    for name in PARSER_COPIES:
-        write(tmp_path, name, WASM)
+    build_wasm(tmp_path)
     write(tmp_path, "worker/crates/iki-wasm/standalone/sample/Cargo.toml", b"[package]")
     write(tmp_path, "plugins/sample/data/unrelated.sha256", b"lock for a different asset")
     lock = write(
@@ -246,8 +251,7 @@ def test_builds_packaged_module_and_checks_delivered_bytes(tmp_path: Path, marke
 
 
 def test_the_gate_checks_the_three_parser_copies(tmp_path: Path) -> None:
-    for name in PARSER_COPIES:
-        write(tmp_path, name, WASM)
+    build_wasm(tmp_path)
     for name in PARSER_COPIES:
         (tmp_path / name).unlink()
         missing = run_check(tmp_path, "wasm")
@@ -258,12 +262,27 @@ def test_the_gate_checks_the_three_parser_copies(tmp_path: Path) -> None:
     assert mismatch.returncode != 0 and PARSER_COPIES[1] in mismatch.stderr
 
 
+def test_the_gate_checks_the_previews_module(tmp_path: Path) -> None:
+    build_wasm(tmp_path)
+    assert run_check(tmp_path, "wasm").returncode == 0
+    previews = tmp_path / PREVIEWS
+    for broken in (None, b"", b"<html>not a module</html>"):
+        if broken is None:
+            previews.unlink()
+        else:
+            previews.write_bytes(broken)
+        failure = run_check(tmp_path, "wasm")
+        assert failure.returncode != 0 and PREVIEWS in failure.stderr
+        assert "scripts/build-wasm.sh" in failure.stderr
+    previews.write_bytes(WASM)
+    assert run_check(tmp_path, "wasm").returncode == 0
+
+
 def test_oligo_factory_outputs_and_pin_follow_the_actual_build_host(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    for name in PARSER_COPIES:
-        write(tmp_path, name, WASM)
+    build_wasm(tmp_path)
     name = "oligo-measurement.wasm"
     package = write(tmp_path, f"spec/src/iki_spec/{name}", WASM)
     plugin = write(tmp_path, f"plugins/dna/data/{name}", WASM)

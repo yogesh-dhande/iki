@@ -859,7 +859,7 @@ def _read_rows(imported: SpreadsheetImport) -> None:
         "file": str(imported.file_id),
     }
     sheet_name = imported.sheet if imported.kind == "xlsx" else ""
-    resolver = _Resolver(imported.requested_by, imported.project)
+    resolver = Resolver(imported.requested_by, imported.project)
     digest = hashlib.sha256()
     try:
         with (
@@ -958,7 +958,7 @@ def _write_block(
     out: Any,  # noqa: ANN401 - a binary file
     digest: Any,  # noqa: ANN401 - a hash
     block: list[_Row],
-    resolver: _Resolver,
+    resolver: Resolver,
     imported: SpreadsheetImport,
     origin: dict[str, str],
     sheet_name: str,
@@ -981,7 +981,7 @@ def _write_block(
             if name not in named:
                 continue
             try:
-                read.values[name] = _resolved(value, named[name])
+                read.values[name] = resolved(value, named[name])
             except ValueError as error:
                 del read.values[name]
                 read.problems.append(
@@ -1002,12 +1002,12 @@ def _write_block(
     return lines
 
 
-def _resolved(value: Any, found: Mapping[str, str | uuid.UUID]) -> Any:  # noqa: ANN401 - JSON
+def resolved(value: Any, found: Mapping[str, str | uuid.UUID]) -> Any:  # noqa: ANN401 - JSON
     if isinstance(value, list):
         out = []
         for number, item in enumerate(value, start=1):
             try:
-                out.append(_resolved(item, found))
+                out.append(resolved(item, found))
             except ValueError as error:
                 raise ValueError(f"Its item {number}: {error}") from None
         return out
@@ -1019,7 +1019,7 @@ def _resolved(value: Any, found: Mapping[str, str | uuid.UUID]) -> Any:  # noqa:
     raise ValueError(f"“{value.text}” {target or 'names no record here.'}")
 
 
-class _Resolver:
+class Resolver:
     """Finds the records a sheet's references name, in the import's project: by ID, by
     HRID, or by name, a block of rows' at once."""
 

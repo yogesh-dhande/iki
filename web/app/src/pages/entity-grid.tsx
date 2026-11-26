@@ -74,6 +74,7 @@ import {
 } from "./entity-filters";
 import { PluginPlace } from "./plugin-place";
 import { ReassignDialog } from "./reassign";
+import { RecordSheet } from "./record-sheet";
 import { SavedSearches } from "./saved-searches";
 
 /** A row's height, as the stylesheet draws it (`.data-grid-row`). */
@@ -649,6 +650,8 @@ export function EntityGrid({
     (p.can.run.length > 0 || (assignable && p.can.edit)) && !p.archived;
   const selectable = across ? readable.some(actsIn) : Boolean(project && actsIn(project));
   const [reassigning, setReassigning] = useState(false);
+  // The list being edited as a sheet, if one is.
+  const [sheet, setSheet] = useState<string | null>(null);
   const allPicked = rows.length > 0 && rows.every((e) => picked.has(e.hrid));
   const select: Column = {
     key: "select",
@@ -766,6 +769,27 @@ export function EntityGrid({
   const sortKey = `${sortedBy.name}:${descending ? "desc" : "asc"}`;
   // A project's own tab says "this project"; across projects, the one picked, by name.
   const where = fixedProject ? "in this project" : project ? `in ${project.name}` : "you can read";
+  // A type's records in a project, edited as a sheet (ADR 0228): those the table loaded,
+  // with its search and filters, which stay as they are until it's done.
+  const sheetType =
+    type && !type.detached && fixedProject?.can.edit && !fixedProject.archived && !shownAs
+      ? type
+      : undefined;
+  if (sheetType && fixedProject && sheet === listKey) {
+    return list.isPending ? (
+      <Loading label="Loading entities…" />
+    ) : (
+      <RecordSheet
+        type={sheetType}
+        project={fixedProject}
+        records={rows}
+        more={list}
+        onClose={() => {
+          setSheet(null);
+        }}
+      />
+    );
+  }
 
   return (
     <>
@@ -906,6 +930,17 @@ export function EntityGrid({
           </a>
           {library && project?.can.edit && !project.archived && !search.collection ? (
             <SaveAsCollection project={project} search={search} />
+          ) : null}
+          {sheetType ? (
+            <button
+              type="button"
+              className={buttonClass()}
+              onClick={() => {
+                setSheet(listKey);
+              }}
+            >
+              Edit as sheet
+            </button>
           ) : null}
           {making && fixedProject?.can.edit && !fixedProject.archived ? (
             // A spreadsheet's rows, as records of the type shown, or one chosen (ADR 0178).
