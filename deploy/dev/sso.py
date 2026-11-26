@@ -2514,6 +2514,36 @@ def cell_bank_history(alice: requests.Session, project: dict[str, Any]) -> None:
         if signed["status"] != "signed" or not signed["set"]:
             fail(f"Research sign-off for {check['hrid']} returned {signed}")
         checks[kind] = check["id"]
+    # A record-only check: the testing laboratory's report is the evidence, with no signature.
+    give_lab_roles(alice, project, plugin + "recorder")
+    report = upload(
+        alice, project, "synthetic_sterility.csv", b"test,result\nsterility,negative\n", "text/csv"
+    )
+    sterility = created(
+        alice,
+        project,
+        plugin + "CellCheck",
+        {
+            "bank": bank["id"],
+            "kind": "sterility",
+            "method": "Synthetic outside report",
+            "result": "negative",
+            "checked_on": "2026-01-07",
+            "report": report,
+        },
+    )
+    path = f"/entities/{sterility['id']}"
+    accepted = api_call(
+        alice,
+        "POST",
+        f"{path}/states/review",
+        {"state": "accepted", "reason": ""},
+        {"If-Match": api_call(alice, "GET", path).headers["ETag"]},
+    )
+    if accepted.status_code != 200 or record(alice, sterility["id"])["values"]["review"] != (
+        "accepted"
+    ):
+        fail(f"accepting {sterility['hrid']} gave {accepted.status_code}: {accepted.text[:200]}")
     thaw = created(
         alice,
         project,
@@ -2584,7 +2614,10 @@ def cell_bank_history(alice: requests.Session, project: dict[str, Any]) -> None:
             "signed_off",
         ):
             fail(f"{thaw['hrid']}'s {field} link led to unexpected QC details {values}")
-    ok(f"{sample['hrid']} traces through P10 and {vial['hrid']}'s thaw to both signed checks")
+    ok(
+        f"{sample['hrid']} traces through P10 and {vial['hrid']}'s thaw to both signed checks; "
+        f"{sterility['hrid']} is accepted with its report"
+    )
 
 
 def certify_dev_signatures(admin: requests.Session) -> None:
