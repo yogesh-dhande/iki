@@ -16,13 +16,13 @@ if [ "$wasm_hash" != "$(cat "$root/server/iki_wasm.wasm.sha256")" ]; then
   exit 1
 fi
 
-# wasmtime-py 50.0.1 ships the native v50.0.0 engine (see its tagged
+# wasmtime-py 51.0.0 ships the native v51.0.0 engine (see its tagged
 # ci/download-wasmtime.py). Serialized code must use the same native version.
-python_version=50.0.1
-cli_version=50.0.0
+python_version=51.0.0
+cli_version=51.0.0
 case "$(uname -s)/$(uname -m)" in
-  Linux/x86_64) host=x86_64; cli_hash=77c19ee0437991f9ac7837b9c269d9c7076744f85dad263fea5214cc2723c7ff ;;
-  Linux/aarch64) host=aarch64; cli_hash=10f9ad1f8539d2e04e041cc622de6a270109ab1e43a6be1f69843c2082166832 ;;
+  Linux/x86_64) host=x86_64; cli_hash=a18020674fac4107f329bc9ed720ea9c88e4b30a61e8a527787bcce051123d32 ;;
+  Linux/aarch64) host=aarch64; cli_hash=a263f34aefad1b24ba4d9ca635ddfea415f4acfe3f3f1bb6d4525c34fc6a7397 ;;
   *) echo "The Wasmtime producer needs a native Linux amd64 or arm64 host." >&2; exit 1 ;;
 esac
 work=$(mktemp -d)

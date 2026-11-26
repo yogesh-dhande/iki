@@ -6018,6 +6018,7 @@
               "discriminator": {
                 "mapping": {
                   "compound": "#/components/schemas/CompoundExportOut",
+                  "plugin": "#/components/schemas/PluginExportOut",
                   "protein": "#/components/schemas/ProteinExportOut",
                   "sequence": "#/components/schemas/FileExportOut",
                   "signed_report": "#/components/schemas/SignedReportExportOut"
@@ -6036,6 +6037,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SignedReportExportOut"
+                },
+                {
+                  "$ref": "#/components/schemas/PluginExportOut"
                 }
               ]
             },
@@ -7060,15 +7064,13 @@
           },
           "format": {
             "description": "Which file, as its type's `exports` list them.",
-            "enum": [
+            "examples": [
               "genbank",
-              "fasta",
-              "protein-fasta",
-              "sdf",
-              "molfile",
-              "signed-report-html",
-              "signed-report-json"
+              "acme/liquid_handling.tecan-worklist"
             ],
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._/-]*$",
             "title": "Format",
             "type": "string"
           },
@@ -8194,16 +8196,7 @@
             "type": "string"
           },
           "format": {
-            "description": "What `/entities/{ref}/export` takes.",
-            "enum": [
-              "genbank",
-              "fasta",
-              "protein-fasta",
-              "sdf",
-              "molfile",
-              "signed-report-html",
-              "signed-report-json"
-            ],
+            "description": "What `/entities/{ref}/export` takes: one of Iki's formats, such as `genbank`, or a plugin's writer's qualified ID (ADR 0230).",
             "title": "Format",
             "type": "string"
           },
@@ -8213,10 +8206,11 @@
             "type": "string"
           },
           "many": {
-            "description": "`file`: many records make one file of it, from `POST /entity-exports` (ADR 0229); `one`: it holds one record.",
+            "description": "`file`: many records make one file of it, from `POST /entity-exports` (ADR 0229); `one`: it holds one record; `zip`: one record each, so many records make a ZIP of them.",
             "enum": [
               "file",
-              "one"
+              "one",
+              "zip"
             ],
             "title": "Many",
             "type": "string"
@@ -8225,6 +8219,18 @@
             "description": "Its media type, such as chemical/seq-na-genbank.",
             "title": "Media Type",
             "type": "string"
+          },
+          "plugin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plugin whose writer writes it, in the export sandbox (ADR 0230); null for Iki's own.",
+            "title": "Plugin"
           }
         },
         "required": [
@@ -8233,7 +8239,8 @@
           "extension",
           "media_type",
           "description",
-          "many"
+          "many",
+          "plugin"
         ],
         "title": "FileFormatOut",
         "type": "object"
@@ -16770,6 +16777,45 @@
         "title": "PluginCandidateIn",
         "type": "object"
       },
+      "PluginExportOut": {
+        "properties": {
+          "export": {
+            "const": "plugin",
+            "description": "What it writes. `plugin`: a plugin's format, by its writer (ADR 0230).",
+            "title": "Export",
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The field each of the writer's roles reads.",
+            "title": "Fields",
+            "type": "object"
+          },
+          "formats": {
+            "description": "The file it's written as; none when this deployment can't write it.",
+            "items": {
+              "$ref": "#/components/schemas/FileFormatOut"
+            },
+            "title": "Formats",
+            "type": "array"
+          },
+          "writer": {
+            "description": "The writer, by its qualified ID.",
+            "title": "Writer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export",
+          "writer",
+          "formats",
+          "fields"
+        ],
+        "title": "PluginExportOut",
+        "type": "object"
+      },
       "PluginFindingOut": {
         "properties": {
           "blocking": {
@@ -19735,13 +19781,10 @@
             "title": "Fields"
           },
           "format": {
-            "description": "A format every record's type exports, as its `exports` list them, of which many records make one file (`many: file`).",
-            "enum": [
-              "genbank",
-              "fasta",
-              "protein-fasta",
-              "sdf"
-            ],
+            "description": "A format every record's type exports, as its `exports` list them, of which many records make one file (`many: file`), or a ZIP of one file each (`many: zip`).",
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._/-]*$",
             "title": "Format",
             "type": "string"
           },
@@ -19900,7 +19943,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Which code wrote it: `builtin` and `version`.",
+            "description": "Which code wrote it: Iki's `builtin` and `version`; or a plugin's writer's `plugin`, `writer`, `commit`, `module_sha256` and `abi` (ADR 0230).",
             "title": "Writer",
             "type": "object"
           }
@@ -37813,7 +37856,7 @@
     },
     "/api/v1/entities/{ref}/export": {
       "get": {
-        "description": "The record as one of the files its type exports (ADR 0171), at its latest revision or\nthe one asked for, written from its values then, so a revision is always the same file.\nAnyone who can read it may; each download is in the audit log (``entity.exported``),\nwith the file's SHA-256. What the file can't say, such as a feature across a linear\nmolecule's ends, is listed in it where the format has a place (GenBank's COMMENT, an\nSDF's ``IKI_NOTES``), and ``Iki-Left-Out`` says how many such notes there are. Many\nrecords make one file from ``POST /entity-exports`` (ADR 0229).",
+        "description": "The record as one of the files its type exports (ADR 0171), at its latest revision or\nthe one asked for, written from its values then, so a revision is always the same file.\nAnyone who can read it may; each download is in the audit log (``entity.exported``),\nwith the file's SHA-256. What the file can't say, such as a feature across a linear\nmolecule's ends, is listed in it where the format has a place (GenBank's COMMENT, an\nSDF's ``IKI_NOTES``), and ``Iki-Left-Out`` says how many such notes there are. Many\nrecords make one file from ``POST /entity-exports`` (ADR 0229).\n\nA plugin's format is written by its writer in the export sandbox (ADR 0230), and its\naudit event names the plugin's commit and the module's digest. A writer that refuses\nthe record (``writer_refused``) or fails (``writer_failed``) is 422, and no file is\nmade; a sandbox that's busy or away is 503 (``sandbox_unavailable``) with\n``Retry-After``.",
         "operationId": "iki_server_api_entities_export_entity",
         "parameters": [
           {
@@ -37827,20 +37870,26 @@
           },
           {
             "description": "Which file, as its type's `exports` list them.",
+            "examples": {
+              "example0": {
+                "value": "genbank"
+              },
+              "example1": {
+                "value": "acme/liquid_handling.tecan-worklist"
+              }
+            },
             "in": "query",
             "name": "format",
             "required": true,
             "schema": {
               "description": "Which file, as its type's `exports` list them.",
-              "enum": [
+              "examples": [
                 "genbank",
-                "fasta",
-                "protein-fasta",
-                "sdf",
-                "molfile",
-                "signed-report-html",
-                "signed-report-json"
+                "acme/liquid_handling.tecan-worklist"
               ],
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[a-z0-9][a-z0-9._/-]*$",
               "title": "Format",
               "type": "string"
             }
@@ -37910,6 +37959,9 @@
           "200": {
             "content": {
               "application/json": {},
+              "application/octet-stream": {
+                "description": "A plugin's format, as its media type (ADR 0230)."
+              },
               "chemical/seq-aa-fasta": {},
               "chemical/seq-na-fasta": {},
               "chemical/seq-na-genbank": {},
@@ -37918,6 +37970,12 @@
               "text/html": {}
             },
             "description": "The file, as an attachment named for the record."
+          },
+          "422": {
+            "description": "Its plugin's writer refused it, or failed (ADR 0230)."
+          },
+          "503": {
+            "description": "The export sandbox can't take it now: try again."
           }
         },
         "security": [

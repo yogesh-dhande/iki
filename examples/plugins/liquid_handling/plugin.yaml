@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: examples/liquid_handling
+version: 0.1.0
+title: Liquid handling
+description: >-
+  Plates and the transfers between them, downloaded as a Tecan worklist that Freedom
+  EVOware or FluentControl runs: one transfer or a whole cherry-pick at once.
+license: Apache-2.0
+iki: ">=0.1"
+formats:
+  tecan-gwl:
+    label: Tecan worklist
+    media_types: [text/x-tecan-gwl]
+    extensions: [.gwl]
+writers:
+  tecan-worklist:
+    label: Tecan worklist
+    description: >-
+      An aspirate, a dispense and a tip wash for each transfer, in order, for Freedom
+      EVOware or FluentControl to run as a worklist (.gwl).
+    format: tecan-gwl
+    module: writers/tecan-worklist
+    many: file
+    memory: 16MiB
+    roles:
+      source_plate: { type: ref, types: [Plate], required: true }
+      source_well: { type: string, required: true }
+      destination_plate: { type: ref, types: [Plate], required: true }
+      destination_well: { type: string, required: true }
+      volume: { type: quantity, unit: uL, required: true }
+      liquid_class: { type: string }

@@ -98,3 +98,25 @@ def test_without_a_checkout_iki_wasm_must_be_there(tmp_path: Path) -> None:
         backend().ensure_wasm(project)
     (project / "src" / "iki_spec" / "rust-standard-library.html").write_text("notice")
     assert backend().ensure_wasm(project).is_file()
+
+
+def test_iki_spec_carries_the_writer_sdk_from_its_checkout(tmp_path: Path) -> None:
+    """The iki-writer SDK (ADR 0230), which `iki deploy build` gives plugins' writers:
+    copied from the checkout's crate, or else already there."""
+    project = checkout(tmp_path, "true")
+    crate = tmp_path / "worker" / "crates" / "iki-writer"
+    (crate / "src").mkdir(parents=True)
+    (crate / "Cargo.toml").write_text('[package]\nname = "iki-writer"\n')
+    (crate / "build-writer.sh").write_text("#!/bin/sh\n")
+    (crate / "src" / "lib.rs").write_text("//! The SDK.\n")
+    (crate / "target").mkdir()
+    sdk = backend().ensure_writer_sdk(project)
+    assert sorted(p.relative_to(sdk).as_posix() for p in sdk.rglob("*") if p.is_file()) == [
+        "Cargo.toml",
+        "build-writer.sh",
+        "src/lib.rs",
+    ]
+    outside = tmp_path / "sdist" / "iki_spec-0.1.0"
+    (outside / "src" / "iki_spec").mkdir(parents=True)
+    with pytest.raises(RuntimeError, match="iki-writer SDK"):
+        backend().ensure_writer_sdk(outside)
