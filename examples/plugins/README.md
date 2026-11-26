@@ -7,6 +7,8 @@ Iki's installable first-party plugins live in [`plugins/`](../../plugins).
 
 - [Oligonucleotide design](oligo_design/README.md) registers a strand from its
   known bases and a lab’s standard pattern of modifications.
+- [Request priority](request_priority/README.md) ranks a core facility's queue
+  by its own agreed ranking of the projects it serves, as each request arrives.
 
 ## Copy and name a plugin
 

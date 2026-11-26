@@ -1,0 +1,13 @@
+apiVersion: iki/v1
+kind: Action
+name: rank_requests
+label: Rank requests
+description: Gives each request its asking project's rank, from the core's own ranking (ADR 0232).
+inputs:
+  requests: { type: RankedAssayRequest, schema: ">=1", cardinality: many }
+  ranks: { type: ClientRank, schema: ">=1", cardinality: many, max: 50, from_project: true }
+effects:
+  updates: [{ input: requests, fields: [client_rank] }]
+runs_on: { tier: backend, environment: protein-tools }
+command: [python, ./scripts/rank.py]
+timeout: 5m

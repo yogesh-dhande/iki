@@ -989,12 +989,19 @@ function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trig
         ) : (
           "an entity you can’t read"
         )}{" "}
-        {trigger.event === "entity.created" ? "was created" : "changed"}{" "}
+        {trigger.event === "entity.created"
+          ? "was created"
+          : trigger.event === "request.received"
+            ? "arrived from the project that asked"
+            : "changed"}{" "}
         {trigger.revision !== null ? (
           <span className="muted">(revision {trigger.revision})</span>
         ) : null}
-        . It runs as {run.requested_by.name}
-        {trigger.editor ? ", whose edit prompted the recheck." : ", who turned the trigger on."}
+        .{" "}
+        {trigger.event === "request.received"
+          ? // Nobody here sent it (ADR 0232): its run is a service account's.
+            `It runs as ${run.requested_by.name} on ${trigger.enabled_by?.name ?? "an Admin"}’s authority, who turned the trigger on.`
+          : `It runs as ${run.requested_by.name}${trigger.editor ? ", whose edit prompted the recheck." : ", who turned the trigger on."}`}
       </dd>
     </>
   );

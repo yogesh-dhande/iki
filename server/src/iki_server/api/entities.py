@@ -1301,7 +1301,10 @@ class Condition(Schema):
 
 
 class SortIn(Schema):
-    field: str = Field(description="A field to sort by: text, numbers, dates or yes/no.")
+    field: str = Field(
+        description="A field to sort by: text, numbers, dates or yes/no; or a request's "
+        "`asked_by` or `sent_to`, by the project's name (ADR 0232)."
+    )
     descending: bool = False
 
 
@@ -1327,6 +1330,13 @@ class SearchIn(Schema):
     )
     where: Condition | None = None
     sort: SortIn | None = None
+    then: list[SortIn] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Further sorts, in order, for what `sort` ties: a core's queue by its "
+        "ranking, then priority, then when each is needed (ADR 0232). Blanks are last in "
+        "each.",
+    )
     cursor: str | None = Field(None, description="From the previous page's next_cursor.")
     limit: int = Field(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT, description="Items per page.")
 
@@ -2403,8 +2413,9 @@ def list_entities(request: HttpRequest, filters: Query[EntityFilters]) -> dict[s
 def search_entities(request: HttpRequest, payload: SearchIn) -> dict[str, Any]:
     """Entities you can read that match every filter given: a type (with its subtypes), a
     project, archived or not, text in their HRID or title (``q``), membership of a
-    ``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``
-    (then by ID), oldest first without one.
+    ``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``,
+    then by each of ``then`` (ADR 0232), then by ID; oldest first without one. Requests
+    also sort by ``asked_by`` and ``sent_to``: the projects on their two sides, by name.
 
     Each kind of field takes its own operators, and every field takes ``is_set``:
 
@@ -2457,6 +2468,7 @@ def search_entities(request: HttpRequest, payload: SearchIn) -> dict[str, Any]:
         else None,
         sort=payload.sort.field if payload.sort else None,
         descending=payload.sort.descending if payload.sort else False,
+        then=tuple((t.field, t.descending) for t in payload.then),
     )
     with _searching():
         rows, cursor = search.page(
@@ -2491,6 +2503,12 @@ class SearchCsvParams(Schema):
     )
     sort: str | None = Field(None, max_length=100, description="A field to sort by.")
     descending: bool = False
+    then: list[str] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Further sorts, in order, for what `sort` ties: each a field, with `-` "
+        "first for descending, as `-priority`.",
+    )
     columns: list[str] = Field(
         default_factory=list,
         max_length=200,
@@ -2533,6 +2551,7 @@ def search_csv(request: HttpRequest, params: Query[SearchCsvParams]) -> Streamin
         where=where,
         sort=params.sort,
         descending=params.descending,
+        then=tuple((t.removeprefix("-"), t.startswith("-")) for t in params.then),
     )
     entity_type = registry.types().get(params.type) if params.type else None
     typed = entity_type if entity_type is not None and params.type != "iki/core.Entity" else None

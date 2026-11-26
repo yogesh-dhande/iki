@@ -32,6 +32,11 @@ class QueryIn(Schema):
     q: str | None = Field(None, max_length=200)
     where: Condition | None = None
     sort: SortIn | None = None
+    then: list[SortIn] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Further sorts, in order, for what `sort` ties (ADR 0232).",
+    )
 
 
 class SavedSearchIn(Schema):
@@ -81,12 +86,14 @@ class SavedSearchFilters(Schema):
 
 
 def _query(query: QueryIn) -> dict[str, Any]:
-    out = query.model_dump(by_alias=True, exclude_unset=True, exclude={"sort", "where"})
+    out = query.model_dump(by_alias=True, exclude_unset=True, exclude={"sort", "where", "then"})
     if query.where is not None:
         out["where"] = query.where.model_dump(by_alias=True, exclude_unset=True)
     if query.sort is not None:
         out["sort"] = query.sort.field
         out["descending"] = query.sort.descending
+    if query.then:
+        out["then"] = [{"field": t.field, "descending": t.descending} for t in query.then]
     return out
 
 

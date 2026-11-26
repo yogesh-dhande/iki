@@ -1824,15 +1824,33 @@ class _Semantics:
         assert spec is not None  # noqa: S101 - only called with one
         above = next((a for a in self.ancestors(entity_type) if a.request is not None), None)
         if above is not None:
-            self.add(
-                "request-redeclared",
-                f"`{entity_type.name}` extends `{above.qualified_name}`, which is a request "
-                "type already: its subtypes are requests with its service's fields.",
-                source,
-                ("request",),
-                key=True,
-                hint="Leave `request` off. The subtype's own fields are the asking project's.",
-            )
+            # A subtype may name more of the service's fields, its own (ADR 0232): a lab's
+            # request type adds what its service writes, such as a ranking. The rest is
+            # its parent's, and stays so.
+            changed = [
+                key
+                for key, value in (
+                    ("sends", spec.sends),
+                    ("materials", spec.materials),
+                    ("completed", spec.completed_field),
+                    ("receives", spec.receives),
+                )
+                if value
+            ]
+            if changed or not spec.service_fields:
+                self.add(
+                    "request-redeclared",
+                    f"`{entity_type.name}` extends `{above.qualified_name}`, which is a "
+                    "request type already: its subtypes are requests as it says, and can only "
+                    "add service fields of their own.",
+                    source,
+                    ("request", changed[0]) if changed else ("request",),
+                    key=True,
+                    hint="Leave `request` off, or give it only `service_fields`: the "
+                    "subtype's own fields that its service writes.",
+                )
+                return
+            self.service_fields(entity_type, spec, source, every)
             return
         if any(t.identity for t in [entity_type, *self.ancestors(entity_type)]):
             self.add(
@@ -1855,35 +1873,7 @@ class _Semantics:
                 key=True,
             )
         present = [n for n, (f, _) in every.items() if not f.removed]
-        seen: set[str] = set()
-        for index, name in enumerate(spec.service_fields):
-            at: Path = ("request", "service_fields", index)
-            if name in seen:
-                self.add("duplicate-field", f"`{name}` is named twice.", source, at)
-                continue
-            seen.add(name)
-            found = every.get(name)
-            if found is None or found[0].removed:
-                self.add(
-                    "unknown-field",
-                    f"`{name}` isn't a field of `{entity_type.name}`.",
-                    source,
-                    at,
-                    hint=schemas._did_you_mean(name, present),
-                )
-                continue
-            if name not in entity_type.fields:
-                self.add(
-                    "service-field-inherited",
-                    f"`{name}` is `{found[1].qualified_name}`'s field, and the fields a "
-                    "request's service writes are its type's own.",
-                    source,
-                    at,
-                    hint="Declare `request` on the type that has the field, or add the field "
-                    "to this type.",
-                )
-                continue
-            self.service_field(found[0], source, at)
+        self.service_fields(entity_type, spec, source, every)
         if spec.completed_field is not None:
             found = every.get(spec.completed_field)
             state = found[0].states.get(spec.completed_state or "") if found else None
@@ -1955,6 +1945,45 @@ class _Semantics:
                 )
         if spec.receives is not None:
             self.receives(entity_type, spec, source, every)
+
+    def service_fields(
+        self,
+        entity_type: EntityType,
+        spec: RequestSpec,
+        source: Document,
+        every: dict[str, tuple[Field, EntityType]],
+    ) -> None:
+        """The fields a request type names its service's: its own, each one a service can
+        write."""
+        present = [n for n, (f, _) in every.items() if not f.removed]
+        seen: set[str] = set()
+        for index, name in enumerate(spec.service_fields):
+            at: Path = ("request", "service_fields", index)
+            if name in seen:
+                self.add("duplicate-field", f"`{name}` is named twice.", source, at)
+                continue
+            seen.add(name)
+            found = every.get(name)
+            if found is None or found[0].removed:
+                self.add(
+                    "unknown-field",
+                    f"`{name}` isn't a field of `{entity_type.name}`.",
+                    source,
+                    at,
+                    hint=schemas._did_you_mean(name, present),
+                )
+                continue
+            if name not in entity_type.fields:
+                self.add(
+                    "service-field-inherited",
+                    f"`{name}` is `{found[1].qualified_name}`'s field, and the fields a "
+                    "request type names its service's are its own.",
+                    source,
+                    at,
+                    hint="Name it on the type that has the field, or add the field to this type.",
+                )
+                continue
+            self.service_field(found[0], source, at)
 
     def receives(
         self,

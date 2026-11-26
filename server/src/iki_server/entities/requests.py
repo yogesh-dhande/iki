@@ -33,7 +33,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 from typing import Any
 
@@ -72,6 +72,7 @@ __all__ = [
     "refused_fields",
     "released",
     "result_spec",
+    "run_sides",
     "send",
     "services_for",
     "set_intake",
@@ -95,15 +96,22 @@ TRIGGER_PREFIX = "iki_request__"
 
 @cache
 def spec_of(type_name: str) -> RequestSpec | None:
-    """What makes ``type_name``'s records requests: its own ``request``, or an ancestor's.
-    None if they aren't."""
+    """What makes ``type_name``'s records requests: the ``request`` of it or an ancestor,
+    with the service fields each subtype on the way down adds (ADR 0232). None if they
+    aren't."""
     entity_type = registry.types().get(type_name)
     if entity_type is None:
         return None
-    for t in [entity_type, *registry.ancestors(entity_type)]:
-        if t.request is not None:
-            return t.request
-    return None
+    found: RequestSpec | None = None
+    for t in [*reversed(registry.ancestors(entity_type)), entity_type]:
+        if t.request is None:
+            continue
+        if found is None:
+            found = t.request
+        else:
+            added = tuple(n for n in t.request.service_fields if n not in found.service_fields)
+            found = replace(found, service_fields=(*found.service_fields, *added))
+    return found
 
 
 @cache
@@ -507,6 +515,10 @@ def submit(
         from iki_server.notifications import declared
 
         declared.sent(locked, service, user, request.agent)
+        # And the service's own automation hears of it, in its project (ADR 0232).
+        from iki_server.runs import triggers
+
+        triggers.received(locked, service, locked.revision)
     return request
 
 
@@ -959,6 +971,31 @@ def _project(project: Project | None) -> dict[str, Any] | None:
     if project is None:
         return None
     return {"id": project.pk, "name": project.name, "slug": project.slug}
+
+
+def run_sides(entities: Sequence[Entity]) -> dict[Any, dict[str, Any]]:
+    """For each request among ``entities``, its two sides as a run reads them (ADR 0232):
+    the project that asked and the service it was sent to (None until it's sent), by ID,
+    slug and name, which each side's people see of the other already (ADR 0132)."""
+    wanted = [e for e in entities if e.registry_id is None and spec_of(e.type) is not None]
+    if not wanted:
+        return {}
+    sent = dict(Request.objects.filter(entity__in=wanted).values_list("entity_id", "service_id"))
+    projects = {
+        p.pk: p
+        for p in Project.objects.filter(
+            pk__in={*sent.values(), *(e.owner_project_id for e in wanted)}
+        )
+    }
+
+    def side(pk: Any) -> dict[str, Any] | None:  # noqa: ANN401 - a project's ID
+        found = _project(projects.get(pk))
+        return {**found, "id": str(found["id"])} if found is not None else None
+
+    return {
+        e.pk: {"asking_project": side(e.owner_project_id), "service": side(sent.get(e.pk))}
+        for e in wanted
+    }
 
 
 # --- The database's guard -----------------------------------------------------------------------

@@ -1470,6 +1470,46 @@ describe("a run's page", () => {
       );
     });
 
+    it("says when a request's arrival asked, as the service's account", async () => {
+      const robot = { id: "00000000-0000-7000-8000-0000000000b7", name: "Queue ranker" };
+      const admin = { id: "00000000-0000-7000-8000-00000000a11c", name: "Alice Admin" };
+      const trigger = {
+        name: "acme/request_priority.rank_arriving_requests",
+        label: "Rank requests as they arrive",
+        event: "request.received" as const,
+        entity: "00000000-0000-7000-8000-0000000000e1",
+        revision: 2,
+        scheduled_for: null,
+        since: null,
+        enabled_by: admin,
+      };
+      onRun(
+        () =>
+          run({
+            ...waiting,
+            via: "trigger",
+            client: "",
+            agent: null,
+            requested_by: robot,
+            trigger,
+            approval: approval({
+              client: "",
+              agent: null,
+              trigger: { name: trigger.name, label: trigger.label },
+              requested_by: robot,
+              decider: admin,
+              can: { decide: false },
+            }),
+          }),
+        unstarted,
+      );
+      withLog(() => "");
+      await renderApp("/runs/RUN-000001/");
+      expect(screen.getByText(/Rank requests as they arrive, when/)).toHaveTextContent(
+        /arrived from the project that asked \(revision 2\)\. It runs as Queue ranker on Alice Admin’s authority, who turned the trigger on\./,
+      );
+    });
+
     it("says when nobody approved it in time", async () => {
       onRun(
         () => run({ ...waiting, status: "declined", approval: approval({ state: "expired" }) }),

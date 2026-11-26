@@ -664,3 +664,33 @@ def test_an_approvals_lab_role_must_be_declared(tmp_path: Path) -> None:
     ]
     # A role of a plugin it doesn't depend on.
     assert codes(_with_roles(tmp_path, "acme/qms.release_officer")) == ["undeclared-dependency"]
+
+
+def test_a_step_gives_nothing_to_an_input_from_the_project(tmp_path: Path) -> None:
+    """Its run is given every record of the type its project owns (ADR 0232)."""
+    global ACTIONS
+    saved = ACTIONS
+    ACTIONS = saved + (
+        "---\napiVersion: iki/v1\nkind: Action\nname: rank\ninputs:\n"
+        "  assay: { type: Assay }\n"
+        "  readouts: { type: Readout, cardinality: many, from_project: true }\n"
+        "effects:\n  updates: [{ input: assay, fields: [score] }]\n"
+        "runs_on: { tier: backend, environment: tools }\ncommand: [python, ./run.py]\n"
+    )
+    try:
+        left = make(tmp_path, flow("r: { action: rank, inputs: { assay: $inputs.assay } }"))
+        assert left.ok, left.problems
+        given = make(
+            tmp_path,
+            flow(
+                """\
+                m: { action: measure, inputs: { assay: $inputs.assay }, params: { mode: fast } }
+                r:
+                  action: rank
+                  inputs: { assay: $inputs.assay, readouts: $steps.m.created.Readout }
+                """
+            ),
+        )
+        assert "workflow-input-from-project" in codes(given), given.problems
+    finally:
+        ACTIONS = saved

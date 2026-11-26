@@ -251,6 +251,7 @@ def test_each_download_is_in_the_audit_log(world: World, lab: dict[str, Any]) ->
         "where": warm,
         "sort": None,
         "descending": False,
+        "then": [],
     }
     assert event.data["columns"][0] == "hrid"
     # A search that can't run downloads nothing, so nothing is recorded.

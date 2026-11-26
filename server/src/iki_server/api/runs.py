@@ -110,6 +110,11 @@ class InputOut(Schema):
     cardinality: Literal["one", "many"]
     max: int | None
     optional: bool
+    from_project: bool = Field(
+        False,
+        description="Not chosen: each run is given every record of its type the project owns "
+        "and hasn't archived (ADR 0232). Launching it with any is refused.",
+    )
 
 
 class ParamOut(FieldOut):
@@ -252,6 +257,7 @@ def _action_out(action: Action) -> dict[str, Any]:
                 "cardinality": i.cardinality,
                 "max": i.max,
                 "optional": i.optional,
+                "from_project": i.from_project,
             }
             for i in action.inputs.values()
         ],
@@ -556,7 +562,12 @@ class WorkflowStepRefOut(Schema):
 
 class TriggerFiredOut(TriggerRefOut):
     event: Literal[
-        "entity.created", "entity.registered", "entity.state_changed", "entity.updated", "schedule"
+        "entity.created",
+        "entity.registered",
+        "entity.state_changed",
+        "entity.updated",
+        "request.received",
+        "schedule",
     ]
     entity: UUID | None = Field(description="The visible entity whose change fired it.")
     revision: int | None = Field(

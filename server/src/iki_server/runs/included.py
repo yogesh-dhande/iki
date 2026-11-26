@@ -283,6 +283,7 @@ class Manifest:
 
 def manifest(run: ActionRun) -> Manifest:
     """Read and authorize the same pinned documents for launch, reuse and each lease."""
+    from iki_server.entities import requests
     from iki_server.entities.services import values_and_entry_at
     from iki_server.runs import input_files
 
@@ -328,6 +329,8 @@ def manifest(run: ActionRun) -> Manifest:
         amount = amount_of(entity.type, registry.types())
         if amount is not None and amount.material is not None:
             item["material_field"] = amount.material
+        if (sides := requests.run_sides([entity]).get(entity.pk)) is not None:
+            item["request"] = sides
         if entity.entry_id is not None and entry is not None:
             entry_id, _ = entry
             entries.add(entry_id)

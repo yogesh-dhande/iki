@@ -170,6 +170,7 @@ describe("starting a run", () => {
             optional: false,
             cardinality: "one",
             max: null,
+            from_project: false,
             description: null,
           },
           {
@@ -179,6 +180,7 @@ describe("starting a run", () => {
             optional: true,
             cardinality: "one",
             max: null,
+            from_project: false,
             description: null,
           },
         ],
@@ -637,5 +639,52 @@ describe("starting a run", () => {
     expect(
       await screen.findByText("PRT-999999 isn’t an entity you can read, so it’s left out."),
     ).toBeInTheDocument();
+  });
+
+  it("gives an input from the project every record it keeps, never chosen", async () => {
+    onProject();
+    const ranking: Schemas["ActionOut"] = {
+      ...ACTION,
+      name: "acme/request_priority.rank_proteins",
+      label: "Rank proteins",
+      params: [],
+      params_schema: {},
+      inputs: [
+        {
+          name: "ranking",
+          label: "Ranking",
+          description: "The projects this core serves, and their ranks.",
+          type: "iki/protein.Protein",
+          cardinality: "many",
+          max: null,
+          optional: false,
+          from_project: true,
+        },
+        ...ACTION.inputs,
+      ],
+    };
+    answer("GET /api/v1/actions", [ranking]);
+    const path = `/api/v1/actions/${ranking.name}/runs`;
+    answer(`POST ${path}`, () =>
+      problem(422, "validation_failed", "Some inputs or params are invalid.", [
+        { pointer: "#/inputs/ranking", detail: "Kinase Atlas has no proteins of its own yet." },
+      ]),
+    );
+    const { user } = await renderApp(
+      `/projects/kinase-atlas/runs/new/?entities=PRT-000001&action=${ranking.name}`,
+    );
+    expect(
+      await screen.findByText(/^Every protein Kinase Atlas keeps, as each is now\./),
+    ).toHaveTextContent("The projects this core serves, and their ranks.");
+    // The entity goes to the input that's chosen, not to the project's.
+    const protein = screen.getByRole("group", { name: "Protein" });
+    expect(within(protein).getByRole("link", { name: "PRT-000001" })).toBeInTheDocument();
+    // It's said, not chosen: nothing in it to pick.
+    const given = screen.getByRole("group", { name: "Ranking" });
+    expect(within(given).queryByRole("combobox")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+    expect(await screen.findByText("Kinase Atlas has no proteins of its own yet.")).toBeVisible();
+    const sent = calls("POST", path).at(-1)?.body as { inputs: Record<string, unknown> };
+    expect(sent.inputs).toEqual({ protein: PROTEIN_ID });
   });
 });

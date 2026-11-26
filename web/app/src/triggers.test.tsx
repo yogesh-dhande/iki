@@ -29,6 +29,7 @@ const OFF: Schemas["ProjectTriggerOut"] = {
   related: {},
   params: {},
   tier: "backend",
+  runs_as_account: false,
   enabled: false,
   enabled_by: null,
   enabled_at: null,
@@ -77,6 +78,7 @@ const NIGHTLY: Schemas["ProjectTriggerOut"] = {
   action: "iki/protein.fetch_proteins",
   action_label: "Fetch proteins",
   input: "",
+  runs_as_account: true,
   run_as_choices: [{ id: "00000000-0000-7000-8000-0000000000b6", name: "Ingest bot" }, ROBOT],
 };
 
@@ -345,5 +347,72 @@ describe("a project's triggers", () => {
         calls("GET", `/api/v1/projects/${KINASE.id}/trigger-firings`).at(-1)?.query.get("trigger"),
       ).toBe(ON.name);
     });
+  });
+});
+
+/** One that fires as another project sends the project a request (ADR 0232). */
+const RANKING: Schemas["ProjectTriggerOut"] = {
+  ...OFF,
+  name: "acme/request_priority.rank_arriving_requests",
+  label: "Rank requests as they arrive",
+  on: "request.received",
+  type: "iki/requests.PlainRequest",
+  action: "acme/request_priority.rank_requests",
+  action_label: "Rank requests by project",
+  input: "requests",
+  runs_as_account: true,
+  run_as_choices: [ROBOT],
+};
+
+describe("a trigger on a request's arrival", () => {
+  it("runs as the service account you choose, on your authority", async () => {
+    onProject([RANKING], []);
+    const path = `/api/v1/projects/${KINASE.id}/triggers/${RANKING.name}/enable`;
+    answer(`POST ${path}`, () => ({ ...RANKING, enabled: true, run_as: ROBOT }));
+    const { user } = await renderApp("/projects/kinase-atlas/automation/triggers/");
+    const rows = await screen.findByRole("list", { name: "Triggers" });
+    const [row] = within(rows).getAllByRole("listitem");
+    expect(row).toHaveTextContent(
+      /^Rank requests as they arrive.*another project sends to Kinase Atlas starts a run of Rank requests by project\./,
+    );
+    await user.click(await screen.findByRole("button", { name: "Turn on" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("as the service account you choose, on your authority");
+    expect(dialog).toHaveTextContent("Another project sent the request");
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Runs as" }), ROBOT.name);
+    await user.click(within(dialog).getByRole("button", { name: "Turn on" }));
+    await waitFor(() => {
+      expect(calls("POST", path)).toHaveLength(1);
+    });
+    expect(calls("POST", path)[0]?.body).toEqual({ run_as: ROBOT.id });
+    expect(
+      await screen.findByText("“Rank requests as they arrive” is on, and runs as Nightly robot."),
+    ).toBeInTheDocument();
+  });
+
+  it("lists a firing by the request that arrived", async () => {
+    onProject(
+      [
+        {
+          ...RANKING,
+          enabled: true,
+          run_as: ROBOT,
+          enabled_by: ON.enabled_by,
+          enabled_at: ON.enabled_at,
+        },
+      ],
+      [
+        {
+          ...FIRING,
+          trigger: RANKING.name,
+          label: RANKING.label,
+          event: "request.received",
+          entity: { id: FIRING.entity?.id ?? "", hrid: "SEQ-000041", type: RANKING.type },
+        },
+      ],
+    );
+    await renderApp("/projects/kinase-atlas/automation/triggers/");
+    expect(await screen.findByText(/arrived/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "SEQ-000041" })).toBeInTheDocument();
   });
 });

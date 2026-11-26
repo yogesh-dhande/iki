@@ -488,6 +488,14 @@ def build() -> MCPServer:
             ),
         ] = None,
         sort: Annotated[SortIn | None, Field(description="A field to sort by.")] = None,
+        then: Annotated[
+            list[SortIn] | None,
+            Field(
+                max_length=3,
+                description="Further sorts, in order, for what sort ties: a queue by its "
+                "service's ranking, then priority, then needed_by.",
+            ),
+        ] = None,
         archived: Annotated[
             bool | None, Field(description="false (the default): current ones only.")
         ] = False,
@@ -511,6 +519,8 @@ def build() -> MCPServer:
             body["where"] = where.model_dump(by_alias=True, exclude_unset=True)
         if sort is not None:
             body["sort"] = sort.model_dump(by_alias=True, exclude_unset=True)
+        if then:
+            body["then"] = [t.model_dump(by_alias=True, exclude_unset=True) for t in then]
         return answer(
             await call(
                 "POST", "/entities/search", body={k: v for k, v in body.items() if v is not None}

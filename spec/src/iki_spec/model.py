@@ -1091,6 +1091,9 @@ class Input:
     description: str | None = None
     #: Its type's reference fields whose entities the run reads too.
     include: tuple[str, ...] = ()
+    #: Not chosen: each run is given every record of its type its project owns, not
+    #: archived, such as a core's ranking of the projects it serves (ADR 0232).
+    from_project: bool = False
 
 
 @dataclass(frozen=True)
@@ -1414,17 +1417,28 @@ class Workflow:
 
 
 #: What fires a trigger: an entity of its type created, a new registry entry of it
-#: registered (ADR 0115), a record's state field set (ADR 0125), an entity changed, or
-#: its schedule.
+#: registered (ADR 0115), a record's state field set (ADR 0125), an entity changed, a
+#: request sent to the project as a service (ADR 0232), or its schedule.
 TRIGGER_EVENTS = (
     "entity.created",
     "entity.registered",
     "entity.state_changed",
     "entity.updated",
+    "request.received",
     "schedule",
 )
 #: The events that fire a trigger for an entity.
-ENTITY_EVENTS = ("entity.created", "entity.registered", "entity.state_changed", "entity.updated")
+ENTITY_EVENTS = (
+    "entity.created",
+    "entity.registered",
+    "entity.state_changed",
+    "entity.updated",
+    "request.received",
+)
+#: The events whose trigger's runs are launched as a service account the Admin who turns
+#: it on chooses, on their authority (ADR 0081, ADR 0232): nobody in the project made
+#: them happen.
+ACCOUNT_EVENTS = ("request.received", "schedule")
 
 
 #: Which way a trigger's related entities are (ADR 0123): derived from the entity, or what

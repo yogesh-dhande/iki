@@ -82,7 +82,7 @@ function isA(types: EntityType[], type: string, wanted: string): boolean {
 
 /** The first input that takes all of `kinds`, as the server picks it. */
 function inputTaking(action: Action, kinds: string[], types: EntityType[]): Input | undefined {
-  return action.inputs.find((i) => kinds.every((k) => isA(types, k, i.type)));
+  return action.inputs.find((i) => !i.from_project && kinds.every((k) => isA(types, k, i.type)));
 }
 
 const TIER: Record<Action["tier"], string> = {
@@ -375,7 +375,10 @@ function RunForm({
   const navigate = useNavigate();
   const { say } = useMessages();
   const params: Schemaed = { values_schema: action.params_schema };
-  const others = action.inputs.filter((i) => i.name !== each?.name);
+  // An input from the project (ADR 0232) isn't chosen: each run is given every record of
+  // its type the project owns.
+  const others = action.inputs.filter((i) => i.name !== each?.name && !i.from_project);
+  const fromProject = action.inputs.filter((i) => i.from_project);
   const [drafts, setDrafts] = useState<Record<string, Draft>>(() => ({
     ...Object.fromEntries(
       others.map((i) => [`inputs/${i.name}`, i.cardinality === "many" ? [] : null]),
@@ -642,6 +645,27 @@ function RunForm({
           />
         </fieldset>
       ) : null}
+      {fromProject.map((input) => (
+        <div
+          className="field"
+          key={input.name}
+          role="group"
+          aria-labelledby={`from-project-${input.name}`}
+        >
+          <span className="field-label" id={`from-project-${input.name}`}>
+            {input.label}
+          </span>
+          <p className="field-help">
+            Every {inSentence(typeLabel(types, input.type))} {project.name} keeps, as each is now.
+            {input.description ? ` ${input.description}` : ""}
+          </p>
+          {form.errors[`inputs/${input.name}`] ? (
+            <p className="field-error" role="alert">
+              {form.errors[`inputs/${input.name}`]}
+            </p>
+          ) : null}
+        </div>
+      ))}
       {others.map((input) => (
         <FieldInput
           key={input.name}

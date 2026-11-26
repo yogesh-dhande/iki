@@ -1,0 +1,68 @@
+# Action tests: `iki plugin test . --with …` makes the run input the server
+# would, runs the action with `iki-worker run --local`, and compares what it
+# writes with `expect`. Each request says which project asked, as the server
+# gives it; the core's ranking is given as the server would fill it.
+apiVersion: iki/v1
+kind: ActionTest
+name: agreed_ranks
+description: >-
+  Oncology discovery is ranked first and antibody discovery second, both agreed;
+  assay methods development's rank of 3 is only proposed. Its request keeps no
+  rank until a coordinator agrees it.
+action: rank_requests
+inputs:
+  requests:
+    - hrid: SEQ-000041
+      values: { title: "KRAS G12C resistance clones, amplicon panel", priority: routine }
+      request:
+        asking_project: { slug: oncology-discovery, name: Oncology discovery }
+    - hrid: SEQ-000042
+      values: { title: "Anti-TIGIT hits, heavy and light chain Sanger", priority: urgent }
+      request:
+        asking_project: { slug: antibody-discovery, name: Antibody discovery }
+    - hrid: SEQ-000043
+      values: { title: "Spike-in controls for the new library prep", priority: routine }
+      request:
+        asking_project: { slug: assay-methods, name: Assay methods development }
+  ranking:
+    - values: { project_slug: oncology-discovery, rank: 1, status: agreed }
+    - values: { project_slug: antibody-discovery, rank: 2, status: agreed }
+    - values: { project_slug: assay-methods, rank: 3, status: proposed }
+expect:
+  output:
+    updates:
+      requests:
+        - values: { project_rank: 1 }
+        - values: { project_rank: 2 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: reranked
+description: >-
+  After the portfolio review, antibody discovery is agreed first. Its open
+  request moves up; the oncology request already at 2 is left as it is, and a
+  project no longer ranked loses its rank.
+action: rank_requests
+inputs:
+  requests:
+    - hrid: SEQ-000042
+      values: { title: "Anti-TIGIT hits, heavy and light chain Sanger", project_rank: 2 }
+      request:
+        asking_project: { slug: antibody-discovery, name: Antibody discovery }
+    - hrid: SEQ-000044
+      values: { title: "EGFR exon 20 organoids, whole exome", project_rank: 2 }
+      request:
+        asking_project: { slug: oncology-discovery, name: Oncology discovery }
+    - hrid: SEQ-000045
+      values: { title: "Retired platform, last validation run", project_rank: 4 }
+      request:
+        asking_project: { slug: legacy-platform, name: Legacy platform }
+  ranking:
+    - values: { project_slug: antibody-discovery, rank: 1, status: agreed }
+    - values: { project_slug: oncology-discovery, rank: 2, status: agreed }
+expect:
+  output:
+    updates:
+      requests:
+        - values: { project_rank: 1 }
+        - values: { project_rank: null }
