@@ -1,5 +1,7 @@
 """The small_molecule plugin's SDF files: `import` registers each record of one as a
-compound (and, with `batches`, a batch of it), `export` writes compounds to one.
+compound (and, with `batches`, a batch of it). Compounds export as Molfiles and SDF files
+from their record pages and the records table, which Iki writes from each compound's
+stored Molfile (ADR 0229), not an action.
 
 Importing, each record's structure is standardised and identified as `chemistry` says,
 as a SMILES line is, and registered; one already in Iki is reused. Its name is the SD
@@ -15,17 +17,12 @@ A record that can't be registered fails the import, which names each such record
 says why, so nothing is half imported; or, with `on_error: skip`, is left out, saying
 so. Files are read a record at a time, so they may hold a million; past a thousand
 compounds, without batches, they go in a creates file (ADR 0056).
-
-Exporting, each compound is written with 2D coordinates RDKit computes, its name (or
-HRID) as its title, and its values as SD fields.
 """
 
 from __future__ import annotations
 
 import hashlib
-import os
 import re
-import sys
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -59,7 +56,6 @@ from chemistry import (
     write_output,
 )
 from rdkit import Chem
-from rdkit.Chem import rdDepictor
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -69,7 +65,6 @@ MAX_RECORDS = 1_000_000
 MAX_RECORDS_WITH_BATCHES = 5_000
 NAMED = 20
 MAX_FIELD = 10_000
-SDF = "compounds.sdf"
 #: The fields that say which structure a record is, as other systems know it.
 IDS = {"cas_number": "CAS number", "pubchem_cid": "PubChem CID", "chembl_id": "ChEMBL ID"}
 
@@ -572,75 +567,8 @@ def import_file(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# --- Exporting -----------------------------------------------------------------------------------
-
-#: What each compound's SD fields are, in order: its HRID, then its values.
-EXPORTED = (
-    "name",
-    "smiles",
-    "inchikey",
-    "inchi",
-    "synonyms",
-    "molecular_formula",
-    "molecular_weight",
-    "exact_mass",
-    "formal_charge",
-    "logp",
-    "tpsa",
-    "hbd",
-    "hba",
-    "rotatable_bonds",
-    "aromatic_rings",
-    "fraction_csp3",
-    "stereocentres",
-    "undefined_stereocentres",
-    "qed",
-    "lipinski_violations",
-    "pubchem_cid",
-    "chembl_id",
-    "cas_number",
-)
-
-
-def export(run: dict[str, Any]) -> dict[str, Any]:
-    entities = run["inputs"]["compounds"]
-    out = Path(os.environ["IKI_OUT_DIR"]) / SDF
-    messages = Messages()
-    written = 0
-    with Chem.SDWriter(str(out)) as writer:
-        writer.SetKekulize(True)
-        for done, entity in enumerate(entities, start=1):
-            values = entity["values"]
-            try:
-                mol = from_smiles(values["smiles"])
-            except UnreadableError as why:
-                messages.add("warning", f"{entity['hrid']} was left out: {why}.", entity["id"])
-                continue
-            rdDepictor.SetPreferCoordGen(True)
-            rdDepictor.Compute2DCoords(mol)
-            mol.SetProp("_Name", values.get("name") or entity["hrid"])
-            mol.SetProp("hrid", entity["hrid"])
-            for name in EXPORTED:
-                value = values.get(name)
-                if value in (None, "", []):
-                    continue
-                mol.SetProp(name, "; ".join(value) if isinstance(value, list) else str(value))
-            writer.write(mol)
-            written += 1
-            if done % 1000 == 0:
-                print(f"::progress {done / len(entities):.2f} {done:,} written", flush=True)
-    print(f"Wrote {written:,} compounds to {SDF}.")
-    if not written:
-        fail("None of the compounds could be written.")
-    return {"metrics": {"compounds": written}, "messages": messages.output()}
-
-
 def main() -> None:
-    kind = sys.argv[1]
     run = run_input()
-    if kind == "export":
-        write_output(export(run))
-        return
     given = run["files"][run["params"]["file"]]
     try:
         output = import_file(run)

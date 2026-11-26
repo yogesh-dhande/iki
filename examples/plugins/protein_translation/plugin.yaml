@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: acme/protein_translation
+version: 0.1.0
+title: Protein translation and characterization
+description: Translate a registered DNA sequence and calculate the properties of the resulting protein.
+license: Apache-2.0
+iki: ">=0.1"
+dependencies:
+  iki/dna:
+    types:
+      DNASequence: ">=1"
+  iki/protein:
+    types:
+      Protein: ">=2"

@@ -16,6 +16,7 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Extensions `.ab1`, `.abi`, `.fsa`
 - Byte signatures `41424946` at byte 0
 - Metadata reader `abif`
+- Viewer `chromatogram-abif`
 - Actions `iki/dna.align_reads`, `iki/protein.align_reads`
 
 ## BAM
@@ -36,6 +37,8 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Format ID `iki/core.csv`
 - Canonical media type `text/csv`
 - Extensions `.csv`
+- Metadata reader `csv`
+- Viewer `table-csv`
 - Actions `iki/biologics_ms.characterize`, `iki/equipment.record_instrument_use`, `iki/equipment.trace_failed_calibrations`, `iki/lots.compute_conjugate_lot`, `iki/lots.compute_oligo_lot`, `iki/lots.compute_plasmid_prep`, `iki/lots.compute_polymer_lot`, `iki/lots.compute_protein_lot`, `iki/lots.record_plasmid_verification`, `iki/oligo.import_oligonucleotides`, `iki/plate_assays.assign_dilution_series`, `iki/plate_assays.commit_reader`, `iki/plate_assays.preview_reader`, `iki/qc_release.open_release`, `iki/qc_release.prepare_certificate`, `iki/qc_release.record_test`, `iki/reagents.receive_delivery`, `iki/stability.record_measurement`, `iki/stability.schedule_pulls`, `iki/strains.import_base_strains`
 
 ## Excel
@@ -43,6 +46,7 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Format ID `iki/core.xlsx`
 - Canonical media type `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
 - Extensions `.xlsx`
+- Viewer `table-xlsx`
 
 ## Excel 97–2003
 
@@ -101,6 +105,7 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Canonical media type `chemical/x-jcamp-dx`
 - Extensions `.jdx`, `.dx`, `.jcamp`
 - Metadata reader `jcamp-dx`
+- Viewer `spectrum-jcamp-dx`
 
 ## JPEG
 
@@ -109,6 +114,7 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Extensions `.jpg`, `.jpeg`
 - Byte signatures `ffd8ff` at byte 0
 - Metadata reader `image`
+- Viewer `image`
 - Actions `iki/biologics_ms.characterize`, `iki/lots.compute_conjugate_lot`, `iki/lots.compute_oligo_lot`, `iki/lots.compute_plasmid_prep`, `iki/lots.compute_polymer_lot`, `iki/lots.compute_protein_lot`, `iki/lots.record_plasmid_verification`, `iki/qc_release.open_release`, `iki/qc_release.prepare_certificate`, `iki/qc_release.record_test`, `iki/reagents.receive_delivery`, `iki/stability.schedule_pulls`
 
 ## JSON
@@ -122,6 +128,7 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Format ID `iki/core.xlsm`
 - Canonical media type `application/vnd.ms-excel.sheet.macroenabled.12`
 - Extensions `.xlsm`
+- Viewer `table-xlsx`
 
 ## mmCIF
 
@@ -150,6 +157,7 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Canonical media type `application/x-mzml`
 - Extensions `.mzml`
 - Metadata reader `mzml`
+- Viewer `spectrum-mzml`
 
 ## nucleotide FASTA
 
@@ -179,6 +187,7 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Format ID `iki/core.pdf`
 - Canonical media type `application/pdf`
 - Extensions `.pdf`
+- Viewer `pdf`
 - Actions `iki/biologics_ms.characterize`, `iki/equipment.record_instrument_use`, `iki/equipment.trace_failed_calibrations`, `iki/lots.compute_conjugate_lot`, `iki/lots.compute_oligo_lot`, `iki/lots.compute_plasmid_prep`, `iki/lots.compute_polymer_lot`, `iki/lots.compute_protein_lot`, `iki/lots.record_plasmid_verification`, `iki/qc_release.open_release`, `iki/qc_release.prepare_certificate`, `iki/qc_release.record_test`, `iki/reagents.receive_delivery`, `iki/stability.record_measurement`, `iki/stability.schedule_pulls`
 
 ## plain-text
@@ -195,6 +204,7 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Canonical media type `image/png`
 - Extensions `.png`
 - Byte signatures `89504e470d0a1a0a` at byte 0
+- Viewer `image`
 - Actions `iki/biologics_ms.characterize`, `iki/lots.compute_conjugate_lot`, `iki/lots.compute_oligo_lot`, `iki/lots.compute_plasmid_prep`, `iki/lots.compute_polymer_lot`, `iki/lots.compute_protein_lot`, `iki/lots.record_plasmid_verification`, `iki/qc_release.open_release`, `iki/qc_release.prepare_certificate`, `iki/qc_release.record_test`, `iki/reagents.receive_delivery`, `iki/stability.schedule_pulls`
 
 ## protein FASTA
@@ -240,12 +250,14 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Extensions `.tif`, `.tiff`, `.ome.tif`, `.ome.tiff`
 - Byte signatures `49492a00` at byte 0, `4d4d002a` at byte 0, `49492b00` at byte 0, `4d4d002b` at byte 0
 - Metadata reader `image`
+- Viewer `image-tiff`
 
 ## TSV
 
 - Format ID `iki/core.tsv`
 - Canonical media type `text/tab-separated-values`
 - Extensions `.tsv`
+- Viewer `table-tsv`
 - Actions `iki/biologics_ms.characterize`, `iki/mouse_strains.register_mgi_strain`, `iki/proteomics.import_search`, `iki/sequencing_analysis.import_result`
 
 ## VCF
@@ -267,6 +279,7 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Canonical media type `application/x-czi`
 - Extensions `.czi`
 - Byte signatures `5a495352415746494c45` at byte 0
+- Metadata reader `czi`
 
 ## ZIP
 

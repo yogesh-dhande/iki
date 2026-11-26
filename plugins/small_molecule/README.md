@@ -15,8 +15,9 @@ salt form, with RDKit's standardisation and descriptors.
     formula, molecular weight, exact mass, charge, heavy atoms, Crippen logP,
     TPSA, hydrogen-bond donors and acceptors, rotatable bonds, rings, aromatic
     rings, fraction Csp3, stereocentres (and how many are undefined), QED and
-    Lipinski violations, which the plugin's actions compute once, when it's
-    registered. Every project with a record of it sees them.
+    Lipinski violations, and its Molfile (its structure laid out in 2D, which
+    its exports are written from), which the plugin's actions compute once,
+    when it's registered. Every project with a record of it sees them.
   - Its registry facts are the entry's too: its PubChem CID, ChEMBL ID (each
     unique in the registry, and linked to its record there), CAS number, INN
     and stereochemistry. Whoever registers it may set one while it's empty;
@@ -80,9 +81,21 @@ so the identity is Iki's computation, beside the record's origin.
   what was taken off and its formula weight. A line that can't be registered
   fails the run, which names each such line and says why, so nothing is half
   registered; or, with `on_error: skip`, is left out, and the run says so.
-- **`compute_descriptors`**: a compound's descriptors and standard InChI, for
-  many at once. Its trigger, which a project's Admins turn on, runs it on each
-  new compound.
+- **`compute_descriptors`**: a compound's descriptors, standard InChI and
+  Molfile, for many at once. Its trigger, which a project's Admins turn on,
+  runs it on each new compound. The Molfile is its SMILES laid out in 2D by
+  CoordGen (as RDKit's `SetPreferCoordGen` chooses it), kekulized, with its
+  stereocentres wedged and a double bond whose configuration isn't given
+  drawn crossed, and an empty title line; V2000, or V3000 when it has more
+  than 999 atoms or bonds, which RDKit decides. It's kept only if it reads
+  back to the compound's InChIKey. Layouts run in a process of their own, each
+  in at most a minute: a structure CoordGen can't lay out in that time or in
+  the run's memory (it doesn't finish a cycloalkane ring of 42 carbons, and
+  takes a gigabyte over a PEG of 1,000 units), or puts every atom at one
+  point (a peptide of 250 residues), is laid out by RDKit's own depictor
+  instead. One neither can lay out, or one past the run's 6 minutes of
+  layouts, or one whose Molfile would take the run's output over its 2.5 MB,
+  gets its descriptors without a Molfile, and the run says so.
 - **`compute_formula_weight`**: a batch's formula weight, from its compound's
   structure as it was when the run was launched (ADR 0105). Its triggers run
   it on each new batch, such as one made with its form, and again when its
@@ -120,10 +133,6 @@ so the identity is Iki's computation, beside the record's origin.
   left out, saying so; in `Amount_mg` or `Mass_mg` it's in mg. Each
   records the file and record it came from, with the record's SHA-256. A record that can't be imported fails the run, naming each, or with
   `on_error: skip` is left out.
-- **`export_sdf`**: writes compounds (up to 50,000) to an SDF file the run
-  keeps, each with 2D coordinates RDKit computes (CoordGen), its name or HRID
-  as its title, and its HRID, identifiers, descriptors and external IDs as SD
-  fields.
 - **`generate_conformers`**: a compound's 3D conformers, as a conformer set.
   RDKit embeds them by distance geometry with ETKDG version 3 (Wang et al.,
   2020), seeded from the run's seed, so a run reproduced exactly makes the same
@@ -309,6 +318,16 @@ From the compound's SMILES, as RDKit 2026.09.2 computes them:
 A compound whose InChIKey isn't the one its SMILES gives, as one made by hand
 through Iki's form or API might be, fails its own run, naming both keys;
 register its structure with `register_compounds` instead.
+
+## Exports
+
+A compound downloads as a Molfile (`.mol`) or an SDF file from its record page,
+and many at once as one SDF file from the records table (ADR 0229). Iki writes
+them itself, from each compound's stored Molfile at the revision exported, with
+its name as the Molfile's title and, in an SDF, its fields as the record's
+data: the file is pinned to that revision, each download is in the audit log,
+and no worker runs. That replaces the plugin's `export_sdf` action, which laid
+compounds out again on a worker for each export.
 
 ## Its structure, drawn
 

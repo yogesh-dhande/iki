@@ -1,0 +1,47 @@
+[package]
+name = "iki-previews"
+description = "Readers for Iki's file previews, compiled to WebAssembly and run in a Web Worker: ABIF chromatograms, JCAMP-DX and mzML spectra, TIFF tiles, and CSV and XLSX tables, each bounded."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[lib]
+# cdylib for the browser's module; rlib for its tests and a future native app (ADR 0088).
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+# mzML's XML, and its base64, zlib-compressed binary arrays.
+quick-xml = { version = "=0.42.0", default-features = false }
+base64 = { version = "=0.22.1", default-features = false, features = ["alloc"] }
+# zlib and Deflate (mzML arrays, TIFF tiles), and TIFF's LZW.
+miniz_oxide = { version = "=0.9.1", default-features = false, features = ["with-alloc"] }
+weezl = { version = "=0.2.1", default-features = false, features = ["alloc"] }
+# JPEG-compressed TIFF tiles, as whole-slide and many microscopy images are.
+zune-jpeg = { version = "=0.5.15", default-features = false, features = ["std"] }
+# Tables: RFC 4180 CSV and TSV. Workbooks are read by hand (ZIP, then their XML), which
+# bounds what each part may inflate to and keeps the module free of host imports.
+csv = "=1.4.0"
+
+# The workspace's lints, except that the module's exports need `no_mangle`, which the
+# unsafe_code lint counts. They're allowed in `exports` alone; there are no unsafe blocks.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"
+panic = "deny"
+dbg_macro = "deny"
+print_stdout = "warn"
+todo = "deny"

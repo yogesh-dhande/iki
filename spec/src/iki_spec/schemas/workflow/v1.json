@@ -63,7 +63,7 @@
       "description": "Where a step's input comes from: the workflow's input (`$inputs.<name>`), what a step was given, once it has run (`$steps.<id>.inputs.<name>`), or the entities of a type a step created (`$steps.<id>.created.<Type>`).",
       "type": "string",
       "maxLength": 200,
-      "pattern": "^\\$(inputs\\.[a-z][a-z0-9]*(_[a-z0-9]+)*|steps\\.[a-z][a-z0-9]*(_[a-z0-9]+)*\\.(inputs\\.[a-z][a-z0-9]*(_[a-z0-9]+)*|created\\.([a-z][a-z0-9]*(_[a-z0-9]+)*\\.)?[A-Z][A-Za-z0-9]*))$"
+      "pattern": "^\\$(inputs\\.[a-z][a-z0-9]*(_[a-z0-9]+)*|steps\\.[a-z][a-z0-9]*(_[a-z0-9]+)*\\.(inputs\\.[a-z][a-z0-9]*(_[a-z0-9]+)*|created\\.([a-z][a-z0-9]*(_[a-z0-9]+)*(/[a-z][a-z0-9]*(_[a-z0-9]+)*)?\\.)?[A-Z][A-Za-z0-9]*))$"
     },
     "condition": {
       "description": "A value compared with another: exactly one of `is`, `is_not`, `in`, `at_least`, `at_most`, `above` or `below`.",

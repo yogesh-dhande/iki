@@ -1,4 +1,5 @@
-"""When a file's data was acquired, read from the file itself (ADR 0177).
+"""When a file's data was acquired, read from the file itself (ADR 0177). What else the
+file states (ADR 0224) is tested in test_file_metadata.py, with these files.
 
 Each fixture is built byte by byte from its format's specification, as an instrument
 would write it, so the tests don't depend on files that can't be checked in."""
@@ -1109,6 +1110,81 @@ def test_a_bam_header_past_the_budget_is_none() -> None:
     assert source.asked <= 4 * MIB
 
 
+# CZI: ZEISS's ZISRAW format, as libCZI declares its segments (Src/libCZI/CziStructs.h).
+
+
+def czi_segment(kind: bytes, data: bytes) -> bytes:
+    """A segment: its 16-byte ID, allocated and used sizes, then its data, to a 32-byte
+    boundary."""
+    padded = data + bytes(-len(data) % 32)
+    return kind.ljust(16, b"\x00") + struct.pack("<qq", len(padded), len(data)) + padded
+
+
+def czi_metadata_xml(
+    acquisition: str | None = "2026-03-14T08:21:07.4473414Z",
+    microscope: str = '<Microscope Id="Microscope:1" Name="Celldiscoverer 7">'
+    "<Type>Inverted</Type></Microscope>",
+    user: str = "<User><DisplayName>Mira Okafor</DisplayName><UserName>mokafor</UserName></User>",
+    reference: str = '<MicroscopeRef Id="Microscope:1"/>',
+    after: str = "",
+) -> str:
+    """What ZEN 3 writes, as in its exports: Information (who, the application, the
+    document, the image and the instrument), then the scaling and display settings."""
+    date = f"<AcquisitionDateAndTime>{acquisition}</AcquisitionDateAndTime>" if acquisition else ""
+    return (
+        "<ImageDocument><Metadata><Version>1.0</Version><Information>"
+        f"{user}"
+        "<Application><Name>ZEN</Name><Version>3.12.107.04000</Version></Application>"
+        "<Document><CreationDate>2026-03-20T10:00:00.1002043+01:00</CreationDate>"
+        "<UserName>qa-reviewer</UserName></Document>"
+        f"<Image>{date}<ComponentBitCount>14</ComponentBitCount><PixelType>Gray16</PixelType>"
+        "<SizeX>2048</SizeX><SizeY>2048</SizeY><SizeC>2</SizeC>"
+        f'{reference}<ObjectiveSettings><ObjectiveRef Id="Objective:1"/></ObjectiveSettings>'
+        "</Image>"
+        f"<Instrument><Microscopes>{microscope}</Microscopes><Objectives>"
+        '<Objective Id="Objective:1" Name="Plan-Apochromat 20x/0.95"><Immersion>Air</Immersion>'
+        "<Manufacturer><Model>Plan-Apochromat 20x/0.95</Model></Manufacturer></Objective>"
+        "</Objectives></Instrument></Information>"
+        '<Scaling><Items><Distance Id="X"><Value>3.45e-007</Value></Distance></Items></Scaling>'
+        f"{after}</Metadata></ImageDocument>"
+    )
+
+
+def make_czi(xml: str | bytes, image: bytes = b"", xml_size: int | None = None) -> bytes:
+    """A CZI file: the file header segment, ``image`` (where its subblocks would be), then
+    the metadata segment, whose position the header gives."""
+    body = xml.encode() if isinstance(xml, str) else xml
+    metadata_at = 32 + 512 + len(image) + (-len(image) % 32)
+    header = struct.pack("<iiii", 1, 0, 0, 0) + bytes(range(16)) + bytes(range(16, 32))
+    header += struct.pack("<iqqiq", 0, 0, metadata_at, 0, 0)
+    data = struct.pack("<ii", len(body) if xml_size is None else xml_size, 0).ljust(256, b"\x00")
+    return (
+        czi_segment(b"ZISRAWFILE", header.ljust(512, b"\x00"))
+        + image
+        + bytes(-len(image) % 32)
+        + czi_segment(b"ZISRAWMETADATA", data + body)
+    )
+
+
+def test_czi_reads_the_images_acquisition_time() -> None:
+    assert read("well-B3.czi", make_czi(czi_metadata_xml())) == Acquired(
+        on=dt.date(2026, 3, 14), at="2026-03-14T08:21:07.4473414Z", source="czi"
+    )
+
+
+def test_czi_without_an_acquisition_time_is_none() -> None:
+    assert read("a.czi", make_czi(czi_metadata_xml(acquisition=None))) is None
+    assert read("a.czi", make_czi(czi_metadata_xml(acquisition="14.03.2026"))) is None
+
+
+def test_czi_reads_little_of_a_big_file() -> None:
+    data = make_czi(czi_metadata_xml(), image=bytes(50 * MIB))
+    source = CountingSource(BytesSource(data))
+    assert acquired.read("big.czi", "", source) is not None
+    assert source.calls <= 3
+    assert source.asked <= 2 * MIB
+
+
 # Choosing a reader.
 
 
@@ -1128,6 +1204,7 @@ def fixtures() -> dict[str, tuple[str, bytes]]:
         "ome-tiff": ("a.ome.tif", make_tiff("<", camera_ifd0(ome_xml()), None, gradient(256))),
         "sam": ("a.sam", make_sam(DATES)),
         "bam": ("a.bam", make_bam(DATES)),
+        "czi": ("a.czi", make_czi(czi_metadata_xml())),
     }
 
 
@@ -1140,10 +1217,11 @@ def test_registered_readers_can_return_structured_metadata(monkeypatch: pytest.M
     data = BytesSource(realistic_ab1())
     measured = acquired.read_metadata("abif", data)
     assert measured.acquired is not None and measured.acquired.source == "abif"
+    fact = acquired.Fact("A1", "ABIF tag HCFG 3 (official instrument name)")
     monkeypatch.setitem(
-        acquired.READERS, "abif", lambda _: acquired.FileMetadata(attributes={"instrument": "A1"})
+        acquired.READERS, "abif", lambda _: acquired.FileMetadata(facts={"instrument": fact})
     )
-    assert acquired.read_metadata("abif", data).attributes == {"instrument": "A1"}
+    assert acquired.read_metadata("abif", data).facts == {"instrument": fact}
 
 
 def test_every_source_is_named_for_people() -> None:
@@ -1184,6 +1262,7 @@ def test_the_extension_comes_before_the_media_type() -> None:
         ("image/jpeg", "x", lambda: make_jpeg(make_tiff("<", camera_ifd0(), camera_exif()))),
         ("text/x-sam", "x", lambda: make_sam(DATES)),
         ("application/x-bam", "x", lambda: make_bam(DATES)),
+        ("application/x-czi", "x", lambda: make_czi(czi_metadata_xml())),
     ],
 )
 def test_each_media_type_has_its_reader(

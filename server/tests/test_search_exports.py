@@ -377,3 +377,48 @@ def test_each_row_is_one_revision_of_its_record(
 )
 def test_a_cell_that_would_run_starts_with_a_quote(value: object, cell: str) -> None:
     assert csvs.cell(value) == cell
+
+
+def test_a_lists_items_read_back_as_a_spreadsheet_import_reads_them(
+    world: World, tmp_path: Any
+) -> None:
+    """Items apart by "; ", one holding a semicolon or starting with a quote in quotes:
+    Iki's own import (ADR 0178) reads each list back as the items it was."""
+    from iki_server.entities import registry
+    from iki_server.spreadsheets import cells, workbooks
+
+    lists = [
+        ["acetylsalicylic acid", "ASA", "2-acetoxybenzoic acid"],
+        ["Tris-HCl; pH 8.0", "EDTA"],
+        ['"Aspirin" (Bayer)', 'a 5" vial', "plain"],
+        ["one"],
+    ]
+    for n, synonyms in enumerate(lists):
+        services.create(
+            world.users["editor"],
+            "acme/protein.Compound",
+            world.project,
+            {"smiles": "C" * (n + 1), "inchikey": f"KEY{n}", "synonyms": synonyms},
+        )
+    asked = {
+        "type": "acme/protein.Compound",
+        "project": str(world.project.pk),
+        "columns": ["synonyms", "smiles"],
+        "sort": "smiles",
+    }
+    response, rows = download(api_as(world, "viewer"), **asked)
+    assert response.status_code == 200
+    assert [r[0] for r in rows[1:]] == [
+        "acetylsalicylic acid; ASA; 2-acetoxybenzoic acid",
+        '"Tris-HCl; pH 8.0"; EDTA',
+        '"""Aspirin"" (Bayer)"; a 5" vial; plain',
+        "one",
+    ]
+    path = tmp_path / "compounds.csv"
+    path.write_bytes(api_as(world, "viewer").get("/entities/search.csv", **asked).getvalue())
+    book = workbooks.open_workbook(path, "compounds.csv")
+    (sheet,) = book.sheet_names
+    read = list(book.rows(sheet))[1:]
+    field = registry.types()["acme/protein.Compound"].fields["synonyms"]
+    column = cells.Column(0, "synonyms")
+    assert [cells.convert(field, column, row[0]) for row in read] == lists

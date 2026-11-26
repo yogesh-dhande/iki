@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-24
+- Connector distribution: the connector described below now ships as the [`acme/lims_connector` author example](../../examples/plugins/lims_connector/README.md) under [ADR 0218](0218-first-party-plugins-and-author-examples.md).
 
 ## Context
 

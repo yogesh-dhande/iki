@@ -65,6 +65,7 @@ REACHABLE = {
     ("GET", "/entity-types"),
     ("GET", "/entity-types/{name}"),
     ("GET", "/entity-types/{name}/flow"),
+    ("GET", "/entity-types/{name}/import-template.csv"),
     ("GET", "/formats"),
     ("GET", "/starters"),
     ("GET", "/actions"),
@@ -316,7 +317,15 @@ def test_every_operation_beyond_its_projects_is_refused(
     if (method, template) in REACHABLE and (method, template) not in LOOKUPS:
         pytest.skip("within the token's projects, or the person's own")
     if template.startswith(
-        ("/uploads", "/files", "/registrations", "/bundles", "/imports", "/spreadsheet")
+        (
+            "/uploads",
+            "/files",
+            "/registrations",
+            "/bundles",
+            "/imports",
+            "/spreadsheet",
+            "/entity-exports",
+        )
     ) or (template.endswith(("/bundles", "/imports", "/spreadsheet-imports"))):
         request.getfixturevalue("s3")
         settings = request.getfixturevalue("settings")

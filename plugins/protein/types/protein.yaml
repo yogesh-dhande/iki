@@ -111,3 +111,6 @@ display:
   title: "{{ name or uniprot_accession or hrid }}"
   viewers:
     - { viewer: sequence, sequence: sequence, tracks: [{ field: hydropathy }] }
+# Its residues as FASTA (ADR 0229), alone or with others from the records table.
+exports:
+  - { export: protein, sequence: sequence, description: description, organism: organism }

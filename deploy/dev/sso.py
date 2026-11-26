@@ -1691,7 +1691,7 @@ def sequences_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
     )
 
 
-#: The fake LIMS's records (deploy/dev/manifests/fake-lims.yaml).
+#: The fake LIMS's records (deploy/dev/fixtures/fake-lims.yaml).
 LIMS_RECORDS = ("LIMS-0001", "LIMS-0002", "LIMS-0003")
 
 
@@ -1699,7 +1699,7 @@ def lims(alice: requests.Session, project: dict[str, Any]) -> None:
     """Run the example connector against the fake LIMS, importing records over HTTPS,
     through the egress proxy, at the host the deployment's settings give, then again,
     matching each record to its protein, and a write-back."""
-    action = "iki/lims_connector_example.import_from_lims"
+    action = "acme/lims_connector.import_from_lims"
     run = launch(alice, project, action, {})
     if run["network"] != ["fake-lims.iki.svc"]:
         fail(f"{run['hrid']} may reach {run['network']}, not the host lims_host gives")
@@ -1728,9 +1728,7 @@ def lims(alice: requests.Session, project: dict[str, Any]) -> None:
         fail(f"importing again ({again['hrid']}) gave {again['effects']}, not the same three")
     ok(f"importing again matched each record to its protein, unchanged ({again['hrid']})")
     first = found[LIMS_RECORDS[0]]
-    sent = launch(
-        alice, project, "iki/lims_connector_example.send_to_lims", {"proteins": [first["id"]]}
-    )
+    sent = launch(alice, project, "acme/lims_connector.send_to_lims", {"proteins": [first["id"]]})
     deadline = time.monotonic() + 30
     while True:
         patched = [

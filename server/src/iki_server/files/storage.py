@@ -132,6 +132,11 @@ def bundle_key(export_id: Any) -> str:  # noqa: ANN401 - a UUID
     return _key("bundles", f"{export_id}.tar.gz")
 
 
+def record_export_key(export_id: Any) -> str:  # noqa: ANN401 - a UUID
+    """Where many records' file is kept until it expires (ADR 0229)."""
+    return _key("record-exports", str(export_id))
+
+
 def scheme() -> str:
     """What the URIs of stored files start with: ``s3`` or, on Cloud Storage, ``gs``."""
     return "gs" if _gcs() else "s3"

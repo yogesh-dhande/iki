@@ -83,6 +83,7 @@ import {
   TextField,
   useMessages,
 } from "../ui";
+import { templateUrl } from "../sheet";
 import { upload, uploadError, type Progress } from "../uploads";
 import { useProject } from "./project-overview";
 
@@ -253,6 +254,17 @@ export function ChooseWorkbook({
           ...choices.map((t) => ({ value: t.name, label: t.label_plural })),
         ]}
       />
+      {type ? (
+        // A sheet to fill in, its headings the fields an import sets (ADR 0228).
+        <p className="field-help">
+          <a href={templateUrl(type)} download>
+            Download the import template
+          </a>{" "}
+          for {inSentence(choices.find((t) => t.name === type)?.label_plural ?? "these records")}: a
+          CSV file with a heading for each field, its unit in brackets, to fill in or send to a
+          collaborator.
+        </p>
+      ) : null}
       {file && progress ? (
         <div className="upload">
           <p className="visually-hidden" role="status">

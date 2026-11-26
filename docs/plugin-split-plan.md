@@ -1,5 +1,7 @@
 # Splitting the example LIMS before M1
 
+The connector from this pre-M1 split now lives in the [LIMS connector author example](../examples/plugins/lims_connector/README.md) as `acme/lims_connector`. The mapping below records the names used at the original cutover.
+
 Phase 1 mapped the `a794df0f` tree for [ADR 0211](adr/0211-lots-inventory-samples-and-requests.md). The split carries forward example LIMS **0.10.0** from `231cd950`, including the private WorkItem and plain deliverable introduced in 0.9.0.
 
 The request family marks a request delivered only after every recorded result is returned and every expected material has a returned result. A deliverable’s immutable `material` identifies the sample, tube or recorded aliquot it covers. The dose-response starter commissions the two compound tubes. Its luciferase stock and ledger-backed sample belong to the service project. The split retains the run-import request checks and the reviewed put-away plan from main.

@@ -31,9 +31,13 @@ function fileName(response: Response, fallback: string): string {
 function leftOutText(saved: Saved, format: FormatName): string {
   if (!saved.leftOut) return "";
   const things = saved.leftOut === 1 ? "1 thing" : `${String(saved.leftOut)} things`;
-  return format === "genbank"
-    ? ` It couldn’t hold ${things} of the record: the file’s COMMENT says which.`
-    : ` It couldn’t hold ${things} of the record, such as its features, which GenBank holds.`;
+  if (format === "genbank")
+    return ` It couldn’t hold ${things} of the record: the file’s COMMENT says which.`;
+  if (format === "sdf")
+    return ` It couldn’t hold ${things} of the record: the file’s IKI_NOTES says which.`;
+  if (format === "fasta")
+    return ` It couldn’t hold ${things} of the record, such as its features, which GenBank holds.`;
+  return ` It couldn’t hold ${things} of the record, such as all of a long name.`;
 }
 
 /** The files a type's records export as: none, for most. */
