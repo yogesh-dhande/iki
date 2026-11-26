@@ -76,7 +76,7 @@ def test_no_distribution_carries_a_first_party_plugins_web_or_image_sources(
             "apiVersion: iki/v1\nkind: Component\nname: depiction\nlabel: Structure\n"
             "description: The compound drawn from its SMILES.\n"
             "module: ./components/depiction.js\nelement: compound-depiction\n"
-            "slots: [{ slot: entity.tab, type: iki/core.Entity }]\n"
+            "slots: [{ slot: entity.tab, type: iki/core.Complex }]\n"
         ),
         "components/depiction.js": (
             "customElements.define('compound-depiction', class extends HTMLElement {});\n"
