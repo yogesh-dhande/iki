@@ -45,9 +45,28 @@ within each domain, each from a copy's cysteine to another's.
     isotype against the chains, reading the isotype off the heavy chain's
     constant region, and the type's rules keep what the format says of its
     chains, their copies and its isotype at every save.
-  - It keeps its format (`registry: derived`), its isotype (a registry fact:
+  - It keeps its format (`registry: derived`), its isotype and the species of
+    its heavy chain's constant region (`constant_species`; registry facts:
     given once, then changed only by a registrar, so a second assembly that
     claims another is refused) and what it binds (`target`).
+  - Isotypes are named as the constant region's species names them, after
+    IMGT's IGHC genes: a human's `igg1` to `igg4`, `iga1`, `iga2`, `igm`, `ige`
+    and `igd`; a mouse's `igg1`, `igg2a`, `igg2b`, `igg2c`, `igg3`, `iga`,
+    `igm`, `ige` and `igd`; a rat's `igg1`, `igg2a`, `igg2b`, `igg2c`, `iga`,
+    `igm`, `ige` and `igd`; and a rabbit's `igg`, `iga`, `igm` and `ige`. A
+    chimeric or humanized antibody's constant region is human, whatever its
+    variable domains are.
+
+- **Other architectures.** An antibody of more than one kind of heavy or light
+  chain (a bispecific IgG, a CrossMab, a DVD-Ig with two light chains) or more
+  copies (an IgM pentamer, an IgA dimer with its J chain) is registered as a
+  protein complex (`iki/complex.ProteinComplex`) of its chains, each with its
+  copies and a role the lab names, such as `heavy_a` and `light_b`. It's found
+  beside antibodies by searching `iki/core.Complex`, and the complex plugin
+  computes its formula, masses and absorbance. A lab that registers many of
+  one architecture and wants their roles and copies held to it adds its own
+  complex type, as this one is
+  ([ADR 0164](../../docs/adr/0164-a-subtype-says-which-roles-its-rows-take.md)).
 
 - **Proteins' numbering** (an extension of `iki/protein.Protein`): what numbering a
   chain finds, in the plugin's own table.
@@ -185,8 +204,13 @@ differences further:
   its review report says (PMDA, Soliris, 2010), and `assemble` says _"its CH1
   and hinge IgG2's; its CH3 IgG4's; its CH2 IgG2's to its residue 5 and IgG4's
   from its residue 37, the two the same between"_;
+- one that matches a human reference has a human constant region
+  (`constant_species: human`), and another species given is refused;
 - one that matches no human reference (a mouse's IgG1 is about 64% identical
-  to the nearest) keeps the isotype given, unchecked, with a warning.
+  to the nearest) needs its species given with its isotype, which must be one
+  that species has (a mouse has `igg2a`, not `igg2` or `igg4`). Both are kept
+  as given, unread, with a warning: Iki ships human references only, so the
+  species is the registrant's statement.
 
 Allotypes differ from these alleles by a residue or two, and engineered Fc
 regions (S228P, LALA, YTE) by a few; subclasses differ by 20 or more over a
@@ -258,7 +282,8 @@ What can be told from the antibody's own fields is a rule of its type
 kept at every save however it's registered: by `assemble`, through the API, a
 bulk import or a bundle. An IgG, a Fab and an Fv have a light chain, a VHH and
 an scFv none; an IgG has two copies of each chain, the others one; an Fv, scFv
-or VHH has no isotype; an IgG's is one of its subclasses. The two chains
+or VHH has no isotype or constant region species; an IgG's isotype is IgG's;
+and an isotype is one its constant region's species has. The two chains
 differ, as every complex's parts do: a part is given once, with its copies. Whether a chain has the constant region its
 format says is `assemble`'s check alone: it reads where the chain's variable
 domains end, its project's numbering, which a rule can't, as a reference holds
