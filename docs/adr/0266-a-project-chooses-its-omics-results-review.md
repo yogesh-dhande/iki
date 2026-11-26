@@ -2,14 +2,18 @@
 
 - Status: Accepted
 - Date: 2026-11-26
-- Refines: [0240](0240-a-project-chooses-its-release-stability-and-verification-review.md)
-  and [0258](0258-mass-spectrometry-results-name-their-report-format.md)
+- Refines: [0240](0240-a-project-chooses-its-release-stability-and-verification-review.md),
+  [0255](0255-a-quality-summary-can-be-recorded-without-sign-off.md),
+  [0256](0256-each-sequencing-report-format-has-its-own-import.md) and
+  [0258](0258-mass-spectrometry-results-name-their-report-format.md)
 
 ## Context
 
-Proteomics search results and biologics mass spectrometry results are reviewed
-under Research, Regulated QC or Record only
-([ADR 0258](0258-mass-spectrometry-results-name-their-report-format.md)). Each
+FASTQ quality summaries, sequencing analysis results, proteomics search results
+and biologics mass spectrometry results are reviewed under Research, Regulated
+QC or Record only (ADRs [0255](0255-a-quality-summary-can-be-recorded-without-sign-off.md),
+[0256](0256-each-sequencing-report-format-has-its-own-import.md) and
+[0258](0258-mass-spectrometry-results-name-their-report-format.md)). Each
 plugin's `review_flow` setting chose the procedure for the whole deployment, so
 a discovery group and a QC lab sharing one deployment had to share a procedure.
 [ADR 0240](0240-a-project-chooses-its-release-stability-and-verification-review.md)
@@ -18,13 +22,14 @@ through starters, with the flow pinned on the record the procedure starts with.
 
 ## Decision
 
-Each plugin offers a starter: `proteomics-search-review` and
+Each plugin offers a starter: `sequencing-quality-review`,
+`sequencing-analysis-review`, `proteomics-search-review` and
 `biologics-ms-review`. A project's Admin chooses Research, Regulated QC or Record
 only, and picks who holds each lab role the flow's signatures need, as
 [ADR 0240](0240-a-project-chooses-its-release-stability-and-verification-review.md)
 describes. A project that hasn't chosen uses the deployment's setting.
 
-- The import pins the flow on the result it records, as the result did before.
+- The import or summary pins the flow on the result it records, as it did before.
   A result keeps the procedure it was recorded under after the project changes
   its choice.
 - Research asks for a reviewer. Regulated QC asks for an analyst, a reviewer and
@@ -40,9 +45,9 @@ describes. A project that hasn't chosen uses the deployment's setting.
 
 ## Consequences
 
-A project of discovery proteomics can keep its search results as evidence
-while a QC project in the same deployment releases its peptide maps under
-Regulated QC. The guards, signatures and independence checks are unchanged.
+A project of discovery proteomics or exploratory RNA-seq counts can keep its
+results as evidence while a QC project in the same deployment releases its
+peptide maps or FASTQ quality summaries under Regulated QC. The guards, signatures and independence checks are unchanged.
 
 A starter whose flow needs no roles shows that it grants none, in place of the
 role choices.

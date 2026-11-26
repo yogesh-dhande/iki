@@ -229,6 +229,28 @@ BIOLOGICS_MS_REVIEW = _result_review(
     ),
     governs="mass spectrometry results",
 )
+SEQUENCING_QUALITY_REVIEW = _result_review(
+    "iki/sequencing",
+    "FASTQSummary",
+    id="sequencing-quality-review",
+    label="FASTQ quality summaries",
+    description=(
+        "Choose how new FASTQ quality summaries are reviewed, or recorded without sign-off, and "
+        "assign who submits, reviews and releases them."
+    ),
+    governs="FASTQ quality summaries",
+)
+SEQUENCING_ANALYSIS_REVIEW = _result_review(
+    "iki/sequencing_analysis",
+    "SequencingAnalysisResult",
+    id="sequencing-analysis-review",
+    label="Sequencing analysis results",
+    description=(
+        "Choose how newly imported variant, count and repertoire results are reviewed, or "
+        "recorded without sign-off, and assign who submits, reviews and releases them."
+    ),
+    governs="sequencing analysis results",
+)
 CATALOG = (
     DOSE_RESPONSE,
     LOT_RELEASE_TESTING,
@@ -236,6 +258,8 @@ CATALOG = (
     PREP_VERIFICATION,
     PROTEOMICS_REVIEW,
     BIOLOGICS_MS_REVIEW,
+    SEQUENCING_QUALITY_REVIEW,
+    SEQUENCING_ANALYSIS_REVIEW,
 )
 
 

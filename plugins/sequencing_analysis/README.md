@@ -31,7 +31,11 @@ To record which registered antibody an AIRR rearrangement encodes, install
 
 ## Review
 
-The deployment setting `review_flow` controls new results:
+A project's Admin chooses the procedure for the project's new results with the
+`sequencing-analysis-review` starter, in the project's settings under Starters, and picks who
+holds each lab role it asks for. A project that hasn't chosen uses the
+deployment setting `review_flow`
+([ADR 0266](../../docs/adr/0266-a-project-chooses-its-omics-results-review.md)):
 
 | Procedure                          | What a result needs                                                                                                           | Lab roles                |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------ |

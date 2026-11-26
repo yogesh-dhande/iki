@@ -45,7 +45,12 @@ __all__ = ["database"]
 PROCEDURES = (starters.LOT_RELEASE_TESTING, starters.STABILITY_STUDY, starters.PREP_VERIFICATION)
 #: Omics results pin their flow when an import records them, and may be kept without
 #: sign-off (ADR 0266).
-RESULT_REVIEWS = (starters.PROTEOMICS_REVIEW, starters.BIOLOGICS_MS_REVIEW)
+RESULT_REVIEWS = (
+    starters.PROTEOMICS_REVIEW,
+    starters.BIOLOGICS_MS_REVIEW,
+    starters.SEQUENCING_QUALITY_REVIEW,
+    starters.SEQUENCING_ANALYSIS_REVIEW,
+)
 QC = "iki/qc_release."
 
 
@@ -96,6 +101,7 @@ def test_the_installed_procedures_follow_each_projects_choice(
         PLUGINS / "qc_release",
         PLUGINS / "stability",
         PLUGINS / "proteomics",
+        PLUGINS / "sequencing_analysis",
         PLUGINS / "biologics_ms",
     )
     built = iki("plugin", "build", *plugins, "--output", build, cwd=ROOT)
@@ -188,6 +194,20 @@ def exercise_procedures() -> None:
     assert setting("iki/biologics_ms", "review_flow") == "regulated_qc"
     assert setting("iki/proteomics", "review_flow", elsewhere) == "research"
     assert setting("iki/biologics_ms", "review_flow", elsewhere) == "research"
+    # Sequencing: FASTQ quality summaries signed off by one reviewer; analysis results
+    # recorded without sign-off.
+    choose(
+        starters.SEQUENCING_QUALITY_REVIEW,
+        "research",
+        {"iki/sequencing.reviewer": ["runner"]},
+    )
+    choose(starters.SEQUENCING_ANALYSIS_REVIEW, "record_only", {})
+    assert setting("iki/sequencing", "review_flow") == "research"
+    assert setting("iki/sequencing_analysis", "review_flow") == "record_only"
+    assert setting("iki/sequencing_analysis", "review_flow", elsewhere) == "research"
+    assert not LabRoleGrant.objects.filter(
+        membership__project=project, role__startswith="iki/sequencing_analysis."
+    ).exists()
     # Regulated QC still needs its three independent signers.
     with pytest.raises(Refused, match="three different people"):
         starters.preview(

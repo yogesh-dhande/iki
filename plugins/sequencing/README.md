@@ -23,7 +23,11 @@ displays each mate separately. The report retains the source file IDs, names,
 checksums and the revisions of the read set and library that the run read. Iki
 keeps the action run and its input provenance.
 
-The deployment setting `review_flow` controls new summaries:
+A project's Admin chooses the procedure for the project's new summaries with the
+`sequencing-quality-review` starter, in the project's settings under Starters, and picks who
+holds each lab role it asks for. A project that hasn't chosen uses the
+deployment setting `review_flow`
+([ADR 0266](../../docs/adr/0266-a-project-chooses-its-omics-results-review.md)):
 
 | Procedure                          | What a summary needs                                                                                                          | Lab roles                |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
@@ -32,8 +36,9 @@ The deployment setting `review_flow` controls new summaries:
 | **Record only** (`record_only`)    | Nothing: the summary is kept as evidence and offers no sign-off.                                                              | None                     |
 
 Each summary keeps the procedure it was recorded under, so a change to the
-setting applies to new summaries only. To review a summary recorded under Record
-only, summarize the read set again once the setting names a review procedure.
+procedure applies to new summaries only. To review a summary recorded under
+Record only, summarize the read set again once the project or the deployment
+names a review procedure.
 Changes to signed findings return the summary to Recorded. Give the relevant lab
 roles to project members before review. See [ADR 0255](../../docs/adr/0255-a-quality-summary-can-be-recorded-without-sign-off.md).
 

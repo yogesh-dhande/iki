@@ -29,7 +29,9 @@ fields:
     values: [research, regulated_qc, record_only]
     computed: true
     immutable: true
-    description: The deployment's procedure when the summary was recorded. Record only has no sign-off.
+    description: >-
+      The procedure when the summary was recorded: its project's choice, or the deployment's
+      if the project hasn't chosen. Record only has no sign-off.
   notes: { type: text, max_length: 3000, description: Findings for the reviewer. }
   review:
     type: state
