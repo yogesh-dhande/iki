@@ -1693,6 +1693,8 @@ class FieldOut(TypedDict):
     role_label: str | None
     #: A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise.
     row: NotRequired[RowOut | None]
+    #: Text: true when a search finds its words with `matches`, which reads its first 100,000 characters (ADR 0233); false for machine text, such as a Molfile, which a search reads with `contains` only. Null for other kinds of field.
+    searchable: NotRequired[bool | None]
     #: State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}. A correction can also return it to the current state's `on_edit` destination. Empty otherwise.
     states: list[StateOut]
     #: References: the types they may refer to, any one of them or one of its subtypes (ADR 0136); `iki/core.Entity` for any entity. For a list, its items'. Empty otherwise.
@@ -3512,6 +3514,8 @@ class ParamOut(TypedDict):
     role_label: str | None
     #: A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise.
     row: NotRequired[RowOut | None]
+    #: Text: true when a search finds its words with `matches`, which reads its first 100,000 characters (ADR 0233); false for machine text, such as a Molfile, which a search reads with `contains` only. Null for other kinds of field.
+    searchable: NotRequired[bool | None]
     #: State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}. A correction can also return it to the current state's `on_edit` destination. Empty otherwise.
     states: list[StateOut]
     #: References: the types they may refer to, any one of them or one of its subtypes (ADR 0136); `iki/core.Entity` for any entity. For a list, its items'. Empty otherwise.

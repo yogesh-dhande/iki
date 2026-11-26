@@ -21,6 +21,11 @@ A sequence (a string with a sequence format) also takes ``motif`` (ADR 0175): ba
 residues in IUPAC codes, ``GAATTY``, found on a duplex's other strand as its reverse
 complement, and across a circle's origin, as its ``strands`` and ``topology`` fields say.
 
+A text field's ``matches`` finds words, as a search engine takes them, in its first
+100,000 characters (``conditions.WORDS_SEARCHED``, ADR 0233): what its full-text index
+holds. A text field that isn't ``searchable`` (machine text, such as a Molfile) has no
+such index, and takes ``contains`` only.
+
 A date or a time can be compared with ``{{ now }}``: when the search runs (a date with
 today's, in UTC). Fields naming people (ADR 0122) take a person's ID, their email address, or
 ``{{ me }}``, whoever searches (so a saved search shared with a project means each
@@ -338,7 +343,11 @@ class _Compiler:
         op = node.get("op")
         allowed = (
             "is_set",
-            *conditions.operators(col.kind, col.field.format if col.field else None),
+            *conditions.operators(
+                col.kind,
+                col.field.format if col.field else None,
+                searchable=col.field.searchable if col.field else True,
+            ),
         )
         if op not in allowed:
             return self.fail(
@@ -394,10 +403,11 @@ class _Compiler:
             if not isinstance(value, str) or not value.strip() or len(value) > MAX_TEXT:
                 return self.fail(at, f"must be some text, up to {MAX_TEXT} characters.")
             if op == "matches":
-                # `-fragment` matches text without the word, not entities without text.
+                # `-fragment` matches text without the word, not entities without text. The
+                # words are its first characters', as its index has them (ADR 0233).
                 return Q(**{f"{col.path}__isnull": False}) & Q(
                     SearchVectorExact(
-                        SearchVector(col.path, config="simple"),
+                        SearchVector(Left(col.path, conditions.WORDS_SEARCHED), config="simple"),
                         SearchQuery(value, config="simple", search_type="websearch"),
                     )
                 )

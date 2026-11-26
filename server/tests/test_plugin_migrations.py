@@ -1096,12 +1096,14 @@ def test_indexing_a_field_adds_search_indexes_after_pg_trgm(lab: Path, database:
         )
     )
     defs = sorted(indexes.values())
-    # name keeps its B-tree and gains trigrams; notes, as text, is searched by its words.
+    # name keeps its B-tree and gains trigrams; notes, as text, is searched by the words of
+    # its first 100,000 characters, so a long value still saves (ADR 0233).
     assert any("btree (name)" in d for d in defs)
     assert any("gin (name gin_trgm_ops)" in d for d in defs)
     assert any(
-        "gin (to_tsvector('simple'::regconfig, COALESCE(notes, ''::text)))" in d for d in defs
-    )
+        "gin (to_tsvector('simple'::regconfig, COALESCE(\"left\"(notes, 100000), ''::text)))" in d
+        for d in defs
+    ), defs
 
 
 def test_migrations_are_named_after_what_changed(lab: Path) -> None:

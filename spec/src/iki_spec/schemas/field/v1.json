@@ -69,6 +69,10 @@
       "type": "boolean",
       "description": "No two entities in a project have the same value, such as a LIMS or ELN record's ID. Strings only, and they must be indexed."
     },
+    "searchable": {
+      "type": "boolean",
+      "description": "For text: a search can find its words (`matches`), from a full-text index of its first 100,000 characters (ADR 0233). True unless set. Set it false for machine text whose words mean nothing to a reader, such as a Molfile, a BigSMILES string or an instrument's export: it gets no full-text index, and a search finds text in it with `contains`."
+    },
     "link": {
       "type": "string",
       "minLength": 8,
@@ -406,6 +410,7 @@
                 "computed",
                 "registry",
                 "indexed",
+                "searchable",
                 "removed",
                 "default",
                 "max_length"

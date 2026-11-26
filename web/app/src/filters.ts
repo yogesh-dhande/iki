@@ -273,8 +273,11 @@ export function operators(field: FieldDef): { value: Op; label: string }[] {
           ["starts_with", "starts with"],
         ];
       case "text":
+        // Machine text, such as a Molfile, has no words to search (ADR 0233).
         return [
-          ["matches", "has the words"],
+          ...(field.searchable === false
+            ? []
+            : ([["matches", "has the words"]] satisfies [Op, string][])),
           ["contains", "contains"],
         ];
       case "enum":

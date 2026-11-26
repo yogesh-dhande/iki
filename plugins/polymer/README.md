@@ -24,6 +24,9 @@ molar-mass measurements.
 
 Use a consistent spelling across projects. The registry preserves the
 submitted notation, so equivalent spellings can receive different entries.
+A search finds a polymer by text its BigSMILES contains, such as `[<]CC(`:
+its notation has no words to search.
+[ADR 0233](../../docs/adr/0233-a-text-fields-word-index-never-fails-its-save.md)
 The precursors are fixed facts of the registered design. Supersede the entry
 to correct a precursor assignment. [ADR 0183](../../docs/adr/0183-a-polymer-design-and-its-molar-mass-distribution.md)
 

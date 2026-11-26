@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/qc_release
-version: 0.2.0
+version: 0.2.1
 title: QC release testing
 description: Effective-dated lot specifications, out-of-specification investigations and signed certificates of analysis.
 license: Apache-2.0
