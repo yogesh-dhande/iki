@@ -30,6 +30,9 @@ FIELDS = yaml.safe_load(EXTENSION.read_text())["fields"]
 #: What the extension says each field holds, so the script's output is checked by it.
 LIABILITIES = Draft202012Validator(FIELDS["liabilities"]["schema"])
 COUNTS = Draft202012Validator(FIELDS["liability_counts"]["schema"])
+SCREENED_BY = Draft202012Validator(FIELDS["liability_screen"]["schema"])
+#: What a screen writes, and a numbering in another scheme or definition clears.
+SCREEN = ("liability_screen", "liabilities", "liability_counts", "liability_count")
 
 
 def screen(
@@ -66,6 +69,7 @@ def screen(
     for update in output["updates"]["protein"]:
         LIABILITIES.validate(update["values"]["liabilities"])
         COUNTS.validate(update["values"]["liability_counts"])
+        SCREENED_BY.validate(update["values"]["liability_screen"])
         assert update["values"]["liability_count"] == len(update["values"]["liabilities"])
     return result, output
 
@@ -527,32 +531,56 @@ def test_a_chains_first_residue_cyclises_wherever_its_variable_domain_starts(
     assert not [f for f in found if f["kind"] == "pyroglutamate"]
 
 
-def test_renumbering_a_screened_chain_finds_its_liabilities_again(tmp_path: Path) -> None:
+def test_renumbering_a_screened_chain_in_another_scheme_clears_its_screen(tmp_path: Path) -> None:
     """Trastuzumab's VH screened on its IMGT numbering has 6 liabilities, its methionine
-    numbered 115. Numbered again in Kabat's scheme, its liabilities are Kabat's: 7, the
-    methionine at H100C and CDR-H2's DS at H61 (Kabat's CDR-H2 is H50-H65), as screening
-    the Kabat-numbered chain gives them. One that wasn't screened is left unscreened."""
+    numbered 115. Numbered again in Kabat's scheme, its screen read another numbering, so
+    numbering clears it rather than apply a rule set on its own: screened again, by choice,
+    its liabilities are Kabat's, 7, the methionine at H100C and CDR-H2's DS at H61 (Kabat's
+    CDR-H2 is H50-H65). One that wasn't screened is left unscreened."""
     (imgt,) = chains(tmp_path, "vh")
     _, output = screen(tmp_path, [imgt])
     screened = {**imgt, "values": {**imgt["values"], **output["updates"]["protein"][0]["values"]}}
     assert screened["values"]["liability_count"] == 6
+    assert screened["values"]["liability_screen"] == {
+        "rule_set": "developability_v1",
+        "numbering_scheme": "imgt",
+        "cdr_definition": "imgt",
+    }
 
     _, renumbered = number(
         tmp_path, [screened, numbered_protein(2, SEQUENCES["vl"], "vl")], "kabat"
     )
 
-    again, unscreened = (u["values"] for u in renumbered["updates"]["protein"])
-    _, fresh = screen(tmp_path, chains(tmp_path, "vh", scheme="kabat"))
-    expected = fresh["updates"]["protein"][0]["values"]
-    assert {k: again[k] for k in ("liabilities", "liability_counts", "liability_count")} == expected
-    assert again["liability_count"] == 7
-    assert ("oxidation", "100C") in [(f["kind"], f["number"]) for f in again["liabilities"]]
-    assert "liability_count" not in unscreened
+    cleared, unscreened = (u["values"] for u in renumbered["updates"]["protein"])
+    assert {k: cleared[k] for k in SCREEN} == dict.fromkeys(SCREEN)
+    assert not any(k in unscreened for k in SCREEN)
     assert {
         "level": "info",
-        "text": "vh's liabilities were found again on the new numbering: 7.",
+        "text": "vh's liability screen read another numbering, so it was cleared: find its "
+        "liabilities again on this one.",
         "entity": screened["id"],
     } in renumbered["messages"]
+
+    kabat = {**screened, "values": {**screened["values"], **cleared}}
+    _, again = screen(tmp_path, [kabat])
+    found = again["updates"]["protein"][0]["values"]
+    assert found["liability_count"] == 7
+    assert found["liability_screen"]["numbering_scheme"] == "kabat"
+    assert ("oxidation", "100C") in [(f["kind"], f["number"]) for f in found["liabilities"]]
+
+
+def test_numbering_a_screened_chain_the_same_way_keeps_its_screen(tmp_path: Path) -> None:
+    """The same scheme and CDR definition number the chain the same way, so its screen is
+    still its numbering's: numbering leaves it."""
+    (imgt,) = chains(tmp_path, "vh")
+    _, output = screen(tmp_path, [imgt])
+    screened = {**imgt, "values": {**imgt["values"], **output["updates"]["protein"][0]["values"]}}
+
+    _, renumbered = number(tmp_path, [screened], "imgt")
+
+    (values,) = (u["values"] for u in renumbered["updates"]["protein"])
+    assert not any(k in values for k in SCREEN)
+    assert not [m for m in renumbered["messages"] if "screen" in m["text"]]
 
 
 def test_a_loops_residues_arent_framework_when_its_cdrs_werent_found(tmp_path: Path) -> None:

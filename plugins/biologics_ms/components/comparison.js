@@ -66,8 +66,17 @@ class BiologicsMSComparison extends HTMLElement {
   }
 
   set entity(entity) {
-    const report = entity.values.comparison;
+    const { comparison: report, report_format: profile, source_software: software } = entity.values;
     const content = [node("style", style)];
+    const profiles = {
+      iki_mass_table_1: "Iki mass table 1",
+      iki_peptide_map_1: "Iki peptide map 1",
+    };
+    if (profile) {
+      content.push(
+        node("p", [profiles[profile] ?? profile, software].filter(Boolean).join(" · from ")),
+      );
+    }
     if (report?.peaks) {
       content.push(node("p", `${report.basis} mass · ±${number.format(report.tolerance_ppm)} ppm`));
       content.push(...report.peaks.map(peak));

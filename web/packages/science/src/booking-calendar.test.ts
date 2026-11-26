@@ -28,7 +28,7 @@ function calendar() {
 }
 
 describe("booking calendar", () => {
-  it("groups bookings by their local start day and emits only the selected host ID", () => {
+  it("draws bookings on their local days and emits only the selected host ID", () => {
     const element = calendar();
     const root = element.shadowRoot;
     assert(root);
@@ -63,16 +63,60 @@ describe("booking calendar", () => {
       { start: new Date(2024, 2, 1).toISOString(), end: new Date(2024, 3, 1).toISOString() },
     ]);
     expect(element.month).toBe("2024-03");
-    expect(root.querySelector("li")?.textContent).toMatch(
-      /Maintenance, for Example engineer · EQS-000002 Optics service$/,
+    // The lens inspection runs into 1 March, so it's there too, by its dates.
+    const [overnight, maintenance] = Array.from(
+      root.querySelectorAll("li"),
+      (li) => li.textContent,
     );
-    expect(root.querySelector("li")?.textContent).not.toContain("Lens");
+    expect(overnight).toContain("Lens inspection");
+    expect(maintenance).toMatch(/Maintenance, for Example engineer · EQS-000002 Optics service$/);
+    expect(root.querySelector('[role="status"]')?.textContent).toMatch(/^2 bookings in /);
     element.month = "2025-01";
     expect(ranges).toHaveLength(1);
     expect(element.range.start).toBe(new Date(2025, 0, 1).toISOString());
     expect(() => {
       element.month = "2025-13";
     }).toThrow(RangeError);
+  });
+
+  it("draws a booking on each day it covers, up to its exclusive end", () => {
+    const element = document.createElement("iki-booking-calendar");
+    element.month = "2024-02";
+    element.data = {
+      bookings: [
+        // A three-day run from the last evening of January.
+        {
+          id: "run",
+          title: "Long read run",
+          startsAt: "2024-01-31T20:00:00",
+          endsAt: "2024-02-03T06:00:00",
+        },
+        // To midnight: on its own day only.
+        {
+          id: "late",
+          title: "Late scan",
+          startsAt: "2024-02-10T21:00:00",
+          endsAt: "2024-02-11T00:00:00",
+        },
+        // Before the month: on no day of it.
+        {
+          id: "old",
+          title: "Old run",
+          startsAt: "2024-01-30T09:00:00",
+          endsAt: "2024-01-31T09:00:00",
+        },
+      ],
+    };
+    const root = element.shadowRoot;
+    assert(root);
+    const days = (title: string) =>
+      Array.from(root.querySelectorAll("li button"))
+        .filter((b) => b.textContent.includes(title))
+        .map((b) => b.closest("td")?.querySelector(".day")?.textContent);
+    expect(days("Long read run")).toEqual(["1", "2", "3"]);
+    expect(days("Late scan")).toEqual(["10"]);
+    expect(days("Old run")).toEqual([]);
+    expect(root.querySelector('[role="status"]')?.textContent).toMatch(/^2 bookings in /);
   });
 
   it("renders labels as text and surfaces a host-supplied loading or error state", () => {

@@ -6,9 +6,12 @@
 #
 # What follows from the sequence alone (its chain type, closest species and germlines)
 # is the registry entry's (`registry: derived`), the same for every project that holds
-# it. Its numbering, CDRs and liabilities depend on the scheme and CDR definition a run
-# chose, so they're each project's record's: numbering again, in another scheme,
-# replaces them there, and another project's are its own (ADR 0115).
+# it. They're assignments against the germline set `germline_set` names, not facts about
+# the animal the antibody came from. Its numbering, CDRs and liabilities depend on the
+# scheme and CDR definition a run chose, so they're each project's record's: numbering
+# again, in another scheme, replaces them there, and another project's are its own
+# (ADR 0115). Its liabilities are a screen's predictions, by the rule set and on the
+# numbering `liability_screen` names (ADR 0257).
 apiVersion: iki/v1
 kind: EntityTypeExtension
 extends_type: iki/protein.Protein
@@ -31,8 +34,19 @@ fields:
     indexed: true
     description: >-
       The species whose germline V gene its first variable domain is closest
-      to, among those ANARCI has: a humanized antibody's is usually human, a
-      nanobody's alpaca.
+      to, among those in its germline set: a humanized antibody's is usually
+      human, a nanobody's alpaca. It's an assignment, not the species the
+      antibody or its sample came from.
+  germline_set:
+    type: string
+    registry: derived
+    label: Germline set
+    max_length: 100
+    computed: true
+    description: >-
+      The germline genes its closest species, V and J genes and humanness were
+      assigned against, by the release that carries them, such as ANARCI
+      2026.2.13.2's IMGT germlines. Another release can assign other genes.
   numbering_scheme:
     type: enum
     values: [imgt, kabat, chothia, martin, aho]
@@ -156,12 +170,29 @@ fields:
                   maxItems: 2
           closest: { $ref: "#/$defs/germlines" }
           human: { $ref: "#/$defs/germlines" }
-  liabilities:
+  liability_screen:
     type: json
-    label: Sequence liabilities
+    label: Liability screen
     computed: true
     description: >-
-      The sequence liabilities a developability screen reports, one per motif
+      What its liabilities were found by: the screen's rule set and the
+      numbering scheme and CDR definition it read. Numbering it again in another
+      scheme or with another definition clears the screen, so a chain's
+      liabilities are always its current numbering's.
+    schema:
+      type: object
+      additionalProperties: false
+      required: [rule_set, numbering_scheme, cdr_definition]
+      properties:
+        rule_set: { enum: [developability_v1] }
+        numbering_scheme: { enum: [imgt, kabat, chothia, martin, aho] }
+        cdr_definition: { enum: [imgt, kabat, chothia, abm, contact] }
+  liabilities:
+    type: json
+    label: Potential sequence liabilities
+    computed: true
+    description: >-
+      The sequence liabilities a developability screen predicts, one per motif
       found in its variable domains or at its N-terminus, in order along the
       chain: the kind of liability, the residues that make it, where it is (its
       index in the sequence, from 1, and its number in the scheme the chain was
@@ -222,6 +253,7 @@ fields:
     computed: true
     indexed: true
     description: >-
-      How many sequence liabilities it has in all, so chains can be sorted and
-      filtered by them. Zero means a screen found none, which is not the same as
-      a chain that hasn't been screened (it has none of these fields).
+      How many potential sequence liabilities its screen found in all, so chains
+      can be sorted and filtered by them. Zero means a screen found none, which
+      is not the same as a chain that hasn't been screened (it has none of these
+      fields).

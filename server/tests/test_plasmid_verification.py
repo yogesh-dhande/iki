@@ -370,11 +370,11 @@ def exercise_review(blob: Blob) -> None:
         "source": "consensus",
         "consensus_given": str(aligned.pk),
         "sample": str(prep.pk),
-        "agreement": "incomplete",
+        "consensus_caller": "supplied",
     }
-    with pytest.raises(services.Invalid) as manual_agreement:
+    with pytest.raises(services.Invalid) as manual_caller:
         create(whole_type, whole)
-    assert "agreement" in manual_agreement.value.errors
+    assert "consensus_caller" in manual_caller.value.errors
     comparison = whole | {
         "plasmid_record_id": str(plasmid.pk),
         "plasmid_revision": plasmid.revision,
@@ -389,7 +389,7 @@ def exercise_review(blob: Blob) -> None:
         "reference_length",
         "consensus",
         "called_percent",
-        "agreement",
+        "consensus_caller",
         "verdict",
     ):
         with pytest.raises(services.Invalid):
@@ -398,8 +398,12 @@ def exercise_review(blob: Blob) -> None:
                 {name: value for name, value in comparison.items() if name != field},
                 by_run=True,
             )
+    # A supplied consensus can't claim the plugin's caller, or carry its read evidence.
+    with pytest.raises(services.Invalid) as wrong_caller:
+        create(whole_type, comparison | {"consensus_caller": "iki_majority_1"}, by_run=True)
+    assert "consensus_caller" in wrong_caller.value.errors
     with pytest.raises(services.Invalid):
-        create(whole_type, comparison | {"verdict": "matches"}, by_run=True)
+        create(whole_type, comparison | {"reads_total": 41}, by_run=True)
     run = create("iki/sequencing.SequencingRun", {"name": "Fixture", "instrument_model": "Fixture"})
     library = create(
         "iki/sequencing.SequencingLibrary",
@@ -409,7 +413,25 @@ def exercise_review(blob: Blob) -> None:
         "iki/sequencing.ReadSet",
         {"run": str(run.pk), "library": str(library.pk), "read_1": str(aligned.pk)},
     )
-    reads = comparison | {"source": "reads", "read_set": str(read_set.pk), "consensus_given": None}
+    called = {
+        "consensus_caller": "iki_majority_1",
+        "platform": "nanopore",
+        "min_depth": 10,
+        "mean_depth": 35.9,
+        "least_depth": 0,
+        "reads_total": 41,
+        "reads_aligned": 37,
+        "polishing_rounds": 2,
+    }
+    reads = comparison | called | {"source": "reads", "read_set": str(read_set.pk)}
+    reads["consensus_given"] = None
+    with pytest.raises(services.Invalid) as uncalled:
+        create(
+            whole_type,
+            reads | {"read_set_revision": read_set.revision, "polishing_rounds": None},
+            by_run=True,
+        )
+    assert "polishing_rounds" in uncalled.value.errors
     with pytest.raises(services.Invalid) as no_revision:
         create(whole_type, reads, by_run=True)
     assert "read_set_revision" in no_revision.value.errors

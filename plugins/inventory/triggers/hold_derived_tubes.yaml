@@ -3,7 +3,7 @@ kind: Trigger
 name: hold_derived_tubes
 label: Hold portions of withdrawn stock
 on: entity.updated
-type: Tube
+type: Container
 fields: [on_hold]
 run: hold_withdrawn
 input: source

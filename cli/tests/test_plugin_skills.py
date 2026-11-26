@@ -83,7 +83,7 @@ def template(tmp_path: Path) -> Path:
 
 def test_the_template_copy_includes_skills_only_for_authors(template: Path, tmp_path: Path) -> None:
     archive = tmp_path / "plugin.tar.gz"
-    bundle(template, archive)
+    bundle("acme/example", template, archive)
     with tarfile.open(archive, "r:gz") as packaged:
         members = set(packaged.getnames())
     for guide in SKILLS.glob("*/SKILL.md"):

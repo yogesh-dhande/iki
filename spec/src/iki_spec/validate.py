@@ -1560,10 +1560,11 @@ class _Semantics:
                 (*at, "unit"),
             )
         threshold = field_of(entity_type, config.threshold, {"int", "float"}, ("threshold",))
-        if threshold and (not threshold.required or threshold.min is None or threshold.min < 0):
+        # An item without a threshold isn't reordered by its level: it's never low.
+        if threshold and (threshold.min is None or threshold.min < 0):
             self.add(
                 "stock-catalogue-threshold",
-                "The low-stock threshold must be required and have a nonnegative minimum.",
+                "The low-stock threshold must have a nonnegative minimum.",
                 source,
                 (*at, "threshold"),
             )

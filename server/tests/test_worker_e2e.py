@@ -730,7 +730,9 @@ def _bundled_record(out: Path) -> dict[str, Any]:
         "version": loaded.plugin.version,
         "sha": BUNDLED_SHA,
         "state": "active",
-        "bundle": bundles.bundle(directory, out / f"acme__protein-{BUNDLED_SHA}.tar.gz"),
+        "bundle": bundles.bundle(
+            "acme/protein", directory, out / f"acme__protein-{BUNDLED_SHA}.tar.gz"
+        ),
         "environments": bundles.environments(loaded.plugin, directory),
     }
     return {"plugins": [protein]}

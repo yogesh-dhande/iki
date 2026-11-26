@@ -39,9 +39,9 @@ pytestmark = pytest.mark.django_db
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = ROOT / "examples" / "plugins" / "liquid_handling" / "writers" / "tecan-worklist.wasm"
-WRITER = "examples/liquid_handling.tecan-worklist"
-PLATE = "examples/liquid_handling.Plate"
-TRANSFER = "examples/liquid_handling.Transfer"
+WRITER = "acme/liquid_handling.tecan-worklist"
+PLATE = "acme/liquid_handling.Plate"
+TRANSFER = "acme/liquid_handling.Transfer"
 
 if not MODULE.is_file():  # pragma: no cover - make test-wasm builds it
     pytest.skip("make test-wasm builds the Tecan writer's module", allow_module_level=True)
@@ -130,7 +130,7 @@ def test_the_type_offers_its_plugins_format(world: World) -> None:
             "media_type": "text/x-tecan-gwl",
             "description": offered["formats"][0]["description"],
             "many": "file",
-            "plugin": "examples/liquid_handling",
+            "plugin": "acme/liquid_handling",
         }
     ]
 
@@ -179,7 +179,7 @@ def test_a_transfer_downloads_as_a_worklist_pinned_and_audited(world: World) -> 
     assert event.data["format"] == WRITER
     assert event.data["sha256"] == hashlib.sha256(first).hexdigest()
     assert event.data["writer"] == {
-        "plugin": "examples/liquid_handling",
+        "plugin": "acme/liquid_handling",
         "writer": WRITER,
         "commit": "local",
         "module_sha256": hashlib.sha256(MODULE.read_bytes()).hexdigest(),

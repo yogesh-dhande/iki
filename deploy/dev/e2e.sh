@@ -204,7 +204,7 @@ if worker_probe iki-db-rw 5432; then fail "a worker pod reached Postgres; worker
 pass "workers reach the server and object storage, and not the identity provider or the database"
 
 # --- Export sandbox (ADR 0230) ------------------------------------------------------
-# The fixture build has a plugin writer (examples/liquid_handling's Tecan worklist), so
+# The fixture build has a plugin writer (acme/liquid_handling's Tecan worklist), so
 # it runs the sandbox. Its pod must hold nothing and reach nothing; sso.py exports a
 # file through it.
 if [[ "$profile" == fixtures ]]; then

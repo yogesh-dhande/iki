@@ -15,7 +15,7 @@ def test_maxquant_abundance_zero_means_missing_but_ratio_zero_stays_numeric():
         "Intensity B\tRatio H/L\tReverse",
         "PEPTIDE\tsp|P00330|ADH1_YEAST;P12345\t0\t0.0\t0\t2.5\t0\t+",
     ]
-    (row,) = SCRIPT["parsed"]("maxquant", rows)
+    (row,) = SCRIPT["parsed"]("maxquant_txt", rows)
     assert row["quantities"] == {
         "Intensity sample A": None,
         "LFQ intensity A": None,
@@ -34,7 +34,7 @@ def test_diann_keeps_two_precursors_and_one_shared_protein_group_quantity():
         "A\tP00330\tPEPTIDE\tPEPTIDE2\t20\t123",
         "A\tP00330\tPEPTIDE\tPEPTIDE3\t30\t123",
     ]
-    first, group, second = SCRIPT["parsed"]("diann", rows)
+    first, group, second = SCRIPT["parsed"]("diann_tsv", rows)
     assert first["quantities"] == {"Precursor.Quantity": 20.0}
     assert second["quantities"] == {"Precursor.Quantity": 30.0}
     assert group["quantities"] == {"PG.MaxLFQ": 123.0}
@@ -44,8 +44,8 @@ def test_diann_keeps_two_precursors_and_one_shared_protein_group_quantity():
 def test_fragpipe_preserves_peptide_and_protein_intensity_labels():
     peptide = ["Peptide Sequence\tProtein ID\tA Intensity", "PEPTIDE\tP00330\t2.5"]
     protein = ["Protein ID\tA MaxLFQ Intensity\tA Spectral Count", "P00330\t9\t1"]
-    (peptide_hit,) = SCRIPT["parsed"]("fragpipe", peptide)
-    (protein_hit,) = SCRIPT["parsed"]("fragpipe", protein)
+    (peptide_hit,) = SCRIPT["parsed"]("fragpipe_tsv", peptide)
+    (protein_hit,) = SCRIPT["parsed"]("fragpipe_tsv", protein)
     assert peptide_hit["quantities"] == {"A Intensity": 2.5}
     assert protein_hit["quantities"] == {"A MaxLFQ Intensity": 9.0, "A Spectral Count": 1.0}
 
@@ -54,7 +54,7 @@ def test_result_keeps_raw_references_and_the_downloadable_artifact(tmp_path, mon
     source = tmp_path / "synthetic.tsv"
     source.write_text("Protein IDs\tIntensity\nP00330;P12345\t42\n")
     run = {
-        "params": {"format": "maxquant", "reports": ["report"], "version": "synthetic"},
+        "params": {"format": "maxquant_txt", "reports": ["report"], "version": "synthetic"},
         "inputs": {
             "dataset": [{"id": "dataset", "revision": 3, "values": {"raw_files": ["raw"]}}],
             "proteins": [
@@ -89,7 +89,7 @@ def test_result_keeps_raw_references_and_the_downloadable_artifact(tmp_path, mon
 
 def test_invalid_columns_point_to_the_report_problem():
     with pytest.raises(ValueError, match="Choose MaxQuant"):
-        list(SCRIPT["parsed"]("maxquant", ["Unexpected\tHeader", "row\t1"]))
+        list(SCRIPT["parsed"]("maxquant_txt", ["Unexpected\tHeader", "row\t1"]))
 
 
 def imported(tmp_path, format_, tables, accessions=()):
@@ -125,7 +125,7 @@ def test_mztab_keeps_decoy_flags_and_only_links_target_evidence(tmp_path):
         "PSM\tPEPTIDR\t1\tP00330\t1",
         "PSM\tPEPTIDE\t2\tP12345\t0",
     ]
-    result, reported = imported(tmp_path, "mztab", [rows], ["P00330", "P12345"])
+    result, reported = imported(tmp_path, "mztab_1_0", [rows], ["P00330", "P12345"])
     assert [row["decoy"] for row in reported] == [True, True, True, False]
     assert [row["registered_proteins"] for row in reported] == [[], [], [], ["P12345"]]
     assert result["proteins"] == ["P12345"]
@@ -142,7 +142,7 @@ def test_mztab_missing_calculation_error_and_numeric_zero_are_distinct(tmp_path)
         "protein_abundance_assay[3]\tprotein_abundance_assay[4]",
         "PRT\tP00330\tnull\tNaN\tINF\t0",
     ]
-    _, [row] = imported(tmp_path, "mztab", [rows])
+    _, [row] = imported(tmp_path, "mztab_1_0", [rows])
     assert list(row["quantities"].values()) == [None, "NaN", "INF", 0.0]
 
 
@@ -154,7 +154,7 @@ def test_diann_group_quantities_come_from_target_precursors(decoy_first):
         "Run\tProtein.Group\tStripped.Sequence\tPrecursor.Id\tPrecursor.Quantity\tPG.MaxLFQ\tDecoy",
         *((decoy, target) if decoy_first else (target, decoy)),
     ]
-    found = list(SCRIPT["parsed"]("diann", rows))
+    found = list(SCRIPT["parsed"]("diann_tsv", rows))
     [group] = [row for row in found if row["level"] == "protein_group"]
     assert not group.get("decoy")
     assert group["quantities"] == {"PG.MaxLFQ": 123.0}
@@ -171,7 +171,7 @@ def test_diann_group_quantities_come_from_target_precursors(decoy_first):
 )
 def test_fragpipe_psm_and_ion_tables_are_refused_as_peptides(rows):
     with pytest.raises(ValueError, match="PSM and ion"):
-        list(SCRIPT["parsed"]("fragpipe", rows))
+        list(SCRIPT["parsed"]("fragpipe_tsv", rows))
 
 
 def test_mztab_counts_identifications_once_with_all_accessions_in_the_preview(tmp_path):
@@ -187,7 +187,7 @@ def test_mztab_counts_identifications_once_with_all_accessions_in_the_preview(tm
         "PSM\tPEPTIDE\t4\tP12345\tms_run[1]:scan=4",
     ]
     other = [row.replace("ms_run[1]:scan=", "ms_run[2]:scan=") for row in rows]
-    result, observations = imported(tmp_path, "mztab", [rows, other], ["P00330", "P12345"])
+    result, observations = imported(tmp_path, "mztab_1_0", [rows, other], ["P00330", "P12345"])
     summary = result["summary"]
     assert summary["counts"] == {"peptide": 4, "spectrum_match": 4}
     assert [source["counts"] for source in summary["sources"]] == [
@@ -211,7 +211,7 @@ def test_maxquant_lists_protein_group_exclusions_separately(tmp_path):
         "CON__P12345\t20\t\t+\t",
         "P99999\t30\t\t\t+",
     ]
-    result, _ = imported(tmp_path, "maxquant", [rows], ["P00330", "P99999"])
+    result, _ = imported(tmp_path, "maxquant_txt", [rows], ["P00330", "P99999"])
     summary = result["summary"]
     assert summary["counts"] == {"protein_group": 1}
     assert summary["excluded_counts"] == {
@@ -226,3 +226,35 @@ def test_maxquant_lists_protein_group_exclusions_separately(tmp_path):
         ["Only identified by site"],
     ]
     assert result["proteins"] == ["P00330"]
+
+
+def test_each_report_records_the_table_it_was_read_as(tmp_path):
+    peptides = ["Sequence\tProteins\tIntensity", "PEPTIDE\tP00330\t2"]
+    evidence = ["Sequence\tProteins\tRaw file\tIntensity", "PEPTIDE\tP00330\tA\t2"]
+    groups = ["Protein IDs\tIntensity", "P00330\t2"]
+    result, _ = imported(tmp_path, "maxquant_txt", [peptides, evidence, groups])
+    tables = [source["table"] for source in result["summary"]["sources"]]
+    assert tables == ["peptides.txt", "evidence.txt", "proteinGroups.txt"]
+    mztab = ["MTD\tmzTab-version\t1.0.0", "PRH\taccession", "PRT\tP00330"]
+    result, _ = imported(tmp_path, "mztab_1_0", [mztab])
+    assert result["summary"]["sources"][0]["table"] == "mzTab 1.0.0"
+    assert result["format"] == "mztab_1_0"
+
+
+def test_a_parquet_report_is_refused_with_how_to_convert_it(tmp_path):
+    # Apache Parquet files start and end with the magic bytes PAR1:
+    # https://parquet.apache.org/docs/file-format/
+    source = tmp_path / "report.parquet"
+    source.write_bytes(b"PAR1" + bytes(16) + b"PAR1")
+    run = {
+        "params": {"format": "diann_tsv", "reports": ["report"], "version": "2.0"},
+        "inputs": {"dataset": [{"id": "dataset", "revision": 1, "values": {}}]},
+        "files": {"report": {"name": source.name, "path": str(source), "sha256": "p"}},
+    }
+    with pytest.raises(ValueError, match=r"report\.parquet: This is a Parquet file"):
+        SCRIPT["result"](run, tmp_path / "identifications.jsonl")
+
+
+def test_an_unsupported_format_is_named():
+    with pytest.raises(ValueError, match="supported formats"):
+        list(SCRIPT["parsed"]("diann", ["Run"]))

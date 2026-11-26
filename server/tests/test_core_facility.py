@@ -235,7 +235,7 @@ def exercise_sample_delivery(request_type: str, delivery_type: str) -> None:
         return _make(
             world,
             "editor",
-            "iki/samples.Sample",
+            "iki/samples." + ("ReviewedSample" if request_type == REGULATED else "PlainSample"),
             core,
             source=str(source.pk),
             purpose=str(request.pk),
