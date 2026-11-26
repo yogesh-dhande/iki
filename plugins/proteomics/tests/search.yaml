@@ -9,7 +9,7 @@ inputs:
         name: PRIDE 16649
         archive: https://github.com/HUPO-PSI/mzTab/blob/master/examples/1_0-Proteomics-Release/PRIDE_Exp_Complete_Ac_16649.xml-mztab.txt
 params:
-  format: mztab
+  format: mztab_1_0
   version: PRIDE 1.0 rc5
   reports: [{ $file: pride }]
 files: { pride: tests/data/PRIDE-16649.mztab }
@@ -19,8 +19,11 @@ expect:
       - type: iki/proteomics.ProteomicsResult
         values:
           dataset_revision: 1
+          format: mztab_1_0
           summary:
             counts: { protein_group: 2, spectrum_match: 2 }
+            sources:
+              - table: mzTab 1.0 rc5
             preview:
               - level: protein_group
                 accessions: ["223462890"]

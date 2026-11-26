@@ -18,6 +18,12 @@ const labels = {
   spectrum_match: "Peptide-spectrum matches",
   precursor: "Precursors",
 };
+const formatLabels = {
+  mztab_1_0: "mzTab 1.0",
+  maxquant_txt: "MaxQuant txt tables",
+  diann_tsv: "DIA-NN main report (TSV)",
+  fragpipe_tsv: "FragPipe TSV",
+};
 const exclusionLabels = { decoy: "Decoy", contaminant: "Contaminant", site_only: "Site-only" };
 const number = new Intl.NumberFormat(undefined, { maximumSignificantDigits: 8 });
 
@@ -51,11 +57,15 @@ class ProteomicsSearchResults extends HTMLElement {
   }
 
   set entity(entity) {
-    const { summary, version } = entity.values;
+    const { summary, version, format } = entity.values;
     const content = [node("style", style)];
     if (summary) {
       content.push(
         facts([
+          ...(format ? [["Report format", formatLabels[format] ?? format]] : []),
+          ...(summary.sources?.some((source) => source.table)
+            ? [["Tables", [...new Set(summary.sources.map((source) => source.table))].join(", ")]]
+            : []),
           ["Source version", version],
           ...Object.entries(summary.counts).map(([level, count]) => [
             summary.excluded_counts ? `Target ${labels[level].toLowerCase()}` : labels[level],
