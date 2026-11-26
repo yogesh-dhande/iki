@@ -224,10 +224,12 @@
           "pattern": "^[^\\r\\n]*[^.\\r\\n]$"
         },
         "min_length": {
+          "description": "For a string or text: the fewest characters a value may have. `0` allows an empty value, which is otherwise refused.",
           "type": "integer",
           "minimum": 0
         },
         "max_length": {
+          "description": "For a string or text: the most characters a value may have. An `indexed` string needs one, of at most 600.",
           "type": "integer",
           "minimum": 1
         },
@@ -299,10 +301,12 @@
           "$ref": "#/$defs/item"
         },
         "min_items": {
+          "description": "For a list: the fewest items it may have.",
           "type": "integer",
           "minimum": 0
         },
         "max_items": {
+          "description": "For a list: the most items it may have.",
           "type": "integer",
           "minimum": 1
         },
@@ -333,6 +337,7 @@
           "additionalProperties": false,
           "properties": {
             "field": {
+              "description": "The state field its records' states move to.",
               "$ref": "#/$defs/fieldName"
             },
             "states": {
@@ -343,6 +348,7 @@
                 "$ref": "#/$defs/fieldName"
               },
               "additionalProperties": {
+                "description": "The state of that field that records in this state move to.",
                 "$ref": "#/$defs/fieldName"
               }
             }
@@ -857,6 +863,7 @@
       "additionalProperties": false,
       "properties": {
         "type": {
+          "description": "`row`: each of the list's items is a row of `fields`.",
           "const": "row"
         },
         "fields": {
@@ -981,6 +988,7 @@
             "$ref": "#/$defs/fieldName"
           },
           "additionalProperties": {
+            "description": "The type a row with this role may refer to through this reference, or a list of several, any one of which it may: each with its subtypes.",
             "oneOf": [
               {
                 "$ref": "#/$defs/typeRef"

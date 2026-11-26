@@ -7,8 +7,8 @@
   "required": ["apiVersion", "kind", "action"],
   "additionalProperties": false,
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "ActionTest" },
+    "apiVersion": { "description": "The spec version this test follows.", "const": "iki/v1" },
+    "kind": { "description": "What the document is: `ActionTest`.", "const": "ActionTest" },
     "name": {
       "description": "What the test is called in its report. Unique in the plugin. The file's name, and the document's number if it holds several, unless given.",
       "type": "string",
@@ -16,6 +16,7 @@
       "maxLength": 100
     },
     "description": {
+      "description": "What the test checks, in a sentence or two, for whoever reads the fixture.",
       "type": "string",
       "maxLength": 2000
     },
@@ -47,6 +48,7 @@
       "description": "Each input's entities, in order. A file field's value names one of `files` as `{\"$file\": \"name\"}`.",
       "type": "object",
       "additionalProperties": {
+        "description": "The entities this input is given, in order.",
         "type": "array",
         "items": {
           "type": "object",
@@ -58,14 +60,20 @@
               "description": "Its type, if it's a subtype of the input's: `namespace/plugin.Type`.",
               "type": "string"
             },
-            "values": { "type": "object" },
+            "values": {
+              "description": "Its fields' values, by name, as the command reads them in input.json. A file field's value names one of `files` as `{\"$file\": \"name\"}`.",
+              "type": "object"
+            },
             "request": {
               "description": "For a request (ADR 0132): the project that asked, and the service it was sent to, as the server gives them (ADR 0232). The service is the test's project, `service`, unless given; null for a request not sent yet.",
               "type": "object",
               "required": ["asking_project"],
               "additionalProperties": false,
               "properties": {
-                "asking_project": { "$ref": "#/$defs/project" },
+                "asking_project": {
+                  "description": "The project that asked, by its slug and name.",
+                  "$ref": "#/$defs/project"
+                },
                 "service": { "oneOf": [{ "$ref": "#/$defs/project" }, { "type": "null" }] }
               }
             },
@@ -73,6 +81,7 @@
               "description": "For an input that includes references (ADR 0105): the entities each names, by reference. Each gets an ID, which the reference holds; one left out is an empty list.",
               "type": "object",
               "additionalProperties": {
+                "description": "The entities this reference names, in order.",
                 "type": "array",
                 "items": {
                   "type": "object",
@@ -84,7 +93,10 @@
                       "description": "Its type, if it's a subtype of the one the reference names.",
                       "type": "string"
                     },
-                    "values": { "type": "object" }
+                    "values": {
+                      "description": "Its fields' values, by name, as for an input's entity.",
+                      "type": "object"
+                    }
                   }
                 }
               }
@@ -97,7 +109,12 @@
       "description": "The files the values and params name, each a path relative to the plugin's directory.",
       "type": "object",
       "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
-      "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      "additionalProperties": {
+        "description": "Its path, relative to the plugin's directory, such as `tests/data/reads.fastq`. Its media type is recognized from the plugin's formats, as an upload's is.",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
     },
     "expect": {
       "description": "How the run should end. With `output`, it succeeds and writes at least that; with `error`, it fails and says so. With neither, it only has to succeed.",
@@ -131,8 +148,18 @@
       "additionalProperties": false,
       "properties": {
         "id": { "type": "string", "format": "uuid" },
-        "slug": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "name": { "type": "string", "minLength": 1, "maxLength": 200 }
+        "slug": {
+          "description": "The project's slug, as in its web address, such as `oncology-discovery`.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "name": {
+          "description": "The project's name, as people see it, such as `Oncology discovery`.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
       }
     },
     "hrid": {

@@ -7,9 +7,11 @@
   "required": ["apiVersion", "kind", "name", "schema_version"],
   "properties": {
     "apiVersion": {
+      "description": "The spec version this manifest follows.",
       "const": "iki/v1"
     },
     "kind": {
+      "description": "What the manifest declares: `EntityType`.",
       "const": "EntityType"
     },
     "name": {
@@ -20,6 +22,7 @@
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
     },
     "label_plural": {
+      "description": "What people see for more than one, such as `Proteins`. Defaults to the label with an `s`.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
     },
     "description": {
@@ -91,6 +94,7 @@
         "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
       },
       "additionalProperties": {
+        "description": "The roles of one list of rows it inherits, by the list's name.",
         "type": "object",
         "oneOf": [{ "required": ["roles"] }, { "required": ["to"] }],
         "additionalProperties": false,
@@ -132,6 +136,7 @@
         "enum": ["routine", "qa_sampling"]
       },
       "additionalProperties": {
+        "description": "The lab roles that may draw for this purpose, `routine` or `qa_sampling`.",
         "type": "object",
         "required": ["by"],
         "additionalProperties": false,
@@ -160,27 +165,50 @@
         "amount": ["by", "source", "ready"]
       },
       "properties": {
-        "from": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
-        "source": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+        "from": {
+          "description": "The required, immutable reference naming the container the draw is taken from.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "source": {
+          "description": "The required, immutable reference naming the material's upstream source, such as a lot: the draw must come from it.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
         "state": {
+          "description": "The state field, and its state, in which the record awaits its draw. A draw into it in any other state is refused.",
           "type": "object",
           "additionalProperties": false,
           "required": ["field", "is"],
           "properties": {
-            "field": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
-            "is": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/enumValue" }
+            "field": {
+              "description": "The record's state field.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "is": {
+              "description": "The state, such as `pending`.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/enumValue"
+            }
           }
         },
         "by": {
+          "description": "The lab roles, one of which whoever records the draw must hold in the record's project.",
           "type": "array",
           "minItems": 1,
           "maxItems": 10,
           "uniqueItems": true,
           "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef" }
         },
-        "ready": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
-        "amount": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
-        "stored": { "type": "boolean" }
+        "ready": {
+          "description": "A computed field set when the record is prepared: until it has a value, the record takes no draw.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "amount": {
+          "description": "The required, immutable quantity field holding the planned amount: the draw must be exactly it.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "stored": {
+          "description": "The container must be in its storage position before it's drawn from.",
+          "type": "boolean"
+        }
       }
     },
     "due": {
@@ -226,8 +254,14 @@
           "additionalProperties": false,
           "required": ["field", "state"],
           "properties": {
-            "field": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
-            "state": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+            "field": {
+              "description": "The state field, one the service writes, whose state completes delivery.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "state": {
+              "description": "The state of that field that completes delivery: not its initial state.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            }
           }
         },
         "materials": {
@@ -244,6 +278,7 @@
           "additionalProperties": false,
           "properties": {
             "field": {
+              "description": "The list of references the request `sends` that the service checks in.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "by": {
@@ -293,9 +328,11 @@
           "required": ["field", "states"],
           "properties": {
             "field": {
+              "description": "The result's state field.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "states": {
+              "description": "The states of `field` in which a result goes back to the asking project, such as `released`.",
               "type": "array",
               "minItems": 1,
               "maxItems": 20,
@@ -311,6 +348,7 @@
       "additionalProperties": false
     },
     "display": {
+      "description": "How its records are shown: their title in lists and links, and Iki's viewers on their pages.",
       "type": "object",
       "properties": {
         "title": {
@@ -407,15 +445,19 @@
       "required": ["name", "unit", "threshold", "notify", "lots", "orders"],
       "properties": {
         "name": {
+          "description": "The item's field holding its name, shown in stock lists and alerts. Its HRID is shown if it's empty.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "unit": {
+          "description": "The item's field holding the unit its stock is counted in. Its lots' amounts must be kept in that unit.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "threshold": {
+          "description": "The item's field holding its reorder threshold: at or below it, its stock is low.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "notify": {
+          "description": "The lab roles whose holders in the item's project are told, once each time, when its available stock falls to its reorder threshold or below.",
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
@@ -424,41 +466,52 @@
           }
         },
         "lots": {
+          "description": "The type of its lots, and that type's fields naming the catalogue item, the lot number and the expiry date. Its available stock is counted from these lots.",
           "type": "object",
           "required": ["type", "item", "number", "expiry"],
           "properties": {
             "type": {
+              "description": "The lots' type.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
             },
             "item": {
+              "description": "The lot type's reference to the catalogue item.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "number": {
+              "description": "The lot type's field holding its lot number.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "expiry": {
+              "description": "The lot type's field holding its expiry date.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             }
           },
           "additionalProperties": false
         },
         "orders": {
+          "description": "The type of its order lines, and that type's fields naming the item, the order's reference, and how many were ordered and received. A line is open until as many are received as were ordered.",
           "type": "object",
           "required": ["type", "item", "reference", "ordered", "received"],
           "properties": {
             "type": {
+              "description": "The order lines' type.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
             },
             "item": {
+              "description": "The order line type's reference to the catalogue item.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "reference": {
+              "description": "Its field holding the order's reference, such as a purchase order number.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "ordered": {
+              "description": "Its field holding how many were ordered.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "received": {
+              "description": "Its field holding how many have been received so far.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             }
           },
@@ -481,6 +534,7 @@
           "maxLength": 100
         },
         "description": {
+          "description": "Help text shown beside the amount.",
           "type": "string",
           "maxLength": 2000
         },
@@ -556,7 +610,10 @@
           "type": "object",
           "maxProperties": 64,
           "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
-          "additionalProperties": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+          "additionalProperties": {
+            "description": "The field this role reads, such as `transfer_volume`.",
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          }
         }
       }
     },
@@ -821,6 +878,7 @@
       ]
     },
     "notification": {
+      "description": "One notification: what sends it (`when`), whom it tells (`tell`), and what people's settings call it.",
       "type": "object",
       "required": ["label", "when", "tell"],
       "additionalProperties": false,

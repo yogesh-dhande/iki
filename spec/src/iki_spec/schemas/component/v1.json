@@ -7,9 +7,11 @@
   "required": ["apiVersion", "kind", "name", "module", "element", "slots"],
   "properties": {
     "apiVersion": {
+      "description": "The spec version this manifest follows.",
       "const": "iki/v1"
     },
     "kind": {
+      "description": "What the manifest declares: `Component`.",
       "const": "Component"
     },
     "name": {
@@ -79,6 +81,7 @@
       "additionalProperties": false,
       "properties": {
         "select": {
+          "description": "Entities of `type` a person picked in it, which the page hears of as an `iki-select` event.",
           "type": "object",
           "required": ["type"],
           "additionalProperties": false,
@@ -215,6 +218,7 @@
               "maxLength": 50
             },
             "op": {
+              "description": "How `field` is compared with `value`: `eq`, `ne` or `in` (one of a list); `lt`, `lte`, `gt` or `gte`; `contains` or `starts_with` for a string, `contains` or `matches` for text; `has` for a list's item; `motif` for a sequence; `is_set` for any field. Each kind of field takes only some.",
               "enum": [
                 "eq",
                 "ne",
@@ -241,6 +245,7 @@
           "additionalProperties": false,
           "properties": {
             "all": {
+              "description": "Conditions that must all hold.",
               "type": "array",
               "minItems": 1,
               "maxItems": 20,
@@ -255,6 +260,7 @@
           "additionalProperties": false,
           "properties": {
             "any": {
+              "description": "Conditions at least one of which must hold.",
               "type": "array",
               "minItems": 1,
               "maxItems": 20,
