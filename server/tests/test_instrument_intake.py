@@ -40,7 +40,6 @@ RELATIVE = DATA / "qs7-flex-rnasep-relative-standard-curve.txt"
 COMPARATIVE = DATA / "qs7-flex-tgfb-comparative-ct.txt"
 TYPE = "acme/instrument_intake.QPCRRun"
 TRIGGER = "acme/instrument_intake.read_new_qpcr_runs"
-IMPORT = "acme/instrument_intake.import_quantstudio_results"
 ENVIRONMENT = "acme/instrument_intake.qpcr-tools"
 #: The qPCR core's own bucket, which keeps versions, and the prefix its PCs write under.
 FACILITY_BUCKET = "acme-qpcr-core"
@@ -169,20 +168,21 @@ def test_a_held_file_is_never_read_and_a_registered_one_is(
             "firing": "failed",
             "why": {
                 "code": "launch_failed",
-                "message": "Its run couldn't start: This file is quarantined.",
+                "message": "Its run couldn't start: TGF-B tissues.txt is quarantined: the "
+                "malware scanner flagged it. A Quarantine Admin can review it under Admin → "
+                "Security → Quarantine; once it's released, run this again.",
             },
             "run": None,
             "leased": False,
             "imported": False,
         },
+        # Its run waits for the scan, and starts by itself once it's clean (ADR 0234).
         "older record still scanning": {
-            "firing": "failed",
-            "why": {
-                "code": "launch_failed",
-                "message": "Its run couldn't start: This file is being scanned. Try again shortly.",
-            },
+            "firing": "launched",
+            "why": None,
+            "waiting for": ["TGF-B tissues, 2010.txt"],
             "leased while scanning": False,
-            "wells by hand once clean": 9,
+            "wells once clean": 9,
         },
         "released": {"outcome": 0, "records": 1, "wells": 9, "released": True},
     }
@@ -584,9 +584,7 @@ def held() -> dict[str, Any]:
     from iki_server.entities import services as entities
     from iki_server.files import scan_state
     from iki_server.files.models import Blob, File
-    from iki_server.runs import catalog
-    from iki_server.runs import services as runs
-    from iki_server.runs.models import TriggerFiring
+    from iki_server.runs.models import Job, TriggerFiring
 
     facility = Facility(Path(tempfile.mkdtemp()))
     result: dict[str, Any] = {}
@@ -658,7 +656,7 @@ def held() -> dict[str, Any]:
         "imported": current(older)["experiment_name"] is not None,
     }
 
-    # An older record whose file was never scanned: its run can't start until it is.
+    # An older record whose file was never scanned: its run waits for the scan (ADR 0234).
     content = COMPARATIVE.read_bytes()
     key = f"{os.environ['IKI_INTAKE_PREFIX']}older/TGF-B tissues, 2010.txt"
     s3 = boto3.client("s3", endpoint_url=os.environ["IKI_INTAKE_ENDPOINT"])
@@ -674,18 +672,19 @@ def held() -> dict[str, Any]:
     )
     pending = older_record(str(unscanned.pk), blob.sha256)
     firing = TriggerFiring.objects.get(entity=pending)
+    assert firing.run is not None
+    waiting = File.objects.filter(
+        pk__in=Job.objects.get(run=firing.run).scan_wait_files
+    ).values_list("name", flat=True)
     leased = facility.work() is not None
     scan_state.record_result(blob, state="clean", scanner="test scanner", signature_version="27")
-    # Once it's clean, the project's Admin runs the import by hand.
-    action = catalog.action(IMPORT)
-    assert action is not None
-    runs.launch(facility.manager, action, facility.project, {"run": [pending.pk]}, {})
     assert facility.work() is not None
     result["older record still scanning"] = {
         "firing": firing.state,
         "why": firing.error,
+        "waiting for": list(waiting),
         "leased while scanning": leased,
-        "wells by hand once clean": len(current(pending)["wells"]),
+        "wells once clean": len(current(pending)["wells"]),
     }
 
     # A Quarantine Admin finds the finding false and releases it: the next pass makes the

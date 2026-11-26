@@ -6593,6 +6593,24 @@ export interface components {
              */
             runs: number;
         };
+        /** AttemptScanWaitOut */
+        AttemptScanWaitOut: {
+            /**
+             * Ended At
+             * @description When the files' scans were done, whether they were found usable or one was held. None while it waits, and for one cancelled as it waited.
+             */
+            ended_at: string | null;
+            /**
+             * Files
+             * @description How many of the files it reads it waited for.
+             */
+            files: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
         /** AttemptSlurmOut */
         AttemptSlurmOut: {
             /**
@@ -15804,6 +15822,8 @@ export interface components {
             queued_at: string;
             /** @description The checkpoint an earlier attempt saved that this one resumed from. */
             resumed_from: components["schemas"]["CheckpointOut"] | null;
+            /** @description When it waited for files it reads to be scanned for malware (ADR 0234). */
+            scan_wait: components["schemas"]["AttemptScanWaitOut"] | null;
             /**
              * Secrets
              * @description The secrets its worker was given, by name (ADR 0054).
@@ -16300,9 +16320,11 @@ export interface components {
             via: string;
             /**
              * Waiting
-             * @description Why a queued run hasn't started: a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).
+             * @description Why a queued run hasn't started: a file it reads is being scanned (`waiting_for_scan`), a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).
              */
             waiting: string | null;
+            /** @description While files it reads are being scanned for malware (ADR 0234): no worker takes it until they're found usable, and it fails, saying why, if one is held. Its attempts' `scan_wait` say when it waited. */
+            waiting_for_scan: components["schemas"]["RunScanWaitOut"] | null;
             /** @description The workflow run it's a step of, if any (ADR 0079). */
             workflow: components["schemas"]["WorkflowStepRefOut"] | null;
         };
@@ -16337,6 +16359,25 @@ export interface components {
              * Format: uuid
              */
             id: string;
+        };
+        /** RunScanWaitOut */
+        RunScanWaitOut: {
+            /**
+             * Files
+             * @description The files it still waits for that you can read, by name.
+             */
+            files: components["schemas"]["ScanWaitFileOut"][];
+            /**
+             * Others
+             * @description How many more it waits for, that you can't read.
+             */
+            others: number;
+            /**
+             * Since
+             * Format: date-time
+             * @description When it began waiting.
+             */
+            since: string;
         };
         /**
          * RunStatus
@@ -16694,6 +16735,16 @@ export interface components {
              * @enum {string}
              */
             status: "one" | "ambiguous" | "none";
+        };
+        /** ScanWaitFileOut */
+        ScanWaitFileOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
         };
         /** ScansIn */
         ScansIn: {

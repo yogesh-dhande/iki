@@ -70,6 +70,7 @@ from iki_server.runs.models import (
     RunOutput,
     RunStatus,
     Worker,
+    not_waiting_for_scan,
 )
 from iki_spec.compute import KUBERNETES
 
@@ -143,6 +144,9 @@ _FINAL = {
     "worker_lost": RunStatus.FAILED,
     "machine_unavailable": RunStatus.FAILED,
     "not_allowed": RunStatus.REJECTED,
+    # A file it reads is held by its scan (ADR 0216, 0234).
+    "file_quarantined": RunStatus.FAILED,
+    "file_not_scanned": RunStatus.FAILED,
     # It can't go where its template says, such as a project with no Slurm account there.
     "unplaceable": RunStatus.FAILED,
     "plugin_detached": RunStatus.CANCELLED,
@@ -342,6 +346,8 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         _runnable(worker),
         # A later attempt waits for its run's checkpoint to be checked (ADR 0069).
         checkpoints.ready_to_resume(),
+        # And one for the files it reads to be scanned (ADR 0234).
+        not_waiting_for_scan(),
         run__volumes=volumes,
         state=JobState.QUEUED,
         tier=worker.tier,
@@ -522,13 +528,14 @@ def _record_waits(tier: str, template: str, waits: list[float]) -> None:
 
 
 def _unavailable(job: Job, why: included.Unavailable) -> None:
-    if why.waiting_for_scan:
-        # A job queued before an upgrade can pick up its original pins once scanning finishes.
-        job.queued_at = timezone.now() + timedelta(seconds=30)
-        job.progress_message = str(why)
-        job.save(update_fields=["queued_at", "progress_message"])
+    if isinstance(why, included.WaitingForScan):
+        # Its files were pinned before they were scanned, as before an upgrade that scans
+        # them: it waits for their scans, as a run launched with them does (ADR 0234).
+        from iki_server.runs import scan_waits
+
+        scan_waits.begin(job, job.run, why.pending)
     else:
-        fail_queued(job, "not_allowed", str(why))
+        fail_queued(job, why.ends_with, str(why))
 
 
 def _pack(job: Job, run: ActionRun) -> list[Job]:
@@ -551,6 +558,7 @@ def _pack(job: Job, run: ActionRun) -> list[Job]:
             labels=job.labels,
             queued_at__lte=Now(),
         )
+        .filter(not_waiting_for_scan())
         .exclude(pk=job.pk)
         .order_by("queued_at", "id")
         .select_related("run__project")

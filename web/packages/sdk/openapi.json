@@ -1717,6 +1717,40 @@
         "title": "AttemptPackOut",
         "type": "object"
       },
+      "AttemptScanWaitOut": {
+        "properties": {
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the files' scans were done, whether they were found usable or one was held. None while it waits, and for one cancelled as it waited.",
+            "title": "Ended At"
+          },
+          "files": {
+            "description": "How many of the files it reads it waited for.",
+            "title": "Files",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "started_at",
+          "ended_at",
+          "files"
+        ],
+        "title": "AttemptScanWaitOut",
+        "type": "object"
+      },
       "AttemptSlurmOut": {
         "properties": {
           "account": {
@@ -22125,6 +22159,17 @@
             ],
             "description": "The checkpoint an earlier attempt saved that this one resumed from."
           },
+          "scan_wait": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttemptScanWaitOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it waited for files it reads to be scanned for malware (ADR 0234)."
+          },
           "secrets": {
             "description": "The secrets its worker was given, by name (ADR 0054).",
             "items": {
@@ -22214,7 +22259,8 @@
           "bulk_import",
           "checkpoint",
           "resumed_from",
-          "slurm"
+          "slurm",
+          "scan_wait"
         ],
         "title": "RunAttemptOut",
         "type": "object"
@@ -23218,8 +23264,19 @@
                 "type": "null"
               }
             ],
-            "description": "Why a queued run hasn't started: a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).",
+            "description": "Why a queued run hasn't started: a file it reads is being scanned (`waiting_for_scan`), a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).",
             "title": "Waiting"
+          },
+          "waiting_for_scan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunScanWaitOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "While files it reads are being scanned for malware (ADR 0234): no worker takes it until they're found usable, and it fails, saying why, if one is held. Its attempts' `scan_wait` say when it waited."
           },
           "workflow": {
             "anyOf": [
@@ -23271,6 +23328,7 @@
           "metrics",
           "messages",
           "waiting",
+          "waiting_for_scan",
           "needs_worker",
           "seed",
           "reused",
@@ -23340,6 +23398,36 @@
           "action"
         ],
         "title": "RunRefOut",
+        "type": "object"
+      },
+      "RunScanWaitOut": {
+        "properties": {
+          "files": {
+            "description": "The files it still waits for that you can read, by name.",
+            "items": {
+              "$ref": "#/components/schemas/ScanWaitFileOut"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "others": {
+            "description": "How many more it waits for, that you can't read.",
+            "title": "Others",
+            "type": "integer"
+          },
+          "since": {
+            "description": "When it began waiting.",
+            "format": "date-time",
+            "title": "Since",
+            "type": "string"
+          }
+        },
+        "required": [
+          "since",
+          "files",
+          "others"
+        ],
+        "title": "RunScanWaitOut",
         "type": "object"
       },
       "RunStatus": {
@@ -24200,6 +24288,25 @@
           "candidates"
         ],
         "title": "ScanResolveOut",
+        "type": "object"
+      },
+      "ScanWaitFileOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ScanWaitFileOut",
         "type": "object"
       },
       "ScansIn": {
