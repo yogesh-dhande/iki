@@ -18,7 +18,7 @@ classifiers = [
 ]
 dependencies = [
   # Uses the system's trusted certificates (truststore), as corporate proxies need.
-  "httpx2>=2.16.0",
+  "httpx2>=2.16.2",
   # Keeps sign-ins in the system keychain: macOS Keychain, Windows Credential
   # Manager, or the Secret Service on Linux.
   "keyring>=25.6.0",
