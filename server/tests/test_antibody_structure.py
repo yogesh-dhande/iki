@@ -19,7 +19,9 @@ from first_party_dependencies import FIRST_PARTY, PLUGINS
 from iki_spec import schemas
 from iki_spec.validate import load_plugin
 
-SCRIPT = Path(__file__).resolve().parents[2] / "plugins" / "ab_predict" / "scripts" / "structure.py"
+SCRIPT = (
+    Path(__file__).resolve().parents[2] / "plugins" / "antibody_3d" / "scripts" / "structure.py"
+)
 
 #: Stand-in torch: the script only sets its threads.
 TORCH = "def set_num_threads(n):\n    pass\n"
@@ -305,7 +307,7 @@ def test_the_antibody_plugin_installs_without_the_structure_provider() -> None:
     environment, and the provider is a plugin of its own on top of it (ADR 0257)."""
     antibody = load_plugin(PLUGINS / "antibody", dependencies=FIRST_PARTY[PLUGINS / "antibody"])
     assert antibody.plugin is not None, antibody.problems
-    assert PLUGINS / "ab_predict" not in FIRST_PARTY[PLUGINS / "antibody"]
+    assert PLUGINS / "antibody_3d" not in FIRST_PARTY[PLUGINS / "antibody"]
     assert set(antibody.plugin.actions) == {
         "assemble",
         "number_chains",
@@ -317,7 +319,9 @@ def test_the_antibody_plugin_installs_without_the_structure_provider() -> None:
     }
     assert not (PLUGINS / "antibody" / "images" / "structure-tools").exists()
 
-    provider = load_plugin(PLUGINS / "ab_predict", dependencies=FIRST_PARTY[PLUGINS / "ab_predict"])
+    provider = load_plugin(
+        PLUGINS / "antibody_3d", dependencies=FIRST_PARTY[PLUGINS / "antibody_3d"]
+    )
     assert provider.plugin is not None, provider.problems
-    assert PLUGINS / "antibody" in FIRST_PARTY[PLUGINS / "ab_predict"]
+    assert PLUGINS / "antibody" in FIRST_PARTY[PLUGINS / "antibody_3d"]
     assert set(provider.plugin.actions) == {"predict_structure_with_immunebuilder"}

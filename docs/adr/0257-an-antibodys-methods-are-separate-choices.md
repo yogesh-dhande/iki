@@ -40,7 +40,7 @@ Numbering, the liability screen and structure prediction are separate choices.
 - Each numbered chain records its `germline_set`, the ANARCI release whose IMGT
   germlines assigned its species and genes. `species` is described as the
   closest germline species, not the sample's species.
-- ImmuneBuilder moves to a first-party provider plugin, `iki/ab_predict`, with
+- ImmuneBuilder moves to a first-party provider plugin, `iki/antibody_3d`, with
   its action, environment, image, weights, notice and checksums. Its extension
   of `iki/protein.ProteinStructure` holds `predicted_error` and
   `cdr_h3_predicted_error`, beside the model (`immunebuilder_model`) and release
@@ -56,7 +56,7 @@ names the tool, as every predictor's does.
 
 A lab that registers, numbers and screens antibodies installs `iki/antibody`
 and pulls no model image or weights. One that predicts structures adds
-`iki/ab_predict`. Another predictor would be another action, with its own
+`iki/antibody_3d`. Another predictor would be another action, with its own
 environment and its own confidence fields, since its errors aren't on
 ImmuneBuilder's scale.
 

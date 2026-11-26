@@ -196,5 +196,5 @@ price: { per_hour: 0.20, currency: USD }
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: iki/ab_predict.structure-tools
+environment: iki/antibody_3d.structure-tools
 templates: [{ template: container-antibody-structures }]

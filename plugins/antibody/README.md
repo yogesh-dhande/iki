@@ -3,7 +3,7 @@
 Iki's antibody plugin: antibodies, assembled from the proteins that are their
 chains, what their variable domains say about them, and a screen for their
 sequence liabilities. Predicting their structures is an optional provider, the
-[ab_predict plugin](../ab_predict), so a lab that registers, numbers and
+[antibody_3d plugin](../antibody_3d), so a lab that registers, numbers and
 screens antibodies installs no model image or weights
 ([ADR 0257](../../docs/adr/0257-an-antibodys-methods-are-separate-choices.md)).
 
@@ -103,7 +103,7 @@ and on the [dna plugin](../dna), which the protein plugin depends on.
 
 Numbering, the liability screen and structure prediction are separate choices:
 numbering never applies a screen, and a lab that doesn't screen, or doesn't
-predict structures, never runs one. The [ab_predict plugin](../ab_predict)
+predict structures, never runs one. The [antibody_3d plugin](../antibody_3d)
 adds `predict_structure_with_immunebuilder`.
 
 `number_chains` and `assemble` list the software they run, with the versions
@@ -459,6 +459,6 @@ place, and `server/tests/test_antibody_liabilities.py` screens real chains on
 the numbering ANARCI gave them, through the same stand-in. The dev cluster's
 end-to-end check screens trastuzumab's chains after numbering them.
 
-The plugin's tests need neither the ab_predict plugin nor its image:
+The plugin's tests need neither the antibody_3d plugin nor its image:
 `server/tests/test_antibody_structure.py` checks that the antibody plugin's
 closure has no structure action or environment, and tests the provider apart.
