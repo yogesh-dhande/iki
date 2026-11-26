@@ -1,0 +1,85 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# One measurement the core returns: a QC deliverable, signed by its analyst, an
+# independent reviewer and QA. Its checks run as it's saved, and again at each
+# signature, so a request changed since can't be signed with an old answer.
+apiVersion: iki/v1
+kind: EntityType
+name: AnalyticalResult
+label: Analytical result
+extends: iki/requests.QCDeliverable
+schema_version: 1
+hrid: { prefix: ANT }
+description: One measurement of a sample an analytical request sent, and whether it passed.
+refines:
+  # It answers analytical requests, and they take no other deliverable (ADR 0235).
+  request: { to: AnalyticalRequest }
+fields:
+  analysis:
+    type: enum
+    values: [sec_purity, intact_mass, peptide_map, endotoxin]
+    required: true
+    immutable: true
+    description: What was measured.
+  purity:
+    type: float
+    label: Purity (%)
+    min: 0
+    max: 100
+    description: The share of the main species, for SEC purity.
+  measured_mass:
+    type: quantity
+    label: Intact mass
+    unit: u
+    display_unit: ku
+    min: 0
+    description: The measured intact mass.
+  peptide_coverage:
+    type: quantity
+    label: Peptide map sequence coverage
+    unit: "%"
+    min: 0
+    max: 100
+    description: The percentage of the protein sequence covered by identified peptides.
+  endotoxin:
+    type: quantity
+    unit: "{EU}/mg"
+    min: 0
+    description: Endotoxin units per milligram of protein.
+  result:
+    type: enum
+    values: [pass, fail]
+    required: true
+    description: Whether it meets its specification.
+display:
+  title: "{{ analysis or hrid }}"
+rules:
+  requested_analysis:
+    check: record.request.analyses != null && record.analysis in record.request.analyses
+    recheck_before_signing: true
+    message: Measure one of the analyses the request asks for.
+    fields: [analysis]
+  measured_sample:
+    check: record.material != null
+    message: Name the sample that was measured.
+    fields: [material]
+  purity_given:
+    when: record.analysis == "sec_purity"
+    check: record.purity != null
+    message: Record the SEC purity as a percentage.
+    fields: [purity]
+  mass_given:
+    when: record.analysis == "intact_mass"
+    check: record.measured_mass != null
+    message: Record the measured intact mass.
+    fields: [measured_mass]
+  coverage_given:
+    when: record.analysis == "peptide_map"
+    check: record.peptide_coverage != null
+    message: Record the percentage of the protein sequence covered by the peptide map.
+    fields: [peptide_coverage]
+  endotoxin_given:
+    when: record.analysis == "endotoxin"
+    check: record.endotoxin != null
+    message: Record the endotoxin units per milligram of protein.
+    fields: [endotoxin]

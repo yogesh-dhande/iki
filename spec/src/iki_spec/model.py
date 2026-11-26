@@ -324,6 +324,31 @@ def refined(f: Field, roles: Mapping[str, RowRole]) -> Field:
     return replace(f, items=replace(f.items, roles=dict(roles), closed=True))
 
 
+def reference_refinement(lineage: Sequence[EntityType], name: str) -> tuple[str, ...] | None:
+    """The types a reference, or list of references, ``name`` refers to in the first of
+    ``lineage`` (a type, then its ancestors, nearest first) as the nearest type below the one
+    declaring it refines it (ADR 0235), or None where none does."""
+    for t in lineage:
+        if name in t.fields:
+            return None
+        if name in t.refines_to:
+            return t.refines_to[name]
+    return None
+
+
+def as_refined(lineage: Sequence[EntityType], name: str, f: Field) -> Field:
+    """Field ``name``, declared as ``f`` by one of ``lineage`` (a type, then its ancestors,
+    nearest first), as the first of them has it: a list of rows with the roles it gives
+    (ADR 0164), a reference with the types it refers to (ADR 0235)."""
+    if (roles := refinement(lineage, name)) is not None:
+        return refined(f, roles)
+    if (targets := reference_refinement(lineage, name)) is not None:
+        if f.type == "list" and f.items is not None:
+            return replace(f, items=replace(f.items, to=targets))
+        return replace(f, to=targets)
+    return f
+
+
 def refinement(lineage: Sequence[EntityType], name: str) -> dict[str, RowRole] | None:
     """The roles a list of rows ``name`` has in the first of ``lineage`` (a type, then its
     ancestors, nearest first) as the nearest type below the one declaring it refines it
@@ -951,6 +976,10 @@ class EntityType:
     #: its rows may have, each with how many and what its references may refer to, within
     #: what its ancestor's say. Its subtypes have these unless they name their own.
     refines: dict[str, dict[str, RowRole]] = field(default_factory=dict)
+    #: What each reference it inherits, or list of references, refers to, by its name
+    #: (ADR 0235): types among its ancestor's, each with its subtypes. Its subtypes have
+    #: these unless they name their own.
+    refines_to: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -1913,6 +1942,9 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
                 isinstance(value, EntityType) and f.name == "work_item" and value.work_item is None
             )
             and not (
+                isinstance(value, EntityType) and f.name == "refines_to" and not value.refines_to
+            )
+            and not (
                 f.name == "customer_image_required"
                 and isinstance(value, Environment)
                 and not value.customer_image_required
@@ -1992,6 +2024,10 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "refines": {
                             n: {r: _row_role(x) for r, x in roles.items()}
                             for n, roles in (v.get("refines") or {}).items()
+                        },
+                        # ...or refined references (ADR 0235).
+                        "refines_to": {
+                            n: tuple(to) for n, to in (v.get("refines_to") or {}).items()
                         },
                     }
                 )

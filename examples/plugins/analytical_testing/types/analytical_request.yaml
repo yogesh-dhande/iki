@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# The core's request type: a QC request naming the measurements wanted. Change
+# `analyses` to your core's own panel, and the measurement fields of
+# AnalyticalResult with it.
+apiVersion: iki/v1
+kind: EntityType
+name: AnalyticalRequest
+label: Analytical request
+extends: iki/requests.QCRequest
+schema_version: 1
+hrid: { prefix: ANR }
+description: Material sent to the analytical core, and what to measure in it.
+fields:
+  analyses:
+    type: list
+    label: Analyses
+    items: { type: enum, values: [sec_purity, intact_mass, peptide_map, endotoxin] }
+    max_items: 4
+    description: What to measure in each sample sent.
+rules:
+  analyses_named:
+    check: record.analyses != null && size(record.analyses) > 0
+    message: Choose what the core should measure.
+    fields: [analyses]

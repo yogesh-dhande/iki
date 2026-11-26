@@ -2861,7 +2861,7 @@ def analysis_result(
         analyst,
         asking,
         "iki/requests.QCRequest",
-        {"title": "SEC purity", "materials": [sample["id"]], "analyses": ["sec_purity"]},
+        {"title": "SEC purity", "materials": [sample["id"]]},
     )
     path = start_service_work(analyst, core, request)
     report = upload(
@@ -2869,9 +2869,7 @@ def analysis_result(
     )
     measurement = {
         "material": sample["id"],
-        "analysis": "sec_purity",
-        "purity": 98.5,
-        "result": "pass",
+        "notes": "SEC-HPLC main peak 98.5 % (synthetic training measurement).",
     }
     result = created(
         analyst,
@@ -2908,12 +2906,12 @@ def analysis_result(
     if reversal["status"] != "signed" or not reversal["set"]:
         fail(f"Reopening {result['hrid']} for correction failed: {reversal}")
     reopened = record(analyst, result["id"])
-    measurement["purity"] = 97.0
+    measurement["notes"] = "SEC-HPLC main peak 97.0 % after reintegration (synthetic)."
     edit = api_call(
         analyst,
         "PATCH",
         result_path,
-        {"values": {"purity": measurement["purity"]}, "reason": "Correct the measured purity"},
+        {"values": {"notes": measurement["notes"]}, "reason": "Correct the measured purity"},
         {"If-Match": f'"{reopened["revision"]}"'},
     )
     if edit.status_code != 200 or edit.json()["values"]["review"] != "recorded":
@@ -2986,7 +2984,9 @@ def core_facility_requests(
     asking: dict[str, Any],
     core: dict[str, Any],
 ) -> None:
-    """The working core returns production and sequencing deliverables through Requests."""
+    """The working core returns production and sequencing deliverables through Requests.
+    The lot, mass and run accession are in each delivery report: a core that records them
+    as fields uses its own request types, as the facility examples show (ADR 0235)."""
     give_lab_roles(analyst, core, "iki/lab_roles.coordinator")
     example = Path(__file__).resolve().parents[2] / "examples" / "core-facility-requests"
     # The production transaction is simulated; only the registered UniProt identity is public.
@@ -3008,25 +3008,15 @@ def core_facility_requests(
         (
             "Research",
             "P00330-production.txt",
-            {
-                "title": "Training: ADH1 production",
-                "facility_service": "protein_production",
-                "records": [protein["id"]],
-                "requested_mass": 1,
-            },
-            {"protein": protein["id"], "lot_number": "TRAINING-ADH1-01", "delivered_mass": 0.8},
+            {"title": "Training: ADH1 production, 1 mg", "records": [protein["id"]]},
+            {},
             ((reviewer, "bob", "signed_off"),),
         ),
         (
             "QC",
             "ERR13376132-delivery.txt",
-            {
-                "title": "Training: long-read sequencing",
-                "facility_service": "sequencing",
-                "sequencing_method": "long_read",
-                "tubes": [tube["id"]],
-            },
-            {"material": tube["id"], "run_accession": "ERR13376132"},
+            {"title": "Training: long-read sequencing", "tubes": [tube["id"]]},
+            {"material": tube["id"]},
             (
                 (analyst, "alice", "submitted"),
                 (reviewer, "bob", "reviewed"),
