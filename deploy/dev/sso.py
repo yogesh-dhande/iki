@@ -2095,17 +2095,17 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
         if kept != ["alignments.paf.gz", "consensus.fasta", "coverage.tsv", "differences.tsv"]:
             fail(f"{checked['hrid']} kept {kept}")
     values = result["values"]
-    if values["verdict"] != values["agreement"]:
-        fail(f"{result['hrid']} has conflicting alignment and result verdicts")
+    if values["consensus_caller"] != "iki_majority_1" or values["polishing_rounds"] is None:
+        fail(f"{result['hrid']} doesn't name the caller that called its consensus")
     named = [d["hgvs"] for d in values["differences"]]
     if (
-        values["agreement"],
+        values["verdict"],
         named,
         values["reads_aligned"],
         values["reference"],
     ) != ("differs", WHOLE_PLASMID_DIFFERENCES, 37, plasmid["values"]["sequence"]):
         fail(
-            f"{result['hrid']} recorded {values['agreement']} {named} "
+            f"{result['hrid']} recorded {values['verdict']} {named} "
             f"from {values['reads_aligned']} reads"
         )
     # Each read counts once, however many times it passes a base.
@@ -2155,12 +2155,17 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
             project,
             prefix + "verify_plasmid_consensus",
             {"plasmid": plasmid["id"]},
-            {"consensus": values["consensus"], "provider": "Iki, from SRR17915342"},
+            {
+                "consensus": values["consensus"],
+                "provider": "Iki majority consensus 1, from SRR17915342",
+            },
         )
         effect = next(e for e in run_["effects"] if e["type"] == prefix + "WholePlasmidAlignment")
         compared = record(alice, effect["entity"])
     if [d["hgvs"] for d in compared["values"]["differences"]] != WHOLE_PLASMID_DIFFERENCES:
         fail(f"{compared['hrid']} found {compared['values']['differences']}")
+    if compared["values"]["consensus_caller"] != "supplied":
+        fail(f"{compared['hrid']} doesn't say its consensus was supplied")
     ok(
         f"{verifications[0]['hrid']} links {result['hrid']} as {prep['hrid']}'s evidence, and "
         f"its consensus compared alone ({compared['hrid']}) names the same differences"

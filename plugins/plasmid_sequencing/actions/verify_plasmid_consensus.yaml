@@ -4,7 +4,8 @@ kind: Action
 name: verify_plasmid_consensus
 label: Verify a plasmid from a service's consensus
 description: >-
-  Compares the consensus a whole-plasmid sequencing service assembled for a prep, as FASTA,
+  Compares the consensus a whole-plasmid sequencing service or the lab's own validated caller
+  assembled for a prep, as FASTA,
   with the plasmid's own registered sequence, whichever base it begins at and whichever
   strand it's on. Records where it reaches along the plasmid and each difference from the
   record, named as HGVS names it, with the features it falls in. A prep's verification
@@ -22,12 +23,14 @@ params:
     label: Consensus FASTA
     media_types: [chemical/seq-na-fasta, text/plain, application/gzip, application/x-gzip]
     max_size: 50MiB
-    description: The service's consensus for this prep, one sequence, as FASTA (gzipped or not).
+    description: The consensus for this prep, one sequence, as FASTA (gzipped or not).
   provider:
     type: string
     max_length: 200
     label: Assembled by
-    description: The service and its order or sample ID, such as the one on its report.
+    description: >-
+      The service and its order or sample ID, such as the one on its report, or the lab's own
+      caller and its version.
   name:
     type: string
     max_length: 200

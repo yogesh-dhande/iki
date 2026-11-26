@@ -68,7 +68,7 @@ class WholePlasmidMap extends PlasmidMap {
           : undefined,
       differences: { items: list(values.differences) },
       notes: unplacedNotes(values),
-      emptyMessage: VERDICT[values.agreement] ?? "Nothing was compared.",
+      emptyMessage: VERDICT[values.verdict] ?? "Nothing was compared.",
     };
   }
 }
