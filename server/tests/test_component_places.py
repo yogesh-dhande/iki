@@ -384,6 +384,26 @@ def test_only_where_it_shows(world: World, atlas: dict[str, Any]) -> None:
     problem(editor.post("/components/acme/protein.gone/entities", {"home": True}), 404, "not_found")
 
 
+def test_a_tab_on_every_record_shows_what_names_each_record(
+    world: World, atlas: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tab on `iki/core.Entity` is on every record's page that has no nearer tab, and
+    gets what its search finds for that record (ADR 0237)."""
+    board = installed.components()[BOARD]
+    slots = tuple(
+        dataclasses.replace(s, type="iki/core.Entity") if s.slot == "entity.tab" else s
+        for s in board.slots
+    )
+    monkeypatch.setitem(installed.components(), BOARD, dataclasses.replace(board, slots=slots))
+    viewer = api_as(world, "viewer")
+    found = shown(viewer, {"entity": atlas["dna"]["id"]})
+    assert hrids(found) == [e["hrid"] for e in atlas["encoded"]]
+    # A protein's page has the tab too, and nothing names it: the page leaves it out.
+    assert shown(viewer, {"entity": atlas["encoded"][0]["id"]}) == []
+    # It shows only what the person may read, as every place does.
+    problem(api_as(world, "outsider").post(PATH, {"entity": atlas["dna"]["id"]}), 404, "not_found")
+
+
 def test_a_search_that_doesnt_work_says_where(world: World, atlas: dict[str, Any]) -> None:
     editor = api_as(world, "editor")
     wrong = {"search": {"type": PROTEIN, "where": {"field": "colour", "op": "eq", "value": "red"}}}

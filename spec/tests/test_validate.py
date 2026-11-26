@@ -3067,11 +3067,17 @@ fields:
         ("threshold: threshold", "threshold: serial", "stock-catalogue-field"),
         ("required: true, immutable: true", "required: true", "stock-catalogue-unit"),
         ("min: 0", "min: -1", "stock-catalogue-threshold"),
+        ("required: true, min: 0", "required: true", "stock-catalogue-threshold"),
         ("values: [mg]", "values: [mL]", "stock-catalogue-lot"),
     ]:
         assert expected in codes(
             make(tmp_path, {**files, "types/item.yaml": catalogue.replace(before, after)}, ROLES)
         )
+    # A threshold is optional: an item without one isn't reordered by its level.
+    optional = catalogue.replace(
+        "threshold: { type: float, required: true, min: 0 }", "threshold: { type: float, min: 0 }"
+    )
+    assert codes(make(tmp_path, {**files, "types/item.yaml": optional}, ROLES)) == []
 
 
 def test_a_type_can_keep_its_amount_in_whole_units(tmp_path: Path) -> None:

@@ -543,6 +543,24 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "pluginExport": {
+      "type": "object",
+      "required": ["export", "fields"],
+      "additionalProperties": false,
+      "properties": {
+        "export": {
+          "description": "The plugin's writer, qualified (`acme/lab.tecan-worklist`) or, for this plugin's own, its local name.",
+          "type": "string"
+        },
+        "fields": {
+          "description": "The field each of the writer's roles reads, by role: `volume: transfer_volume`. Every required role is mapped, each to a field of its role's type.",
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+          "additionalProperties": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+        }
+      }
+    },
     "gridSize": {
       "oneOf": [
         { "type": "integer", "minimum": 1, "maximum": 48 },
@@ -553,7 +571,17 @@
       "type": "object",
       "required": ["export"],
       "properties": {
-        "export": { "enum": ["sequence", "protein", "compound", "signed_report"] }
+        "export": {
+          "description": "What it writes: one of Iki's (`sequence`, `protein`, `compound`, `signed_report`), or a plugin's writer (ADR 0230), such as `acme/lab.tecan-worklist`, with `fields`.",
+          "anyOf": [
+            { "enum": ["sequence", "protein", "compound", "signed_report"] },
+            {
+              "type": "string",
+              "maxLength": 125,
+              "pattern": "^([a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.)?[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+            }
+          ]
+        }
       },
       "allOf": [
         {
@@ -574,6 +602,15 @@
             "properties": { "export": { "const": "signed_report" } }
           },
           "then": { "$ref": "#/$defs/reportExport" }
+        },
+        {
+          "if": {
+            "required": ["export"],
+            "properties": {
+              "export": { "not": { "enum": ["sequence", "protein", "compound", "signed_report"] } }
+            }
+          },
+          "then": { "$ref": "#/$defs/pluginExport" }
         }
       ]
     },

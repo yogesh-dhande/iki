@@ -38,7 +38,8 @@ function modelOf(type: string, field: string): FlowModel {
 }
 
 const RESULT = "iki/requests.QCDeliverable";
-const SAMPLE = "iki/samples.Sample";
+const SAMPLE = "iki/samples.ReviewedSample";
+const PLAIN_SAMPLE = "iki/samples.PlainSample";
 const REQUEST = "iki/requests.Request";
 const LOT = "iki/lots.Lot";
 const RESEARCH = "iki/plate_assays.ResearchAssayResult";
@@ -83,18 +84,29 @@ describe("the plugins' flows", () => {
     expect(lot.filter((m) => m.endsWith("> on_hold"))).toEqual([
       "quarantined > on_hold",
       "released > on_hold",
+      "available > on_hold",
+      "retest_due > on_hold",
     ]);
     expect(lot.filter((m) => m.includes("> expired"))).toEqual([
       "quarantined > expired ?",
       "released > expired ?",
+      "available > expired ?",
+      "retest_due > expired ?",
       "on_hold > expired ?",
       "rejected > expired ?",
     ]);
-    // Released from Quarantined or On hold; its other guards are the record's and the
-    // person's, one of them only when the lot was made.
+    // Released from Quarantined, Due for retest or On hold; its other guards are the
+    // record's and the person's, one of them only when the lot was made.
     expect(lot.filter((m) => m.endsWith("> released ?"))).toEqual([
       "quarantined > released ?",
+      "retest_due > released ?",
       "on_hold > released ?",
+    ]);
+    // Made available from Quarantined, or from On hold only when it was available
+    // before, which only its history knows (ADR 0242).
+    expect(lot.filter((m) => m.includes("> available"))).toEqual([
+      "quarantined > available",
+      "on_hold > available ?",
     ]);
   });
 
@@ -177,6 +189,23 @@ describe("a flow as a diagram has it", () => {
     expect(model.edges.filter((e) => e.kind === "correction").map((e) => e.id)).toEqual([]);
   });
 
+  it("draws a plain sample completed by its analyst, and reopened with a reason", () => {
+    const model = modelOf(PLAIN_SAMPLE, "status");
+    expect(nextFrom(model, "received").map((n) => n.name)).toEqual(["in_testing", "done"]);
+    expect(model.nodes.find((n) => n.name === "done")).toMatchObject({
+      from: ["received", "in_testing", "retesting"],
+      setters: ["Analyst"],
+      locks: true,
+      signatures: [],
+    });
+    expect(model.nodes.find((n) => n.name === "retesting")).toMatchObject({
+      from: ["done"],
+      setters: ["Analyst"],
+      reason: "required",
+      signatures: [],
+    });
+  });
+
   it("says each state in words, with its guards' messages", () => {
     const model = modelOf(RESULT, "review");
     const node = (name: string) => {
@@ -210,6 +239,7 @@ describe("a flow as a diagram has it", () => {
     const lot = modelOf(LOT, "disposition");
     expect(nextFrom(lot, "released").map((n) => n.name)).toEqual([
       "quarantined",
+      "retest_due",
       "on_hold",
       "rejected",
       "expired",

@@ -13,6 +13,14 @@ fields:
     max_items: 100
     computed: true
     description: The publication action appends approved versions in effective-date order.
+  tested_through:
+    type: date
+    label: Latest testing date pinned
+    computed: true
+    description: >-
+      The latest testing date a release case has pinned from this schedule. A successor
+      version takes effect after it, so publishing never changes which version a case's
+      testing date was under.
 rules:
   material_schedule:
     label: One release specification schedule per material

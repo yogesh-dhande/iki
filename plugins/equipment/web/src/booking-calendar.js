@@ -37,8 +37,10 @@ class InstrumentBookings extends BookingCalendar {
     refine(this, {
       where: {
         all: [
-          { field: "starts_at", op: "gte", value: start },
+          // Every booking on the month's days: those that start before it ends and end
+          // after it starts, so one from the last night of the month before is there too.
           { field: "starts_at", op: "lt", value: end },
+          { field: "ends_at", op: "gt", value: start },
           ...(this.#cancelled ? [] : [{ field: "cancelled", op: "eq", value: false }]),
         ],
       },

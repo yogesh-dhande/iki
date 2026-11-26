@@ -29,12 +29,21 @@ def test_published_trastuzumab_peak_and_theoretical_mass(browser: Browser, schem
             browser,
             origin,
             MODULE,
-            {"values": {"comparison": report}},
+            {
+                "values": {
+                    "comparison": report,
+                    "report_format": "iki_mass_table_1",
+                    "source_software": "Deconvolution software 4.1",
+                }
+            },
             color_scheme=scheme,
             viewport={"width": 390, "height": 844},
             bypass_csp=True,
         )
         expect(page.get_by_role("heading", name="G0F/G0F")).to_be_visible()
+        expect(
+            page.get_by_text("Iki mass table 1 · from Deconvolution software 4.1")
+        ).to_be_visible()
         expect(page.get_by_text("148,058.4 Da")).to_be_visible()
         expect(page.get_by_text("Within tolerance")).to_be_visible()
         assert page.evaluate("document.documentElement.scrollWidth - innerWidth <= 1")

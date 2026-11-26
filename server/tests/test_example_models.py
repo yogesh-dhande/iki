@@ -34,7 +34,7 @@ def test_the_plugin_is_valid() -> None:
     assert result.plugin is not None
     (api,) = result.plugin.apis.values()
     assert (api.qualified_name, api.label, api.host) == (
-        "lab/hosted_models.foldcloud",
+        "acme/hosted_models.foldcloud",
         "FoldCloud",
         "{settings.fold_api_host}",
     )

@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# How sure a structure ImmuneBuilder predicted is, and which of its models made it. The
+# error is the spread of that model's own four-network ensemble, so it's only comparable
+# with another structure's when both name the same model and release. The fields live in
+# this plugin's table, so the protein plugin's structures are untouched without it.
+apiVersion: iki/v1
+kind: EntityTypeExtension
+extends_type: iki/protein.ProteinStructure
+fields:
+  immunebuilder_model:
+    type: enum
+    registry: derived
+    label: ImmuneBuilder model
+    values: [abodybuilder2, nanobodybuilder2]
+    computed: true
+    indexed: true
+    description: >-
+      Which of ImmuneBuilder's models predicted it: ABodyBuilder2 for a heavy and
+      a light variable domain, NanoBodyBuilder2 for a single domain.
+  immunebuilder_version:
+    type: string
+    registry: derived
+    label: ImmuneBuilder release
+    max_length: 20
+    computed: true
+    description: The ImmuneBuilder release whose model and weights predicted it, such as 1.2.
+  predicted_error:
+    type: quantity
+    registry: derived
+    unit: Ao
+    min: 0
+    computed: true
+    indexed: true
+    description: >-
+      Its estimated error, by the model it names: the spread of that model's four
+      networks, as the root mean square deviation of each residue's alpha carbon,
+      averaged over its residues. Each residue's own is its B-factor in the file.
+      It isn't an experimental error, and another predictor's confidence isn't on
+      the same scale.
+  cdr_h3_predicted_error:
+    type: quantity
+    registry: derived
+    label: CDR-H3 predicted error
+    unit: Ao
+    min: 0
+    computed: true
+    indexed: true
+    description: >-
+      The same over CDR-H3's residues (IMGT 105 to 117), usually the least
+      certain part of a predicted antibody structure.

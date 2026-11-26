@@ -1352,6 +1352,12 @@ export interface paths {
          *     molecule's ends, is listed in it where the format has a place (GenBank's COMMENT, an
          *     SDF's ``IKI_NOTES``), and ``Iki-Left-Out`` says how many such notes there are. Many
          *     records make one file from ``POST /entity-exports`` (ADR 0229).
+         *
+         *     A plugin's format is written by its writer in the export sandbox (ADR 0230), and its
+         *     audit event names the plugin's commit and the module's digest. A writer that refuses
+         *     the record (``writer_refused``) or fails (``writer_failed``) is 422, and no file is
+         *     made; a sandbox that's busy or away is 503 (``sandbox_unavailable``) with
+         *     ``Retry-After``.
          */
         get: operations["iki_server_api_entities_export_entity"];
         put?: never;
@@ -4734,8 +4740,8 @@ export interface paths {
          *     If what applying does changed since the preview, as when another Admin removed a grant or
          *     applied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,
          *     what applying would do now, for review (ADR 0207). Reapplying a setup that's in place
-         *     changes nothing. Changing the flow selects the result type for future fits. Existing
-         *     results keep their flow.
+         *     changes nothing. Changing the flow applies to records opened from now on, such as
+         *     new fits or release cases. Existing ones keep their flow.
          */
         post: operations["iki_server_api_starters_apply_starter"];
         delete?: never;
@@ -6592,6 +6598,24 @@ export interface components {
              * @description How many runs of its batch its job ran at once, this one too.
              */
             runs: number;
+        };
+        /** AttemptScanWaitOut */
+        AttemptScanWaitOut: {
+            /**
+             * Ended At
+             * @description When the files' scans were done, whether they were found usable or one was held. None while it waits, and for one cancelled as it waited.
+             */
+            ended_at: string | null;
+            /**
+             * Files
+             * @description How many of the files it reads it waited for.
+             */
+            files: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
         };
         /** AttemptSlurmOut */
         AttemptSlurmOut: {
@@ -8664,7 +8688,7 @@ export interface components {
              * Exports
              * @description The files Iki writes of its records (ADR 0171), from `/entities/{ref}/export`: its own, or its nearest parent's.
              */
-            exports?: (components["schemas"]["FileExportOut"] | components["schemas"]["ProteinExportOut"] | components["schemas"]["CompoundExportOut"] | components["schemas"]["SignedReportExportOut"])[];
+            exports?: (components["schemas"]["FileExportOut"] | components["schemas"]["ProteinExportOut"] | components["schemas"]["CompoundExportOut"] | components["schemas"]["SignedReportExportOut"] | components["schemas"]["PluginExportOut"])[];
             /** Extends */
             extends: string | null;
             /** Fields */
@@ -9132,9 +9156,10 @@ export interface components {
             /**
              * Format
              * @description Which file, as its type's `exports` list them.
-             * @enum {string}
+             * @example genbank
+             * @example acme/liquid_handling.tecan-worklist
              */
-            format: "genbank" | "fasta" | "protein-fasta" | "sdf" | "molfile" | "signed-report-html" | "signed-report-json";
+            format: string;
             /**
              * Project
              * @description Whose record of a registry entry, as for reading it (ADR 0115).
@@ -9577,10 +9602,9 @@ export interface components {
             extension: string;
             /**
              * Format
-             * @description What `/entities/{ref}/export` takes.
-             * @enum {string}
+             * @description What `/entities/{ref}/export` takes: one of Iki's formats, such as `genbank`, or a plugin's writer's qualified ID (ADR 0230).
              */
-            format: "genbank" | "fasta" | "protein-fasta" | "sdf" | "molfile" | "signed-report-html" | "signed-report-json";
+            format: string;
             /**
              * Label
              * @description Its name, such as GenBank.
@@ -9588,15 +9612,20 @@ export interface components {
             label: string;
             /**
              * Many
-             * @description `file`: many records make one file of it, from `POST /entity-exports` (ADR 0229); `one`: it holds one record.
+             * @description `file`: many records make one file of it, from `POST /entity-exports` (ADR 0229); `one`: it holds one record; `zip`: one record each, so many records make a ZIP of them.
              * @enum {string}
              */
-            many: "file" | "one";
+            many: "file" | "one" | "zip";
             /**
              * Media Type
              * @description Its media type, such as chemical/seq-na-genbank.
              */
             media_type: string;
+            /**
+             * Plugin
+             * @description The plugin whose writer writes it, in the export sandbox (ADR 0230); null for Iki's own.
+             */
+            plugin: string | null;
         };
         /** FileOriginOut */
         FileOriginOut: {
@@ -12220,7 +12249,7 @@ export interface components {
             id: string;
             /**
              * Kind
-             * @description What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.Sample.in_review.
+             * @description What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.ReviewedSample.in_review.
              */
             kind: string;
             /**
@@ -13382,6 +13411,31 @@ export interface components {
             plugin: {
                 [key: string]: unknown;
             };
+        };
+        /** PluginExportOut */
+        PluginExportOut: {
+            /**
+             * @description What it writes. `plugin`: a plugin's format, by its writer (ADR 0230). (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            export: "plugin";
+            /**
+             * Fields
+             * @description The field each of the writer's roles reads.
+             */
+            fields: {
+                [key: string]: string;
+            };
+            /**
+             * Formats
+             * @description The file it's written as; none when this deployment can't write it.
+             */
+            formats: components["schemas"]["FileFormatOut"][];
+            /**
+             * Writer
+             * @description The writer, by its qualified ID.
+             */
+            writer: string;
         };
         /** PluginFindingOut */
         PluginFindingOut: {
@@ -14652,10 +14706,9 @@ export interface components {
             fields?: string[] | null;
             /**
              * Format
-             * @description A format every record's type exports, as its `exports` list them, of which many records make one file (`many: file`).
-             * @enum {string}
+             * @description A format every record's type exports, as its `exports` list them, of which many records make one file (`many: file`), or a ZIP of one file each (`many: zip`).
              */
-            format: "genbank" | "fasta" | "protein-fasta" | "sdf";
+            format: string;
             /**
              * Project
              * @description For an HRID naming a registry entry's record in several projects: this project's (ADR 0115).
@@ -14743,7 +14796,7 @@ export interface components {
             state: "queued" | "writing" | "ready" | "failed" | "expired";
             /**
              * Writer
-             * @description Which code wrote it: `builtin` and `version`.
+             * @description Which code wrote it: Iki's `builtin` and `version`; or a plugin's writer's `plugin`, `writer`, `commit`, `module_sha256` and `abi` (ADR 0230).
              */
             writer: {
                 [key: string]: string;
@@ -15804,6 +15857,8 @@ export interface components {
             queued_at: string;
             /** @description The checkpoint an earlier attempt saved that this one resumed from. */
             resumed_from: components["schemas"]["CheckpointOut"] | null;
+            /** @description When it waited for files it reads to be scanned for malware (ADR 0234). */
+            scan_wait: components["schemas"]["AttemptScanWaitOut"] | null;
             /**
              * Secrets
              * @description The secrets its worker was given, by name (ADR 0054).
@@ -16300,9 +16355,11 @@ export interface components {
             via: string;
             /**
              * Waiting
-             * @description Why a queued run hasn't started: a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).
+             * @description Why a queued run hasn't started: a file it reads is being scanned (`waiting_for_scan`), a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).
              */
             waiting: string | null;
+            /** @description While files it reads are being scanned for malware (ADR 0234): no worker takes it until they're found usable, and it fails, saying why, if one is held. Its attempts' `scan_wait` say when it waited. */
+            waiting_for_scan: components["schemas"]["RunScanWaitOut"] | null;
             /** @description The workflow run it's a step of, if any (ADR 0079). */
             workflow: components["schemas"]["WorkflowStepRefOut"] | null;
         };
@@ -16337,6 +16394,25 @@ export interface components {
              * Format: uuid
              */
             id: string;
+        };
+        /** RunScanWaitOut */
+        RunScanWaitOut: {
+            /**
+             * Files
+             * @description The files it still waits for that you can read, by name.
+             */
+            files: components["schemas"]["ScanWaitFileOut"][];
+            /**
+             * Others
+             * @description How many more it waits for, that you can't read.
+             */
+            others: number;
+            /**
+             * Since
+             * Format: date-time
+             * @description When it began waiting.
+             */
+            since: string;
         };
         /**
          * RunStatus
@@ -16694,6 +16770,16 @@ export interface components {
              * @enum {string}
              */
             status: "one" | "ambiguous" | "none";
+        };
+        /** ScanWaitFileOut */
+        ScanWaitFileOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
         };
         /** ScansIn */
         ScansIn: {
@@ -18738,9 +18824,14 @@ export interface components {
             required_roles: string[];
             /**
              * Result Type
-             * @description Qualified result type for new fits in this flow.
+             * @description Qualified result type whose states this flow's records pass through.
              */
             result_type: string;
+            /**
+             * States
+             * @description The result type's states in this flow, where its one state field has a route per flow. Null: all of them.
+             */
+            states?: string[] | null;
         };
         /** StarterOut */
         StarterOut: {
@@ -18750,6 +18841,11 @@ export interface components {
             description: string;
             /** Flows */
             flows: components["schemas"]["StarterFlowOut"][];
+            /**
+             * Governs
+             * @description The records the project's choice applies to from now on, such as `release cases`. Those already opened keep the flow they were opened with.
+             */
+            governs: string;
             /** Id */
             id: string;
             /** Label */
@@ -19127,7 +19223,7 @@ export interface components {
             /** Stored */
             stored: string;
             /** Threshold */
-            threshold: string;
+            threshold: string | null;
             /** Unit */
             unit: string;
         };
@@ -22758,7 +22854,7 @@ export interface operations {
         parameters: {
             query: {
                 /** @description Which file, as its type's `exports` list them. */
-                format: "genbank" | "fasta" | "protein-fasta" | "sdf" | "molfile" | "signed-report-html" | "signed-report-json";
+                format: string;
                 /** @description An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`). */
                 fields?: string[] | null;
                 /** @description Which revision, as it was then. Its latest if left out. */
@@ -22781,6 +22877,8 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                    /** @description A plugin's format, as its media type (ADR 0230). */
+                    "application/octet-stream": unknown;
                     "chemical/seq-aa-fasta": unknown;
                     "chemical/seq-na-fasta": unknown;
                     "chemical/seq-na-genbank": unknown;
@@ -22788,6 +22886,20 @@ export interface operations {
                     "chemical/x-mdl-sdfile": unknown;
                     "text/html": unknown;
                 };
+            };
+            /** @description Its plugin's writer refused it, or failed (ADR 0230). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The export sandbox can't take it now: try again. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -34,9 +34,7 @@ def register(run: dict[str, Any]) -> dict[str, Any]:
     file_id = params["file"]
     accession = params["mgi_id"]
     name, digest = read_strain(Path(run["files"][file_id]["path"]), accession)
-    values = {"mgi_id": accession, "nomenclature": name}
-    if params.get("jax_stock"):
-        values["jax_stock"] = params["jax_stock"]
+    values = {"catalogue": "mgi", "mgi_id": accession, "nomenclature": name}
     return {
         "apiVersion": "iki/v1",
         "kind": "RunOutput",

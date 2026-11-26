@@ -8,9 +8,14 @@ method, in their recorded reporting units.
 
 ## Configure the workflow
 
-Install the plugin with Lots and Inventory. At deployment, choose
-`review_flow: research` (the default) or `review_flow: regulated_qc` in its
-settings. The schedule pins this choice for the life of its study.
+Install the plugin with Lots and Inventory. A project's Admin chooses Research
+or Regulated QC in **Project settings → Starters → Stability study**, and
+assigns the roles below there. Research needs a coordinator and a reviewer;
+Regulated QC also needs an analyst and QA, three different signers. A project
+that hasn't chosen uses the deployment's `review_flow` setting (`research` by
+default). Scheduling pins the flow on the study for the life of its
+measurements, so a later choice applies to studies scheduled after it
+([ADR 0240](../../docs/adr/0240-a-project-chooses-its-release-stability-and-verification-review.md)).
 
 - A **Stability coordinator** receives the pull assignments, makes each draw and
   reconciles late or missed pulls.

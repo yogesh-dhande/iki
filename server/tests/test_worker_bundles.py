@@ -50,7 +50,7 @@ def installed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]
         "version": loaded.plugin.version,
         "sha": SHA,
         "state": "active",
-        "bundle": bundles.bundle(directory, out / f"acme__protein-{SHA}.tar.gz"),
+        "bundle": bundles.bundle("acme/protein", directory, out / f"acme__protein-{SHA}.tar.gz"),
         "environments": bundles.environments(loaded.plugin, directory),
     }
     # dna comes from a local directory here: nothing to fetch.

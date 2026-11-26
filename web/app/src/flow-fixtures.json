@@ -6,11 +6,16 @@
     "iki/lab_roles.qa": "Sample and result QA",
     "iki/lab_roles.reviewer": "Reviewer",
     "iki/lots.qa": "Lot QA",
+    "iki/lots.stock_keeper": "Stock keeper",
     "iki/lots.verification_analyst": "Verification analyst",
     "iki/lots.verification_reviewer": "Verification reviewer",
     "iki/plate_assays.analyst": "Assay analyst",
     "iki/plate_assays.qa": "Assay QA",
-    "iki/plate_assays.reviewer": "Assay reviewer"
+    "iki/plate_assays.reviewer": "Assay reviewer",
+    "iki/stability.analyst": "Stability analyst",
+    "iki/stability.coordinator": "Stability coordinator",
+    "iki/stability.qa": "Stability QA",
+    "iki/stability.reviewer": "Stability reviewer"
   },
   "types": [
     {
@@ -498,8 +503,8 @@
       ]
     },
     {
-      "type": "iki/samples.Sample",
-      "label": "Sample",
+      "type": "iki/samples.ReviewedSample",
+      "label": "Reviewed sample",
       "fields": [
         {
           "name": "status",
@@ -694,6 +699,143 @@
       ]
     },
     {
+      "type": "iki/samples.PlainSample",
+      "label": "Plain sample",
+      "fields": [
+        {
+          "name": "status",
+          "label": "Status",
+          "initial": "pending",
+          "states": [
+            {
+              "name": "pending",
+              "label": "Awaiting draw",
+              "description": null,
+              "set_by": [],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [],
+              "signatures": []
+            },
+            {
+              "name": "received",
+              "label": "Received",
+              "description": null,
+              "set_by": ["iki/lab_roles.coordinator", "iki/lab_roles.analyst"],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "drawn",
+                  "description": null,
+                  "check": "state.from == \"pending\" && size(draws) == 1",
+                  "when": null,
+                  "message": "Record the draw from the assigned source before receiving this sample."
+                }
+              ],
+              "signatures": []
+            },
+            {
+              "name": "in_testing",
+              "label": "In testing",
+              "description": null,
+              "set_by": ["iki/lab_roles.analyst"],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "received",
+                  "description": null,
+                  "check": "state.from == \"received\"",
+                  "when": null,
+                  "message": "Receive the sample before testing it."
+                }
+              ],
+              "signatures": []
+            },
+            {
+              "name": "done",
+              "label": "Done",
+              "description": "Used or measured. Return it to testing, with a reason, to correct it.",
+              "set_by": ["iki/lab_roles.analyst"],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "started",
+                  "description": null,
+                  "check": "state.from in [\"received\", \"in_testing\", \"retesting\"]",
+                  "when": null,
+                  "message": "Receive the sample before completing it."
+                }
+              ],
+              "signatures": []
+            },
+            {
+              "name": "retesting",
+              "label": "Returned to testing",
+              "description": null,
+              "set_by": ["iki/lab_roles.analyst"],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": "required",
+              "guards": [
+                {
+                  "name": "done",
+                  "description": null,
+                  "check": "state.from == \"done\"",
+                  "when": null,
+                  "message": "Return a completed sample to testing."
+                }
+              ],
+              "signatures": []
+            }
+          ],
+          "transitions": [
+            {
+              "from": "pending",
+              "to": "received",
+              "conditional": true
+            },
+            {
+              "from": "received",
+              "to": "in_testing",
+              "conditional": false
+            },
+            {
+              "from": "received",
+              "to": "done",
+              "conditional": false
+            },
+            {
+              "from": "in_testing",
+              "to": "done",
+              "conditional": false
+            },
+            {
+              "from": "retesting",
+              "to": "done",
+              "conditional": false
+            },
+            {
+              "from": "done",
+              "to": "retesting",
+              "conditional": false
+            }
+          ]
+        }
+      ]
+    },
+    {
       "type": "iki/lots.Lot",
       "label": "Lot",
       "fields": [
@@ -705,7 +847,7 @@
             {
               "name": "quarantined",
               "label": "Quarantined",
-              "description": "Made or received, and not yet released. It can be drawn from to be tested.",
+              "description": "Made or received, and not yet released or made available. It can be drawn from to be tested.",
               "set_by": ["iki/lots.qa"],
               "locks": false,
               "on_edit": null,
@@ -715,9 +857,9 @@
                 {
                   "name": "reopened",
                   "description": "A released lot goes back to quarantine only to correct it, saying why.",
-                  "check": "state.from == \"released\" || state.from == \"on_hold\"",
+                  "check": "state.from in [\"released\", \"on_hold\", \"available\", \"retest_due\"]",
                   "when": null,
-                  "message": "A lot goes back to quarantine from Released or On hold."
+                  "message": "A lot goes back to quarantine from Released, Available, Due for retest or On hold."
                 }
               ],
               "signatures": []
@@ -734,10 +876,10 @@
               "guards": [
                 {
                   "name": "from_quarantine",
-                  "description": "A lot is released from quarantine, or once a hold is lifted.",
-                  "check": "state.from == \"quarantined\" || state.from == \"on_hold\"",
+                  "description": "A lot is released from quarantine, once a hold is lifted, or once it's been retested.",
+                  "check": "state.from in [\"quarantined\", \"on_hold\", \"retest_due\"]",
                   "when": null,
-                  "message": "A lot is released from Quarantined or On hold."
+                  "message": "A lot is released from Quarantined, On hold or Due for retest."
                 },
                 {
                   "name": "has_a_certificate",
@@ -777,7 +919,7 @@
                 {
                   "name": "not_who_edited_it",
                   "description": null,
-                  "check": "edits.disposition.quarantined.all(e, e.by != actor.person)",
+                  "check": "edits.disposition.quarantined.all(e, e.by != actor.person) && edits.disposition.retest_due.all(e, e.by != actor.person)",
                   "when": "record.source == \"made\"",
                   "message": "You edited this lot's record, so someone else in QA releases it."
                 },
@@ -801,10 +943,57 @@
               ]
             },
             {
+              "name": "available",
+              "label": "Available",
+              "description": "In use under the lab's own procedure, without a QA release or certificate: research material and consumables. It isn't Released, and its values stay editable.",
+              "set_by": ["iki/lots.stock_keeper"],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": "optional",
+              "guards": [
+                {
+                  "name": "not_held_by_qa",
+                  "description": "A stock keeper makes a lot available once it's received, or again after a hold put on it while it was available. A hold on a released or retested lot is lifted by QA.",
+                  "check": "state.from == \"quarantined\" || (state.from == \"on_hold\" && last.disposition.on_hold.from == \"available\")",
+                  "when": null,
+                  "message": "A lot is made available from Quarantined, or from On hold when it was available before. QA lifts its own holds."
+                }
+              ],
+              "signatures": []
+            },
+            {
+              "name": "retest_due",
+              "label": "Due for retest",
+              "description": "Past its retest date, and not expired: only QA sampling, until QA releases it again on its retest or it expires.",
+              "set_by": ["iki/lots.qa"],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": "optional",
+              "guards": [
+                {
+                  "name": "past_its_retest_date",
+                  "description": null,
+                  "check": "record.retest_on != null && record.retest_on <= today",
+                  "when": null,
+                  "message": "Its retest date hasn't come."
+                },
+                {
+                  "name": "in_use",
+                  "description": null,
+                  "check": "state.from == \"released\" || state.from == \"available\"",
+                  "when": null,
+                  "message": "A released or available lot comes due for retest."
+                }
+              ],
+              "signatures": []
+            },
+            {
               "name": "on_hold",
               "label": "On hold",
               "description": "Kept from use while something is looked into, such as a deviation or a result out of its specification.",
-              "set_by": ["iki/lots.qa"],
+              "set_by": ["iki/lots.qa", "iki/lots.stock_keeper"],
               "locks": false,
               "on_edit": null,
               "holds_amount": true,
@@ -844,8 +1033,8 @@
             {
               "name": "expired",
               "label": "Expired",
-              "description": "Past its expiry or retest date. It's kept, but not used.",
-              "set_by": ["iki/lots.qa"],
+              "description": "Past its expiry date, or past its retest date where the lab's procedure expires it then rather than marking it Due for retest. It's kept, but not used.",
+              "set_by": ["iki/lots.qa", "iki/lots.stock_keeper"],
               "locks": true,
               "on_edit": null,
               "holds_amount": true,
@@ -869,6 +1058,16 @@
               "conditional": false
             },
             {
+              "from": "available",
+              "to": "quarantined",
+              "conditional": false
+            },
+            {
+              "from": "retest_due",
+              "to": "quarantined",
+              "conditional": false
+            },
+            {
               "from": "on_hold",
               "to": "quarantined",
               "conditional": false
@@ -879,8 +1078,33 @@
               "conditional": true
             },
             {
+              "from": "retest_due",
+              "to": "released",
+              "conditional": true
+            },
+            {
               "from": "on_hold",
               "to": "released",
+              "conditional": true
+            },
+            {
+              "from": "quarantined",
+              "to": "available",
+              "conditional": false
+            },
+            {
+              "from": "on_hold",
+              "to": "available",
+              "conditional": true
+            },
+            {
+              "from": "released",
+              "to": "retest_due",
+              "conditional": true
+            },
+            {
+              "from": "available",
+              "to": "retest_due",
               "conditional": true
             },
             {
@@ -894,12 +1118,32 @@
               "conditional": false
             },
             {
+              "from": "available",
+              "to": "on_hold",
+              "conditional": false
+            },
+            {
+              "from": "retest_due",
+              "to": "on_hold",
+              "conditional": false
+            },
+            {
               "from": "quarantined",
               "to": "rejected",
               "conditional": false
             },
             {
               "from": "released",
+              "to": "rejected",
+              "conditional": false
+            },
+            {
+              "from": "available",
+              "to": "rejected",
+              "conditional": false
+            },
+            {
+              "from": "retest_due",
               "to": "rejected",
               "conditional": false
             },
@@ -920,6 +1164,16 @@
             },
             {
               "from": "released",
+              "to": "expired",
+              "conditional": true
+            },
+            {
+              "from": "available",
+              "to": "expired",
+              "conditional": true
+            },
+            {
+              "from": "retest_due",
               "to": "expired",
               "conditional": true
             },
@@ -1143,6 +1397,201 @@
               "from": "reviewed",
               "to": "recorded",
               "conditional": false
+            },
+            {
+              "from": "recorded",
+              "to": "submitted",
+              "conditional": true
+            },
+            {
+              "from": "submitted",
+              "to": "reviewed",
+              "conditional": true
+            },
+            {
+              "from": "reviewed",
+              "to": "released",
+              "conditional": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "iki/stability.Measurement",
+      "label": "Stability measurement",
+      "fields": [
+        {
+          "name": "review",
+          "label": "Review",
+          "initial": "recorded",
+          "states": [
+            {
+              "name": "recorded",
+              "label": "Recorded",
+              "description": null,
+              "set_by": ["iki/stability.analyst", "iki/stability.reviewer", "iki/stability.qa"],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": "required",
+              "guards": [
+                {
+                  "name": "correction",
+                  "description": null,
+                  "check": "state.from == \"submitted\" || state.from == \"reviewed\"",
+                  "when": null,
+                  "message": "Only a submission awaiting independent review or QA release can be corrected."
+                }
+              ],
+              "signatures": []
+            },
+            {
+              "name": "signed",
+              "label": "Signed off",
+              "description": null,
+              "set_by": ["iki/stability.reviewer"],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "research",
+                  "description": null,
+                  "check": "state.from == \"recorded\" && record.review_flow == \"research\" && record.pull_revision != null && record.report != null",
+                  "when": null,
+                  "message": "Sign the recorded research measurement from a completed pull after attaching its report."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "review",
+                  "meaning_label": "Review",
+                  "verb": "Reviewed",
+                  "label": "Review",
+                  "statement": "I checked the stability measurement and its report.",
+                  "roles": ["iki/stability.reviewer"]
+                }
+              ]
+            },
+            {
+              "name": "submitted",
+              "label": "Submitted",
+              "description": null,
+              "set_by": ["iki/stability.analyst"],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "qc",
+                  "description": null,
+                  "check": "state.from == \"recorded\" && record.review_flow == \"regulated_qc\" && record.pull_revision != null && record.report != null",
+                  "when": null,
+                  "message": "Submit the recorded QC measurement from a completed pull after attaching its report."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "authorship",
+                  "meaning_label": "Authorship",
+                  "verb": "Authored",
+                  "label": "Authorship",
+                  "statement": "I recorded the stability measurement as observed.",
+                  "roles": ["iki/stability.analyst"]
+                }
+              ]
+            },
+            {
+              "name": "reviewed",
+              "label": "Independently reviewed",
+              "description": null,
+              "set_by": ["iki/stability.reviewer"],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "submitted",
+                  "description": null,
+                  "check": "state.from == \"submitted\"",
+                  "when": null,
+                  "message": "Review the analyst's signed submission."
+                },
+                {
+                  "name": "independent",
+                  "description": null,
+                  "check": "history.review[0].by != actor.person && last.review.submitted.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)",
+                  "when": null,
+                  "message": "Someone independent of the creator, submitter and editors must review."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "review",
+                  "meaning_label": "Review",
+                  "verb": "Reviewed",
+                  "label": "Review",
+                  "statement": "I reviewed this record and found it in order.",
+                  "roles": ["iki/stability.reviewer"]
+                }
+              ]
+            },
+            {
+              "name": "released",
+              "label": "QA released",
+              "description": null,
+              "set_by": ["iki/stability.qa"],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "reviewed",
+                  "description": null,
+                  "check": "state.from == \"reviewed\" && last.review.reviewed.from == \"submitted\"",
+                  "when": null,
+                  "message": "QA releases an independently reviewed submission."
+                },
+                {
+                  "name": "independent",
+                  "description": null,
+                  "check": "history.review[0].by != actor.person && last.review.submitted.by != actor.person && last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)",
+                  "when": null,
+                  "message": "Release requires a signer independent of the analyst, reviewer and editors."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "approval",
+                  "meaning_label": "Approval",
+                  "verb": "Approved",
+                  "label": "QA release",
+                  "statement": "I approve this record.",
+                  "roles": ["iki/stability.qa"]
+                }
+              ]
+            }
+          ],
+          "transitions": [
+            {
+              "from": "submitted",
+              "to": "recorded",
+              "conditional": false
+            },
+            {
+              "from": "reviewed",
+              "to": "recorded",
+              "conditional": false
+            },
+            {
+              "from": "recorded",
+              "to": "signed",
+              "conditional": true
             },
             {
               "from": "recorded",

@@ -72,6 +72,7 @@ def test_a_type_says_which_files_it_exports(world: World) -> None:
                     "media_type": "chemical/seq-na-genbank",
                     "description": "The bases, topology and features, with their qualifiers.",
                     "many": "file",
+                    "plugin": None,
                 },
                 {
                     "format": "fasta",
@@ -81,6 +82,7 @@ def test_a_type_says_which_files_it_exports(world: World) -> None:
                     "description": "The bases, with the record's ID, name and topology in "
                     "its header. FASTA holds no features.",
                     "many": "file",
+                    "plugin": None,
                 },
             ],
             "sequence": "bases",

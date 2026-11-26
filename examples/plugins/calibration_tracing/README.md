@@ -39,8 +39,7 @@ directory, set `IKI_PLUGINS` to the first-party `plugins/` directory at the
 commit your deployment uses and run these checks in a shell:
 
 ```sh
-set -- --with "$IKI_PLUGINS/inventory" --with "$IKI_PLUGINS/lab_roles" \
-       --with "$IKI_PLUGINS/requests" --with "$IKI_PLUGINS/equipment"
+set -- --with "$IKI_PLUGINS/lab_roles" --with "$IKI_PLUGINS/equipment"
 iki plugin validate . "$@"
 iki plugin makemigrations . "$@" --check --no-input
 iki plugin test . "$@"

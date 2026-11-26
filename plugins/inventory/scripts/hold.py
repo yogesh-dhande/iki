@@ -1,4 +1,4 @@
-"""Carry a tube's withdrawal reason to its derived stock."""
+"""Carry a container's withdrawal reason to its derived stock."""
 
 import json
 import os

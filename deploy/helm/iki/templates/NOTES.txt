@@ -2,6 +2,13 @@ Iki {{ .Chart.AppVersion }} is deployed as release "{{ .Release.Name }}" in name
 
 Check the rollout:
   kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "iki.fullname" . }}-web
+{{- if .Values.sandbox.enabled }}
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "iki.fullname" . }}-sandbox
+The export sandbox runs plugins' writers. It's ready once every writer module in the
+image has loaded and passed its checks. If it isn't, its readiness says why:
+  kubectl -n {{ .Release.Namespace }} port-forward deploy/{{ include "iki.fullname" . }}-sandbox 8091:8091
+  curl http://localhost:8091/healthz/ready
+{{- end }}
 
 First install? Set up sign-in with a one-time link (valid for 60 minutes):
   kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "iki.fullname" . }}-web -- iki-server setup_link
