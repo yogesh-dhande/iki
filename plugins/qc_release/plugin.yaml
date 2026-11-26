@@ -1,12 +1,13 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/qc_release
-version: 0.3.0
+version: 0.4.0
 title: QC release testing
 description: Effective-dated lot specifications, out-of-specification investigations and signed certificates of analysis.
 license: Apache-2.0
 iki: ">=0.1"
 homepage: https://ikisci.org/plugins/qc_release
+starters: { lot-release-testing: "1.0.0" }
 dependencies:
   iki/lots:
     types: { Lot: ">=2" }
@@ -18,7 +19,10 @@ settings:
     label: Release testing review
     values: [research, regulated_qc]
     default: research
-    description: New release cases retain this flow for investigations and certificates.
+    description: >-
+      The deployment's default for projects that haven't chosen one with the Lot release
+      testing starter. A release case keeps the flow it was opened with for its
+      investigations and certificate.
   successor_effective_dates:
     type: enum
     label: When a successor specification can take effect

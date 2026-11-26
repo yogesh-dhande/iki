@@ -42,19 +42,19 @@ def test_the_example_declares_its_writer_and_its_transfers_export_through_it(
     result = load_plugin(plugin)
     assert codes(result) == []
     assert result.plugin is not None
-    writer = result.plugin.writers["examples/liquid_handling.tecan-worklist"]
+    writer = result.plugin.writers["acme/liquid_handling.tecan-worklist"]
     assert (writer.format, writer.many, writer.memory) == (
-        "examples/liquid_handling.tecan-gwl",
+        "acme/liquid_handling.tecan-gwl",
         "file",
         16 * 1024 * 1024,
     )
     assert re.fullmatch(r"[0-9a-f]{64}", writer.sha256)
     assert writer.roles["volume"].unit == "uL"
-    assert writer.roles["source_plate"].to == ("examples/liquid_handling.Plate",)
-    transfer = result.plugin.types["examples/liquid_handling.Transfer"]
+    assert writer.roles["source_plate"].to == ("acme/liquid_handling.Plate",)
+    transfer = result.plugin.types["acme/liquid_handling.Transfer"]
     assert transfer.exports == (
         PluginExport(
-            "examples/liquid_handling.tecan-worklist",
+            "acme/liquid_handling.tecan-worklist",
             {
                 "source_plate": "source",
                 "source_well": "source_well",

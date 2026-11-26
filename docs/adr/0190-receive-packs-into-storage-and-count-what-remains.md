@@ -1,6 +1,6 @@
 # 0190. Receive packs into storage and count what remains
 
-- Status: Accepted
+- Status: Accepted. [ADR 0245](0245-stock-is-received-with-or-without-an-order.md) adds receipts without an order, storage without positions and optional thresholds.
 - Date: 2026-11-22
 
 ## Context

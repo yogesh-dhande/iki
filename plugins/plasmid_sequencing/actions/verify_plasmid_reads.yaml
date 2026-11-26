@@ -5,7 +5,8 @@ name: verify_plasmid_reads
 label: Verify a plasmid from its long reads
 description: >-
   Aligns a prep's whole-plasmid reads, nanopore or PacBio HiFi, to the plasmid's own
-  registered sequence, round its circle, and calls their consensus. Records the depth of
+  registered sequence, round its circle, and calls their consensus with this plugin's
+  majority caller, version 1. Records the depth of
   reads along the plasmid, the consensus, and each difference from the record, named as
   HGVS names it, with the features it falls in, the run of repeated bases it lies in, and
   the reads that support it on each strand. A prep's verification takes the result as its
@@ -47,6 +48,11 @@ effects:
   creates: [{ type: WholePlasmidAlignment, cardinality: one, derived_from: [plasmid, reads] }]
 software:
   - { name: minimap2, version: "2.31", url: https://github.com/lh3/minimap2 }
+  - {
+      name: Iki majority consensus,
+      version: "1",
+      url: https://ikisci.org/plugins/plasmid_sequencing,
+    }
 runs_on: { tier: backend, environment: long-read-tools }
 command: [python, ./scripts/whole_plasmid.py]
 deterministic: true

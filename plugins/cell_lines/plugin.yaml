@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/cell_lines
-version: 0.2.0
+version: 0.3.0
 title: Cell lines
 description: >-
   Registers parental lines and engineered derivatives. Tracks each bank, its vials,
@@ -16,6 +16,9 @@ dependencies:
     types:
       Tube: ">=1"
 roles:
+  recorder:
+    label: Cell bank check recorder
+    description: Accepts a recorded check with its report as final, where the project's procedure needs no signature.
   research_signer:
     label: Cell bank research signatory
     description: Signs a recorded check in a research project.

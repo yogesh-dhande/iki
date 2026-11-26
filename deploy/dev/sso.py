@@ -1764,7 +1764,7 @@ def lims(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(f"{sent['hrid']} wrote {first['hrid']} to external record {LIMS_RECORDS[0]}")
 
 
-#: examples/liquid_handling's Tecan worklist (ADR 0230) for one transfer: an aspirate from
+#: acme/liquid_handling's Tecan worklist (ADR 0230) for one transfer: an aspirate from
 #: well B3 of a 384-well source plate (column 3, row B: (3 - 1) x 16 + 2 = 34), a dispense
 #: to A1 of a 96-well plate (position 1), then a wash, as Freedom EVOware reads it.
 TECAN_WORKLIST = (
@@ -1776,9 +1776,9 @@ TECAN_WORKLIST = (
 
 def plugin_export(alice: requests.Session, project: dict[str, Any]) -> None:
     """Download a plugin's format: a liquid handler's worklist for a plate-to-plate
-    transfer, written by examples/liquid_handling's Wasm writer in the export sandbox,
+    transfer, written by acme/liquid_handling's Wasm writer in the export sandbox,
     and audited with the module that wrote it."""
-    kind = "examples/liquid_handling."
+    kind = "acme/liquid_handling."
     source = created(
         alice,
         project,
@@ -1852,12 +1852,12 @@ def plugin_export(alice: requests.Session, project: dict[str, Any]) -> None:
         not audited
         or audited.get("format") != format_name
         or audited.get("sha256") != digest
-        or writer.get("plugin") != "examples/liquid_handling"
+        or writer.get("plugin") != "acme/liquid_handling"
         or not re.fullmatch(r"[0-9a-f]{64}", str(writer.get("module_sha256", "")))
     ):
         fail(f"exporting {transfer['hrid']} was audited as {audited}")
     ok(
-        f"{transfer['hrid']} downloads as a Tecan worklist that examples/liquid_handling's writer "
+        f"{transfer['hrid']} downloads as a Tecan worklist that acme/liquid_handling's writer "
         f"wrote in the export sandbox (SHA-256 {digest[:12]}…), audited with module "
         f"{writer['module_sha256'][:12]}…"
     )
@@ -2095,17 +2095,17 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
         if kept != ["alignments.paf.gz", "consensus.fasta", "coverage.tsv", "differences.tsv"]:
             fail(f"{checked['hrid']} kept {kept}")
     values = result["values"]
-    if values["verdict"] != values["agreement"]:
-        fail(f"{result['hrid']} has conflicting alignment and result verdicts")
+    if values["consensus_caller"] != "iki_majority_1" or values["polishing_rounds"] is None:
+        fail(f"{result['hrid']} doesn't name the caller that called its consensus")
     named = [d["hgvs"] for d in values["differences"]]
     if (
-        values["agreement"],
+        values["verdict"],
         named,
         values["reads_aligned"],
         values["reference"],
     ) != ("differs", WHOLE_PLASMID_DIFFERENCES, 37, plasmid["values"]["sequence"]):
         fail(
-            f"{result['hrid']} recorded {values['agreement']} {named} "
+            f"{result['hrid']} recorded {values['verdict']} {named} "
             f"from {values['reads_aligned']} reads"
         )
     # Each read counts once, however many times it passes a base.
@@ -2155,12 +2155,17 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
             project,
             prefix + "verify_plasmid_consensus",
             {"plasmid": plasmid["id"]},
-            {"consensus": values["consensus"], "provider": "Iki, from SRR17915342"},
+            {
+                "consensus": values["consensus"],
+                "provider": "Iki majority consensus 1, from SRR17915342",
+            },
         )
         effect = next(e for e in run_["effects"] if e["type"] == prefix + "WholePlasmidAlignment")
         compared = record(alice, effect["entity"])
     if [d["hgvs"] for d in compared["values"]["differences"]] != WHOLE_PLASMID_DIFFERENCES:
         fail(f"{compared['hrid']} found {compared['values']['differences']}")
+    if compared["values"]["consensus_caller"] != "supplied":
+        fail(f"{compared['hrid']} doesn't say its consensus was supplied")
     ok(
         f"{verifications[0]['hrid']} links {result['hrid']} as {prep['hrid']}'s evidence, and "
         f"its consensus compared alone ({compared['hrid']}) names the same differences"
@@ -2514,6 +2519,36 @@ def cell_bank_history(alice: requests.Session, project: dict[str, Any]) -> None:
         if signed["status"] != "signed" or not signed["set"]:
             fail(f"Research sign-off for {check['hrid']} returned {signed}")
         checks[kind] = check["id"]
+    # A record-only check: the testing laboratory's report is the evidence, with no signature.
+    give_lab_roles(alice, project, plugin + "recorder")
+    report = upload(
+        alice, project, "synthetic_sterility.csv", b"test,result\nsterility,negative\n", "text/csv"
+    )
+    sterility = created(
+        alice,
+        project,
+        plugin + "CellCheck",
+        {
+            "bank": bank["id"],
+            "kind": "sterility",
+            "method": "Synthetic outside report",
+            "result": "negative",
+            "checked_on": "2026-01-07",
+            "report": report,
+        },
+    )
+    path = f"/entities/{sterility['id']}"
+    accepted = api_call(
+        alice,
+        "POST",
+        f"{path}/states/review",
+        {"state": "accepted", "reason": ""},
+        {"If-Match": api_call(alice, "GET", path).headers["ETag"]},
+    )
+    if accepted.status_code != 200 or record(alice, sterility["id"])["values"]["review"] != (
+        "accepted"
+    ):
+        fail(f"accepting {sterility['hrid']} gave {accepted.status_code}: {accepted.text[:200]}")
     thaw = created(
         alice,
         project,
@@ -2584,7 +2619,10 @@ def cell_bank_history(alice: requests.Session, project: dict[str, Any]) -> None:
             "signed_off",
         ):
             fail(f"{thaw['hrid']}'s {field} link led to unexpected QC details {values}")
-    ok(f"{sample['hrid']} traces through P10 and {vial['hrid']}'s thaw to both signed checks")
+    ok(
+        f"{sample['hrid']} traces through P10 and {vial['hrid']}'s thaw to both signed checks; "
+        f"{sterility['hrid']} is accepted with its report"
+    )
 
 
 def certify_dev_signatures(admin: requests.Session) -> None:
@@ -2643,7 +2681,7 @@ def signatures(alice: requests.Session, project: dict[str, Any]) -> None:
     )
     work = created(alice, project, "iki/requests.PlainRequest", {"title": "Training measurement"})
     sample = created(
-        alice, project, "iki/samples.Sample", {"source": tube["id"], "purpose": work["id"]}
+        alice, project, "iki/samples.ReviewedSample", {"source": tube["id"], "purpose": work["id"]}
     )
     draw = api_call(
         alice,
