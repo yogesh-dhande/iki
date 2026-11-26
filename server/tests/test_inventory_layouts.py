@@ -63,9 +63,14 @@ def test_racks_freezers_and_boxes_take_the_labs_layout(tmp_path: Path, database:
         def make(type_name, values, **kwargs):
             return services.create(user, type_name, project, values, **kwargs).entity
 
+        class Put:
+            def __init__(self, place, container):
+                self.container_id = place.container_id
+                self.position = storage.label(storage.shape_of(container), place.row, place.column)
+
         def put(item, container, position=None):
             storage.move(user, [storage.Wanted(item, container, position)], reason="Stored")
-            return Place.objects.get(pk=item.pk)
+            return Put(Place.objects.get(pk=item.pk), container)
 
         def refused(item, container, position=None):
             with pytest.raises(storage.Wrong) as raised:
@@ -115,7 +120,7 @@ def test_racks_freezers_and_boxes_take_the_labs_layout(tmp_path: Path, database:
 
         weighed = amounts.Given(Decimal(5), "mg")
         amounts.draw(user, vial, weighed)
-        result["vial_left"] = str(amounts.amounts_of([vial])[vial.pk].value)
+        result["vial_left"] = float(amounts.amounts_of([vial])[vial.pk].value)
         with pytest.raises(amounts.Wrong, match="confirm"):
             amounts.draw(user, tube, amounts.Given(Decimal(5), "uL"))
         amounts.draw(user, tube, amounts.Given(Decimal(5), "uL"), confirm="T-1")
@@ -133,7 +138,7 @@ def test_racks_freezers_and_boxes_take_the_labs_layout(tmp_path: Path, database:
         services.update(user, vial, {"on_hold": False}, reason="Relabelled and checked",
                         expected_revision=vial.revision)
         amounts.draw(user, vial, weighed)
-        result["vial_after_hold"] = str(amounts.amounts_of([vial])[vial.pk].value)
+        result["vial_after_hold"] = float(amounts.amounts_of([vial])[vial.pk].value)
 
         # Withdrawing a vial holds the vials split from it, as it does a tube's aliquots.
         from iki_server.runs import catalog, triggers
@@ -172,8 +177,8 @@ def test_racks_freezers_and_boxes_take_the_labs_layout(tmp_path: Path, database:
         "vial_at": "A2",
         "box_refuses_shelf": True,
         "on_shelf": [True, None],
-        "vial_left": "20",
-        "vial_after_hold": "15",
+        "vial_left": 20,
+        "vial_after_hold": 15,
         "derived": [
             ["source", "acme/compound_store.PowderVial"],
             ["tubes", "acme/compound_store.PowderVial"],
