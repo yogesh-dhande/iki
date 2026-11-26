@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import { queryClient } from "./api";
 import fixtures from "./flow-fixtures.json";
 import { createAppRouter } from "./router";
-import { eligible, independentEnough, signingRoles, type Member } from "./starters";
+import { eligible, flowUsed, independentEnough, type Member } from "./starters";
 import { answer, calls, page, problem, project, signedIn, TEAM } from "./test-server";
 
 const SERVICE = project({
@@ -37,12 +37,20 @@ function starter(more: Partial<Schemas["StarterOut"]> = {}): Schemas["StarterOut
         label: "Research",
         result_type: `${PLATE}ResearchAssayResult`,
         required_roles: [ANALYST, REVIEWER],
+        independent_roles: [],
+        summary:
+          "A result is recorded, then one reviewer signs it off. For discovery work, where one check is enough.",
+        states: null,
       },
       {
         id: "regulated_qc",
         label: "Regulated QC",
         result_type: `${PLATE}QCAssayResult`,
         required_roles: [ANALYST, REVIEWER, QA],
+        independent_roles: [ANALYST, REVIEWER, QA],
+        summary:
+          "The analyst signs the submission, an independent reviewer signs the review, and QA signs the release: three different people, each signing in again. For GxP and QC work.",
+        states: null,
       },
     ],
     roles: [
@@ -124,7 +132,11 @@ function onStarters(
       uses: [],
     })),
   );
-  for (const type of [`${PLATE}ResearchAssayResult`, `${PLATE}QCAssayResult`]) {
+  for (const type of [
+    `${PLATE}ResearchAssayResult`,
+    `${PLATE}QCAssayResult`,
+    "iki/experiments.Experiment",
+  ]) {
     answer(`GET /api/v1/entity-types/${type}/flow`, flowOf(type));
   }
 }
@@ -167,14 +179,115 @@ describe("who can do what", () => {
     ).toBe(false);
   });
 
-  it("reads who signs from the result type's flow", () => {
-    const qc = flowOf(`${PLATE}QCAssayResult`).fields[0];
-    expect(signingRoles(qc)).toEqual([ANALYST, REVIEWER, QA]);
-    expect(signingRoles(flowOf(`${PLATE}ResearchAssayResult`).fields[0])).toEqual([REVIEWER]);
+  it("draws only the states a flow uses when its records share a type", () => {
+    const experiment = flowOf("iki/experiments.Experiment").fields[0];
+    if (!experiment) throw new Error("no review field");
+    const signed = flowUsed(experiment, ["recorded", "signed"]);
+    expect(signed.states.map((s) => s.name)).toEqual(["recorded", "signed"]);
+    expect(signed.transitions.map((t) => `${t.from}→${t.to}`)).toEqual(["recorded→signed"]);
+    const qc = flowUsed(experiment, ["recorded", "submitted", "reviewed", "released"]);
+    expect(qc.states.map((s) => s.name)).not.toContain("witnessed");
+    expect(qc.transitions.every((t) => t.to !== "signed" && t.from !== "signed")).toBe(true);
+    // A flow whose type is its own is drawn whole.
+    const whole = flowOf(`${PLATE}QCAssayResult`).fields[0];
+    if (!whole) throw new Error("no review field");
+    expect(flowUsed(whole, null)).toBe(whole);
   });
 });
 
+const EXPERIMENT = "iki/experiments.";
+const [AUTHOR, WITNESS, EXPERIMENT_QA] = [
+  `${EXPERIMENT}author`,
+  `${EXPERIMENT}reviewer`,
+  `${EXPERIMENT}qa`,
+];
+
+/** The experiment-review starter as the server lists it: every flow's records are experiments. */
+function experimentReview(): Schemas["StarterOut"] {
+  const flow = (
+    id: Schemas["StarterFlowOut"]["id"],
+    label: string,
+    required: string[],
+    independent: string[],
+    states: string[],
+  ): Schemas["StarterFlowOut"] => ({
+    id,
+    label,
+    result_type: `${EXPERIMENT}Experiment`,
+    required_roles: required,
+    independent_roles: independent,
+    summary: `${label}, in a sentence.`,
+    states,
+  });
+  return {
+    id: "experiment-review",
+    version: "1.0.0",
+    label: "Experiment review",
+    description: "Choose how experiment records are signed in this project and assign the roles.",
+    flows: [
+      flow("author_signed", "Author sign-off", [AUTHOR], [], ["recorded", "signed"]),
+      flow("research", "Research", [AUTHOR, WITNESS], [AUTHOR, WITNESS], ["recorded", "witnessed"]),
+      flow(
+        "regulated_qc",
+        "Regulated QC",
+        [AUTHOR, WITNESS, EXPERIMENT_QA],
+        [AUTHOR, WITNESS, EXPERIMENT_QA],
+        ["recorded", "submitted", "reviewed", "released"],
+      ),
+    ],
+    roles: [
+      { id: AUTHOR, label: "Experiment author", minimum_project_role: "editor" },
+      { id: WITNESS, label: "Experiment reviewer", minimum_project_role: "viewer" },
+      { id: EXPERIMENT_QA, label: "Experiment QA", minimum_project_role: "viewer" },
+    ],
+    types: [`${EXPERIMENT}Experiment`],
+    applied: null,
+  };
+}
+
 describe("a project's starters", () => {
+  it("draws only the states of the experiment flow chosen, and checks its signers", async () => {
+    onStarters(experimentReview());
+    const { user } = await renderApp("/projects/assay-core/settings/starters/");
+    const card = await screen.findByRole("region", { name: "Experiment review" });
+    const flows = within(card).getByRole("group", { name: "Review flow" });
+    expect(
+      within(flows).getByRole("radio", { name: /^Author sign-off: Author sign-off, in a/ }),
+    ).toBeChecked();
+    const states = await within(card).findByRole("list", { name: "Review’s states" });
+    await waitFor(() => {
+      expect(
+        within(states)
+          .getAllByRole("button")
+          .map((b) => b.textContent),
+      ).toEqual([
+        "Recorded, where records start. Set by Experiment author, Experiment reviewer or Experiment QA",
+        "Signed by author, locks it. Set by Experiment author, signed: Authorship",
+      ]);
+    });
+    // Only an author is asked for, and one person is enough.
+    expect(within(card).queryByRole("group", { name: "Experiment reviewer" })).toBeNull();
+
+    await user.click(within(flows).getByRole("radio", { name: /^Research/ }));
+    await waitFor(() => {
+      expect(
+        within(within(card).getByRole("list", { name: "Review’s states" }))
+          .getAllByRole("button")
+          .map((b) => b.textContent.split(",")[0]),
+      ).toEqual(["Recorded", "Witnessed"]);
+    });
+    // The witness signs independently of the author: one person can't be both.
+    const authors = within(card).getByRole("group", { name: "Experiment author" });
+    const witnesses = within(card).getByRole("group", { name: "Experiment reviewer" });
+    await user.click(within(authors).getByRole("checkbox", { name: "Barbara McClintock" }));
+    await user.click(within(witnesses).getByRole("checkbox", { name: "Barbara McClintock" }));
+    await user.click(within(card).getByRole("button", { name: "Preview" }));
+    expect(within(card).getByRole("alert")).toHaveTextContent(
+      "Choose 2 different people for Experiment author and Experiment reviewer",
+    );
+    expect(calls("POST")).toHaveLength(0);
+  });
+
   it("draws each flow, checks the choice, previews what changes, then applies it", async () => {
     onStarters();
     const { user } = await renderApp("/projects/assay-core/settings/starters/");
@@ -355,7 +468,7 @@ describe("a project's starters", () => {
     // Switching flow says what happens to records mid-flow.
     await user.click(within(card).getByRole("radio", { name: /^Regulated QC/ }));
     expect(within(card).getByRole("note")).toHaveTextContent(
-      "Existing results keep their current review and signature requirements",
+      "Records already signed keep the review and signature requirements they were signed under",
     );
     const analysts = within(card).getByRole("group", { name: "Assay analyst" });
     await user.click(within(analysts).getByRole("checkbox", { name: "Dorothy Hodgkin" }));

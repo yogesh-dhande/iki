@@ -59,7 +59,7 @@ def test_witnesses_sign_the_experiment_at_its_recorded_versions(
     migrate(build, database)
     sync(build, database)
     # Each run sees its own build's selected review procedure.
-    for flow in ("research", "regulated_qc"):
+    for flow in ("author_signed", "research", "regulated_qc"):
         (build / "iki_plugin_iki__experiments" / "settings.json").write_text(
             json.dumps({"review_flow": flow})
         )
@@ -264,6 +264,35 @@ def duplicate_observations(world: World) -> None:
     ]
 
 
+def uncited(world: World, result: Entity) -> None:
+    """An author signs a record without a notebook entry or protocol, but a cited one names
+    its revision."""
+    editor = world.users["editor"]
+    gel = Entity.objects.get(
+        pk=services.create(
+            editor,
+            PREFIX + "Experiment",
+            world.project,
+            {
+                "title": "Synthetic gel image",
+                "eln_url": "https://eln.example.org/entry/43",
+                "observations": [{"observed_at": OBSERVED_AT, "note": "Synthetic band"}],
+            },
+        ).entity.pk
+    )
+    capture(world, gel, result)
+    ref = str(gel.pk)
+    with pytest.raises(Refused, match="revision of the notebook entry"):
+        begin(world, "editor", ref, "signed", field="review")
+    services.update(editor, gel, {"eln_url": None}, expected_revision=gel.revision)
+    gel.refresh_from_db()
+    capture(world, gel, result)
+    signature = sign(world, gel, "editor", "signed")
+    evidence = json.loads(signature.content)["values"]
+    assert evidence["eln_url"] is None and evidence["protocol_id"] is None
+    assert evidence["review_flow"] == "author_signed"
+
+
 def exercise(flow: str) -> None:
     world = build_world(flow + "-")
     ready(world)
@@ -277,6 +306,12 @@ def exercise(flow: str) -> None:
         membership = world.project.memberships.get(user=world.users[who])
         for role in held:
             LabRoleGrant.objects.create(membership=membership, role=PREFIX + role)
+    if flow == "author_signed":
+        # A colleague who also writes experiments, but not this one.
+        LabRoleGrant.objects.create(
+            membership=world.project.memberships.get(user=world.users["runner"]),
+            role=PREFIX + "author",
+        )
     LabRoleGrant.objects.create(
         membership=world.project.memberships.get(user=world.users["admin"]), role="iki/lots.qa"
     )
@@ -340,7 +375,11 @@ def exercise(flow: str) -> None:
         concurrent_draws(world, result)
         denied_draws(world, lot, given)
     capture(world, experiment, result)
-    signer, opening = ("admin", "witnessed") if flow == "research" else ("editor", "submitted")
+    signer, opening = {
+        "author_signed": ("editor", "signed"),
+        "research": ("admin", "witnessed"),
+        "regulated_qc": ("editor", "submitted"),
+    }[flow]
     signing = begin(world, signer, str(experiment.pk), opening, field="review")
     # The author records another withdrawal while the signer is reauthenticating.
     before = experiment.revision
@@ -370,7 +409,21 @@ def exercise(flow: str) -> None:
     with pytest.raises(Refused):
         begin(world, signer, ref, opening, field="review")
     capture(world, experiment, result)
-    if flow == "research":
+    if flow == "author_signed":
+        for other in ("witnessed", "submitted"):
+            with pytest.raises(Refused):
+                begin(
+                    world, "admin" if other == "witnessed" else "editor", ref, other, field="review"
+                )
+        with pytest.raises(PermissionDenied):
+            begin(world, "viewer", ref, "signed", field="review")
+        # Authorship is the author's own: a colleague with the role can't sign it for them.
+        with pytest.raises(Refused):
+            begin(world, "runner", ref, "signed", field="review")
+        signature = sign(world, experiment, "editor", "signed")
+        assert Signature.objects.filter(entity=experiment).count() == 1
+        uncited(world, result)
+    elif flow == "research":
         with pytest.raises(PermissionDenied):
             begin(world, "viewer", ref, "witnessed", field="review")
         with pytest.raises(Refused):
@@ -428,7 +481,8 @@ def exercise(flow: str) -> None:
         "entry-v3",
     )
     assert evidence["protocol_id"] == "SOP-7"
-    assert evidence["protocol_revision"] == ("2" if flow == "research" else "2.1")
+    assert evidence["protocol_revision"] == ("2.1" if flow == "regulated_qc" else "2")
+    assert evidence["review_flow"] == flow
     assert evidence["samples"] == [str(lot.pk)]
     (observation,) = evidence["observations"]
     assert datetime.fromisoformat(observation["observed_at"]) == datetime.fromisoformat(OBSERVED_AT)

@@ -1,4 +1,4 @@
-"""The installed assay starters and their project-specific setup (ADR 0198)."""
+"""The installed starters and their project-specific setup (ADRs 0198 and 0247)."""
 
 from typing import Any, Literal
 from uuid import UUID
@@ -14,14 +14,23 @@ from iki_server.setup import starters
 
 router = Router(tags=["starters"])
 
-StarterFlow = Literal["research", "regulated_qc"]
+StarterFlow = Literal["author_signed", "research", "regulated_qc"]
 
 
 class StarterFlowOut(Schema):
     id: StarterFlow
     label: str
-    result_type: str = Field(description="Qualified result type for new fits in this flow.")
+    result_type: str = Field(description="Qualified type of the records new in this flow.")
     required_roles: list[str] = Field(description="Qualified lab roles needed to run this flow.")
+    independent_roles: list[str] = Field(
+        description="Required roles whose signatures must come from different people: each "
+        "group of them needs at least as many people as it has roles."
+    )
+    summary: str = Field(description="What the flow asks of people, in a sentence or two.")
+    states: list[str] | None = Field(
+        description="The states of `result_type` this flow uses, when the type's records "
+        "follow more than one flow. Null when it uses all of them."
+    )
 
 
 class StarterRoleOut(Schema):
@@ -53,10 +62,10 @@ class StarterOut(Schema):
 class StarterSetupIn(Schema):
     model_config = ConfigDict(extra="forbid")
     version: str = Field(min_length=1, description="Installed starter version shown at setup.")
-    project: UUID = Field(description="The assay project. Requires its Admin role.")
+    project: UUID = Field(description="The project to set up. Requires its Admin role.")
     flow: StarterFlow
     role_assignments: dict[str, list[UUID]] = Field(
-        description="Each qualified lab role and the assay project membership IDs receiving it."
+        description="Each qualified lab role and the project membership IDs receiving it."
     )
 
 
@@ -101,7 +110,7 @@ def list_starters(request: HttpRequest, project: UUID | None = None) -> list[dic
     "/starters/{starter}/preview", response=StarterSetupOut, summary="Preview a starter choice"
 )
 def preview_starter(request: HttpRequest, starter: str, payload: StarterSetupIn) -> dict[str, Any]:
-    """Preview the version, review flow and role grants for the assay project."""
+    """Preview the version, review flow and role grants for the project."""
     me = common.caller(request)
     project = common.project(me, payload.project, Action.PROJECT_MANAGE)
     return starters.preview(
@@ -118,7 +127,7 @@ def preview_starter(request: HttpRequest, starter: str, payload: StarterSetupIn)
     "/starters/{starter}/apply", response=StarterSetupOut, summary="Apply a starter to a project"
 )
 def apply_starter(request: HttpRequest, starter: str, payload: StarterApplyIn) -> dict[str, Any]:
-    """Apply the reviewed flow and role grants to the assay project.
+    """Apply the reviewed flow and role grants to the project.
     If what applying does changed since the preview, as when another Admin removed a grant or
     applied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,
     what applying would do now, for review (ADR 0207). Reapplying a setup that's in place

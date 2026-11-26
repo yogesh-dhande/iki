@@ -1344,6 +1344,7 @@
         "properties": {
           "flow": {
             "enum": [
+              "author_signed",
               "research",
               "regulated_qc"
             ],
@@ -28651,6 +28652,7 @@
         "properties": {
           "flow": {
             "enum": [
+              "author_signed",
               "research",
               "regulated_qc"
             ],
@@ -28664,7 +28666,7 @@
             "type": "string"
           },
           "project": {
-            "description": "The assay project. Requires its Admin role.",
+            "description": "The project to set up. Requires its Admin role.",
             "format": "uuid",
             "title": "Project",
             "type": "string"
@@ -28677,7 +28679,7 @@
               },
               "type": "array"
             },
-            "description": "Each qualified lab role and the assay project membership IDs receiving it.",
+            "description": "Each qualified lab role and the project membership IDs receiving it.",
             "title": "Role Assignments",
             "type": "object"
           },
@@ -28702,11 +28704,20 @@
         "properties": {
           "id": {
             "enum": [
+              "author_signed",
               "research",
               "regulated_qc"
             ],
             "title": "Id",
             "type": "string"
+          },
+          "independent_roles": {
+            "description": "Required roles whose signatures must come from different people: each group of them needs at least as many people as it has roles.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Independent Roles",
+            "type": "array"
           },
           "label": {
             "title": "Label",
@@ -28721,8 +28732,28 @@
             "type": "array"
           },
           "result_type": {
-            "description": "Qualified result type for new fits in this flow.",
+            "description": "Qualified type of the records new in this flow.",
             "title": "Result Type",
+            "type": "string"
+          },
+          "states": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The states of `result_type` this flow uses, when the type's records follow more than one flow. Null when it uses all of them.",
+            "title": "States"
+          },
+          "summary": {
+            "description": "What the flow asks of people, in a sentence or two.",
+            "title": "Summary",
             "type": "string"
           }
         },
@@ -28730,7 +28761,10 @@
           "id",
           "label",
           "result_type",
-          "required_roles"
+          "required_roles",
+          "independent_roles",
+          "summary",
+          "states"
         ],
         "title": "StarterFlowOut",
         "type": "object"
@@ -28834,6 +28868,7 @@
         "properties": {
           "flow": {
             "enum": [
+              "author_signed",
               "research",
               "regulated_qc"
             ],
@@ -28841,7 +28876,7 @@
             "type": "string"
           },
           "project": {
-            "description": "The assay project. Requires its Admin role.",
+            "description": "The project to set up. Requires its Admin role.",
             "format": "uuid",
             "title": "Project",
             "type": "string"
@@ -28854,7 +28889,7 @@
               },
               "type": "array"
             },
-            "description": "Each qualified lab role and the assay project membership IDs receiving it.",
+            "description": "Each qualified lab role and the project membership IDs receiving it.",
             "title": "Role Assignments",
             "type": "object"
           },
@@ -28883,6 +28918,7 @@
           },
           "flow": {
             "enum": [
+              "author_signed",
               "research",
               "regulated_qc"
             ],
@@ -49273,7 +49309,7 @@
     },
     "/api/v1/starters/{starter}/apply": {
       "post": {
-        "description": "Apply the reviewed flow and role grants to the assay project.\nIf what applying does changed since the preview, as when another Admin removed a grant or\napplied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,\nwhat applying would do now, for review (ADR 0207). Reapplying a setup that's in place\nchanges nothing. Changing the flow selects the result type for future fits. Existing\nresults keep their flow.",
+        "description": "Apply the reviewed flow and role grants to the project.\nIf what applying does changed since the preview, as when another Admin removed a grant or\napplied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,\nwhat applying would do now, for review (ADR 0207). Reapplying a setup that's in place\nchanges nothing. Changing the flow selects the result type for future fits. Existing\nresults keep their flow.",
         "operationId": "iki_server_api_starters_apply_starter",
         "parameters": [
           {
@@ -49324,7 +49360,7 @@
     },
     "/api/v1/starters/{starter}/preview": {
       "post": {
-        "description": "Preview the version, review flow and role grants for the assay project.",
+        "description": "Preview the version, review flow and role grants for the project.",
         "operationId": "iki_server_api_starters_preview_starter",
         "parameters": [
           {

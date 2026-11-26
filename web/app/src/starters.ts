@@ -109,16 +109,6 @@ export function eligible(
   );
 }
 
-/** The lab roles whose holders sign a flow's states: those the result type's states that
- * need a signature are set by. In Regulated QC, the analyst's submission, the reviewer's
- * review and QA's release. */
-export function signingRoles(flow: FlowField | undefined): string[] {
-  const roles = (flow?.states ?? [])
-    .filter((s) => s.signatures.length)
-    .flatMap((s) => s.signatures.flatMap((g) => g.roles));
-  return [...new Set(roles)];
-}
-
 /**
  * Whether the people chosen for these roles can each sign a different step: for every
  * group of the roles, at least as many different people hold one of them as there are
@@ -138,10 +128,21 @@ export function independentEnough(
   return true;
 }
 
-/** What a flow asks of people, in a sentence, for the flows starters offer. */
-export function flowSummary(flow: Pick<StarterFlow, "id" | "label">): string {
-  if (flow.id === "research") {
-    return "A result is recorded, then one reviewer signs it off. For discovery work, where one check is enough.";
-  }
-  return "The analyst signs the submission, an independent reviewer signs the review, and QA signs the release: three different people, each signing in again. For GxP and QC work.";
+/**
+ * A flow as one of a starter's review flows uses it: when its records share one type with
+ * other flows (experiments do), only the states it uses and the moves between them.
+ */
+export function flowUsed(
+  field: FlowField,
+  states: readonly string[] | null | undefined,
+): FlowField {
+  if (!states) return field;
+  const kept = new Set(states);
+  return {
+    ...field,
+    states: field.states
+      .filter((s) => kept.has(s.name))
+      .map((s) => (s.on_edit && !kept.has(s.on_edit) ? { ...s, on_edit: null } : s)),
+    transitions: field.transitions.filter((t) => kept.has(t.from) && kept.has(t.to)),
+  };
 }

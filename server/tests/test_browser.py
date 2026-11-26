@@ -4947,6 +4947,13 @@ def _starter_api(page: Page) -> dict[str, Any]:
         PLATE + "qa": ("Assay QA", "viewer"),
     }
     flows = {"research": "ResearchAssayResult", "regulated_qc": "QCAssayResult"}
+    summaries = {
+        "research": "A result is recorded, then one reviewer signs it off. For discovery work, "
+        "where one check is enough.",
+        "regulated_qc": "The analyst signs the submission, an independent reviewer signs the "
+        "review, and QA signs the release: three different people, each signing in again. "
+        "For GxP and QC work.",
+    }
     state: dict[str, Any] = {"applied": None, "sent": [], "held": set()}
 
     def starters() -> list[dict[str, Any]]:
@@ -4964,6 +4971,9 @@ def _starter_api(page: Page) -> dict[str, Any]:
                         "label": "Research" if flow == "research" else "Regulated QC",
                         "result_type": f"{PLATE}{base}",
                         "required_roles": required if flow == "regulated_qc" else required[:2],
+                        "independent_roles": required if flow == "regulated_qc" else [],
+                        "summary": summaries[flow],
+                        "states": None,
                     }
                     for flow, base in flows.items()
                 ],

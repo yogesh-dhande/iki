@@ -2,7 +2,7 @@
 
 The `iki` command-line tool for plugin authors and deployments: the
 `iki plugin` commands `validate`, `build`, `makemigrations`, `preflight` and `test`,
-`iki bundle verify`, `iki deploy build`, and `iki starter` for assay setup.
+`iki bundle verify`, `iki deploy build`, and `iki starter` for a project's review setup.
 
 ## `iki starter`
 
@@ -24,6 +24,16 @@ When the preview lists changes, review the result type and proposed grants.
 Run `iki starter apply` with the same arguments and `--plan` set to the printed
 plan ID. If the plan changes, the CLI prints the current plan for review. If
 preview reports `Already applied`, setup is complete.
+
+The experiment-review starter sets how a project's experiment records are
+signed: `author_signed`, `research` or `regulated_qc`. Author sign-off needs
+only an author:
+
+```sh
+iki starter preview experiment-review --version 1.0.0 --flow author_signed \
+  --project "$PROJECT" \
+  --role "iki/experiments.author=$AUTHOR"
+```
 
 To run the worked Tox21 experiment, follow the
 [assay tutorial](../docs/guides/first-dose-response-assay.md).

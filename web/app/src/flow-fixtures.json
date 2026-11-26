@@ -1,5 +1,8 @@
 {
   "roles": {
+    "iki/experiments.author": "Experiment author",
+    "iki/experiments.qa": "Experiment QA",
+    "iki/experiments.reviewer": "Experiment reviewer",
     "iki/lab_roles.analyst": "Analyst",
     "iki/lab_roles.coordinator": "Coordinator",
     "iki/lab_roles.engineer": "Engineer",
@@ -1143,6 +1146,330 @@
               "from": "reviewed",
               "to": "recorded",
               "conditional": false
+            },
+            {
+              "from": "recorded",
+              "to": "submitted",
+              "conditional": true
+            },
+            {
+              "from": "submitted",
+              "to": "reviewed",
+              "conditional": true
+            },
+            {
+              "from": "reviewed",
+              "to": "released",
+              "conditional": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "iki/experiments.Experiment",
+      "label": "Experiment",
+      "fields": [
+        {
+          "name": "review",
+          "label": "Review",
+          "initial": "recorded",
+          "states": [
+            {
+              "name": "recorded",
+              "label": "Recorded",
+              "description": null,
+              "set_by": [
+                "iki/experiments.author",
+                "iki/experiments.reviewer",
+                "iki/experiments.qa"
+              ],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": "required",
+              "guards": [
+                {
+                  "name": "correctable",
+                  "description": null,
+                  "check": "state.from == \"submitted\" || state.from == \"reviewed\"",
+                  "when": null,
+                  "message": "Only a submission awaiting review or release can be returned for correction."
+                }
+              ],
+              "signatures": []
+            },
+            {
+              "name": "signed",
+              "label": "Signed by author",
+              "description": null,
+              "set_by": ["iki/experiments.author"],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "author_signed",
+                  "description": null,
+                  "check": "state.from == \"recorded\" && record.review_flow == \"author_signed\"",
+                  "when": null,
+                  "message": "Capture the evidence with the author sign-off flow before signing this record."
+                },
+                {
+                  "name": "author",
+                  "description": "The authorship signature is the signer's own record, not a colleague's.",
+                  "check": "history.review[0].by == actor.person || edits.review.recorded.exists(e, e.by == actor.person)",
+                  "when": null,
+                  "message": "Only the person who created or edited this record signs it as its author."
+                },
+                {
+                  "name": "closed",
+                  "description": null,
+                  "check": "size(edits.review.recorded) > 0 && \"capture_id\" in edits.review.recorded[size(edits.review.recorded) - 1].fields",
+                  "when": null,
+                  "message": "The experiment changed since its evidence was captured. Capture it again before signing."
+                },
+                {
+                  "name": "cited_exactly",
+                  "description": "A notebook entry or protocol isn't needed, but one that's cited names its revision.",
+                  "check": "((record.eln_id == null && record.eln_url == null) || record.eln_revision != null) && (record.protocol_id == null || record.protocol_revision != null)",
+                  "when": null,
+                  "message": "Give the revision of the notebook entry or protocol this record cites."
+                },
+                {
+                  "name": "evidence",
+                  "description": null,
+                  "check": "size(record.result_pins) > 0 || size(record.observations) > 0 || size(record.attachments) > 0",
+                  "when": null,
+                  "message": "Capture a result, record a dated observation or attach evidence before signing."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "authorship",
+                  "meaning_label": "Authorship",
+                  "verb": "Authored",
+                  "label": "Authorship",
+                  "statement": "I recorded this experiment and checked the evidence it cites.",
+                  "roles": ["iki/experiments.author"]
+                }
+              ]
+            },
+            {
+              "name": "witnessed",
+              "label": "Witnessed",
+              "description": null,
+              "set_by": ["iki/experiments.reviewer"],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "research",
+                  "description": null,
+                  "check": "state.from == \"recorded\" && record.review_flow == \"research\"",
+                  "when": null,
+                  "message": "Capture the evidence with the research review flow before witnessing this record."
+                },
+                {
+                  "name": "closed",
+                  "description": null,
+                  "check": "size(edits.review.recorded) > 0 && \"capture_id\" in edits.review.recorded[size(edits.review.recorded) - 1].fields",
+                  "when": null,
+                  "message": "The experiment changed since its evidence was captured. Capture it again before signing."
+                },
+                {
+                  "name": "notebook",
+                  "description": null,
+                  "check": "(record.eln_id != null || record.eln_url != null) && record.eln_revision != null",
+                  "when": null,
+                  "message": "Record the ELN entry URL or ID and its exact revision."
+                },
+                {
+                  "name": "protocol",
+                  "description": null,
+                  "check": "record.protocol_id != null && record.protocol_revision != null",
+                  "when": null,
+                  "message": "Identify the protocol followed and its revision."
+                },
+                {
+                  "name": "evidence",
+                  "description": null,
+                  "check": "size(record.result_pins) > 0 || size(record.observations) > 0 || size(record.attachments) > 0",
+                  "when": null,
+                  "message": "Capture a result, record a dated observation or attach evidence before signing."
+                },
+                {
+                  "name": "independent",
+                  "description": null,
+                  "check": "history.review[0].by != actor.person && edits.review.recorded.all(e, e.by != actor.person)",
+                  "when": null,
+                  "message": "The creator or a person who edited this record cannot witness it."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "witness",
+                  "meaning_label": "Witness",
+                  "verb": "Witnessed",
+                  "label": "Witness",
+                  "statement": "I witnessed the experiment record and checked the cited notebook version and evidence.",
+                  "roles": ["iki/experiments.reviewer"]
+                }
+              ]
+            },
+            {
+              "name": "submitted",
+              "label": "Submitted",
+              "description": null,
+              "set_by": ["iki/experiments.author"],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "regulated",
+                  "description": null,
+                  "check": "state.from == \"recorded\" && record.review_flow == \"regulated_qc\"",
+                  "when": null,
+                  "message": "Capture the evidence with the regulated QC flow before submitting this experiment."
+                },
+                {
+                  "name": "closed",
+                  "description": null,
+                  "check": "size(edits.review.recorded) > 0 && \"capture_id\" in edits.review.recorded[size(edits.review.recorded) - 1].fields",
+                  "when": null,
+                  "message": "The experiment changed since its evidence was captured. Capture it again before signing."
+                },
+                {
+                  "name": "notebook",
+                  "description": null,
+                  "check": "(record.eln_id != null || record.eln_url != null) && record.eln_revision != null",
+                  "when": null,
+                  "message": "Record the ELN entry URL or ID and its exact revision."
+                },
+                {
+                  "name": "protocol",
+                  "description": null,
+                  "check": "record.protocol_id != null && record.protocol_revision != null",
+                  "when": null,
+                  "message": "Identify the protocol followed and its revision."
+                },
+                {
+                  "name": "evidence",
+                  "description": null,
+                  "check": "size(record.result_pins) > 0 || size(record.observations) > 0 || size(record.attachments) > 0",
+                  "when": null,
+                  "message": "Capture a result, record a dated observation or attach evidence before signing."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "authorship",
+                  "meaning_label": "Authorship",
+                  "verb": "Authored",
+                  "label": "Authorship",
+                  "statement": "I close this experiment on the stated notebook version and captured evidence.",
+                  "roles": ["iki/experiments.author"]
+                }
+              ]
+            },
+            {
+              "name": "reviewed",
+              "label": "Independently reviewed",
+              "description": null,
+              "set_by": ["iki/experiments.reviewer"],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "submitted",
+                  "description": null,
+                  "check": "state.from == \"submitted\"",
+                  "when": null,
+                  "message": "Review the experiment after the author signs the submission."
+                },
+                {
+                  "name": "independent",
+                  "description": null,
+                  "check": "history.review[0].by != actor.person && last.review.submitted.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)",
+                  "when": null,
+                  "message": "Someone independent of the creator, submitter and current cycle's editors must review this experiment."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "review",
+                  "meaning_label": "Review",
+                  "verb": "Reviewed",
+                  "label": "Review",
+                  "statement": "I reviewed this record and found it in order.",
+                  "roles": ["iki/experiments.reviewer"]
+                }
+              ]
+            },
+            {
+              "name": "released",
+              "label": "QA released",
+              "description": null,
+              "set_by": ["iki/experiments.qa"],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "reviewed",
+                  "description": null,
+                  "check": "state.from == \"reviewed\" && last.review.reviewed.from == \"submitted\"",
+                  "when": null,
+                  "message": "QA can release the experiment after independent review of the signed submission."
+                },
+                {
+                  "name": "independent",
+                  "description": null,
+                  "check": "history.review[0].by != actor.person && last.review.submitted.by != actor.person && last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)",
+                  "when": null,
+                  "message": "QA release requires a person independent of the creator, submitter, reviewer and current cycle's editors."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "approval",
+                  "meaning_label": "Approval",
+                  "verb": "Approved",
+                  "label": "QA release",
+                  "statement": "I approve this record.",
+                  "roles": ["iki/experiments.qa"]
+                }
+              ]
+            }
+          ],
+          "transitions": [
+            {
+              "from": "submitted",
+              "to": "recorded",
+              "conditional": false
+            },
+            {
+              "from": "reviewed",
+              "to": "recorded",
+              "conditional": false
+            },
+            {
+              "from": "recorded",
+              "to": "signed",
+              "conditional": true
+            },
+            {
+              "from": "recorded",
+              "to": "witnessed",
+              "conditional": true
             },
             {
               "from": "recorded",

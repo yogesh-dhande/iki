@@ -4730,7 +4730,7 @@ export interface paths {
         put?: never;
         /**
          * Apply a starter to a project
-         * @description Apply the reviewed flow and role grants to the assay project.
+         * @description Apply the reviewed flow and role grants to the project.
          *     If what applying does changed since the preview, as when another Admin removed a grant or
          *     applied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,
          *     what applying would do now, for review (ADR 0207). Reapplying a setup that's in place
@@ -4755,7 +4755,7 @@ export interface paths {
         put?: never;
         /**
          * Preview a starter choice
-         * @description Preview the version, review flow and role grants for the assay project.
+         * @description Preview the version, review flow and role grants for the project.
          */
         post: operations["iki_server_api_starters_preview_starter"];
         delete?: never;
@@ -6387,7 +6387,7 @@ export interface components {
              * Flow
              * @enum {string}
              */
-            flow: "research" | "regulated_qc";
+            flow: "author_signed" | "research" | "regulated_qc";
             /** Version */
             version: string;
         };
@@ -18697,7 +18697,7 @@ export interface components {
              * Flow
              * @enum {string}
              */
-            flow: "research" | "regulated_qc";
+            flow: "author_signed" | "research" | "regulated_qc";
             /**
              * Plan
              * @description The `plan` its preview returned: what you reviewed. If what applying does has changed since, nothing is applied (409 `starter_plan_changed`, with the `plan` it would apply now).
@@ -18706,12 +18706,12 @@ export interface components {
             /**
              * Project
              * Format: uuid
-             * @description The assay project. Requires its Admin role.
+             * @description The project to set up. Requires its Admin role.
              */
             project: string;
             /**
              * Role Assignments
-             * @description Each qualified lab role and the assay project membership IDs receiving it.
+             * @description Each qualified lab role and the project membership IDs receiving it.
              */
             role_assignments: {
                 [key: string]: string[];
@@ -18728,7 +18728,12 @@ export interface components {
              * Id
              * @enum {string}
              */
-            id: "research" | "regulated_qc";
+            id: "author_signed" | "research" | "regulated_qc";
+            /**
+             * Independent Roles
+             * @description Required roles whose signatures must come from different people: each group of them needs at least as many people as it has roles.
+             */
+            independent_roles: string[];
             /** Label */
             label: string;
             /**
@@ -18738,9 +18743,19 @@ export interface components {
             required_roles: string[];
             /**
              * Result Type
-             * @description Qualified result type for new fits in this flow.
+             * @description Qualified type of the records new in this flow.
              */
             result_type: string;
+            /**
+             * States
+             * @description The states of `result_type` this flow uses, when the type's records follow more than one flow. Null when it uses all of them.
+             */
+            states: string[] | null;
+            /**
+             * Summary
+             * @description What the flow asks of people, in a sentence or two.
+             */
+            summary: string;
         };
         /** StarterOut */
         StarterOut: {
@@ -18786,16 +18801,16 @@ export interface components {
              * Flow
              * @enum {string}
              */
-            flow: "research" | "regulated_qc";
+            flow: "author_signed" | "research" | "regulated_qc";
             /**
              * Project
              * Format: uuid
-             * @description The assay project. Requires its Admin role.
+             * @description The project to set up. Requires its Admin role.
              */
             project: string;
             /**
              * Role Assignments
-             * @description Each qualified lab role and the assay project membership IDs receiving it.
+             * @description Each qualified lab role and the project membership IDs receiving it.
              */
             role_assignments: {
                 [key: string]: string[];
@@ -18817,7 +18832,7 @@ export interface components {
              * Flow
              * @enum {string}
              */
-            flow: "research" | "regulated_qc";
+            flow: "author_signed" | "research" | "regulated_qc";
             /**
              * Grants To Add
              * @description Lab role grants missing when the setup was checked, by membership ID.

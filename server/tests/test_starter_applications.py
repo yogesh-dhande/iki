@@ -242,7 +242,7 @@ def test_rejects_unusable_role_choices_and_stale_recipe_without_writes(setup: Se
 @pytest.mark.parametrize("operation", [starters.preview, partial(starters.apply, plan="0" * 64)])
 def test_archived_service_refuses_setup(setup: Setup, operation: object) -> None:
     assert callable(operation)
-    with pytest.raises(services.Refused, match="Restore the assay project"):
+    with pytest.raises(services.Refused, match="Restore the project"):
         operation(
             setup.world.archived,
             "dose-response",
@@ -298,3 +298,47 @@ def test_concurrent_applies_keep_one_configuration_and_other_role_grants(setup: 
     assert set(membership.lab_roles.values_list("role", flat=True)) == {ANALYST, QA}
     assert StarterApplication.objects.count() == 1
     assert AuditEvent.objects.filter(action="starter.applied").count() == 1
+
+
+def test_an_experiment_review_flow_asks_only_for_the_signers_it_needs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every experiment-review flow's records are experiments (ADR 0247). An author's own
+    sign-off needs one author; a witness must be someone else."""
+    world = build_world()
+    author, witness, qa = ANALYST, REVIEWER, QA
+    recipe = replace(
+        starters.EXPERIMENT_REVIEW,
+        roles={author: ProjectRole.EDITOR, witness: ProjectRole.VIEWER, qa: ProjectRole.VIEWER},
+        required_roles={
+            "author_signed": (author,),
+            "research": (author, witness),
+            "regulated_qc": (author, witness, qa),
+        },
+        independent_roles={"research": (author, witness), "regulated_qc": (author, witness, qa)},
+    )
+    monkeypatch.setattr(starters, "installed_starters", lambda: {recipe.id: recipe})
+    project, admin = world.project, world.users["admin"]
+    editor = [project.memberships.get(user=world.users["editor"]).pk]
+    listed = starters.list_starters(project)[0]
+    assert [(f["id"], f["states"]) for f in listed["flows"]] == [
+        ("author_signed", ["recorded", "signed"]),
+        ("research", ["recorded", "witnessed"]),
+        ("regulated_qc", ["recorded", "submitted", "reviewed", "released"]),
+    ]
+    assert {f["result_type"] for f in listed["flows"]} == {starters.EXPERIMENT + "Experiment"}
+    assert listed["types"] == [starters.EXPERIMENT + "Experiment"]
+    with pytest.raises(services.Refused, match="two different people"):
+        starters.preview(
+            project,
+            "experiment-review",
+            "1.0.0",
+            "research",
+            {author: editor, witness: editor},
+            by=admin,
+        )
+    args = (project, "experiment-review", "1.0.0", "author_signed", {author: editor})
+    plan = starters.preview(*args, by=admin)
+    assert plan["result_type"] == starters.EXPERIMENT + "Experiment"
+    assert starters.apply(*args, by=admin, plan=plan["plan"])["changed"]
+    assert starters.effective_flow(project, "experiment-review") == "author_signed"
