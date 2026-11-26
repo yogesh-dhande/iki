@@ -15,8 +15,18 @@ inputs:
   investigation:
     type: OOSInvestigation
     optional: true
-    description: The signed invalidation of the attempt being repeated.
+    include: [test]
+    description: >-
+      The signed invalidation of the attempt being repeated, or, for an investigational
+      test, the open investigation whose plan it's run under.
 params:
+  purpose:
+    type: enum
+    values: [reportable, investigational]
+    default: reportable
+    description: >-
+      Reportable counts toward release. Investigational is run under an open
+      investigation's plan, such as a retest of the same preparation, and replaces nothing.
   attribute: { type: string, max_length: 120, required: true }
   method: { type: string, max_length: 200, required: true }
   unit: { type: string, max_length: 50, required: true }

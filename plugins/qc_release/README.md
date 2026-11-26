@@ -38,13 +38,29 @@ predecessor. Publication appends versions and retains all earlier ones.
    for example `4PL-OLS/1`. Signed endpoints qualify as evidence when all three
    identifiers agree.
    Regulated release requires a QA-released plate-assay result.
-3. Open the investigation created with an out-of-specification observation. Record the
-   findings and conclusion. Invalidation needs the assigned cause, supporting evidence
-   and signed disposition. If signed as invalidated, select that original attempt and
-   investigation explicitly when recording a repeat. Confirmed failures and unresolved
-   investigations prevent a passing certificate. QA can place the lot on hold or reject
-   it using the lot's disposition. The original measurement remains visible.
-4. Prepare the certificate with every attempt and each signed investigation. Iki checks
+3. Open the investigation created with an out-of-specification observation. Set its
+   **Investigator**, which assigns it to that person. In Regulated QC the investigator must
+   hold the analyst role, and neither the investigator nor the submitter can review or
+   release it.
+   - **Testing during the investigation.** Write the investigation's **Testing plan** under
+     the lab's approved procedure, for example a retest of the same preparation. Then record
+     each test it plans with **Investigational** as the purpose and the open investigation
+     selected. An investigational result is kept in the case's sequence and pinned to the
+     plan's revision. It opens no second investigation and replaces nothing. Once the
+     investigation is submitted or signed, it takes no more tests.
+   - **The conclusion** is one of three:
+     - **Confirmed:** the original result stands.
+     - **Invalidated:** needs the assignable cause, supporting evidence and the signed
+       disposition. Only a signed invalidation lets a **Reportable** repeat replace the
+       original. Select that original attempt and investigation explicitly when recording
+       the repeat.
+     - **Inconclusive:** no assignable cause was found, either way. The original result
+       stands in the lot's disposition, as for Confirmed (FDA OOS guidance, §V).
+       Confirmed, inconclusive and unsigned investigations prevent a passing certificate. QA
+       can place the lot on hold or reject it using the lot's disposition. The original
+       measurement remains visible.
+4. Prepare the certificate with every attempt, investigational ones included, and each
+   signed investigation. Iki checks
    the selections against the case's attempt sequence, confirms every criterion has a
    passing result, captures all the pinned evidence, and seals the case.
 5. Sign the certificate through the selected flow. Use **Export** on the issued record

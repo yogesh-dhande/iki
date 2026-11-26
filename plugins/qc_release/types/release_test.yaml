@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: ReleaseTest
 label: Release test
-schema_version: 1
+schema_version: 2
 hrid: { prefix: QRT }
 description: An immutable observed result and its evaluation against a pinned lot release criterion.
 fields:
@@ -18,6 +18,26 @@ fields:
   outcome: { type: enum, values: [pass, oos], computed: true, immutable: true, indexed: true }
   observed_by: { type: person, computed: true, immutable: true }
   repeat_of: { type: ref, to: ReleaseTest, computed: true, immutable: true }
+  purpose:
+    type: enum
+    values: [reportable, investigational]
+    computed: true
+    immutable: true
+    description: >-
+      A reportable result, which counts toward the lot's release, or a test run as part of
+      an open investigation's plan, which informs it and replaces nothing.
+  investigation:
+    type: ref
+    to: OOSInvestigation
+    computed: true
+    immutable: true
+    description: The open investigation an investigational test was run for.
+  investigation_revision:
+    type: int
+    min: 1
+    computed: true
+    immutable: true
+    description: The revision of the investigation, and so of its testing plan, the test was run under.
   evidence:
     type: ref
     to: iki/plate_assays.AssayResult
@@ -43,6 +63,8 @@ rules:
       record.attribute != null && record.method != null && record.unit != null &&
       record.value != null && (record.lower != null || record.upper != null) &&
       record.outcome != null && record.observed_by != null &&
+      (record.purpose == "investigational") == (record.investigation != null) &&
+      (record.investigation != null) == (record.investigation_revision != null) &&
       (record.evidence != null) == (record.evidence_revision != null)
     message: Record the observation using the lot release testing action.
 display: { title: "{{ attribute or hrid }} · {{ outcome or 'pending' }}" }
