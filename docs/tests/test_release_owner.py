@@ -13,7 +13,8 @@ OWNER = "yogesh-dhande"
 #: ``iki-protein-structure-tools``, ``iki-protein-alignment-tools`` or
 #: ``iki-dna-alignment-tools``, or ``charts/iki`` (a deployment's own images are under its
 #: own account), ``github.com/<owner>/iki``, a workflow's ``repository: <owner>/iki``, and
-#: the shell examples' ``OWNER=<owner>``.
+#: the shell examples' ``OWNER=<owner>`` (not a JCAMP-DX file's ``##OWNER=`` label, which
+#: names whoever recorded a spectrum).
 NAMED = re.compile(
     r"ghcr\\?\.io/(?P<a>[\w.-]+)/"
     r"(?:iki-server|iki-worker|iki-protein-structure-tools|iki-protein-alignment-tools"
@@ -21,7 +22,7 @@ NAMED = re.compile(
     r"\b(?!-)"
     r"|github\\?\.com/(?P<b>[\w.-]+)/iki\b(?![\w-])"
     r"|repository: (?P<c>[\w.-]+)/iki\b"
-    r"|\bOWNER=(?P<d>[\w.-]+)"
+    r"|(?<!#)\bOWNER=(?P<d>[\w.-]+)"
 )
 #: Decisions record what was decided then; they aren't changed afterwards.
 HISTORY = "docs/adr/"
