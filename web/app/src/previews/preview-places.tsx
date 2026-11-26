@@ -98,9 +98,7 @@ export function PreviewButton({
                     <Link className={buttonClass()} to="/files/$id/" params={{ id }}>
                       Open its page
                     </Link>
-                    <a className={buttonClass()} href={downloadHref(id)} download={name}>
-                      Download
-                    </a>
+                    <DialogDownload id={id} name={name} />
                     <Button variant="quiet" onClick={close}>
                       Close
                     </Button>
@@ -113,6 +111,17 @@ export function PreviewButton({
         </Modal>
       </ModalOverlay>
     </>
+  );
+}
+
+/** The download beside the preview, once the file's scan lets it be used (ADR 0216). */
+function DialogDownload({ id, name }: { id: string; name: string }) {
+  const usable = useQuery(fileQuery(id)).data?.scan.usable ?? false;
+  if (!usable) return null;
+  return (
+    <a className={buttonClass()} href={downloadHref(id)} download={name}>
+      Download
+    </a>
   );
 }
 

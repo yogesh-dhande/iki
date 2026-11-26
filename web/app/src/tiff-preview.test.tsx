@@ -38,6 +38,7 @@ import {
   type TileRequest,
 } from "./previews/tiff";
 import TiffViewer from "./previews/tiff-viewer";
+import { CLEAN_SCAN } from "./test-server";
 
 const MiB = 1024 * 1024;
 
@@ -709,6 +710,7 @@ const FILE = {
   media_type: "image/tiff",
   size: 900 * MiB,
   sha256: "a".repeat(64),
+  scan: CLEAN_SCAN,
 };
 
 /** The test's stand-in for the store: zeros, in ranges, each recorded. */

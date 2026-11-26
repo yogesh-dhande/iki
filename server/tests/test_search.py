@@ -164,9 +164,11 @@ def test_references_lists_and_enums(world: World, lab: dict[str, Any]) -> None:
 
 
 def test_lists_of_references_and_extension_fields(world: World, lab: dict[str, Any]) -> None:
-    from iki_server.files.models import Blob, File
+    from scan_fixtures import clean_blob
 
-    blob = Blob.objects.create(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
+    from iki_server.files.models import File
+
+    blob = clean_blob(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
     pdb = File.objects.create(
         blob=blob, name="1abc.pdb", media_type="chemical/x-pdb", project=world.project
     )

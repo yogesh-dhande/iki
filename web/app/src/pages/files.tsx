@@ -7,7 +7,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { Fragment } from "react";
 
-import { problemOf } from "../api";
+import { meQuery, problemOf } from "../api";
 import { formatSize, typeLabel, typesQuery } from "../entities";
 import { FileTable } from "../file-table";
 import { UploadFiles } from "../file-upload";
@@ -30,6 +30,7 @@ import { usePageTitle } from "../layout";
 import { useReadableProjects } from "../lists";
 import { useMedia } from "../media";
 import { FilePreviewSection } from "../previews/preview-places";
+import { heldBecause, reviewHref } from "../quarantine";
 import { useProject } from "./project-overview";
 import { StatusBadge } from "./runs";
 import {
@@ -140,6 +141,63 @@ function Origin({ file }: { file: FileDetail }) {
   }
 }
 
+/** What the malware scan decided, for a file it didn't find clean: why it's held and
+ * what happens next, or what let it be used; and for a Quarantine Admin, where to review it. */
+function ScanFacts({ scan }: { scan: FileDetail["scan"] }) {
+  const review = useQuery(meQuery).data?.can.manage_quarantine ?? false;
+  if (scan.state === "pending")
+    return <>Scanning… It can be used once the scanner finds it clean.</>;
+  const why = heldBecause(scan);
+  const finding = why.finding ? (
+    <>
+      {" "}
+      <code>{why.finding}</code>
+    </>
+  ) : null;
+  const link =
+    review && scan.decision_id && (scan.state === "infected" || !scan.usable) ? (
+      <div>
+        <a href={reviewHref(scan.decision_id)}>
+          {scan.usable
+            ? "See its release in Admin → Quarantine"
+            : "Review it in Admin → Quarantine"}
+        </a>
+      </div>
+    ) : null;
+  if (scan.usable && scan.state === "infected") {
+    return (
+      <>
+        Released from quarantine: the scanner found{finding}, and a Quarantine Admin found it a
+        false positive.
+        {link}
+      </>
+    );
+  }
+  if (scan.usable) return <>Not scanned: too large. The deployment allows such files unscanned.</>;
+  if (scan.state === "infected") {
+    return (
+      <>
+        <strong>Quarantined</strong>: the scanner found{finding}. It can’t be downloaded or used
+        unless a Quarantine Admin finds it a false positive.
+        {link}
+      </>
+    );
+  }
+  return (
+    <>
+      <strong>Held</strong>: {why.label}
+      {why.finding ? (
+        <>
+          {" "}
+          (<code>{why.finding}</code>)
+        </>
+      ) : null}
+      . It can’t be downloaded or used: the scanner couldn’t inspect all of it.
+      {link}
+    </>
+  );
+}
+
 /** A file: what it is, when its data was acquired, where it came from, and what uses it. */
 export function FilePage() {
   const { id } = useParams({ from: "/files/$id" });
@@ -172,12 +230,25 @@ export function FilePage() {
         ]}
         title={file.name}
         actions={
-          <a className={buttonClass("primary")} href={downloadHref(file.id)} download={file.name}>
-            Download
-          </a>
+          file.scan.usable ? (
+            <a className={buttonClass("primary")} href={downloadHref(file.id)} download={file.name}>
+              Download
+            </a>
+          ) : undefined
         }
       />
       <dl className="summary file-facts">
+        {file.scan.state !== "clean" ? (
+          <>
+            <dt>Malware scan</dt>
+            <dd>
+              {/* Said as it changes: a scan that finishes while the page is open. */}
+              <div role="status">
+                <ScanFacts scan={file.scan} />
+              </div>
+            </dd>
+          </>
+        ) : null}
         <dt>Format</dt>
         <dd>
           {media.named(file.media_type)} <span className="muted">{file.media_type}</span>

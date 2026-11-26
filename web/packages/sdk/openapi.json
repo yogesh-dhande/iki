@@ -7817,6 +7817,10 @@
             "title": "Samples",
             "type": "array"
           },
+          "scan": {
+            "$ref": "#/components/schemas/FileScanOut",
+            "description": "The deployment's malware scan of the file's bytes."
+          },
           "sha256": {
             "title": "Sha256",
             "type": "string"
@@ -7841,6 +7845,7 @@
           "agent",
           "created_at",
           "external",
+          "scan",
           "acquired",
           "facts",
           "used_by",
@@ -7895,7 +7900,7 @@
         "type": "object"
       },
       "FileFactsOut": {
-        "description": "What the file says about where its data came from (ADR 0224), read when it was\nadded. Each is null when the file doesn't say, or doesn't say clearly.",
+        "description": "What the file says about where its data came from (ADR 0224), read when it was\nadded once its scan let it be used: a held file's bytes aren't parsed. Each is null when\nthe file doesn't say, or doesn't say clearly.",
         "properties": {
           "instrument": {
             "anyOf": [
@@ -8317,6 +8322,10 @@
             ],
             "description": "Where it was added. Null if you can't see it."
           },
+          "scan": {
+            "$ref": "#/components/schemas/FileScanOut",
+            "description": "The deployment's malware scan of the file's bytes."
+          },
           "sha256": {
             "title": "Sha256",
             "type": "string"
@@ -8338,6 +8347,7 @@
           "agent",
           "created_at",
           "external",
+          "scan",
           "acquired",
           "facts"
         ],
@@ -8469,6 +8479,10 @@
             ],
             "description": "Where it was added. Null if you can't see it."
           },
+          "scan": {
+            "$ref": "#/components/schemas/FileScanOut",
+            "description": "The deployment's malware scan of the file's bytes."
+          },
           "sha256": {
             "title": "Sha256",
             "type": "string"
@@ -8493,11 +8507,89 @@
           "agent",
           "created_at",
           "external",
+          "scan",
           "acquired",
           "facts",
           "used_by"
         ],
         "title": "FileRowOut",
+        "type": "object"
+      },
+      "FileScanOut": {
+        "properties": {
+          "decision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The immutable scan decision, once recorded.",
+            "title": "Decision Id"
+          },
+          "reason": {
+            "description": "The finding or reason the file could not be scanned.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "released": {
+            "description": "A Quarantine Admin released this infected decision.",
+            "title": "Released",
+            "type": "boolean"
+          },
+          "scanned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the decision was recorded.",
+            "title": "Scanned At"
+          },
+          "scanner": {
+            "description": "Scanner identity, when known.",
+            "title": "Scanner",
+            "type": "string"
+          },
+          "signature_version": {
+            "description": "Signatures used by the scanner, when available.",
+            "title": "Signature Version",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "clean",
+              "infected",
+              "not_scanned"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "usable": {
+            "description": "Whether the scan decision allows this file to be used.",
+            "title": "Usable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "state",
+          "usable",
+          "decision_id",
+          "scanner",
+          "signature_version",
+          "scanned_at",
+          "reason",
+          "released"
+        ],
+        "title": "FileScanOut",
         "type": "object"
       },
       "FileSignatureOut": {
@@ -9346,6 +9438,98 @@
           "to"
         ],
         "title": "HandOverIn",
+        "type": "object"
+      },
+      "HeldCopyOut": {
+        "description": "Where held bytes are: a project's file, or a run's or a bundle's own upload.",
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that added it for them, if one did."
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who added it."
+          },
+          "file": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project file, for a ``file``, if you can read it: its page opens.",
+            "title": "File"
+          },
+          "kind": {
+            "description": "A project's ``file``; or a run's ``artifact`` or ``checkpoint``, or a ``bundle`` to import, each kept apart from the project's files.",
+            "enum": [
+              "file",
+              "artifact",
+              "checkpoint",
+              "bundle"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectRef"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run's ID, for an artifact or a checkpoint.",
+            "title": "Run"
+          }
+        },
+        "required": [
+          "kind",
+          "file",
+          "name",
+          "media_type",
+          "project",
+          "run",
+          "created_by",
+          "agent",
+          "created_at"
+        ],
+        "title": "HeldCopyOut",
         "type": "object"
       },
       "HeldOut": {
@@ -10631,6 +10815,9 @@
           "state": {
             "enum": [
               "uploading",
+              "scanning",
+              "quarantined",
+              "not_scanned",
               "planning",
               "planned",
               "refused",
@@ -11012,6 +11199,9 @@
           "state": {
             "enum": [
               "uploading",
+              "scanning",
+              "quarantined",
+              "not_scanned",
               "planning",
               "planned",
               "refused",
@@ -12402,6 +12592,11 @@
             "title": "Manage Org",
             "type": "boolean"
           },
+          "manage_quarantine": {
+            "description": "Review held file scans and release false positives.",
+            "title": "Manage Quarantine",
+            "type": "boolean"
+          },
           "manage_webhooks": {
             "description": "The organization's webhooks.",
             "title": "Manage Webhooks",
@@ -12423,7 +12618,8 @@
           "create_projects",
           "manage_webhooks",
           "read_costs",
-          "manage_compute"
+          "manage_compute",
+          "manage_quarantine"
         ],
         "title": "MeCan",
         "type": "object"
@@ -12512,7 +12708,8 @@
               "enum": [
                 "org_admin",
                 "compute_admin",
-                "auditor"
+                "auditor",
+                "quarantine_admin"
               ],
               "type": "string"
             },
@@ -13999,7 +14196,8 @@
               "enum": [
                 "org_admin",
                 "compute_admin",
-                "auditor"
+                "auditor",
+                "quarantine_admin"
               ],
               "type": "string"
             },
@@ -14020,7 +14218,8 @@
               "enum": [
                 "org_admin",
                 "compute_admin",
-                "auditor"
+                "auditor",
+                "quarantine_admin"
               ],
               "type": "string"
             },
@@ -14908,6 +15107,35 @@
           "next_cursor"
         ],
         "title": "Page[ProjectOut]",
+        "type": "object"
+      },
+      "Page_QuarantineOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QuarantineOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[QuarantineOut]",
         "type": "object"
       },
       "Page_RecordExportOut_": {
@@ -17959,6 +18187,180 @@
         "title": "PutAwayIn",
         "type": "object"
       },
+      "QuarantineFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "q": {
+            "default": "",
+            "description": "Part of a file's name, or the start of its SHA-256.",
+            "maxLength": 255,
+            "title": "Q",
+            "type": "string"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "infected",
+                  "not_scanned"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only malware findings, or only inspections that couldn't finish.",
+            "title": "State"
+          },
+          "status": {
+            "default": "held",
+            "description": "Held now, or infected findings released as false positives.",
+            "enum": [
+              "held",
+              "released"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "QuarantineFilters",
+        "type": "object"
+      },
+      "QuarantineOut": {
+        "properties": {
+          "file_count": {
+            "description": "How many places the bytes are, listed or not.",
+            "title": "File Count",
+            "type": "integer"
+          },
+          "files": {
+            "description": "Where the bytes are, oldest first: the first few in a list, every one in a decision's own.",
+            "items": {
+              "$ref": "#/components/schemas/HeldCopyOut"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "id": {
+            "description": "The decision ID for releasing a confirmed false positive.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "reason": {
+            "description": "What was found (the signature's name), or why an inspection could not finish: ``too_large``, ``unsupported_source``, ``clamd_stream_limit``, or the scanner's own reason, such as ``Heuristics.Encrypted.Zip``.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "releasable": {
+            "description": "An infected finding not yet released. An incomplete inspection never is: it found nothing to call false (ADR 0217).",
+            "title": "Releasable",
+            "type": "boolean"
+          },
+          "release": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuarantineReleaseOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its release, once released."
+          },
+          "scanned_at": {
+            "format": "date-time",
+            "title": "Scanned At",
+            "type": "string"
+          },
+          "scanner": {
+            "title": "Scanner",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "signature_version": {
+            "title": "Signature Version",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "infected",
+              "not_scanned"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sha256",
+          "size",
+          "state",
+          "scanner",
+          "signature_version",
+          "scanned_at",
+          "reason",
+          "releasable",
+          "release",
+          "files",
+          "file_count"
+        ],
+        "title": "QuarantineOut",
+        "type": "object"
+      },
+      "QuarantineReleaseOut": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "by": {
+            "$ref": "#/components/schemas/UserOut",
+            "description": "The Quarantine Admin who released it."
+          },
+          "reason": {
+            "description": "Why they found the finding false, as they gave it.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "by",
+          "at",
+          "reason"
+        ],
+        "title": "QuarantineReleaseOut",
+        "type": "object"
+      },
       "QueryIn": {
         "description": "A search, as ``POST /entities/search`` takes it, without its project or paging.",
         "properties": {
@@ -19665,6 +20067,7 @@
           "state": {
             "enum": [
               "checking",
+              "scanning",
               "ready",
               "failed"
             ],
@@ -19729,6 +20132,7 @@
           "state": {
             "enum": [
               "checking",
+              "scanning",
               "ready",
               "failed"
             ],
@@ -20131,6 +20535,22 @@
           "edges"
         ],
         "title": "RelatedOut",
+        "type": "object"
+      },
+      "ReleaseQuarantineIn": {
+        "properties": {
+          "reason": {
+            "description": "Why the finding is false.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ReleaseQuarantineIn",
         "type": "object"
       },
       "ReproduceIn": {
@@ -21493,6 +21913,17 @@
             "title": "Path",
             "type": "string"
           },
+          "scan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileScanOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scan decision for a verified upload."
+          },
           "sha256": {
             "description": "Of its bytes, as hex.",
             "title": "Sha256",
@@ -21504,9 +21935,12 @@
             "type": "integer"
           },
           "state": {
-            "description": "`kept` while it can be downloaded; `deleted` once its retention is over (its record stays); `failed` if its upload didn't finish.",
+            "description": "Whether the artifact can be downloaded, is still uploading or scanning, is held, or has expired.",
             "enum": [
               "uploading",
+              "scanning",
+              "quarantined",
+              "not_scanned",
               "kept",
               "failed",
               "deleted"
@@ -21524,6 +21958,7 @@
           "size",
           "sha256",
           "state",
+          "scan",
           "created_at",
           "expires_at",
           "deleted_at"
@@ -24510,7 +24945,8 @@
               "enum": [
                 "org_admin",
                 "compute_admin",
-                "auditor"
+                "auditor",
+                "quarantine_admin"
               ],
               "type": "string"
             },
@@ -28116,6 +28552,7 @@
             "enum": [
               "pending",
               "checking",
+              "scanning",
               "ready",
               "failed",
               "cancelled",
@@ -30377,6 +30814,7 @@
             "enum": [
               "pending",
               "checking",
+              "scanning",
               "ready",
               "failed",
               "cancelled",
@@ -30443,6 +30881,7 @@
             "enum": [
               "pending",
               "checking",
+              "scanning",
               "ready",
               "failed",
               "cancelled",
@@ -44743,6 +45182,215 @@
         ]
       }
     },
+    "/api/v1/quarantine": {
+      "get": {
+        "description": "For Quarantine Admins. Newest first, across the deployment: what's held now, or with\n``status=released``, the infected findings released as false positives. Each entry\nidentifies the held bytes, the finding, and where the bytes are: several project files\ncan share one source, and so its scan.",
+        "operationId": "iki_server_api_files_list_quarantine",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Held now, or infected findings released as false positives.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "held",
+              "description": "Held now, or infected findings released as false positives.",
+              "enum": [
+                "held",
+                "released"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only malware findings, or only inspections that couldn't finish.",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "infected",
+                    "not_scanned"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only malware findings, or only inspections that couldn't finish.",
+              "title": "State"
+            }
+          },
+          {
+            "description": "Part of a file's name, or the start of its SHA-256.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "Part of a file's name, or the start of its SHA-256.",
+              "maxLength": 255,
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_QuarantineOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "List quarantined files",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/quarantine/{decision_id}": {
+      "get": {
+        "description": "For Quarantine Admins: a held decision, or a released one, with every place its\nbytes are.",
+        "operationId": "iki_server_api_files_read_quarantine",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Decision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuarantineOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Read a quarantined file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/quarantine/{decision_id}/release": {
+      "post": {
+        "description": "For Quarantine Admins. The given reason and the reviewer are recorded with the\nrelease and in the audit log. Every file covered by this decision becomes usable and\nkeeps its original finding. An incomplete inspection can't be released.",
+        "operationId": "iki_server_api_files_release_quarantine",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Decision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseQuarantineIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuarantineOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Release an infected file after reviewing its finding",
+        "tags": [
+          "files"
+        ]
+      }
+    },
     "/api/v1/receipts/{receipt_id}": {
       "get": {
         "operationId": "iki_server_api_storage_get_receipt",
@@ -45725,7 +46373,7 @@
         ]
       },
       "post": {
-        "description": "Pins one version of an object in an approved, versioned bucket. Iki reads it to learn\nits SHA-256 (202), then it's ready. An object version registered before is ready at once\n(201).",
+        "description": "Pins one version of an object in an approved, versioned bucket. Iki reads it to learn\nits SHA-256 and scan it (202). A version with a completed registration can be reused\nimmediately (201). Its file says whether it is usable.",
         "operationId": "iki_server_api_files_register_file",
         "parameters": [],
         "requestBody": {
@@ -49713,7 +50361,7 @@
         ]
       },
       "post": {
-        "description": "Answers with the parts to send. An empty file needs none, and is ready at once.",
+        "description": "Answers with the parts to send. An empty file needs none.",
         "operationId": "iki_server_api_files_start_upload",
         "parameters": [],
         "requestBody": {
@@ -49836,7 +50484,7 @@
     },
     "/api/v1/uploads/{upload_id}/complete": {
       "post": {
-        "description": "Once every part has arrived. Iki then checks the bytes (202), and the upload becomes\nready, or fails if they don't match its SHA-256. Finishing it again changes nothing.",
+        "description": "Once every part has arrived. Iki then checks the bytes (202), and the upload becomes\nready after its malware scan, or fails if its bytes don't match the SHA-256.\nFinishing it again returns its current state.",
         "operationId": "iki_server_api_files_complete_upload",
         "parameters": [
           {

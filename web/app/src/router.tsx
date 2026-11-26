@@ -39,6 +39,7 @@ import { entryQuery } from "./registries";
 
 import { validateCostsSearch } from "./costs-search";
 import { validateWorkersSearch } from "./compute";
+import { validateQuarantineSearch } from "./quarantine";
 import { ProjectList } from "./pages/project-list";
 import { ProjectNew } from "./pages/project-new";
 import { fileQuery, validateFileSearch } from "./files";
@@ -140,6 +141,9 @@ const TypeDetail = lazyRouteComponent(typePages, "TypeDetail");
 const OrgWebhooks = lazyRouteComponent(webhookPages, "OrgWebhooks");
 const OutsideApisSettings = lazyRouteComponent(outsideApiPages, "OutsideApisSettings");
 const OrgWebhook = lazyRouteComponent(webhookPages, "OrgWebhook");
+const quarantinePages = () => import("./pages/quarantine");
+const QuarantinePage = lazyRouteComponent(quarantinePages, "QuarantinePage");
+const QuarantinedPage = lazyRouteComponent(quarantinePages, "QuarantinedPage");
 const ProjectWebhooks = lazyRouteComponent(webhookPages, "ProjectWebhooks");
 const ProjectWebhook = lazyRouteComponent(webhookPages, "ProjectWebhook");
 
@@ -770,6 +774,23 @@ const outsideApisRoute = createRoute({
   component: OutsideApisSettings,
 });
 
+// Admin → Quarantine (ADR 0217): the files the malware scan holds, and one's finding.
+const quarantineRoute = createRoute({ getParentRoute: () => adminRoute, path: "quarantine" });
+
+const quarantineListRoute = createRoute({
+  getParentRoute: () => quarantineRoute,
+  path: "/",
+  // ?status=released&state=infected&q=plate: released ones, malware findings, by name.
+  validateSearch: validateQuarantineSearch,
+  component: QuarantinePage,
+});
+
+const quarantinedRoute = createRoute({
+  getParentRoute: () => quarantineRoute,
+  path: "$decisionId",
+  component: QuarantinedPage,
+});
+
 const routeTree = rootRoute.addChildren([
   savedSearchRoute,
   homeRoute,
@@ -843,6 +864,7 @@ const routeTree = rootRoute.addChildren([
     ]),
     orgWebhooksRoute.addChildren([orgWebhookListRoute, orgWebhookRoute]),
     outsideApisRoute,
+    quarantineRoute.addChildren([quarantineListRoute, quarantinedRoute]),
   ]),
 ]);
 

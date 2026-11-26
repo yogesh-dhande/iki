@@ -24,7 +24,7 @@ import {
   type SheetColumn,
   type SheetImport,
 } from "./spreadsheets";
-import { answer, calls, page, problem, respond, type Sent } from "./test-server";
+import { answer, calls, CLEAN_SCAN, page, problem, respond, type Sent } from "./test-server";
 
 // jsdom lays nothing out; the grid draws the rows that fit in its scrolling region.
 const sizes = { clientHeight: 600, clientWidth: 1000, offsetHeight: 600, offsetWidth: 1000 };
@@ -375,6 +375,7 @@ describe("where an import starts", () => {
       external: false,
       acquired: null,
       facts: NO_FACTS,
+      scan: CLEAN_SCAN,
       used_by: { records: 0, runs: 0 },
     };
     answer("GET /api/v1/files", page([workbook]));

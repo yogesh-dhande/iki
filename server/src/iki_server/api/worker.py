@@ -40,8 +40,8 @@ from pydantic import field_validator
 from iki_server.api.problems import Problem, from_validation, response
 from iki_server.api.security import ANONYMOUS_LIMIT, _limit
 from iki_server.entities import registry
+from iki_server.files import scan_state, storage
 from iki_server.files import services as files
-from iki_server.files import storage
 from iki_server.files.models import Upload, UploadState
 from iki_server.org.services import Refused
 from iki_server.realtime.views import db
@@ -916,11 +916,29 @@ def restored_checkpoint(
 
 
 def _upload_out(upload: Upload) -> dict[str, Any]:
+    # Existing workers poll "checking" until they may attach a result or use an artifact.
+    state, error = upload.state, upload.error
+    if state == UploadState.SCANNING:
+        state = UploadState.CHECKING
+    if state == UploadState.READY:
+        source = (
+            upload.file.blob if upload.file_id is not None and upload.file is not None else upload
+        )
+        decision = scan_state.status_for(source)
+        if decision.state == "pending":
+            state = UploadState.CHECKING
+        elif not decision.usable:
+            state = UploadState.FAILED
+            error = (
+                "This file is quarantined."
+                if decision.state == "infected"
+                else "This file could not be scanned and is held."
+            )
     return {
         "id": upload.pk,
-        "state": upload.state,
-        "file_id": upload.file_id,
-        "error": upload.error,
+        "state": state,
+        "file_id": upload.file_id if state == UploadState.READY else None,
+        "error": error,
     }
 
 

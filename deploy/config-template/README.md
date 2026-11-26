@@ -180,6 +180,32 @@ create_registration_token --tier backend --label ...` in a web pod). Store it in
   ([ADR 0155](../../docs/adr/0155-workers-and-runs-reach-only-the-server-storage-and-the-proxy.md)).
   Allow more destinations that actions need in
   `networkPolicy.egress.workers`.
+- Setting `files.bucket` starts the chart's ClamAV Deployment. The web pods
+  and task runners reach it on a cluster-internal service. The scanner starts
+  with the signatures in its pinned image. FreshClam checks hourly and clamd
+  reloads updated signatures. The upstream project publishes the image and
+  documents its memory requirements. [ClamAV in Docker](https://docs.clamav.net/manual/Installing/Docker.html)
+
+  When scans are waiting, check both container logs.
+
+  ```console
+  kubectl logs deploy/iki-clamd -c clamd
+  kubectl logs deploy/iki-clamd -c freshclam
+  ```
+
+  For an air-gapped cluster, mirror the chart's pinned `files.scanner.clamd.image`
+  into the local registry and point `files.scanner.clamd.privateMirror` at
+  the internal FreshClam mirror. Set `networkPolicy.egress.signatureUpdates.to`
+  and `.ports` to that mirror's network peers and port. To use a deployment
+  adapter, install its Python module in the server image, set `files.scanner.adapter`
+  to the callable, and set `files.scanner.clamd.enabled: false`. Declare any
+  network peers the adapter needs in `networkPolicy.egress.externalScanner`.
+
+  `files.scanner.maxBytes` defaults to 100 MiB. For bundled clamd, choose a
+  threshold below 2 GiB. Objects above the threshold stay held unless
+  the deployment sets `files.scanner.oversizePolicy: allow`. The file keeps the
+  recorded size exception in either case. [ADR 0216](../../docs/adr/0216-files-wait-for-a-scan.md)
+
 - Bundles move validated entities, with their history, from staging to
   production ([ADR 0096](../../docs/adr/0096-bundles-carry-entities-between-deployments-with-their-history.md)).
   In each deployment, run `iki-server bundle_key` in a web pod, store what it

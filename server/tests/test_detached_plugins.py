@@ -9,6 +9,7 @@ import pytest
 from django.core.management import call_command
 from django.db import DatabaseError, connection, transaction
 from org_world import World
+from scan_fixtures import clean_blob
 from test_api_entities import api_as
 from test_runs import COMPUTE, launch, protein
 from test_workers import keep_connection, queued, worker, world
@@ -18,7 +19,7 @@ from iki_server.audit.models import AuditEvent
 from iki_server.core import db_roles
 from iki_server.entities import registry, services, values
 from iki_server.entities.models import Entity
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
 from iki_server.org.models import Project, ProjectMembership, ProjectRole, Team
 from iki_server.org.services import Refused
 from iki_server.plugins import sync
@@ -79,7 +80,7 @@ def lab() -> dict[str, Any]:
 
 
 def structure_file(project: Project) -> File:
-    blob = Blob.objects.create(sha256="a" * 64, size=1024, storage_uri="s3://iki/a")
+    blob = clean_blob(sha256="a" * 64, size=1024, storage_uri="s3://iki/a")
     return File.objects.create(
         blob=blob, name="1abc.pdb", media_type="chemical/x-pdb", project=project
     )

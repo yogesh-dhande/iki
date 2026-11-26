@@ -5108,6 +5108,54 @@ input[type="file"]::file-selector-button {
   font-weight: 500;
 }
 
+/* A file its malware scan holds, flagged beside its name: the name is cut short, never
+   the flag (ADR 0216). */
+.list-fill-flagged {
+  display: flex;
+  align-items: center;
+  gap: calc(6rem / 13);
+}
+
+.list-fill-flagged .list-fill-text {
+  min-width: 0;
+}
+
+.list-fill-flagged .badge {
+  flex: none;
+}
+
+/* --- Quarantine (ADR 0217) -------------------------------------------------------------------- */
+
+/* Each cell's second line beneath its first: a file's size, a finding's signature, who. */
+.quarantine-rows .cell-meta {
+  display: block;
+  margin-left: 0;
+}
+
+.quarantine-rows td {
+  padding-top: calc(6rem / 13);
+  padding-bottom: calc(6rem / 13);
+  vertical-align: top;
+}
+
+.quarantine-history {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.quarantine-history > li {
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--border);
+}
+
+.quarantine-history code,
+.quarantine-rows code {
+  overflow-wrap: anywhere;
+}
+
 /* --- Importing a spreadsheet (ADR 0178) ------------------------------------------------------ */
 
 /* Its heading, under the project's: the workbook, where the import is, and Discard. */

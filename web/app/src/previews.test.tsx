@@ -19,7 +19,7 @@ import type { Chromatogram, Table } from "./previews/readings";
 import { parseContentRange, ReadError, StoredBytes, type PreviewFile } from "./previews/source";
 import { elementSpan, findSpectra, reversedAxis } from "./previews/spectrum-viewer";
 import { columnName, CSV_BYTES, kindOf } from "./previews/table-viewer";
-import { answer, calls, page, problem, signedIn } from "./test-server";
+import { answer, calls, CLEAN_SCAN, page, problem, signedIn } from "./test-server";
 
 // --- The readers' worker, stood in for ---------------------------------------------------
 
@@ -102,6 +102,7 @@ function detail(overrides: Partial<Detail> = {}): Detail {
     agent: null,
     created_at: "2026-11-11T09:00:00Z",
     external: false,
+    scan: CLEAN_SCAN,
     acquired: null,
     used_by: { records: 0, runs: 0 },
     origin: { kind: "upload", run: null, uri: null, version: null },
@@ -297,13 +298,51 @@ describe("a file's page", () => {
 
   it("shows why a file the scan holds can't be shown, with no download and no read", async () => {
     await onFile(PLATE, {
-      scan: { state: "infected", usable: false },
-    } as Partial<Detail>);
+      scan: {
+        ...CLEAN_SCAN,
+        state: "infected",
+        usable: false,
+        reason: "Xls.Downloader.Agent-7372345-0",
+      },
+    });
     await renderApp(`/files/${ID}/`);
-    expect(await screen.findByText(/This file is quarantined/)).toBeInTheDocument();
+    const preview = await screen.findByRole("region", { name: "Table" });
+    expect(await within(preview).findByText(/It isn’t shown or downloaded/)).toBeVisible();
+    expect(within(preview).getByText("Quarantined")).toBeVisible();
+    expect(within(preview).getByText("Xls.Downloader.Agent-7372345-0")).toBeVisible();
     expect(screen.queryByRole("link", { name: /Download plate-07/ })).not.toBeInTheDocument();
     expect(calls("GET", `/api/v1/files/${ID}/content-url`)).toHaveLength(0);
   });
+
+  it("says why a file the scanner couldn't inspect isn't shown", async () => {
+    await onFile(PLATE, {
+      scan: {
+        ...CLEAN_SCAN,
+        state: "not_scanned",
+        usable: false,
+        reason: "Heuristics.Encrypted.Zip",
+      },
+    });
+    await renderApp(`/files/${ID}/`);
+    const preview = await screen.findByRole("region", { name: "Table" });
+    expect(await within(preview).findByText(/Encrypted\./)).toBeVisible();
+    expect(calls("GET", `/api/v1/files/${ID}/content-url`)).toHaveLength(0);
+  });
+
+  it("shows a file still being scanned once its scan finds it clean", async () => {
+    await onFile(PLATE, { scan: { ...CLEAN_SCAN, state: "pending", usable: false } });
+    readers.now.csv = () => table(PLATE_ROWS);
+    await renderApp(`/files/${ID}/`);
+    expect(await screen.findByText(/It’s shown once the deployment’s malware scan/)).toBeVisible();
+    expect(calls("GET", `/api/v1/files/${ID}/content-url`)).toHaveLength(0);
+    // The page asks again while it's scanning; once clean, the preview reads it.
+    answer(
+      `GET /api/v1/files/${ID}`,
+      detail({ size: PLATE.byteLength, sha256: await sha256(PLATE) }),
+    );
+    await screen.findByRole("table", { name: "plate-07-inhibition.csv" }, { timeout: 5000 });
+    expect(calls("GET", `/api/v1/files/${ID}/content-url`).length).toBeGreaterThan(0);
+  }, 10_000);
 
   it("shows what the server says when it refuses the link for a held file", async () => {
     await onFile(PLATE);

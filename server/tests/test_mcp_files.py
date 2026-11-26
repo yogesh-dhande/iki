@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
@@ -25,6 +26,8 @@ from test_registrations import CSV, register, run_tasks
 from test_runs import launch
 
 from iki_server.audit.models import AuditEvent
+from iki_server.files import scan_state, storage
+from iki_server.files.models import Blob, File
 from iki_server.oauth.models import Consent
 from iki_server.org.models import Project
 
@@ -201,6 +204,7 @@ async def test_a_file_link_reads_the_registered_version_until_expiry_and_names_i
     client, tokens = await sync_to_async(signed_in_token)(world, "viewer", scope="read")
     token = tokens["access_token"]
     detail = data(await tool(token, "get_file", file_id=file_id))
+    assert detail["file"]["scan"]["state"] == "clean"
     assert detail["file"]["origin"] == {
         "kind": "registration",
         "uri": uri,
@@ -230,3 +234,36 @@ async def test_a_file_link_reads_the_registered_version_until_expiry_and_names_i
     monkeypatch.setattr(fake_gcs, "time", SimpleNamespace(time=lambda: deadline.timestamp() + 1))
     denied = requests.get(link["url"], timeout=10)
     assert denied.status_code == 403 and "expired" in denied.text
+
+
+async def test_held_files_never_issue_an_mcp_download_link(
+    world: World, gcs: fake_gcs.FakeGcs
+) -> None:
+    blob = await Blob.objects.acreate(
+        sha256=hashlib.sha256(CSV).hexdigest(), size=len(CSV), storage_uri="gs://iki/plate"
+    )
+    file = await File.objects.acreate(
+        blob=blob, project=world.project, name="plate.csv", media_type="text/csv"
+    )
+    reader = await token_for(world, "viewer", scope="read")
+    outsider = await token_for(world, "outsider", scope="read")
+    file_id = str(file.pk)
+    with patch.object(storage, "download_url") as sign:
+        pending = error(await tool(reader, "get_file_download_link", file_id=file_id))
+        assert "(409, file_scanning)" in pending
+        await sync_to_async(scan_state.record_result)(
+            blob,
+            state="infected",
+            scanner="test",
+            signature_version="1",
+            reason="Eicar-Test-Signature",
+        )
+        held = error(await tool(reader, "get_file_download_link", file_id=file_id))
+        assert "(409, file_quarantined)" in held
+        missing = error(await tool(outsider, "get_file_download_link", file_id=str(uuid4())))
+        assert "(404, not_found)" in missing
+        assert error(await tool(outsider, "get_file_download_link", file_id=file_id)) == missing
+        sign.assert_not_called()
+    assert not await AuditEvent.objects.filter(
+        action="file.download_link_issued", target_id=file_id
+    ).aexists()

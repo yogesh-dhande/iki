@@ -162,7 +162,8 @@ file ID both return 404.
   and `runs_cursor`, respectively. Both file tools that return pages take
   `limit` (1–100, default 50).
 - `get_file_download_link(file_id)` returns `url`, `expires_at` and
-  `sha256`. Fetch the URL from object storage without an Iki token.
+  `sha256` when the file is usable. For a held file the tool returns the
+  scan problem. Fetch the URL from object storage without an Iki token.
   Anyone holding the URL can read the file for five minutes. Iki records
   who requested the link and which agent acted for them.
 
@@ -281,6 +282,12 @@ and the server refuses to start without them.
 | `IKI_FILES_ENDPOINT_URL`              | unset         | An S3-compatible store's URL; unset for AWS S3 and Cloud Storage                       |
 | `IKI_FILES_PUBLIC_ENDPOINT_URL`       | the endpoint  | Where browsers and workers reach the store, which signed URLs name                     |
 | `IKI_FILES_MAX_UPLOAD_SIZE`           | `100GiB`      | The largest file one upload may add                                                    |
+| `IKI_FILES_SCANNER`                   | clamd adapter | Deployment's Python scan adapter                                                       |
+| `IKI_FILES_SCAN_MAX_SIZE`             | `100MiB`      | Largest object sent to the scanner                                                     |
+| `IKI_FILES_SCAN_OVERSIZE_POLICY`      | `refuse`      | `refuse` or `allow` use of files recorded as `not_scanned` due to `too_large`          |
+| `IKI_CLAMD_HOST`                      | `localhost`   | Private hostname of the ClamAV daemon                                                  |
+| `IKI_CLAMD_PORT`                      | `3310`        | clamd TCP port                                                                         |
+| `IKI_CLAMD_TIMEOUT_SECONDS`           | `120`         | Timeout for connect and socket operations                                              |
 | `IKI_FILES_REGISTER_LOCATIONS`        | (none)        | Comma-separated `s3://bucket/prefix/` (`gs://` on Cloud Storage) locations to register |
 | `IKI_WEBHOOK_ALLOW_HTTP`              | `false`       | Development only: plain `http://` receivers; refused with HTTPS on                     |
 | `IKI_TASKS_CONCURRENCY`               | `4`           | `iki-server tasks`: tasks one runner runs at once                                      |
@@ -303,6 +310,48 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 To rotate, put the new key first, keep the old one after it, run
 `iki-server rotate_encryption`, then remove the old key.
+
+## File scanners
+
+A task reads each verified object from the deployment's storage. Registered
+objects use the pinned bucket version. The default adapter,
+`iki_server.files.scanner.clamd`, streams to clamd over its private TCP
+service and records the engine and signature database
+versions. The daemon must support `IDSESSION`, `VERSION` and `INSTREAM`. Match
+`StreamMaxLength` and `MaxFileSize` to the configured scan size and enable
+`AlertExceedsMax` and `AlertEncrypted` so incomplete inspections produce a
+finding. Clamd TCP has no authentication or encryption. Use the chart's
+internal service and network policy. [ClamAV protocol](https://docs.clamav.net/manual/Usage/ClamdProtocol.html)
+
+To use a deployment scanner, install its Python module in the server image
+and set `IKI_FILES_SCANNER` to the dotted path of its function. Implement
+the following signature.
+
+```python
+from iki_server.files.scanner import ScanResult, ScanStream
+
+
+def scan(*, stream: ScanStream, sha256: str, size: int) -> ScanResult: ...
+```
+
+Read chunks with `stream.read(262144)` until it returns `b""`. Iki owns and
+closes the stream. `size` is the verified byte count and `sha256` the lowercase
+hex digest. Iki verifies both against the bytes consumed before recording
+`clean` or `infected`. A cloud adapter can correlate submissions by digest
+and reuse a completed inspection for that content. On an outage, missing
+evidence or a provider job still in progress, raise an exception. Iki leaves
+the file pending for retry.
+
+Return a `ScanResult` with the scanner's name and version in `scanner` and
+its signature database identifier in `signature_version` (up to 255
+characters each). Use `status="clean"` for a complete inspection with no
+finding. Use `status="infected"` with the signature name in `reason` for a
+detection. Use `status="not_scanned"` with the reason for an incomplete
+inspection, such as encrypted contents. Reasons can hold 1,024 characters.
+Only Iki assigns the reserved `too_large` reason and the `allow_unscanned`
+size exception, based on the deployment's settings.
+Before applying an exception to a registered object, Iki verifies the
+size and hash by streaming the pinned bucket version.
 
 ## REST API
 
@@ -682,3 +731,41 @@ against the real server, with axe and the production CSP. They need the built
 web app (`make web`) and the browsers (`uv run playwright install`). Without
 them they skip, except in CI, where they fail. `-m "not built_web_app"` leaves
 them out.
+
+### Reviewing held files
+
+A file's `scan` in the REST API includes `state`, `usable`, `decision_id`,
+the scanner and signature version, time, reason and release status. Use
+`usable` to decide whether to enable a content action. An infected file can
+have an audited release, and a deployment may allow an oversize file while
+its state stays `not_scanned`. Content endpoints return HTTP 409 with
+`file_scanning`, `file_quarantined` or `file_not_scanned` when held.
+Poll a scanning upload or registration at its original URL. Its status and
+history include `file.scan` only while the caller can read the resulting file.
+
+An Org Admin assigns the **Quarantine Admin** organization role to the
+person responsible for investigating detections. They review held files in
+**Admin → Security → Quarantine**, or page through `GET /api/v1/quarantine`:
+what's held, or with `status=released` what was released, narrowed by
+`state` (`infected` or `not_scanned`) and `q` (part of a file name, or the
+start of a SHA-256). Each entry lists the files that share the bytes, their
+projects and who added them; `GET /api/v1/quarantine/{decision_id}` lists
+every one. To release a false positive, send
+`POST /api/v1/quarantine/{decision_id}/release` with a JSON body such as
+`{"reason":"Vendor confirmed a false detection in review LAB-274."}`.
+Only an entry with `releasable` can be: an incomplete inspection found
+nothing to call false, and stays held.
+A bearer token for this action needs the admin scope as well as the role.
+The finding and the release are retained separately. The release applies
+to every file that shares this blob. Ordinary project access still governs
+who can download it.
+
+After upgrading, the maintenance CronJob queues outstanding files and retained
+worker uploads for inspection. Lower-priority tasks continue the backfill in
+batches while new uploads take precedence. They are held until a decision is
+available. To start a batch immediately, run `iki-server maintain` with the
+deployment's settings. Monitor the task runner and clamd readiness for
+outages. Once the scanner is available the retry path uses the retained
+object, so users can keep polling the same upload or registration. Changes to
+the size policy apply to future decisions. Existing decisions keep the policy
+recorded at inspection time.

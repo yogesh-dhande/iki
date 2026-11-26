@@ -12,7 +12,9 @@ from api_client import problem
 from django.db import connection
 from django.utils import timezone
 from org_world import World
+from scan_fixtures import clean_blob
 from test_api_entities import api_as, create, other
+from test_files import run_tasks
 from test_runs import launch, protein, world
 
 from iki_server.api import graph as graph_api
@@ -20,7 +22,7 @@ from iki_server.audit.models import AuditEvent
 from iki_server.entities import search
 from iki_server.entities.models import Entity
 from iki_server.files import services as files
-from iki_server.files.models import Blob, File, FileUse
+from iki_server.files.models import File, FileUse
 from iki_server.files.services import EMPTY_SHA256
 from iki_server.graph import queries
 from iki_server.graph.models import Edge
@@ -99,7 +101,7 @@ def test_a_reference_is_an_edge_kept_whatever_changes_it(world: World) -> None:
 def test_a_list_of_references_is_an_edge_each(world: World) -> None:
     editor = api_as(world)
     abl1, src = protein(editor, world.project, "abl1"), protein(editor, world.project, "src")
-    blob = Blob.objects.create(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
+    blob = clean_blob(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
     pdb = File.objects.create(
         blob=blob, name="1abc.pdb", media_type="chemical/x-pdb", project=world.project
     )
@@ -144,6 +146,7 @@ def test_what_runs_wrote_depends_on_what_they_read(world: World, s3: Any) -> Non
         size=0,
         sha256=EMPTY_SHA256,
     )
+    run_tasks()
     upload.refresh_from_db()
     assert upload.file_id is not None
     FileUse.objects.create(file_id=upload.file_id, entity_id=holder["id"], revision=1)

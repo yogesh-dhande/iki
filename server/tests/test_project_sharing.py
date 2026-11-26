@@ -8,12 +8,13 @@ from typing import Any
 import pytest
 from api_client import problem
 from org_world import World
+from scan_fixtures import clean_blob
 from test_api_entities import api_as, create
 from test_runs import launch, protein, world
 
 from iki_server.audit.models import AuditEvent
 from iki_server.entities.models import ProjectLink
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 
 __all__ = ["world"]
@@ -118,7 +119,7 @@ def test_entities_shared_before_stay_shared(world: World, cro: Project) -> None:
 def test_values_elsewhere_cant_refer_to_its_entities_or_files(world: World, cro: Project) -> None:
     editor = api_as(world)
     theirs = protein(editor, cro, "src")
-    blob = Blob.objects.create(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
+    blob = clean_blob(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
     pdb = File.objects.create(blob=blob, name="1abc.pdb", media_type="chemical/x-pdb", project=cro)
 
     made = create(

@@ -823,8 +823,8 @@ jobs:
         run: |
           kubectl --context kind-iki get pods -A -o wide || true
           kubectl --context kind-iki -n iki get events --sort-by=.lastTimestamp | tail -50 || true
-          for d in iki-web keycloak seaweedfs otel-lgtm; do
-            echo "--- logs: $d"; kubectl --context kind-iki -n iki logs "deploy/$d" --tail=100 || true
+          for d in iki-web iki-tasks iki-clamd keycloak seaweedfs otel-lgtm; do
+            echo "--- logs: $d"; kubectl --context kind-iki -n iki logs "deploy/$d" --all-containers --tail=100 || true
           done
           kubectl --context kind-iki -n iki logs job/iki-migrate --tail=100 || true
 

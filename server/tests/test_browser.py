@@ -939,7 +939,8 @@ def test_the_admin_area_has_a_frame_of_its_own(
     from iki_server.org.models import OrgRole, OrgRoleAssignment
     from iki_server.web import admin_area
 
-    OrgRoleAssignment.objects.create(user=world.users["org_admin"], role=OrgRole.COMPUTE_ADMIN)
+    for role in (OrgRole.COMPUTE_ADMIN, OrgRole.QUARANTINE_ADMIN):
+        OrgRoleAssignment.objects.create(user=world.users["org_admin"], role=role)
     page = open_as("org_admin", "/admin/compute/", color_scheme)
     page.set_viewport_size({"width": 1440, "height": 900})
     page.get_by_role("heading", name="Compute", level=1).wait_for()
@@ -3351,11 +3352,21 @@ def test_a_records_lists_of_objects_and_its_map_from_another_records_sequence(
     assert_clean(page, axe_in_firefox=False)
 
 
-def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_type: str) -> Any:
-    """A file in the project, its bytes put straight into the store the server reads."""
+def _stored_file(
+    world: World,
+    s3_endpoint: str,
+    bucket: str,
+    path: Path,
+    media_type: str,
+    *,
+    scanned: bool = True,
+) -> Any:
+    """A file in the project, its bytes put straight into the store the server reads: found
+    clean by the scan, or, if not ``scanned``, still waiting for it."""
     import hashlib
 
     import boto3
+    from scan_fixtures import clean_blob
 
     from iki_server.files.models import Blob, File
 
@@ -3369,8 +3380,11 @@ def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_
         aws_access_key_id=S3_ACCESS_KEY,
         aws_secret_access_key=S3_SECRET_KEY,
     ).put_object(Bucket=bucket, Key=key, Body=data)
-    blob, _ = Blob.objects.get_or_create(
-        sha256=sha256, defaults={"size": len(data), "storage_uri": f"s3://{bucket}/{key}"}
+    uri = f"s3://{bucket}/{key}"
+    blob = (
+        clean_blob(sha256=sha256, size=len(data), storage_uri=uri)
+        if scanned
+        else Blob.objects.create(sha256=sha256, size=len(data), storage_uri=uri)
     )
     return File.objects.create(
         blob=blob,

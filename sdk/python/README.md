@@ -345,8 +345,10 @@ registered = iki.files.register(
 print(registered["id"], registered["sha256"])
 ```
 
-Registration waits for Iki to verify the pinned bytes and returns a
-`FileOut`. Pass `name=` to override the object's filename, `timeout=` to
+Registration waits for Iki to hash the pinned version and record its malware
+scan decision. The returned `FileOut` includes `scan["state"]` and
+`scan["usable"]`. A quarantined version keeps its metadata and finding.
+Pass `name=` to override the object's filename, `timeout=` to
 limit the wait in seconds and `poll=` to set the polling interval.
 Unapproved locations and unversioned objects raise `iki.Invalid`.
 
@@ -354,12 +356,16 @@ Unapproved locations and unversioned objects raise `iki.Invalid`.
 
 Upload a path to a project where you can edit. The SDK computes the file's
 SHA-256, sends each part directly to object storage, and waits for Iki to
-verify the stored bytes. It returns a `FileOut` with the file's ID, name,
-size, media type and SHA-256.
+verify the stored bytes and record a malware scan decision. The returned
+`FileOut` includes the file's ID, name, size, media type, SHA-256 and scan
+decision. A deployment can allow oversize files while recording their scan
+state as `not_scanned`.
 
 ```python
 project = "kinase-atlas"
 coordinates = iki.files.upload("abl.pdb", project=project)
+if not coordinates["scan"]["usable"]:
+    raise RuntimeError(f"Held file: {coordinates['scan']['reason']}")
 
 # An entity's file field takes the ID.
 structure = iki.entities.create(
@@ -380,7 +386,7 @@ for example `media_type="chemical/seq-aa-fasta"` for a protein `.fasta` file.
 Uploading requires project Editor access and the `write` scope. A reader
 who tries to upload gets `iki.Forbidden`. If Iki rejects the bytes during
 verification, `iki.IkiError` includes its reason. Pass `timeout=` in
-seconds to raise `iki.TimedOut` if verification takes longer.
+seconds to raise `iki.TimedOut` if verification and scanning take longer.
 
 ```python
 entity = iki.entities.get("STR-000007")

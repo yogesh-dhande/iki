@@ -178,10 +178,15 @@ def test_upload_recognises_bytes_before_the_name_and_uses_the_registered_reader(
 def test_an_empty_upload_uses_the_same_registry_fallbacks(
     world: World, s3: Any, name: str, sent: str, expected: str
 ) -> None:
-    started = start(api_as(world), world, b"", name=name, media_type=sent)
+    api = api_as(world)
+    started = start(api, world, b"", name=name, media_type=sent)
     assert started.status_code == 201, started.content
     body = started.json()
-    assert body["media_type"] == body["file"]["media_type"] == expected
+    assert body["media_type"] == expected and body["state"] == "scanning" and body["file"] is None
+    run_tasks()
+    finished = api.get(f"/uploads/{body['id']}").json()
+    assert finished["state"] == "ready" and finished["file"]["scan"]["usable"]
+    assert finished["media_type"] == finished["file"]["media_type"] == expected
 
 
 @pytest.mark.parametrize(
@@ -273,11 +278,13 @@ def test_parts_can_be_signed_again(world: World, s3: Any, small_parts: int) -> N
     problem(api.post(f"/uploads/{started['id']}/parts", {"numbers": [3]}), 409, "refused")
 
 
-def test_an_empty_file_is_ready_at_once(world: World, s3: Any) -> None:
+def test_an_empty_file_is_scanned_without_sending_parts(world: World, s3: Any) -> None:
     response = start(api_as(world), world, b"", name="empty.txt", media_type="text/plain")
     assert response.status_code == 201, response.content
-    assert response.json()["state"] == "ready" and response.json()["parts"] == []
-    assert response.json()["file"]["size"] == 0
+    assert response.json()["state"] == "scanning" and response.json()["parts"] == []
+    run_tasks()
+    upload = api_as(world).get(f"/uploads/{response.json()['id']}").json()
+    assert upload["state"] == "ready" and upload["file"]["size"] == 0
     wrong = start(api_as(world), world, b"", sha256="0" * 64)
     assert problem(wrong, 422, "validation_failed")["errors"][0]["pointer"] == "#/sha256"
 
@@ -357,6 +364,12 @@ def test_upload_history_follows_current_project_and_file_access(world: World, s3
     pending = start(api, world, PDB).json()
     private = start(api, world, b"", name="private.pdb").json()
     shared = start(api, world, b"", name="shared.pdb").json()
+    run_tasks()
+    private = api.get(f"/uploads/{private['id']}").json()
+    shared = api.get(f"/uploads/{shared['id']}").json()
+    assert private["file"]["scan"]["decision_id"] == shared["file"]["scan"]["decision_id"]
+    scanning = start(api, world, b"", name="waiting.pdb").json()
+    assert scanning["state"] == "scanning"
 
     editor = world.users["editor"]
     other = Project.objects.create(team=world.team, name="Structures")
@@ -367,7 +380,7 @@ def test_upload_history_follows_current_project_and_file_access(world: World, s3
     ProjectMembership.objects.filter(user=editor, project=world.project).delete()
 
     listed = {u["id"]: u for u in api.get("/uploads").json()["items"]}
-    for job in (pending, private):
+    for job in (pending, scanning, private):
         status = api.get(f"/uploads/{job['id']}").json()
         assert (
             status
@@ -381,10 +394,13 @@ def test_upload_history_follows_current_project_and_file_access(world: World, s3
                 "error": "",
             }
         )
+    waiting = api.post(f"/uploads/{scanning['id']}/complete")
+    assert waiting.status_code == 202 and waiting.json() == listed[scanning["id"]]
     readable = api.get(f"/uploads/{shared['id']}").json()
     assert readable == listed[shared["id"]]
     assert readable["name"] == "shared.pdb" and readable["file"]["id"] == shared["file"]["id"]
     assert readable["project"] is None and readable["file"]["project"] is None
+    assert "scan" not in readable and readable["file"]["scan"] == shared["file"]["scan"]
 
 
 def test_downloads_redirect_to_a_short_lived_link_under_the_files_name(

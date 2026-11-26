@@ -1703,7 +1703,9 @@ class Files(_Part):
         version to compute its SHA-256. The location must keep immutable object versions.
         The name defaults to the object's own. Iki checks its media type against the
         installed format declarations. ``acquired`` supplies a date when the format lacks
-        one. ``timeout`` limits the wait for verification in seconds.
+        one. The returned record includes the scan decision for the pinned version.
+        Check ``file["scan"]["usable"]`` before using the file.
+        ``timeout`` limits the wait for verification and scanning, in seconds.
         """
         from iki._uploads import wait_for_file
 
@@ -1756,7 +1758,9 @@ class Files(_Part):
         ``acquired`` is when its data was acquired, a date or datetime, or ISO 8601 text such
         as ``"2026-03-14"`` or ``"2026-03-14T09:21"``, for a file whose format doesn't record
         it: where it does, the file's own wins (ADR 0177). Without either, it's unknown.
-        ``timeout`` limits the wait for Iki to check the upload, in seconds.
+        Iki waits for a scan decision before returning the file. Check ``file["scan"]["usable"]``
+        before using it. A quarantined file keeps its metadata and finding.
+        ``timeout`` limits the wait for verification and scanning, in seconds.
         """
         from iki._uploads import upload
 

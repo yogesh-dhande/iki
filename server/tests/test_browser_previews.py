@@ -31,6 +31,7 @@ from test_browser import (  # noqa: F401 - fixtures
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import services as entities
 from iki_server.entities.models import Entity
+from iki_server.files import scan_state
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app]
 
@@ -132,11 +133,19 @@ def gel_png(width: int = 64, height: int = 48) -> bytes:
 
 
 def stored(
-    world: World, endpoint: str, bucket: str, tmp: Path, name: str, data: bytes, media: str
+    world: World,
+    endpoint: str,
+    bucket: str,
+    tmp: Path,
+    name: str,
+    data: bytes,
+    media: str,
+    *,
+    scanned: bool = True,
 ) -> Any:
     path = tmp / name
     path.write_bytes(data)
-    return _stored_file(world, endpoint, bucket, path, media)
+    return _stored_file(world, endpoint, bucket, path, media, scanned=scanned)
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
@@ -172,6 +181,72 @@ def test_a_csv_file_is_a_table_on_its_page(
     expect(grid).to_be_focused()
     assert links_issued(file) == 1
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    no_errors(page)
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_file_the_scan_holds_says_why_and_is_never_read(
+    open_as: Any,
+    world: World,
+    color_scheme: str,
+    tmp_path: Path,
+    _s3_endpoint: str,
+    _s3_bucket: str,
+) -> None:
+    """A quarantined workbook's preview says what the scanner found, with no download, and
+    asks the store for nothing (ADR 0216): the link a preview reads through isn't issued."""
+    file = stored(
+        world,
+        _s3_endpoint,
+        _s3_bucket,
+        tmp_path,
+        "EnVision_plate-07.csv",
+        PLATE.encode(),
+        "text/csv",
+        scanned=False,
+    )
+    scan_state.record_result(
+        file.blob,
+        state="infected",
+        scanner="ClamAV 1.4.3",
+        signature_version="27453",
+        reason="Xls.Downloader.Agent-7372345-0",
+    )
+    page = open_as("admin", f"/files/{file.pk}/", color_scheme)
+    preview = page.get_by_role("region", name="Table")
+    expect(preview.get_by_text("It isn’t shown or downloaded", exact=False)).to_be_visible()
+    clean(page)
+    expect(preview.get_by_text("Xls.Downloader.Agent-7372345-0")).to_be_visible()
+    expect(preview.get_by_role("table")).to_have_count(0)
+    expect(page.get_by_role("link", name=re.compile("^Download"))).to_have_count(0)
+    assert links_issued(file) == 0
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+
+
+def test_a_file_still_being_scanned_is_shown_once_its_scan_finds_it_clean(
+    open_as: Any, world: World, tmp_path: Path, _s3_endpoint: str, _s3_bucket: str
+) -> None:
+    file = stored(
+        world,
+        _s3_endpoint,
+        _s3_bucket,
+        tmp_path,
+        "plate-07-inhibition.csv",
+        PLATE.encode(),
+        "text/csv",
+        scanned=False,
+    )
+    page = open_as("admin", f"/files/{file.pk}/")
+    preview = page.get_by_role("region", name="Table")
+    expect(preview.get_by_text("Scanning…", exact=False)).to_be_visible()
+    clean(page)
+    assert links_issued(file) == 0
+    scan_state.record_result(
+        file.blob, state="clean", scanner="ClamAV 1.4.3", signature_version="27453"
+    )
+    # The page asks again while the file is scanned, and reads it once it may.
+    expect(preview.get_by_role("table", name="plate-07-inhibition.csv")).to_be_visible()
+    assert links_issued(file) == 1
     no_errors(page)
 
 
