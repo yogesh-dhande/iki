@@ -41,7 +41,9 @@ COORDINATOR, ANALYST, ENGINEER, BYSTANDER = "admin", "editor", "runner", "viewer
 
 def test_a_booking_is_for_a_person_and_the_work_it_runs(tmp_path: Path, database: str) -> None:
     build = tmp_path / "build"
-    built = iki("plugin", "build", *build_order(PLUGIN), "--output", build, cwd=ROOT)
+    # Equipment doesn't need requests; a core that books its instruments for requests has both.
+    plugins = build_order(PLUGIN, PLUGIN.parent / "requests")
+    built = iki("plugin", "build", *plugins, "--output", build, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(build, database)
     sync(build, database)
