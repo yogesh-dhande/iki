@@ -5412,6 +5412,7 @@ def lots(alice: requests.Session, project: dict[str, Any]) -> None:
             "measured_mass": 7182.2,
             "mass_basis": "average",
             "mass_tolerance": 2,
+            "mass_specification": "ESI-MS identity, average mass (dev seed)",
         },
         {"value": 500, "unit": "nmol"},
     )
@@ -5457,13 +5458,23 @@ def lots(alice: requests.Session, project: dict[str, Any]) -> None:
         alice,
         project,
         "iki/lots.ProteinLot",
-        {"protein": protein["id"], "a280": 0.53, "dilution_factor": 10, "path_length": 1},
+        {
+            "protein": protein["id"],
+            "a280": 0.53,
+            "dilution_factor": 10,
+            "path_length": 1,
+            "cysteines": "cystines",
+        },
         {"value": 20, "unit": "mg"},
     )
     run = launch(alice, project, "iki/lots.compute_protein_lot", {"lot": lot["id"]})
     got = record(alice, lot["id"])["values"]
     # Its 4 cystines take 8 H off its sequence's 14,313.0 g/mol: 37,970 / 14,304.94.
-    if (got.get("a280_extinction"), got.get("concentration")) != (2.6543, 1.9967):
+    if (got.get("a280_extinction"), got.get("concentration"), got.get("a280_estimate")) != (
+        2.6543,
+        1.9967,
+        False,
+    ):
         fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 1.9967 mg/mL at 2.6543")
     ok(
         f"iki/lots.compute_protein_lot: {lot['hrid']}'s A280 of 0.53, diluted 1 in 10, is "
@@ -6113,7 +6124,13 @@ def fv_lot(alice: requests.Session, project: dict[str, Any], fv: dict[str, Any])
         alice,
         project,
         "iki/lots.ProteinLot",
-        {"protein": fv["entity"], "a280": 0.85, "dilution_factor": 10, "path_length": 1},
+        {
+            "protein": fv["entity"],
+            "a280": 0.85,
+            "dilution_factor": 10,
+            "path_length": 1,
+            "cysteines": "cystines",
+        },
         {"value": 5, "unit": "mg"},
     )
     run = launch(alice, project, "iki/lots.compute_protein_lot", {"lot": lot["id"]})

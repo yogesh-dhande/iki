@@ -15,7 +15,7 @@ import pytest
 from first_party_dependencies import FIRST_PARTY, PLUGINS, ROOT, build_order
 from test_plugin_migrations import database, iki, migrate, orm, sync
 
-from iki_spec import schemas
+from iki_spec import rules, schemas
 from iki_spec.validate import load_plugin
 
 LOTS = PLUGINS / "lots"
@@ -34,6 +34,12 @@ INOTERSEN = (
 
 #: M13 forward (GTAAAACGACGGCCAGTG), plain DNA.
 M13 = "RNA1{" + "P.".join(f"[dR]({b})" for b in "GTAAAACGACGGCCAGTG") + "}$$$$V2.0"
+#: An identity specification's tolerance for an oligonucleotide lot's average mass by
+#: ESI-MS, as a lab's approved method gives it; the method is synthetic.
+SPECIFIED = {
+    "mass_tolerance": 2,
+    "mass_specification": "ESI-MS identity, average mass (synthetic SOP-AN-031 rev 4)",
+}
 
 __all__ = ["database"]
 
@@ -137,6 +143,37 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "a_person",
     }
     assert {s for st in states.values() for s in st.set_by} == {"iki/lots.qa"}
+
+
+def test_an_oligo_lots_mass_is_checked_against_its_named_specification() -> None:
+    """Iki assumes no tolerance: a measured mass needs the one the lab's approved identity
+    specification gives, and the lot names that specification."""
+    plugin = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS]).plugin
+    assert plugin is not None
+    spec = plugin.types["iki/lots.OligoLot"]
+    tolerance = spec.fields["mass_tolerance"]
+    assert tolerance.default is None and not tolerance.required
+    variables = rules.rule_variables(rules.record_schema(spec.label, spec.fields, None))
+    named = SPECIFIED["mass_specification"]
+    cases: dict[str, list[tuple[dict[str, object], bool]]] = {
+        "mass_tolerance_is_stated": [
+            ({"measured_mass": 7182.2, "mass_tolerance": 2}, True),
+            ({"measured_mass": 7182.2}, False),
+            ({}, True),
+        ],
+        "mass_tolerance_names_its_specification": [
+            ({"mass_tolerance": 2, "mass_specification": named}, True),
+            ({"mass_tolerance": 2}, False),
+            ({}, True),
+        ],
+    }
+    for name, rows in cases.items():
+        check = spec.rules[name].check
+        assert check is not None
+        outcomes = rules.evaluate(
+            variables, [(check, rules.CONDITION)], [{"record": v} for v, _ in rows]
+        )
+        assert [row[0].value for row in outcomes] == [ok for _, ok in rows], name
 
 
 def test_each_kind_of_lot_works_out_its_values_when_its_recorded_and_measured() -> None:
@@ -393,6 +430,8 @@ def test_a_concentration_follows_its_reading_not_an_older_one(
         "extinction_coefficient": 1,
         "concentration_method": "a280",
         "a280_extinction": 1,
+        "a280_basis": "measured",
+        "a280_estimate": False,
         "a280_concentration": 3,
     }
     out = compute(
@@ -459,7 +498,13 @@ def test_a_proteins_cystines_take_their_hydrogens_off_as_a_complexs_do(
         | {"included": {"protein": [{"values": lysozyme}]}},
     )
     assert changes(out) == [
-        {"a280_extinction": 2.6543, "a280_concentration": 1.9967, "concentration": 1.9967}
+        {
+            "a280_extinction": 2.6543,
+            "a280_basis": "cystines",
+            "a280_estimate": False,
+            "a280_concentration": 1.9967,
+            "concentration": 1.9967,
+        }
     ]
     assert "its protein's 4 cystines take 8.06 g/mol off" in capsys.readouterr().out
     hemoglobin = {
@@ -497,6 +542,7 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
         database,
         f"""
         from decimal import Decimal
+        SPECIFIED = {SPECIFIED!r}
         from iki_server.accounts.models import User
         from iki_server.amounts import services as amounts
         from iki_server.entities import checking, holds, search, services, states
@@ -532,7 +578,7 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
             {{"oligonucleotide": str(oligo.pk), "lot_number": "TEG-2611", "source": "made",
               "made_by": str(alice.pk), "synthesis_scale": 1, "purification": "ie_hplc",
               "counterion": "sodium", "concentration": 100, "mass_basis": "average",
-              "measured_mass": 7182.2}},
+              "measured_mass": 7182.2, **SPECIFIED}},
             amount={{"value": 500, "unit": "nmol"}},
         ).entity
         # 50 uL of a 100 uM solution is 5 nmol.
@@ -552,7 +598,7 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
         # Another lot, whose mass is volanesorsen's: held as it's saved, from its measured
         # mass and inotersen's, with no run needed, saying why.
         mixed_values = {{"oligonucleotide": str(oligo.pk), "mass_basis": "average",
-                         "measured_mass": 7164.3}}
+                         "measured_mass": 7164.3, **SPECIFIED}}
         refused_unheld = errors(lambda: services.create(
             alice, "iki/lots.OligoLot", project, mixed_values,
         ))
@@ -889,6 +935,7 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
         database,
         f"""
         from decimal import Decimal
+        SPECIFIED = {SPECIFIED!r}
         from django.db import transaction
         from iki_server.accounts.models import User
         from iki_server.amounts import services as amounts
@@ -951,7 +998,8 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
             return services.create(
                 who, "iki/lots.OligoLot", project,
                 {{"oligonucleotide": str(of.pk), "mass_basis": "average",
-                  "certificates": [str(coa.pk)], "concentration": 100, **values}},
+                  "certificates": [str(coa.pk)], "concentration": 100, **SPECIFIED,
+                  **values}},
                 amount={{"value": 50, "unit": "nmol"}}, hold_reason=hold_reason,
             ).entity
 
