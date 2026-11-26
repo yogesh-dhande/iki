@@ -32,6 +32,7 @@ from iki_server.api import (
     outside_apis,
     plugins,
     projects,
+    record_exports,
     registries,
     requests,
     runs,
@@ -82,6 +83,7 @@ for module in (
     starters,
     teams,
     projects,
+    record_exports,
     # Before entities: its `/entities/assign` would otherwise be read as `/entities/{ref}`.
     work,
     entities,

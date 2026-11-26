@@ -1,5 +1,5 @@
 """The small_molecule plugin's actions: registering compounds from SMILES and SDF files,
-their descriptors and batches' formula weights, exporting them, and fetching them from
+their descriptors and Molfiles and batches' formula weights, and fetching them from
 PubChem and ChEMBL (from fakes of them), generating conformers, and searching them by
 similarity and substructure, run as a worker runs them (an input.json in, an output.json
 out) or, for the fetches, in-process."""
@@ -11,6 +11,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -500,6 +501,42 @@ def described(tmp_path: Path, *compounds: dict[str, Any]) -> dict[str, Any]:
     return output
 
 
+# Aspirin as RDKit 2026.09.2 lays it out with CoordGen: V2000, kekulized, its title (the
+# first line) empty for Iki to write the record's name in.
+ASPIRIN_MOLFILE = """
+     RDKit          2D
+
+ 13 13  0  0  0  0  0  0  0  0999 V2000
+   -2.6640    0.3130    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.7990   -0.1888    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.8012   -1.1888    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0
+   -0.9320    0.3096    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0
+   -0.0672   -0.1922    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -0.0690   -1.1922    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    0.7960   -1.6940    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    1.6630   -1.1956    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    1.6650   -0.1956    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    0.8000    0.3062    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    0.8020    1.3060    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -0.0630    1.8078    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0
+    1.6690    1.8042    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0
+  1  2  1  0
+  2  3  2  0
+  2  4  1  0
+  4  5  1  0
+  5  6  2  0
+  6  7  1  0
+  7  8  2  0
+  8  9  1  0
+  9 10  2  0
+ 10 11  1  0
+ 11 12  2  0
+ 11 13  1  0
+ 10  5  1  0
+M  END
+"""
+
+
 def test_descriptors_are_rdkits(tmp_path: Path) -> None:
     output = described(tmp_path, entity(1, smiles=ASPIRIN, inchikey=ASPIRIN_KEY))
     (update,) = output["updates"]["compound"]
@@ -524,9 +561,162 @@ def test_descriptors_are_rdkits(tmp_path: Path) -> None:
             "undefined_stereocentres": 0,
             "lipinski_violations": 0,
             "qed": 0.55,
+            "molfile": ASPIRIN_MOLFILE,
         },
     }
     assert output["messages"] == []
+    # The same SMILES, with the same RDKit, gives the same Molfile.
+    again = described(tmp_path, entity(1, smiles=ASPIRIN, inchikey=ASPIRIN_KEY))
+    assert again["updates"]["compound"][0]["values"]["molfile"] == ASPIRIN_MOLFILE
+
+
+def inchikey(mol: Any) -> str:
+    """Its standard InChIKey, from RDKit's InChI library."""
+    from rdkit.Chem import rdinchi
+
+    key: str = rdinchi.InchiToInchiKey(rdinchi.MolToInchi(mol)[0])
+    return key
+
+
+def molfile_lines(block: str) -> tuple[list[str], list[str], list[str]]:
+    """A V2000 Molfile's atom lines, bond lines and properties (its M lines)."""
+    lines = block.splitlines()
+    atoms, bonds = int(lines[3][:3]), int(lines[3][3:6])
+    return (
+        lines[4 : 4 + atoms],
+        lines[4 + atoms : 4 + atoms + bonds],
+        lines[4 + atoms + bonds :],
+    )
+
+
+def test_each_compound_is_kept_as_a_molfile_of_its_stereoisomer(tmp_path: Path) -> None:
+    from rdkit import Chem
+
+    # Each with PubChem's InChIKey for it.
+    compounds = {
+        # One stereocentre: (S)-ibuprofen, CID 3672.
+        "CC(C)Cc1ccc([C@H](C)C(=O)O)cc1": "HEFNNWSXXWATRW-JTQLQIEISA-N",
+        # A Z double bond: tamoxifen, CID 2733526.
+        "CC/C(=C(\\c1ccccc1)c1ccc(OCCN(C)C)cc1)c1ccccc1": "NKANXQFJJICGDU-QPLCGJKRSA-N",
+        # A double bond whose configuration isn't given: clomifene, a mixture of its E and
+        # Z isomers, CID 2800.
+        "CCN(CC)CCOc1ccc(C(=C(Cl)c2ccccc2)c2ccccc2)cc1": "GKIRPKYJQBWNGO-UHFFFAOYSA-N",
+        # Fluorine-18 and five stereocentres: fludeoxyglucose (18F), CID 450503.
+        "OC[C@H]1O[C@H](O)[C@H]([18F])[C@@H](O)[C@@H]1O": "ZCXUVYAZINUVJD-AHXZWLDOSA-N",
+        # A quaternary ammonium cation with carbon-11: [11C]choline, CID 449688.
+        "C[N+](C)([11CH3])CCO": "OEYIOHPDSNJKLS-BJUDXGSMSA-N",
+        # A cation with four stereocentres in a tropane and its epoxide: tiotropium,
+        # CID 5487427.
+        "C[N+]1(C)[C@@H]2CC(OC(=O)C(O)(c3cccs3)c3cccs3)C[C@H]1[C@@H]1O[C@@H]12": (
+            "LERNTVKEWCAPOY-FPISHFTHSA-N"
+        ),
+    }
+    output = described(
+        tmp_path,
+        *(entity(i, smiles=s, inchikey=k) for i, (s, k) in enumerate(compounds.items())),
+    )
+    assert output["messages"] == []
+    blocks = [u["values"]["molfile"] for u in output["updates"]["compound"]]
+    for (smiles, key), block in zip(compounds.items(), blocks, strict=True):
+        mol = Chem.MolFromSmiles(smiles)
+        lines = block.splitlines()
+        assert lines[0] == ""  # Iki writes the record's name here when it exports it
+        assert lines[1].strip() == "RDKit          2D"
+        assert lines[3].endswith(" V2000")
+        assert (int(lines[3][:3]), int(lines[3][3:6])) == (mol.GetNumAtoms(), mol.GetNumBonds())
+        atoms, bonds, properties = molfile_lines(block)
+        assert properties[-1] == "M  END"
+        # Laid out in 2D: no two atoms at one point, and none out of the plane.
+        points = {(line[0:10], line[10:20]) for line in atoms}
+        assert len(points) == len(atoms)
+        assert {line[20:30] for line in atoms} == {"    0.0000"}
+        # Kekulized: single and double bonds, none aromatic (4).
+        assert {line[6:9].strip() for line in bonds} <= {"1", "2", "3"}
+        # Read back, it's the same compound, its stereoisomer and its isotopes and charges.
+        back = Chem.MolFromMolBlock(block)
+        assert inchikey(back) == key
+        assert Chem.MolToSmiles(back) == Chem.MolToSmiles(mol)
+    ibuprofen, tamoxifen, clomifene, fdg, choline, tiotropium = (molfile_lines(b) for b in blocks)
+    # Stereocentres are wedged (1) or hashed (6), one bond for each.
+    wedged = [sum(line[9:12].strip() in ("1", "6") for line in m[1]) for m in (ibuprofen, fdg)]
+    assert wedged == [1, 5]
+    # A double bond whose configuration isn't given is drawn crossed (3), so reading the
+    # Molfile doesn't take one from its coordinates; one that's given isn't.
+    assert [line[9:12].strip() for line in clomifene[1] if line[6:9].strip() == "2"].count("3") == 1
+    assert all(line[9:12].strip() != "3" for line in tamoxifen[1])
+    assert fdg[2] == ["M  ISO  1   8  18", "M  END"]
+    assert choline[2] == ["M  CHG  1   2   1", "M  ISO  1   4  11", "M  END"]
+    assert tiotropium[2] == ["M  CHG  1   2   1", "M  END"]
+
+
+def test_a_structure_of_more_than_999_atoms_is_a_v3000_molfile(tmp_path: Path) -> None:
+    from rdkit import Chem
+
+    # Monodisperse methoxy PEG of 340 units (15 kDa), a PEGylation reagent: 1,022 heavy
+    # atoms, more than a V2000 counts line holds.
+    peg = "CO" + "CCO" * 340
+    key = inchikey(Chem.MolFromSmiles(peg))
+    output = described(tmp_path, entity(1, smiles=peg, inchikey=key))
+    assert output["messages"] == []
+    block = output["updates"]["compound"][0]["values"]["molfile"]
+    lines = block.splitlines()
+    assert lines[0] == ""
+    assert lines[3].endswith(" V3000")
+    assert "M  V30 COUNTS 1022 1021 0 0 0" in lines
+    assert lines[-1] == "M  END"
+    back = Chem.MolFromMolBlock(block)
+    assert back.GetNumAtoms() == 1022
+    assert inchikey(back) == key
+
+
+def test_a_structure_coordgen_cant_lay_out_in_time_is_laid_out_by_rdkits_own(
+    scripts: Any,
+) -> None:
+    from rdkit import Chem
+
+    chemistry = scripts.import_module("chemistry")
+    # Cyclodotetracontane: CoordGen doesn't lay out a carbon ring of 42 after minutes;
+    # RDKit's own depictor does at once.
+    ring = "C1" + "C" * 41 + "1"
+    with chemistry.Layouts(seconds=2) as layouts:
+        block = layouts.molfile(ring, until=time.monotonic() + 60)
+        # And the next is laid out by CoordGen again, in a new process.
+        assert layouts.molfile(ASPIRIN, until=time.monotonic() + 60) == ASPIRIN_MOLFILE
+        # Past the run's time for layouts, nothing is.
+        assert layouts.molfile(ASPIRIN, until=time.monotonic()) is None
+    assert block is not None
+    assert inchikey(Chem.MolFromMolBlock(block)) == "HGYWDMKVEUIDAK-UHFFFAOYSA-N"
+
+
+def test_a_molfile_that_would_overfill_the_output_is_left_out_saying_so(
+    scripts: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    descriptors = scripts.import_module("descriptors")
+    # Room for one aspirin and its Molfile, not two.
+    monkeypatch.setattr(descriptors, "UPDATES_BYTES", 2_500)
+    output = descriptors.compounds(
+        {
+            "inputs": {
+                "compound": [
+                    entity(1, smiles=ASPIRIN, inchikey=ASPIRIN_KEY),
+                    entity(2, smiles=ASPIRIN, inchikey=ASPIRIN_KEY),
+                ]
+            }
+        }
+    )
+    first, second = (u["values"] for u in output["updates"]["compound"])
+    assert first["molfile"] == ASPIRIN_MOLFILE
+    assert "molfile" not in second
+    assert second["molecular_weight"] == 180.159
+    assert output["messages"] == [
+        {
+            "level": "warning",
+            "text": "X-2 has no Molfile, so it doesn't export as a Molfile or an SDF yet: its "
+            "Molfile, of 1,151 characters, would take the run's output over the 2.5 MB it "
+            "holds. Run compute_descriptors on it with fewer compounds.",
+            "entity": entity(2)["id"],
+        }
+    ]
 
 
 def test_labelled_atoms_show_in_the_formula_as_in_the_masses(tmp_path: Path) -> None:
@@ -1536,47 +1726,6 @@ def test_batch_fields_that_cant_be_read_name_their_record(
     assert f"Record 1 (aspirin sodium): {error}" in last_error(result)
 
 
-def test_exports_compounds_with_their_values_as_sd_fields(tmp_path: Path) -> None:
-    from rdkit import Chem
-
-    result, output = script(
-        tmp_path,
-        "sdf.py",
-        {
-            "inputs": {
-                "compounds": [
-                    entity(
-                        1,
-                        smiles=ASPIRIN,
-                        inchikey=ASPIRIN_KEY,
-                        name="aspirin",
-                        molecular_weight=180.159,
-                        synonyms=["ASA", "acetylsalicylic acid"],
-                    ),
-                    entity(2, smiles="CC(=O)Nc1ccc(O)cc1", inchikey="RZVAJINKPMORJF-UHFFFAOYSA-N"),
-                ]
-            }
-        },
-        "export",
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert output is not None
-    assert output["metrics"] == {"compounds": 2}
-    written = list(Chem.SDMolSupplier(str(tmp_path / "out" / "compounds.sdf")))
-    assert [m.GetProp("_Name") for m in written] == ["aspirin", "X-2"]
-    assert written[0].GetPropsAsDict() == {
-        "hrid": "X-1",
-        "name": "aspirin",
-        "smiles": ASPIRIN,
-        "inchikey": ASPIRIN_KEY,
-        "synonyms": "ASA; acetylsalicylic acid",
-        "molecular_weight": 180.159,
-    }
-    # The structure written, read back, is the one given.
-    assert Chem.MolToSmiles(written[0]) == ASPIRIN
-    assert written[0].GetConformer().Is3D() is False
-
-
 # --- Fetching from PubChem and ChEMBL ------------------------------------------------------------
 
 
@@ -1624,7 +1773,7 @@ def scripts(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     monkeypatch.syspath_prepend(str(SCRIPTS))
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
     yield importlib
-    for name in ("chemistry", "fetching", "pubchem", "chembl"):
+    for name in ("chemistry", "descriptors", "fetching", "pubchem", "chembl"):
         sys.modules.pop(name, None)
 
 

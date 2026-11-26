@@ -7,10 +7,11 @@ description: >-
   A compound's formula, molecular weight, exact mass, charge, Crippen logP, TPSA,
   hydrogen-bond donors and acceptors, rotatable bonds, rings, fraction Csp3,
   stereocentres, QED and Lipinski violations, as RDKit computes them from its SMILES,
-  and its standard InChI. A compound whose InChIKey isn't its structure's fails its
-  run, saying so.
+  its standard InChI, and its Molfile: its structure laid out in 2D, which its Molfile
+  and SDF exports are written from. A compound whose InChIKey isn't its structure's
+  fails its run, saying so.
 inputs:
-  compound: { type: Compound, schema: ">=1" }
+  compound: { type: Compound, schema: ">=2" }
 effects:
   updates:
     - input: compound
@@ -33,6 +34,7 @@ effects:
         - undefined_stereocentres
         - qed
         - lipinski_violations
+        - molfile
 software:
   - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
   - { name: InChI, version: "1.07.3", url: https://www.inchi-trust.org }

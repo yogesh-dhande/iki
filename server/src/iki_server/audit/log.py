@@ -103,6 +103,8 @@ ACTIONS: dict[str, str] = {
     "file.registered": "Registered a file in place",
     "entity.linked": "Shared an entity into a project",
     "entity.exported": "Downloaded a record as a file, such as GenBank",
+    "entities.export_requested": "Asked for records as one file, such as FASTA or SDF",
+    "entities.exported": "Downloaded records as one file, such as FASTA or SDF",
     "entity.trail_exported": "Downloaded a record's audit trail as CSV, for inspection",
     "audit.exported": "Downloaded the organization audit log as CSV",
     "lineage.exported": "Downloaded record lineage as CSV",

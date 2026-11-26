@@ -5,7 +5,14 @@ import shutil
 import textwrap
 from pathlib import Path
 
-from iki_spec.model import Export, ReportExport, plugin_from_dict, plugin_to_dict
+from iki_spec.model import (
+    CompoundExport,
+    Export,
+    ProteinExport,
+    ReportExport,
+    plugin_from_dict,
+    plugin_to_dict,
+)
 from iki_spec.validate import Result, load_plugin
 
 PLUGIN = """\
@@ -106,6 +113,61 @@ def test_its_fields_must_exist_and_be_what_it_writes(tmp_path: Path) -> None:
     ):
         result = made(tmp_path, f"[{{ export: sequence, sequence: bases, {role}: {wrong} }}]")
         assert codes(result) == ["export-field"], role
+
+
+def test_a_protein_export_names_its_residues_and_what_goes_with_them(tmp_path: Path) -> None:
+    result = made(
+        tmp_path,
+        "[{ export: protein, sequence: residues, description: notes, organism: organism }]",
+    )
+    assert result.problems == []
+    plugin = result.plugin
+    assert plugin is not None
+    assert plugin.types["acme/lab.Construct"].exports == (
+        ProteinExport("protein", "residues", "notes", "organism"),
+    )
+    assert plugin_from_dict(plugin_to_dict(plugin)) == plugin
+
+
+def test_a_protein_export_writes_a_protein_field(tmp_path: Path) -> None:
+    dna = made(tmp_path, "[{ export: protein, sequence: bases }]")
+    assert codes(dna) == ["export-field"]
+    assert dna.problems[0].message == (
+        "`bases` isn't a protein sequence (format protein_sequence), which a protein "
+        "export's `sequence` writes."
+    )
+    for role, wrong in (("description", "count"), ("organism", "other")):
+        result = made(tmp_path, f"[{{ export: protein, sequence: residues, {role}: {wrong} }}]")
+        assert codes(result) == ["export-field"], role
+    # A protein export names no features: FASTA holds none, and GenPept isn't written.
+    assert codes(made(tmp_path, "[{ export: protein, sequence: residues, features: x }]")) == [
+        "schema"
+    ]
+
+
+def test_a_compound_export_names_the_text_field_its_molfile_is_in(tmp_path: Path) -> None:
+    result = made(tmp_path, "[{ export: compound, structure: notes }]")
+    assert result.problems == []
+    plugin = result.plugin
+    assert plugin is not None
+    assert plugin.types["acme/lab.Construct"].exports == (CompoundExport("compound", "notes"),)
+    assert plugin_from_dict(plugin_to_dict(plugin)) == plugin
+    wrong = made(tmp_path, "[{ export: compound, structure: name }]")
+    assert codes(wrong) == ["export-field"]
+    assert wrong.problems[0].message == (
+        "`name` isn't a text field holding a Molfile, which a compound export's `structure` writes."
+    )
+    assert codes(made(tmp_path, "[{ export: compound }]")) == ["schema"]
+
+
+def test_a_type_exports_a_sequence_and_its_protein_side_by_side(tmp_path: Path) -> None:
+    """Their formats have names of their own (`fasta`, `protein-fasta`), so a construct with
+    bases and residues offers both."""
+    result = made(
+        tmp_path,
+        "[{ export: sequence, sequence: bases }, { export: protein, sequence: residues }]",
+    )
+    assert result.problems == []
 
 
 def test_a_reference_exports_the_sequence_it_names(tmp_path: Path) -> None:

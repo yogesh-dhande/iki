@@ -20,8 +20,10 @@ column is an Excel serial date (``46023`` is 1 January 2026) only when they say 
 
 from __future__ import annotations
 
+import csv
 import dataclasses
 import datetime as dt
+import io
 import re
 import uuid
 import zoneinfo
@@ -41,6 +43,7 @@ __all__ = [
     "Reference",
     "convert",
     "header_unit_label",
+    "items",
     "not_mappable",
     "quantity",
     "ucum",
@@ -267,6 +270,22 @@ def unit_problem(f: Field, unit: str) -> str | None:
     return None
 
 
+def items(value: str, separator: str = SEPARATOR) -> list[str]:
+    """A cell's list items, apart by ``separator``. An item that holds the separator, or
+    starts with a double quote, is in double quotes, a quote in it doubled, as Iki's CSV
+    download writes it (ADR 0175): ``"Tris; pH 8"; EDTA`` is two items. A quote elsewhere
+    is part of its item, as in ``5" tube``."""
+    if '"' not in value or separator == '"':
+        return [part.strip() for part in value.split(separator)]
+    try:
+        rows = list(
+            csv.reader(io.StringIO(value, newline=""), delimiter=separator, skipinitialspace=True)
+        )
+    except csv.Error:
+        return [part.strip() for part in value.split(separator)]
+    return [part.strip() for row in rows for part in row]
+
+
 def convert(f: Field, column: Column, value: Cell) -> Any:  # noqa: ANN401 - JSON
     """The cell's value as a create gives it to ``f``, or None for an empty cell. A
     reference is a :class:`Reference` (a list's, a list of them), found later. Raises
@@ -276,7 +295,7 @@ def convert(f: Field, column: Column, value: Cell) -> Any:  # noqa: ANN401 - JSO
     if f.type == "list":
         assert f.items is not None  # noqa: S101 - lists always have items
         if isinstance(value, str):
-            parts = [p.strip() for p in value.split(column.separator or SEPARATOR)]
+            parts = items(value, column.separator or SEPARATOR)
         else:
             parts = [text_of(value)]
         out = []

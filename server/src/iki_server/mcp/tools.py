@@ -24,6 +24,7 @@ from iki_server.api.entities import Condition, SortIn
 from iki_server.api.graph import FollowedName
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT
 from iki_server.api.runs import MAX_BATCH
+from iki_server.entities.record_exports import MAX_RECORDS
 from iki_server.files.listing import Sort as FileSort
 from iki_server.graph import queries
 from iki_server.mcp.api import Query, call, path, web_url
@@ -56,6 +57,7 @@ CHANGE = ToolAnnotations(
 )
 
 Ref = Annotated[str, Field(description="Its ID, or its HRID such as PRT-000123.", max_length=64)]
+ExportId = Annotated[UUID, Field(description="The export's ID, as export_entities gave it.")]
 Depth = Annotated[
     int,
     Field(ge=1, le=queries.MAX_DEPTH, description="How many edges away, at most."),
@@ -592,6 +594,93 @@ def build() -> MCPServer:
             "project": str(project) if project else None,
         }
         return answer(await call("GET", "/entities/lookup", query=query))
+
+    @server.tool(annotations=ADD, title="Export entities as one file")
+    async def export_entities(
+        format: Annotated[
+            Literal["genbank", "fasta", "protein-fasta", "sdf"],
+            Field(
+                description="A format every one of their types exports, of which many make "
+                "one file: describe_entity_type lists its exports' formats (many: file)."
+            ),
+        ],
+        entities: Annotated[
+            list[Ref] | None,
+            Field(
+                max_length=MAX_RECORDS,
+                description="These entities, in this order. Or leave it out to export every "
+                "one the search (type, project, q, where, archived, collection) finds.",
+            ),
+        ] = None,
+        type: Annotated[
+            str | None, Field(description="This type and its subtypes, such as iki/dna.Primer.")
+        ] = None,
+        project: Annotated[UUID | None, Field(description="Only this project's.")] = None,
+        q: Annotated[
+            str | None, Field(max_length=200, description="Text in their HRID or title.")
+        ] = None,
+        where: Annotated[
+            Condition | None, Field(description="Conditions on fields, as search_entities takes.")
+        ] = None,
+        sort: Annotated[SortIn | None, Field(description="A field to sort by.")] = None,
+        archived: Annotated[
+            bool | None, Field(description="false (the default): current ones only.")
+        ] = False,
+        collection: Annotated[
+            str | None, Field(description="Only members of this collection (ID or HRID).")
+        ] = None,
+        fields: Annotated[
+            list[str] | None,
+            Field(
+                max_length=500,
+                description="For SDF: the fields it carries as data. All it can, if left out.",
+            ),
+        ] = None,
+    ) -> CallToolResult:
+        """Entities the person can read, as one FASTA, GenBank or SDF file (ADR 0229), up to
+        10,000, each at the revision it has now. Up to 100 are written straight away; more
+        in the background: get_entity_export says how far it's got. Once its state is
+        ready, get_entity_export_download_link gives the file. A record the format can't be
+        written for fails it, and `refused` says which and why; `notes` says what the
+        file couldn't hold of each record. Asking is audited."""
+        body: dict[str, Any] = {"format": format, "fields": fields}
+        if entities is not None:
+            body["entities"] = entities
+            body["project"] = str(project) if project else None
+        else:
+            search: dict[str, Any] = {
+                "type": type,
+                "project": str(project) if project else None,
+                "q": q,
+                "archived": archived,
+                "collection": collection,
+            }
+            if where is not None:
+                search["where"] = where.model_dump(by_alias=True, exclude_unset=True)
+            if sort is not None:
+                search["sort"] = sort.model_dump(by_alias=True, exclude_unset=True)
+            body["search"] = {k: v for k, v in search.items() if v is not None}
+        return answer(
+            await call(
+                "POST", "/entity-exports", body={k: v for k, v in body.items() if v is not None}
+            )
+        )
+
+    @server.tool(annotations=READ, title="Get an export of entities")
+    async def get_entity_export(export_id: ExportId) -> CallToolResult:
+        """An export the person asked for: its state (queued, writing, ready, failed or
+        expired), how many of its records are written (done of count), and once it's ready,
+        its file's name, size and SHA-256 and what it couldn't hold of each record."""
+        return answer(await call("GET", path("/entity-exports/{id}", id=str(export_id))))
+
+    @server.tool(annotations=READ, title="Get an export's download link")
+    async def get_entity_export_download_link(export_id: ExportId) -> CallToolResult:
+        """A signed URL for a ready export's file, its expiry (five minutes) and the
+        SHA-256 to check after download. Anyone holding the URL can read the bytes until it
+        expires. Use it without sending an Iki token. Each link is audited as a download."""
+        return answer(
+            await call("GET", path("/entity-exports/{id}/content-url", id=str(export_id)))
+        )
 
     @server.tool(annotations=READ, title="Get an entity")
     async def get_entity(
