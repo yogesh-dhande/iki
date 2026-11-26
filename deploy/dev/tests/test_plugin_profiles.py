@@ -14,7 +14,7 @@ FIXTURE_PLUGINS = {
     "acme/lims_connector",
     "acme/hosted_models",
     "fixtures/worker_execution",
-    "examples/liquid_handling",
+    "acme/liquid_handling",
 }
 
 

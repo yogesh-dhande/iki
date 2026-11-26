@@ -7,11 +7,18 @@
  */
 
 import { unwrap, type Problem } from "@ikisci/sdk";
-import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQueries } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 
 import { iki, problemOf } from "./api";
-import type { ComponentEntity, PlaceRequest, PluginComponent, Refinement } from "./components";
+import {
+  onEveryRecord,
+  type ComponentEntity,
+  type EntityTab,
+  type PlaceRequest,
+  type PluginComponent,
+  type Refinement,
+} from "./components";
 import { ENTITIES } from "./entities";
 import { fetchPageRead } from "./page-reads";
 
@@ -105,5 +112,37 @@ export function usePlaceEntities(
     settled: query.isSuccess || query.isError,
     more,
     refine,
+  };
+}
+
+/** The entity's tabs, less those on every record whose search finds nothing for it (ADR
+ * 0237), and whether that's known yet. Each asks for one entity, as the person may read
+ * it. A tab whose search is refused stays, so its page can say why. */
+export function useFoundTabs(
+  entity: string,
+  tabs: EntityTab[],
+): { tabs: EntityTab[]; settled: boolean } {
+  const asked = tabs.filter(onEveryRecord);
+  const found = useQueries({
+    queries: asked.map((tab) => ({
+      queryKey: [...ENTITIES, "component", tab.component.name, { entity }, "found"],
+      queryFn: async ({ signal }: { signal: AbortSignal }) =>
+        unwrap(
+          await iki.POST("/api/v1/components/{name}/entities", {
+            fetch: fetchPageRead,
+            params: { path: { name: tab.component.name } },
+            body: { home: false, entity, limit: 1 },
+            signal,
+          }),
+        ).items.length > 0,
+      retry: false,
+    })),
+  });
+  const empty = new Set(
+    asked.filter((_, i) => found[i]?.data === false).map((tab) => tab.component.name),
+  );
+  return {
+    tabs: tabs.filter((tab) => !empty.has(tab.component.name)),
+    settled: found.every((q) => !q.isLoading),
   };
 }

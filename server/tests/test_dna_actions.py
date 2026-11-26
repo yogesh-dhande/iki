@@ -136,7 +136,7 @@ def test_measurement_in_the_worker_archive_matches_the_server(tmp_path: Path) ->
     module's wrapper it imports, and the two modules they load."""
     packed = tmp_path / "dna.tar.gz"
     code = workers.prepared_source("iki/dna", SCRIPT.parents[1], tmp_path / "worker-code")
-    workers.bundle(code, packed)
+    workers.bundle("iki/dna", code, packed)
     unpacked = tmp_path / "action"
     with tarfile.open(packed, "r:gz") as archive:
         for path in (

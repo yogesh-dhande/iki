@@ -34,7 +34,7 @@ from iki_server.entities import access, registry, search
 from iki_server.entities.models import Entity
 from iki_server.entities.values import subtypes
 from iki_spec import conditions
-from iki_spec.components import context_of
+from iki_spec.components import EVERY_RECORD, context_of
 from iki_spec.model import Component, ComponentSearch, ComponentSlot
 
 logger = structlog.get_logger("iki.components")
@@ -87,11 +87,12 @@ class Place:
 
 def tab_for(component: Component, type_name: str) -> ComponentSlot | None:
     """The component's tab on pages of ``type_name``: the one for the nearest type of its
-    lineage."""
+    lineage, or else its tab on every record (ADR 0237)."""
     entity_type = registry.types().get(type_name)
     lineage = [type_name]
     if entity_type is not None:
         lineage += [t.qualified_name for t in registry.ancestors(entity_type)]
+    lineage.append(EVERY_RECORD)
     tabs = {s.type: s for s in component.slots if s.slot == "entity.tab"}
     return next((tabs[t] for t in lineage if t in tabs), None)
 

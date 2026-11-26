@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/samples
-version: 0.1.1
+version: 0.2.0
 title: Samples
 description: Portions drawn from tubes or lots for work, their measurements and signed reviews.
 license: Apache-2.0

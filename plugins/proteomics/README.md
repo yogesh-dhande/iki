@@ -6,23 +6,30 @@ known, its sample. Add these records to a **Proteomics dataset**. For a public
 dataset you can also give its archive page. Existing Iki file registration pins
 object versions and checks SHA-256.
 
-Run **Import proteomics search reports** with the dataset, the format and
-software version, and one or more original reports from that tool. Optional
+Run **Import proteomics search reports** with the dataset, the report format
+and software version, and one or more original reports from that tool. Optional
 protein inputs must have distinct UniProt accessions. The importer links
 reported exact accession matches, including group members. For UniProt FASTA
 headers it reads the accession between the pipes. It reports selected
 accessions with no matching hit, and keeps the original IDs for unmapped
 proteins.
 
-| Format                                                                                                                                                    | Supported reports                                                                       | Reported quantities retained                                            |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| [HUPO-PSI mzTab](https://github.com/HUPO-PSI/mzTab)                                                                                                       | Proteomics 1.0.0 and the legacy PRIDE 1.0 rc5 export, protein, peptide and PSM sections | Protein and peptide assay or study-variable abundance                   |
-| [MaxQuant](https://massive.ucsd.edu/ProteoSAFe/DownloadResultFile?file=f.MSV000088694%2Fquant%2FMaxquant%2FBulkSet%2Ftxt%2Ftables.pdf&forceDownload=true) | `proteinGroups.txt`, `peptides.txt`, and `evidence.txt`                                 | Intensities, LFQ, iBAQ and ratios                                       |
-| [DIA-NN](https://github.com/vdemichev/DiaNN)                                                                                                              | Main tab-separated report with run, group and precursor columns                         | Precursor quantities and one protein-group quantity per run and channel |
-| [FragPipe](https://fragpipe.nesvilab.org/docs/tutorial_fragpipe_outputs.html)                                                                             | Protein and peptide reports with a Protein ID column, including the combined reports    | Intensity, MaxLFQ and spectral-count columns                            |
+| Report format  | Tool                                                                                                                                                      | Supported reports and tables                                                            | Reported quantities retained                                            |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `mztab_1_0`    | [HUPO-PSI mzTab](https://github.com/HUPO-PSI/mzTab)                                                                                                       | Proteomics 1.0.0 and the legacy PRIDE 1.0 rc5 export, protein, peptide and PSM sections | Protein and peptide assay or study-variable abundance                   |
+| `maxquant_txt` | [MaxQuant](https://massive.ucsd.edu/ProteoSAFe/DownloadResultFile?file=f.MSV000088694%2Fquant%2FMaxquant%2FBulkSet%2Ftxt%2Ftables.pdf&forceDownload=true) | `proteinGroups.txt`, `peptides.txt`, and `evidence.txt` from the `txt` folder           | Intensities, LFQ, iBAQ and ratios                                       |
+| `diann_tsv`    | [DIA-NN](https://github.com/vdemichev/DiaNN)                                                                                                              | The main report as tab-separated text, with run, group and precursor columns            | Precursor quantities and one protein-group quantity per run and channel |
+| `fragpipe_tsv` | [FragPipe](https://fragpipe.nesvilab.org/docs/tutorial_fragpipe_outputs.html)                                                                             | Protein and peptide reports with a Protein ID column, including the combined reports    | Intensity, MaxLFQ and spectral-count columns                            |
 
-FragPipe spectrum-match and ion tables are a different identification level and
-are refused. DIA-NN group quantities come from target precursor rows. mzTab
+Each source report records the table it was read as (for example
+`proteinGroups.txt`, `mzTab 1.0 rc5` or `peptide`), and the result records the
+report format and the version you give. The result tab shows both.
+
+Recent DIA-NN releases write the main report as Apache Parquet. The importer
+reads the tab-separated form only and refuses a Parquet file, saying so:
+convert the report to TSV with its column names unchanged, and keep the Parquet
+original with the dataset's files. FragPipe spectrum-match and ion tables are a
+different identification level and are refused. DIA-NN group quantities come from target precursor rows. mzTab
 calculation errors are shown as NaN, distinct from missing values and numeric
 zero. MaxQuant uses zero for unquantified Intensity, LFQ intensity and iBAQ
 values. Iki displays those values as missing and retains the original reports.
@@ -40,9 +47,18 @@ contaminant and site-only flags when present.
 Support for an engine's export uses its files. Deployments that run an
 external search tool supply the tool and licence in their own environment.
 
-Set `review_flow` to Research for one signed review, or Regulated QC for
-signed submission, independent review and QA release. Assign the analyst,
-reviewer and QA project roles as applicable.
+The deployment setting `review_flow` controls new results. Each result keeps the
+procedure it was recorded under, so a change applies to new results only.
+
+| Procedure                          | What a result needs                                                                                                           | Lab roles                |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| **Research** (`research`, default) | A reviewer signs the recorded result.                                                                                         | Reviewer                 |
+| **Regulated QC** (`regulated_qc`)  | An analyst signs submission, a reviewer independent of the creator, submitter and editors signs review, and QA signs release. | Analyst, reviewer and QA |
+| **Record only** (`record_only`)    | Nothing: the result is kept as evidence and offers no sign-off.                                                               | None                     |
+
+To review a result recorded under Record only, import it again once the setting
+names a review procedure. Changes to signed findings return a result to
+Recorded. See [ADR 0258](../../docs/adr/0258-mass-spectrometry-results-name-their-report-format.md).
 
 ## Public example
 

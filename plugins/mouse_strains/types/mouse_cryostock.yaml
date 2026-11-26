@@ -3,15 +3,17 @@ apiVersion: iki/v1
 kind: EntityType
 name: MouseCryostock
 label: Mouse cryostock
-schema_version: 1
+schema_version: 2
 hrid: { prefix: MCS }
 sample: true
-description: One physical carrier of cryopreserved embryos or sperm from a registered mouse strain.
+description: >-
+  One physical carrier, a straw or a cryovial, of cryopreserved embryos or sperm
+  from a registered mouse strain.
 storage: { barcode: barcode, confirm: [draw] }
 amount:
   unit: uL
   label: Suspension volume
-  description: The measured volume remaining when the lab tracks volume.
+  description: The suspension volume remaining, measured in a cryovial or filled in a straw.
   material: strain
 fields:
   strain:
@@ -26,6 +28,13 @@ fields:
     required: true
     immutable: true
     indexed: true
+  carrier:
+    type: enum
+    values: [straw, cryovial]
+    required: true
+    immutable: true
+    indexed: true
+    description: The physical carrier. A straw is used whole; a cryovial's suspension can be drawn in part.
   banked_on:
     type: date
     required: true
@@ -67,4 +76,4 @@ draw_guards:
     check: operation == "draw"
     message: Draw the volume used from this banked carrier and link it to the receiving record.
 display:
-  title: "{{ kind }} · {{ barcode or hrid }}"
+  title: "{{ kind }} {{ carrier }} · {{ barcode or hrid }}"

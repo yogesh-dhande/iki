@@ -46,17 +46,19 @@ rules:
     when: record.str_check != null
     check: >-
       record.str_check.kind == "str_authentication" && record.str_check.bank == record.bank.id &&
-      record.str_check.checked_on <= record.event_on && record.event_on <= record.str_check.due_on &&
-      (record.str_check.review == "signed_off" || record.str_check.review == "released")
-    message: Select a signed STR check for this bank that covers the culture date.
+      record.str_check.checked_on <= record.event_on &&
+      (record.str_check.due_on == null || record.event_on <= record.str_check.due_on) &&
+      record.str_check.review in ["accepted", "signed_off", "released"]
+    message: Select a final STR check for this bank that covers the culture date.
     fields: [str_check]
   applicable_mycoplasma:
     when: record.mycoplasma_check != null
     check: >-
       record.mycoplasma_check.kind == "mycoplasma" && record.mycoplasma_check.bank == record.bank.id &&
-      record.mycoplasma_check.checked_on <= record.event_on && record.event_on <= record.mycoplasma_check.due_on &&
-      (record.mycoplasma_check.review == "signed_off" || record.mycoplasma_check.review == "released")
-    message: Select a signed mycoplasma check for this bank that covers the culture date.
+      record.mycoplasma_check.checked_on <= record.event_on &&
+      (record.mycoplasma_check.due_on == null || record.event_on <= record.mycoplasma_check.due_on) &&
+      record.mycoplasma_check.review in ["accepted", "signed_off", "released"]
+    message: Select a final mycoplasma check for this bank that covers the culture date.
     fields: [mycoplasma_check]
 display:
   title: "{{ hrid }} · {{ event }} P{{ passage_number }}"

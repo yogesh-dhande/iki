@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import { queryClient } from "./api";
 import fixtures from "./flow-fixtures.json";
 import { createAppRouter } from "./router";
-import { eligible, independentEnough, signingRoles, type Member } from "./starters";
+import { eligible, independentEnough, routeOf, signingRoles, type Member } from "./starters";
 import { answer, calls, page, problem, project, signedIn, TEAM } from "./test-server";
 
 const SERVICE = project({
@@ -31,6 +31,7 @@ function starter(more: Partial<Schemas["StarterOut"]> = {}): Schemas["StarterOut
     version: "2.0.0",
     label: "Dose-response plate assay",
     description: "Choose the review flow for new dose-response fits and assign the assay roles.",
+    governs: "dose-response fits",
     flows: [
       {
         id: "research",
@@ -171,6 +172,19 @@ describe("who can do what", () => {
     const qc = flowOf(`${PLATE}QCAssayResult`).fields[0];
     expect(signingRoles(qc)).toEqual([ANALYST, REVIEWER, QA]);
     expect(signingRoles(flowOf(`${PLATE}ResearchAssayResult`).fields[0])).toEqual([REVIEWER]);
+  });
+
+  it("draws only a flow's own route through a type that has one per flow", () => {
+    const field = flowOf("iki/stability.Measurement").fields[0];
+    const st = "iki/stability.";
+    const research = routeOf(field, ["recorded", "signed"]);
+    expect(research?.states.map((s) => s.name)).toEqual(["recorded", "signed"]);
+    expect(research?.transitions.map((t) => `${t.from}>${t.to}`)).toEqual(["recorded>signed"]);
+    expect(signingRoles(research)).toEqual([`${st}reviewer`]);
+    const qc = routeOf(field, ["recorded", "submitted", "reviewed", "released"]);
+    expect(qc?.states.map((s) => s.name)).not.toContain("signed");
+    expect(signingRoles(qc)).toEqual([`${st}analyst`, `${st}reviewer`, `${st}qa`]);
+    expect(routeOf(field, null)).toBe(field);
   });
 });
 
@@ -355,7 +369,7 @@ describe("a project's starters", () => {
     // Switching flow says what happens to records mid-flow.
     await user.click(within(card).getByRole("radio", { name: /^Regulated QC/ }));
     expect(within(card).getByRole("note")).toHaveTextContent(
-      "Existing results keep their current review and signature requirements",
+      "New dose-response fits will use the Regulated QC flow. Existing ones keep their current review and signature requirements",
     );
     const analysts = within(card).getByRole("group", { name: "Assay analyst" });
     await user.click(within(analysts).getByRole("checkbox", { name: "Dorothy Hodgkin" }));

@@ -1,4 +1,4 @@
-"""The two signed review paths for a bank check and the results each test accepts."""
+"""The three procedures for a bank check and the results each test accepts."""
 
 from typing import Any
 
@@ -20,9 +20,14 @@ def check_type() -> EntityType:
     return loaded.plugin.types["iki/cell_lines.CellCheck"]
 
 
-def test_lab_roles_select_the_signed_flow_at_project_setup(check_type: EntityType) -> None:
+def test_lab_roles_select_the_procedure_at_project_setup(check_type: EntityType) -> None:
     review = check_type.fields["review"]
     assert review.initial == "recorded"
+    accepted = review.states["accepted"]
+    assert accepted.locks
+    assert accepted.on_edit is None
+    assert accepted.set_by == ("iki/cell_lines.recorder",)
+    assert accepted.signatures == ()
     for state, role, meaning in [
         ("signed_off", "research_signer", "approval"),
         ("submitted", "analyst", "authorship"),
@@ -40,6 +45,9 @@ def test_lab_roles_select_the_signed_flow_at_project_setup(check_type: EntityTyp
 @pytest.mark.parametrize(
     ("history", "target", "actor", "allowed"),
     [
+        (["recorded"], "accepted", "recorder", True),
+        (["recorded", "submitted", "recorded"], "accepted", "recorder", False),
+        (["recorded", "accepted"], "recorded", "editor", False),
         (["recorded"], "signed_off", "signer", True),
         (["recorded"], "submitted", "analyst", True),
         (["recorded"], "reviewed", "reviewer", False),
@@ -72,6 +80,7 @@ def test_who_can_sign_a_check_at_each_step(
         "reviewed": "reviewer",
         "released": "qa",
         "signed_off": "signer",
+        "accepted": "recorder",
     }
     changes = [
         {"from": previous, "to": state, "by": people[state]}
@@ -85,6 +94,7 @@ def test_who_can_sign_a_check_at_each_step(
         "history": {"review": changes},
         "last": {"review": last},
         "edits": {"review": {"recorded": [{"by": "editor", "fields": ["result"]}]}},
+        "record": {"report": "a-report"},
     }
     guards = review.states[target].guards.values()
     (outcomes,) = rules.evaluate(variables, [(g.check, rules.CONDITION) for g in guards], [context])
@@ -92,13 +102,36 @@ def test_who_can_sign_a_check_at_each_step(
     assert all(o.value for o in outcomes) == allowed
 
 
+def test_an_unsigned_acceptance_needs_the_report(check_type: EntityType) -> None:
+    review = check_type.fields["review"]
+    schema = rules.record_schema(check_type.label, check_type.fields, None)
+    variables = rules.guard_variables(schema, {"review": review}, [], review)
+    guard = review.states["accepted"].guards["report_attached"]
+    contexts = [
+        {
+            "state": {"field": "review", "from": "recorded", "to": "accepted"},
+            "record": {"report": report},
+        }
+        for report in ("a-report", None)
+    ]
+    outcomes = rules.evaluate(variables, [(guard.check, rules.CONDITION)], contexts)
+    assert [row[0].value for row in outcomes] == [True, False]
+
+
 def test_test_kinds_have_distinct_result_vocabularies(check_type: EntityType) -> None:
     rule = check_type.rules["result_for_test"]
     assert rule.check is not None
     variables = rules.rule_variables(rules.record_schema(check_type.label, check_type.fields, None))
+    identity = {"match", "mismatch", "inconclusive"}
+    contamination = {"positive", "negative", "inconclusive"}
     for kind, valid in [
-        ("str_authentication", {"match", "mismatch", "inconclusive"}),
-        ("mycoplasma", {"positive", "negative", "inconclusive"}),
+        ("str_authentication", identity),
+        ("species_identity", identity),
+        ("mycoplasma", contamination),
+        ("sterility", contamination),
+        ("viral_testing", contamination),
+        ("karyotype", {"conforms", "does_not_conform", "inconclusive"}),
+        ("other", set(check_type.fields["result"].values)),
     ]:
         choices = check_type.fields["result"].values
         records = [{"record": {"kind": kind, "result": choice}} for choice in choices]
@@ -138,3 +171,22 @@ def test_check_date_is_between_banking_and_the_next_due_date(check_type: EntityT
         [True, True],
         [True, False],
     ]
+    # A check without a repeat date skips the second rule.
+    assert check_type.rules["next_check_after_test"].when == "record.due_on != null"
+
+
+def test_another_test_is_named(check_type: EntityType) -> None:
+    rule = check_type.rules["named_other_test"]
+    assert rule.check is not None
+    variables = rules.rule_variables(rules.record_schema(check_type.label, check_type.fields, None))
+    contexts = [
+        {"record": {"kind": kind, "test": test}}
+        for kind, test in [
+            ("other", "Endotoxin"),
+            ("other", None),
+            ("sterility", None),
+            ("sterility", "Endotoxin"),
+        ]
+    ]
+    outcomes = rules.evaluate(variables, [(rule.check, rules.CONDITION)], contexts)
+    assert [row[0].value for row in outcomes] == [True, False, True, False]

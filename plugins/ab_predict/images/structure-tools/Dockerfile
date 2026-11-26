@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1.28.0@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
 #
-# The antibody plugin's structure-tools image, for predicting antibodies'
+# The ab_predict plugin's structure-tools image (named iki-antibody-structure-tools, as it
+# was when the antibody plugin carried it), for predicting antibodies'
 # structures on the container tier: ImmuneBuilder 1.2 (BSD-3-Clause), whose
 # ABodyBuilder2 and NanoBodyBuilder2 model a heavy and a light chain's variable
 # domains or a single domain's, with its trained weights (Zenodo record
@@ -9,7 +10,7 @@
 # and these runs don't use, LGPL-3.0) and PDBFixer (MIT), which refine the
 # model; and ANARCI and HMMER (BSD-3-Clause), which number the chains first. Iki's publish workflow builds
 # it from the plugin's directory, scans it, signs it and attests it:
-#   docker build -f plugins/antibody/images/structure-tools/Dockerfile plugins/antibody
+#   docker build -f plugins/ab_predict/images/structure-tools/Dockerfile plugins/ab_predict
 # and checks it with check.py (see there).
 #
 # Iki's worker is copied in when a run starts (ADR 0061): the image needs
