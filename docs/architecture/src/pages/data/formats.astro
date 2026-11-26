@@ -147,7 +147,7 @@ const toc = [
           <tr>
             <td>SDF, MOL</td>
             <td>—</td>
-            <td><code>iki/small_molecule</code> imports and exports compounds with RDKit, and keeps conformer sets (<Path p="plugins/small_molecule/actions/import_sdf.yaml" />, <Path p="plugins/small_molecule/actions/export_sdf.yaml" />, <Path p="plugins/small_molecule/types/conformer_set.yaml" />)</td>
+            <td><code>iki/small_molecule</code> imports compounds with RDKit and keeps conformer sets (<Path p="plugins/small_molecule/actions/import_sdf.yaml" />, <Path p="plugins/small_molecule/types/conformer_set.yaml" />). The server exports them as a Molfile or an SDF from each compound's stored Molfile (<Path p="server/src/iki_server/entities/compound_files.py" />, <Adr n="0229" />)</td>
           </tr>
           <tr>
             <td>FCS, JCAMP-DX, TIFF and OME-TIFF, JPEG</td>

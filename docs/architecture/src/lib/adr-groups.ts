@@ -24,7 +24,7 @@ export const ADR_GROUPS: AdrGroup[] = [
     section: "Records",
     numbers: [
       7, 8, 25, 35, 38, 82, 104, 106, 118, 119, 120, 122, 124, 125, 126, 127, 128, 131, 136, 137,
-      148, 164, 165, 179,
+      148, 164, 165, 179, 228,
     ],
   },
   {
@@ -52,6 +52,7 @@ export const ADR_GROUPS: AdrGroup[] = [
     numbers: [
       9, 10, 40, 41, 42, 43, 44, 45, 46, 47, 48, 50, 53, 54, 55, 57, 58, 59, 60, 61, 62, 64, 66, 68,
       69, 70, 71, 74, 75, 76, 77, 78, 83, 105, 108, 112, 130, 133, 141, 155, 156, 160, 167, 169,
+      234,
     ],
   },
   {
@@ -64,7 +65,10 @@ export const ADR_GROUPS: AdrGroup[] = [
     id: "plugins",
     name: "Plugins",
     section: "Plugins",
-    numbers: [6, 16, 32, 33, 34, 39, 65, 91, 92, 93, 94, 95, 113, 114, 121, 134, 158, 181, 211],
+    numbers: [
+      6, 16, 32, 33, 34, 39, 65, 91, 92, 93, 94, 95, 113, 114, 121, 134, 158, 181, 211, 212, 218,
+      219, 220,
+    ],
   },
   {
     id: "events",
@@ -76,25 +80,25 @@ export const ADR_GROUPS: AdrGroup[] = [
     id: "files",
     name: "Files and imports",
     section: "Data",
-    numbers: [36, 52, 56, 89, 177, 178],
+    numbers: [36, 52, 56, 89, 177, 178, 213, 214, 215, 216, 217, 224, 226, 227],
   },
   {
     id: "requests",
     name: "Requests and release",
     section: "Requests",
-    numbers: [132, 142, 149, 195, 198],
+    numbers: [132, 142, 149, 195, 198, 223, 232, 236, 240],
   },
   {
     id: "storage",
     name: "Storage and amounts",
     section: "Material",
-    numbers: [139, 180, 190, 193, 207],
+    numbers: [139, 180, 190, 193, 207, 245, 260],
   },
   {
     id: "search",
     name: "Search and exports",
     section: "Finding data",
-    numbers: [37, 96, 123, 135, 171, 175],
+    numbers: [37, 96, 123, 135, 171, 175, 229, 230, 233],
   },
   {
     id: "web",
@@ -113,7 +117,7 @@ export const ADR_GROUPS: AdrGroup[] = [
     name: "Scientific models",
     numbers: [
       88, 140, 146, 147, 157, 161, 162, 163, 166, 168, 172, 173, 182, 183, 184, 185, 186, 187, 188,
-      189, 192, 194, 196, 197, 200, 201, 203, 204, 205, 206, 208,
+      189, 192, 194, 196, 197, 200, 201, 203, 204, 205, 206, 208, 221, 222, 241, 259, 261,
     ],
   },
 ];

@@ -73,18 +73,18 @@ const toc = [
 
   <Layer n={3} title={H.example}>
     <p>
-      <Path p="plugins/protein/workflows/characterize_if_similar.yaml" label="characterize_if_similar" />{" "}
-      computes a protein's properties only if its alignment with a reference is close enough. The
+      The spec's test plugin <Path p="spec/tests/plugins/protein/workflows/align_then_weigh.yaml" label="align_then_weigh" />{" "}
+      computes a protein's properties only if its alignment with another is close enough. The
       second step reads a metric the first step's run reported:
     </p>
-    <Excerpt file="plugins/protein/workflows/characterize_if_similar.yaml" start="^steps:" rest note="from steps: on" />
+    <Excerpt file="spec/tests/plugins/protein/workflows/align_then_weigh.yaml" start="^steps:" rest note="from steps: on" />
     <p>
-      If <code>identity_percent</code> is below the param, <code>properties</code> is skipped with{" "}
+      If the alignment's <code>score</code> is below the param, <code>weigh</code> is skipped with{" "}
       <code>condition_false</code>; if the run didn't report it, with <code>condition_unknown</code>,
       never taken as false silently (<Path p={W} sym="def _unmet(" />). A scheduled trigger takes no
       input; this one imports what a LIMS changed since its last successful run:
     </p>
-    <Excerpt file="plugins/lims_connector_example/triggers/import_nightly.yaml" start="^on:" rest note="from on: on" />
+    <Excerpt file="examples/plugins/lims_connector/triggers/import_nightly.yaml" start="^on:" rest note="from on: on" />
   </Layer>
 
   <Layer n={4} title={H.rules}>

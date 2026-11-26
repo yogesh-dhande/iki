@@ -89,13 +89,14 @@ const toc = [
     <p>
       <Path p="deploy/dev/compute.yaml" /> is a deployment's compute in small. Its{" "}
       <code>backend-small</code> template (<code>backend_pool</code>) is sized as the chart's backend
-      worker pod, and most first-party environments are bound to it. On the container tier,{" "}
-      <code>container-small</code> (<code>k8s_job</code>) starts a pod per run, at most two at once;{" "}
+      worker pod, and most first-party environments are bound to it. Heavier tools get container-tier
+      templates of their own (<code>k8s_job</code>, a pod per run), such as
+      <code>container-numbering</code> for ANARCI. Each carries a made-up price, so runs there have
+      costs to show. The fixture plugins add their own in <Path p="deploy/dev/fixtures/compute.yaml" />:{" "}
+      <code>container-small</code> starts a pod per run, at most two at once, and{" "}
       <code>container-warm</code> (<code>k8s_deployment</code>) keeps one pod warm for actions that
-      ask for a persistent machine, stopping it after ten idle minutes. Heavier tools get templates
-      of their own, such as <code>container-numbering</code> for ANARCI. Each carries a made-up
-      price, so runs there have costs to show (<Path
-        p="deploy/dev/compute.yaml"
+      ask for a persistent machine, stopping it after ten idle minutes (<Path
+        p="deploy/dev/fixtures/compute.yaml"
         sym="limits: { max_concurrent: 1, min_warm: 1, idle_shutdown: 10m }"
       />).
     </p>

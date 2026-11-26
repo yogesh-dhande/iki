@@ -10,7 +10,7 @@ import Rule from "../../components/Rule.astro";
 const AM = "server/src/iki_server/amounts";
 const SVC = `${AM}/services.py`;
 const ELIG = `${AM}/eligibility.py`;
-const SAMPLE = "plugins/samples/types/sample.yaml";
+const SAMPLE = "plugins/samples/types/reviewed_sample.yaml";
 
 const H = {
   short: "Taking material for work",
@@ -56,9 +56,10 @@ const toc = [
       guards; or when it asks for more than there is (<Path p={SVC} sym="def draw(" />, <Path
         p={SVC}
         sym="def _taking("
-      />, <Path p={ELIG} sym="def refusals(" />). A tube's own guards:
+      />, <Path p={ELIG} sym="def refusals(" />). A tube extends the abstract
+      <code>Container</code>, whose guards every container inherits:
     </p>
-    <Excerpt file="plugins/inventory/types/tube.yaml" start="^draw_guards:" />
+    <Excerpt file="plugins/inventory/types/container.yaml" start="^draw_guards:" />
     <p>
       The tube follows its <code>contents</code>, so a lot in it brings the lot's guards to the
       bench. They read the draw's <code>purpose</code> and <code>operation</code>, so a quarantined
@@ -86,9 +87,12 @@ const toc = [
     <h3 id="samples">Samples</h3>
     <p>
       An <code>iki/samples.Sample</code> is made pending, with an immutable source, a tube or a lot,
-      and the work it's for: a record such as a request or a plate, or a run.
-      Its <code>draw_target</code> makes it take one matched draw while it awaits material, and
-      its <code>draws_received</code> field keeps the receipt (<Adr n="0211" />):
+      and the work it's for: a record such as a request or a plate, or a run. <code>Sample</code>
+      is abstract: the lab picks a testing procedure as it creates one, a
+      <code>ReviewedSample</code> with signed submission and review or a <code>PlainSample</code>
+      the analyst completes (<Adr n="0236" />). Each one's <code>draw_target</code> makes it take
+      one matched draw while it awaits material, and the shared <code>draws_received</code> field
+      keeps the receipt (<Adr n="0211" />):
     </p>
     <Excerpt file={SAMPLE} start="^draw_target:" />
     <p>
@@ -99,7 +103,7 @@ const toc = [
       />). In the same transaction the sample's receipt gains the movement, the debited record and its
       revision, the source it followed and that one's revision, the amount and unit, the operator and
       the time (<Path p={SVC} sym="def _receive_draw(" />). Setting it to Received needs that one draw;
-      testing, a signed submission and an independent signed review follow:
+      for a reviewed sample, testing, a signed submission and an independent signed review follow:
     </p>
     <Excerpt file={SAMPLE} start="^      received:" />
     <p>
