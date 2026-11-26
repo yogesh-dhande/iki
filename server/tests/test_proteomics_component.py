@@ -16,7 +16,7 @@ MODULE = "search-results.js"
 def test_protein_abundance_and_peptide_are_visible(browser: Browser, scheme: str) -> None:
     parse = runpy.run_path(str(PLUGIN / "scripts/import_search.py"))["parsed"]
     with (PLUGIN / "tests/data/PRIDE-16649.mztab").open() as source:
-        rows = list(parse("mztab", source))
+        rows = list(parse("mztab_1_0", source))
     with serving(PLUGIN / "components", {MODULE: "proteomics-search-results"}) as origin:
         page = open_frame(
             browser,
@@ -25,8 +25,10 @@ def test_protein_abundance_and_peptide_are_visible(browser: Browser, scheme: str
             {
                 "values": {
                     "version": "PRIDE 1.0 rc5",
+                    "format": "mztab_1_0",
                     "summary": {
                         "counts": {"protein_group": 2, "spectrum_match": 2},
+                        "sources": [{"table": "mzTab 1.0 rc5"}],
                         "preview": rows,
                         "unmatched_accessions": [],
                     },
@@ -37,6 +39,8 @@ def test_protein_abundance_and_peptide_are_visible(browser: Browser, scheme: str
             bypass_csp=True,
         )
         expect(page.get_by_text("Protein groups", exact=True)).to_be_visible()
+        expect(page.get_by_text("mzTab 1.0", exact=True)).to_be_visible()
+        expect(page.get_by_text("mzTab 1.0 rc5", exact=True)).to_be_visible()
         expect(page.get_by_text("QQVLDR", exact=True)).to_be_visible()
         expect(page.get_by_text("0.853", exact=True)).to_be_visible()
         assert page.evaluate("document.documentElement.scrollWidth - innerWidth <= 1")

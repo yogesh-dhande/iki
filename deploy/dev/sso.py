@@ -2202,7 +2202,7 @@ def proteomics(alice: requests.Session, project: dict[str, Any]) -> None:
             project,
             prefix + "import_search",
             {"dataset": dataset["id"]},
-            {"format": "mztab", "version": "PRIDE 1.0 rc5", "reports": [report]},
+            {"format": "mztab_1_0", "version": "PRIDE 1.0 rc5", "reports": [report]},
         )
         artifact = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts")
         if [item["path"] for item in artifact.json()] != ["identifications.jsonl"]:
@@ -2212,6 +2212,9 @@ def proteomics(alice: requests.Session, project: dict[str, Any]) -> None:
     counts = result["values"]["summary"]["counts"]
     if counts != {"protein_group": 2, "spectrum_match": 2}:
         fail(f"{result['hrid']} recorded unexpected mzTab counts {counts}")
+    tables = [source["table"] for source in result["values"]["summary"]["sources"]]
+    if tables != ["mzTab 1.0 rc5"]:
+        fail(f"{result['hrid']} read its report as {tables}, not the PRIDE mzTab 1.0 rc5 export")
     ok(f"{result['hrid']}: imported the PRIDE 16649 proteomics excerpt")
 
 
@@ -6218,6 +6221,8 @@ def biologics_ms(alice: requests.Session, project: dict[str, Any], antibody_id: 
     )
     if heavy["covered"] != 9:
         fail(f"{comparison['hrid']} contains {heavy}, expected nine covered heavy chain residues")
+    if comparison["values"]["report_format"] != "iki_peptide_map_1":
+        fail(f"{comparison['hrid']} did not record the peptide map 1 interchange profile")
     ok(f"{comparison['hrid']}: mapped the published trastuzumab peptide onto {antibody['hrid']}")
 
 

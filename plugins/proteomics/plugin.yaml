@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/proteomics
-version: 0.1.2
+version: 0.2.0
 title: Proteomics
 description: Review peptide and protein identifications and quantities from search reports while retaining their raw MS files.
 license: Apache-2.0
@@ -13,8 +13,12 @@ settings:
   review_flow:
     type: enum
     label: Proteomics review
-    values: [research, regulated_qc]
+    values: [research, regulated_qc, record_only]
     default: research
+    description: >-
+      Research is one reviewer's sign-off. Regulated QC is a signed submission, an independent
+      review and QA release. Record only keeps the search result as evidence and offers no sign-off.
+      New results retain the chosen procedure.
 roles:
   analyst: { label: Proteomics analyst }
   reviewer: { label: Proteomics reviewer }
