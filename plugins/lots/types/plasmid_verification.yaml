@@ -206,12 +206,9 @@ rules:
     label: A match that overrides the alignment needs a reason
     reference_revisions: { alignment: alignment_revision }
     recheck_before_signing: true
-    # Before core Alignment had a verdict, whole-plasmid results kept it in agreement.
     when: >-
       record.alignment != null && record.outcome == "match" &&
-      (record.alignment.verdict in ["differs", "incomplete"] ||
-       (record.alignment.verdict == null && "agreement" in dyn(record.alignment) &&
-        dyn(record.alignment).agreement in ["differs", "incomplete"]))
+      record.alignment.verdict in ["differs", "incomplete"]
     check: record.override_reason != null
     message: Give a reason to record a match over differing or incomplete evidence.
     fields: [outcome, override_reason]
