@@ -13,7 +13,7 @@ fields:
   purpose: { type: string, required: true, max_length: 200 }
   instrument: { type: ref, to: Instrument, required: true, description: "What's booked." }
   starts_at: { type: datetime, required: true, indexed: true }
-  ends_at: { type: datetime, required: true }
+  ends_at: { type: datetime, required: true, indexed: true }
   cancelled:
     type: bool
     default: false

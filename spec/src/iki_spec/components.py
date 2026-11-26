@@ -42,6 +42,10 @@ from iki_spec.model import (
 from iki_spec.notifications import now_of
 from iki_spec.problems import Path
 
+#: A tab for this type is on every record's page where its search finds something for the
+#: record, unless the component has a tab for a nearer type of the record's (ADR 0237).
+EVERY_RECORD = "iki/core.Entity"
+
 if TYPE_CHECKING:
     from iki_spec.yamlsource import Document
 
@@ -281,7 +285,10 @@ class _Rules:
                 hint="Give each place one slot.",
             )
         seen.setdefault(key, index)
+        every_record = tab and slot.type == EVERY_RECORD
         if slot.search is None:
+            if every_record:
+                self._every_record(at)
             return
         if self.component.entities is None:
             self.add(
@@ -296,6 +303,8 @@ class _Rules:
             return  # its type was reported
         found = _Search(self, slot, (*at, "search"))
         found.run()
+        if every_record and "entity" not in found.context:
+            self._every_record((*at, "search"))
         if slot.slot == "person.home" and "me" not in found.context:
             self.add(
                 "home-not-personal",
@@ -304,6 +313,17 @@ class _Rules:
                 (*at, "search"),
                 hint='Add a condition such as `{ field: created_by, op: eq, value: "{{ me }}" }`.',
             )
+
+    def _every_record(self, at: Path) -> None:
+        self.add(
+            "tab-on-every-record",
+            "A tab on every record shows where its search finds something for the record: "
+            "its search names it, with `{{ entity }}`.",
+            self.source,
+            at,
+            hint="Add a search such as "
+            '`{ where: { field: result, op: eq, value: "{{ entity }}" } }`.',
+        )
 
 
 def _size(node: Mapping[str, Any]) -> tuple[int, int]:
