@@ -8,11 +8,18 @@ Lot QA records a decision and keeps its supporting documents, including supplier
 
 ## Set up a project
 
-Install `iki/qc_release` and its dependencies. Set `review_flow` to `research` or
-`regulated_qc` in the plugin deployment settings. Give project members the QC Analyst,
-QC Reviewer and Release Testing QA lab roles as appropriate. Research investigations and
-certificates need one reviewer sign-off. Regulated QC needs an analyst, independent reviewer
-and separate QA signer. Iki retains each case's original flow when the setup changes.
+Install `iki/qc_release` and its dependencies. A project's Admin chooses the review flow
+in **Project settings → Starters → Lot release testing** and assigns its lab roles there.
+Release Testing QA approves specifications in either flow. Research investigations and
+certificates need one QC reviewer's sign-off. Regulated QC needs a QC analyst, an
+independent QC reviewer and a separate Release Testing QA signer.
+A project that hasn't chosen uses the deployment's `review_flow` setting (`research` by
+default), so a regulated certificate is only ever issued under an explicit choice. Each
+release case keeps the flow it was opened with, and its investigations and certificate
+follow it when the project's choice changes
+([ADR 0240](../../docs/adr/0240-a-project-chooses-its-release-stability-and-verification-review.md)).
+Release Testing QA is its own grant: it doesn't give the Lot QA authority to release or
+reject the lot itself.
 
 Register the material and a physical lot with its lot number. Create one **Specification
 schedule** for the material. Create a **Specification version** in that schedule with an

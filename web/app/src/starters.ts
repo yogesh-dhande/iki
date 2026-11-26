@@ -1,6 +1,7 @@
 /**
- * Starters (ADR 0198): versioned recipes a project's Admin applies to set an assay service
- * up, choosing its review flow and who holds each lab role.
+ * Starters (ADRs 0198 and 0240): versioned recipes a project's Admin applies to set an assay
+ * service or a procedure such as lot release testing up, choosing its review flow and who
+ * holds each lab role.
  * This is their data and the checks a setup screen makes before asking Iki, which makes
  * the same ones.
  */
@@ -107,6 +108,22 @@ export function eligible(
       m.user.active &&
       RANK[m.role] >= RANK[minimum],
   );
+}
+
+/** A flow's own route through its result type's states: all of them, unless the type has a
+ * route per flow in one state field and the starter names this flow's (ADR 0240). Moves
+ * between its states are kept; those leading elsewhere are dropped. */
+export function routeOf(
+  field: FlowField | undefined,
+  states: readonly string[] | null | undefined,
+): FlowField | undefined {
+  if (!field || !states) return field;
+  const kept = new Set(states);
+  return {
+    ...field,
+    states: field.states.filter((s) => kept.has(s.name)),
+    transitions: field.transitions.filter((t) => kept.has(t.from) && kept.has(t.to)),
+  };
 }
 
 /** The lab roles whose holders sign a flow's states: those the result type's states that
