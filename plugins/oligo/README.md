@@ -68,6 +68,10 @@ BSD-3-Clause), the small_molecule plugin's release, which asks for 512 MiB.
 - **`import_oligonucleotides`**: registers each row of a CSV file (a `helm`
   column, and `name` and `description` if it has them) or each record of an
   SDF file (a `HELM` data item, and its `Name` item or title), up to 2,000.
+  SD data items are read as BIOVIA's CTfile Formats has them: a value runs to
+  a blank line, so a line of it starting with `>` is its value's, and a HELM
+  wrapped over several lines is one HELM. A record ends at a line that's only
+  `$$$$`, since a wrapped HELM's line may start with its own `$$$$`.
   Each records the row or record it came from, with its SHA-256: of every line
   a CSV row spans, a quoted value's line breaks among them, with their line
   ends as the file has them. A row that

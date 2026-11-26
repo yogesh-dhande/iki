@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/plasmid
-version: 0.6.0
+version: 0.6.1
 title: Plasmids and vectors
 description: >-
   Plasmids and vectors by the sequence that is each one, circular or linear, with what the

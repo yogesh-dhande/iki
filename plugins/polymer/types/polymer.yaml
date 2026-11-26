@@ -20,6 +20,8 @@ fields:
     required: true
     immutable: true
     max_length: 20000
+    # Machine text: its "words" are fragments of notation, which no one searches for (ADR 0233).
+    searchable: false
     description: >-
       The submitted BigSMILES v1.1 representation of the structural ensemble.
       Preserve its spelling, connectivity descriptors and end groups. An

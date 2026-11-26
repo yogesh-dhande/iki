@@ -16,7 +16,8 @@ fields:
   heavy_atoms: { type: int, registry: derived, computed: true }
   stereochemistry: { type: enum, values: [achiral, absolute, racemic, unknown] }
   supplier: { type: ref, to: iki/core.Entity }
-  molfile: { type: text, max_length: 4000000, registry: derived, computed: true }
+  # Machine text, with no words to search (ADR 0233).
+  molfile: { type: text, max_length: 4000000, registry: derived, computed: true, searchable: false }
 display:
   title: "{{ name or hrid }}"
 exports:

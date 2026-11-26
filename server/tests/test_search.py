@@ -5,13 +5,14 @@ from typing import Any
 
 import pytest
 from api_client import Api, problem
-from django.db import connection
+from django.db import DatabaseError, connection, transaction
 from django.test.utils import CaptureQueriesContext
 from org_world import World, build_world
 from test_api_entities import api_as, create
 
 from iki_server.entities import search
 from iki_server.org.models import Project
+from iki_spec import conditions
 
 pytestmark = pytest.mark.django_db
 
@@ -143,6 +144,70 @@ def test_text_and_strings(world: World, lab: dict[str, Any]) -> None:
     # Wildcards are just characters.
     assert find(world, {**body, "where": {"field": "name", "op": "contains", "value": "%"}}) == []
     assert find(world, {**body, "q": "_"}) == []
+
+
+def too_many_words(text: str) -> bool:
+    """Whether Postgres refuses ``text``'s words, all of them, as one tsvector."""
+    try:
+        with transaction.atomic(), connection.cursor() as cursor:
+            cursor.execute("SELECT to_tsvector('simple', %s)", [text])
+    except DatabaseError as error:
+        assert "string is too long for tsvector" in str(error)
+        return True
+    return False
+
+
+def test_long_text_saves_and_its_words_are_searched_from_its_start(world: World) -> None:
+    """Postgres refuses a tsvector over 1 MiB, so a text field's full-text index of a whole
+    long report, pasted into its notes, would fail its save (ADR 0233). Its words are
+    indexed from its first 100,000 characters: it saves, and they're found there."""
+    api = api_as(world)
+    # 200,000 different words, as a pasted instrument report might have: 2.4 MB of them.
+    report = " ".join(f"w{i:07d}" for i in range(200_000))
+    assert too_many_words(report)
+    values = {"name": "report", "sequence": "MKVLAA", "summary": report}
+    made(api, world.project, values, "acme/protein.Protein")
+    body = {"type": "acme/protein.Protein"}
+
+    def words(value: str) -> list[str]:
+        return find(world, {**body, "where": {"field": "summary", "op": "matches", "value": value}})
+
+    # Each word and its space are 9 characters: the last whole one in the first 100,000.
+    last = conditions.WORDS_SEARCHED // 9 - 1
+    assert words("w0000000") == words(f"w{last:07d}") == ["report"]
+    # Past them, its words aren't searched (the next is cut short), but its text is.
+    assert words(f"w{last + 1:07d}") == words("w0199999") == []
+    late = {"field": "summary", "op": "contains", "value": "w0199999"}
+    assert find(world, {**body, "where": late}) == ["report"]
+
+
+def test_machine_text_saves_whole_and_is_searched_only_for_what_it_contains(
+    world: World,
+) -> None:
+    """A field that isn't `searchable` (ADR 0233), such as a structure's PDB text, has no
+    full-text index: however many "words" it has, it saves, and a search finds text in it
+    with `contains`, not `matches`."""
+    api = api_as(world)
+    atoms = "\n".join(
+        f"ATOM  {i:5d}  CA  ALA A{i % 9999:4d}    {i * 0.001:8.3f}{i * 0.002:8.3f}{i * 0.003:8.3f}"
+        for i in range(1, 36_001)
+    )
+    assert too_many_words(atoms)
+    values = {"name": "1abc", "sequence": "MKVLGG", "pdb_text": atoms}
+    made(api, world.project, values, "acme/protein.Protein")
+    body = {"type": "acme/protein.Protein"}
+    holds = {"field": "pdb_text", "op": "contains", "value": "35.999  71.998"}
+    assert find(world, {**body, "where": holds}) == ["1abc"]
+    wrong = errors(world, {**body, "where": {"field": "pdb_text", "op": "matches", "value": "CA"}})
+    assert wrong == [
+        {
+            "pointer": "#/where/op",
+            "detail": "`pdb_text` takes `is_set` or `contains`, not `matches`.",
+        }
+    ]
+    fields = {f["name"]: f for f in api.get("/entity-types/acme/protein.Protein").json()["fields"]}
+    assert (fields["summary"]["searchable"], fields["pdb_text"]["searchable"]) == (True, False)
+    assert fields["host"]["searchable"] is None
 
 
 def test_references_lists_and_enums(world: World, lab: dict[str, Any]) -> None:

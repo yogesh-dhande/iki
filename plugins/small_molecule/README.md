@@ -105,6 +105,11 @@ so the identity is Iki's computation, beside the record's origin.
 - **`import_sdf`**: registers each record of an SDF file as a compound,
   standardised and identified as a SMILES line is, and with **batches** a batch
   of each (up to 5,000 records; without, a million, read a record at a time).
+  Records and fields are read as BIOVIA's CTfile Formats has them: a field's
+  value runs to a blank line, so a line of it starting with `>` (a purity of
+  `>99%`) is its value's, and a line starting with `$$$$` ends a record. A
+  value's line that reads as the header of a field Iki keeps, as a file
+  missing a blank line has, is kept in the value, and the run says so.
   Its name is the SD field chosen, or the record's title. SD fields that are a
   compound's or a batch's fields are kept, matched whatever their case, spaces
   and underscores, and by the names suppliers and PubChem give them (`CAS`,

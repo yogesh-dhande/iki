@@ -100,8 +100,8 @@ from iki_server.signatures import changes as sig_changes
 from iki_server.signatures import entries as signed_entries
 from iki_server.signatures import models as signing_models
 from iki_server.signatures import services as sig_services
+from iki_spec import conditions, titles, units
 from iki_spec import rules as spec_rules
-from iki_spec import titles, units
 from iki_spec.model import (
     SIGNATURE_MEANINGS,
     AnyExport,
@@ -319,6 +319,13 @@ class FieldOut(Schema):
     )
     unique: bool = Field(
         description="No two entities in a project have the same value, such as a LIMS record's ID."
+    )
+    searchable: bool | None = Field(
+        None,
+        description="Text: true when a search finds its words with `matches`, which reads "
+        f"its first {conditions.WORDS_SEARCHED:,} characters (ADR 0233); false for machine "
+        "text, such as a Molfile, which a search reads with `contains` only. Null for other "
+        "kinds of field.",
     )
     detached: bool = Field(
         description="Its plugin is detached (ADR 0091): it keeps its value, which can't change.",
@@ -1389,6 +1396,7 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "required": f.required,
         "immutable": f.immutable,
         "unique": f.unique,
+        "searchable": f.searchable if f.type == "text" else None,
         "detached": plugin in registry.detached(),
         "link": unique.link(f, plugin),
         "computed": f.computed,

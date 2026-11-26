@@ -117,6 +117,10 @@ class Field:
     #: rather than of each project's record (ADR 0115). None for a record's own field.
     registry: str | None = None
     indexed: bool = False
+    #: For text: a search finds its words (``matches``), from a full-text index of its first
+    #: ``conditions.WORDS_SEARCHED`` characters (ADR 0233). False for machine text, such as
+    #: a Molfile, which gets no full-text index.
+    searchable: bool = True
     #: No two entities in a project share a value (ADR 0082); for a registry fact, no two
     #: entries in a registry.
     unique: bool = False
@@ -210,6 +214,7 @@ class Field:
             reason_on_clear=bool(data.get("reason_on_clear", False)),
             registry=data.get("registry"),
             indexed=bool(data.get("indexed", False)),
+            searchable=bool(data.get("searchable", True)),
             unique=bool(data.get("unique", False)),
             link=data.get("link"),
             removed=bool(data.get("removed", False)),

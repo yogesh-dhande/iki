@@ -39,6 +39,8 @@ fields:
   well: { type: string, max_length: 4 }
   signal: { type: float }
   notes: { type: text }
+  # The reader's raw export: machine text, without word search (ADR 0233).
+  export: { type: text, searchable: false }
   read_at: { type: datetime }
   probe: { type: string, format: dna_sequence, max_length: 60 }
 """
@@ -308,6 +310,12 @@ def test_a_search_names_the_types_fields_with_their_operators(tmp_path: Path) ->
     assert codes(made(tmp_path, search("{ field: colour, op: eq, value: red }"))) == [
         "unknown-field"
     ]
+    # Text that isn't searchable has no words to match, only text it contains.
+    assert made(tmp_path, search("{ field: export, op: contains, value: OD600 }")).problems == []
+    wrong = made(tmp_path, search("{ field: export, op: matches, value: OD600 }"))
+    assert only(wrong, "unknown-operator") == (
+        "`export` takes `is_set`, `contains`, not `matches`."
+    )
     nested = (
         "{ any: [{ not: { field: well, op: eq, value: A1 } }, "
         "{ field: signal, op: lt, value: 2 }] }"

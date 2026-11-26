@@ -10,8 +10,8 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { queryClient } from "./api";
-import { PROTEIN } from "./entity-fixtures";
-import { ASSIGNED, filterable, type Filter } from "./filters";
+import { field, PROTEIN } from "./entity-fixtures";
+import { ASSIGNED, filterable, operators, type Filter } from "./filters";
 import { FilterBar } from "./pages/entity-filters";
 
 function Bar({
@@ -200,5 +200,18 @@ describe("the filter chips", () => {
       .getAllByRole("option")
       .map((o) => o.textContent);
     expect(options).toEqual(["is me", "is set", "is empty"]);
+  });
+
+  it("finds words in text only where its type searches them", () => {
+    const notes = field({ name: "notes", label: "Notes", type: "text", searchable: true });
+    expect(operators(notes).map((o) => o.label)).toEqual([
+      "has the words",
+      "contains",
+      "is set",
+      "is empty",
+    ]);
+    // Machine text, such as a Molfile, has no words to search (ADR 0233).
+    const molfile = field({ name: "molfile", label: "Molfile", type: "text", searchable: false });
+    expect(operators(molfile).map((o) => o.label)).toEqual(["contains", "is set", "is empty"]);
   });
 });

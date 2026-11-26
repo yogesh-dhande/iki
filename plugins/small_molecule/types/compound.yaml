@@ -47,6 +47,8 @@ fields:
     label: Molfile
     max_length: 4000000
     computed: true
+    # Machine text: its "words" are coordinates and atom symbols (ADR 0233).
+    searchable: false
     description: >-
       Its structure as an MDL Molfile, laid out in 2D by RDKit's CoordGen, kekulized,
       with its stereocentres wedged: V2000, or V3000 when it has more atoms or bonds

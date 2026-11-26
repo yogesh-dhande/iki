@@ -264,31 +264,87 @@ def _rows_csv(text: str) -> list[dict[str, str]]:
     return out
 
 
-def _rows_sdf(text: str) -> list[dict[str, str]]:
-    """Each SDF record's data items: its HELM, and its name if it has one."""
-    out = []
-    # A record ends at a line that's only $$$$: HELM has $$$$ in it too.
+#: The data items an import reads, by their names in lower case.
+SDF_KEPT = ("helm", "name", "description")
+
+
+def _rows_sdf(text: str, warnings: list[str]) -> list[dict[str, str]]:
+    """Each SDF record's data items: its HELM, and its name and description if it has them;
+    what's wrong with them in `warnings`.
+    A record ends at a line that's only `$$$$`: HELM has `$$$$` in it too, so a HELM value
+    wrapped over lines (200 characters a line, as CTfile Formats allows) may start one with
+    it. Its HELM's lines are one HELM string; its name's, one line."""
+    out: list[dict[str, str]] = []
     for record in SDF_END.split(text):
         if not record.strip():
             continue
-        items: dict[str, str] = {}
         lines = record.splitlines()
-        name = next((line.strip() for line in lines if line.strip()), "")
-        for i, line in enumerate(lines):
-            if line.startswith(">") and "<" in line and ">" in line[1:]:
-                tag = line[line.index("<") + 1 : line.rindex(">")].strip().lower()
-                value = []
-                for after in lines[i + 1 :]:
-                    if not after.strip():
-                        break
-                    value.append(after.strip())
-                items[tag] = "".join(value)
-        items.setdefault("name", name)
+        title = next((line.strip() for line in lines if line.strip()), "")
+        end = next((i for i, line in enumerate(lines) if line.startswith("M  END")), -1)
+        said: list[str] = []
+        given = data_items(lines[end + 1 :], said)
+        warnings += [f"Record {len(out) + 1}: {w}" for w in said]
+        items = {name.lower(): value for name, value in given.items()}
+        if "helm" in items:
+            items["helm"] = "".join(line.strip() for line in items["helm"].splitlines())
+        if "name" in items:
+            items["name"] = " ".join(items["name"].split())
+        items.setdefault("name", title)
         items[""] = record
         out.append(items)
     if not any("helm" in r for r in out):
         raise Refused("Its records have no HELM data item (> <HELM>).")
     return out
+
+
+# The same reading of SD data items as the small_molecule plugin's (its scripts/sdf.py),
+# which a plugin can't import from another: keep the two alike.
+def data_items(lines: list[str], warnings: list[str]) -> dict[str, str]:
+    """A record's SD fields, from the lines after its molblock, as CTfile Formats (SDfiles)
+    has them: each data item is a header line starting with `>`, which names its field in
+    angle brackets, then its value's lines, up to a blank line. Every line of a value is
+    its value's, one starting with `>` too: only a line after a blank one can start the
+    next item. As RDKit's SDMolSupplier reads them, the name is what's between the
+    header's first `<` and its last `>`, and an item without one (a MACCS-II `DTn` field
+    number alone) is passed over, with its value. A line of only spaces is a blank line,
+    as the format's are. Lines between items that aren't headers aren't anyone's. A value's
+    line that reads as the header of a field the import reads (`> <HELM>`), as a file
+    missing a blank line has, is kept in the value, and `warnings` says so."""
+    fields: dict[str, str] = {}
+    name: str | None = None
+    value: list[str] | None = None  # the lines of the item being read, if it's one
+    for raw in lines:
+        line = raw.rstrip("\r\n")
+        if value is not None:
+            if line.strip():
+                value.append(line)
+                other = _label(line.strip())
+                if name is not None and other is not None and other.lower() in SDF_KEPT:
+                    warnings.append(
+                        f"Its {name} field has a line, {line.strip()!r}, that reads as the "
+                        f"start of its {other} field, but an SD field ends only at a blank "
+                        f"line, so the line is part of {name}'s value and {other} wasn't "
+                        "read. Put a blank line before it to make it a field of its own."
+                    )
+                continue
+            if name is not None:
+                fields[name] = "\n".join(value).strip()
+            name, value = None, None
+            continue
+        if line.strip().startswith(">"):
+            name, value = _label(line.strip()), []
+    if name is not None and value is not None:
+        fields[name] = "\n".join(value).strip()
+    return fields
+
+
+def _label(header: str) -> str | None:
+    """The field a data header names: what's between its first `<` and its last `>`, as
+    RDKit reads it. None for a line that isn't a header, or one without a name."""
+    if not header.startswith(">"):
+        return None
+    opens, closes = header.find("<", 1), header.rfind(">")
+    return (header[opens + 1 : closes].strip() or None) if 0 < opens < closes else None
 
 
 def import_file(run: Mapping[str, Any]) -> dict[str, Any]:
@@ -299,7 +355,8 @@ def import_file(run: Mapping[str, Any]) -> dict[str, Any]:
     with path.open(encoding="utf-8-sig", newline="") as written:
         text = written.read()
     sdf = path.suffix.lower() in (".sdf", ".sd") or SDF_END.search(text) is not None
-    rows = _rows_sdf(text) if sdf else _rows_csv(text)
+    said: list[str] = []
+    rows = _rows_sdf(text, said) if sdf else _rows_csv(text)
     if len(rows) > MAX_IMPORT:
         raise Refused(
             f"It has {len(rows):,} oligonucleotides: import up to {MAX_IMPORT:,} at once."
@@ -354,7 +411,7 @@ def import_file(run: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "creates": [*resolve.creates(), *creates],
         "metrics": {"rows": len(rows), "skipped": len(problems)},
-        "messages": [message("warning", p) for p in problems[:MAX_MESSAGES]],
+        "messages": [message("warning", p) for p in [*said, *problems][:MAX_MESSAGES]],
     }
 
 

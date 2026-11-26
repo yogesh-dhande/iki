@@ -22,6 +22,8 @@ fields:
   temperature_optimum: { type: quantity, unit: Cel }
   uniprot_ids: { type: list, items: { type: string, pattern: "^[A-Z0-9]{6,10}$" } }
   summary: { type: text }
+  # Its structure as the PDB writes it: machine text, with no words to search (ADR 0233).
+  pdb_text: { type: text, searchable: false }
   # The organism it was expressed in, as the lab writes it: a plain string to search.
   host: { type: string, max_length: 200, indexed: true }
   # Registry fields (ADR 0115): its entry's, which every project holding it sees.

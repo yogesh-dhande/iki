@@ -239,6 +239,16 @@ def test_points_at_the_line_and_column(tmp_path: Path) -> None:
             "Did you mean `required`?",
         ),
         ("x: { type: string, unit: mg }", "`unit` isn't an option for string fields.", None),
+        (
+            "x: { type: string, searchable: false }",
+            "`searchable` isn't an option for string fields.",
+            None,
+        ),
+        (
+            "x: { type: list, items: { type: text, searchable: false } }",
+            "`searchable` isn't allowed here in `fields.x.items`.",
+            None,
+        ),
         ("x: { type: quantity }", "`unit` is missing in `fields.x`.", "such as `unit: mg`"),
         ("x: { type: enum }", "`values` is missing in `fields.x`.", None),
         ("x: { type: ref }", "`to` is missing in `fields.x`.", None),
@@ -739,6 +749,24 @@ def test_flags_that_contradict(tmp_path: Path) -> None:
 )
 def test_indexes(tmp_path: Path, spec: str, code: str) -> None:
     only(make(tmp_path, fields(f"x: {spec}\n")), code)
+
+
+def test_machine_text_can_go_without_word_search(tmp_path: Path) -> None:
+    """A Molfile's "words" mean nothing to a reader, so it has no full-text index (ADR 0233):
+    text is searchable unless it says otherwise."""
+    result = make(
+        tmp_path,
+        fields("""\
+            molfile: { type: text, searchable: false }
+            notes: { type: text }
+            remarks: { type: text, searchable: true }
+        """),
+    )
+    assert result.ok, result.problems
+    assert result.plugin is not None
+    assay = result.plugin.types["acme/lab.Assay"].fields
+    assert (assay["molfile"].searchable, assay["notes"].searchable) == (False, True)
+    assert assay["remarks"].searchable
 
 
 @pytest.mark.parametrize(
