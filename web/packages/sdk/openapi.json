@@ -24998,6 +24998,638 @@
         "title": "SheetColumnOut",
         "type": "object"
       },
+      "SheetEditCheckIn": {
+        "properties": {
+          "locale": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetEditLocaleIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SheetEditCheckRowIn"
+            },
+            "maxItems": 200,
+            "title": "Rows",
+            "type": "array"
+          },
+          "type": {
+            "description": "The type of the sheet's records, such as acme/protein.Sample.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "rows"
+        ],
+        "title": "SheetEditCheckIn",
+        "type": "object"
+      },
+      "SheetEditCheckOut": {
+        "properties": {
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SheetEditRowOut"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "title": "SheetEditCheckOut",
+        "type": "object"
+      },
+      "SheetEditCheckRowIn": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much a new record starts with, in its type's amount unit or its own: `500`, `0.5 mL`.",
+            "title": "Amount"
+          },
+          "cells": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Each changed cell's text, by its field: null or empty to empty it.",
+            "title": "Cells",
+            "type": "object"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record it is; none for a new one.",
+            "title": "Entity"
+          },
+          "key": {
+            "description": "The row, as the caller names it.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A new record's place in storage: a container by its ID, code or name, and its position, such as `BOX-000002 A1`; just the container for its next free one.",
+            "title": "Location"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record's revision the cells were read from.",
+            "title": "Revision"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "SheetEditCheckRowIn",
+        "type": "object"
+      },
+      "SheetEditLocaleIn": {
+        "description": "How the sheet's text writes numbers and dates, as the person says (ADR 0178). Until\nit's said, a cell that reads two ways (1,234; 03/04/2026) is a problem, never a guess.",
+        "properties": {
+          "dates": {
+            "anyOf": [
+              {
+                "enum": [
+                  "day_first",
+                  "month_first"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "day_first: 31/12/2026; month_first: 12/31/2026. Null until you know.",
+            "title": "Dates"
+          },
+          "decimal": {
+            "anyOf": [
+              {
+                "enum": [
+                  "point",
+                  "comma"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "point: 1,234.5; comma: 1.234,5. Null until you know.",
+            "title": "Decimal"
+          },
+          "serial_dates": {
+            "default": false,
+            "description": "Plain numbers in date columns are Excel serial dates (46023).",
+            "title": "Serial Dates",
+            "type": "boolean"
+          },
+          "time_zone": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The IANA time zone of a date and time that gives none, such as the person's own: Europe/London. Without one, such a cell is a problem.",
+            "title": "Time Zone"
+          }
+        },
+        "title": "SheetEditLocaleIn",
+        "type": "object"
+      },
+      "SheetEditPlaceIn": {
+        "properties": {
+          "container": {
+            "description": "The container it goes in.",
+            "format": "uuid",
+            "title": "Container",
+            "type": "string"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its position, such as A1; none for the next free one.",
+            "title": "Position"
+          }
+        },
+        "required": [
+          "container"
+        ],
+        "title": "SheetEditPlaceIn",
+        "type": "object"
+      },
+      "SheetEditPlaceOut": {
+        "properties": {
+          "container": {
+            "format": "uuid",
+            "title": "Container",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "shown": {
+            "description": "As the sheet says it: `BOX-000002 A1`.",
+            "title": "Shown",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "container",
+          "hrid",
+          "title",
+          "position",
+          "shown"
+        ],
+        "title": "SheetEditPlaceOut",
+        "type": "object"
+      },
+      "SheetEditProblemOut": {
+        "properties": {
+          "at": {
+            "description": "Where: `values/<field>` for a cell, `location`, `amount`, or `` for the row.",
+            "title": "At",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`ambiguous`: the cell reads two ways, by how the sheet writes numbers or dates; `stale`: the record changed since its revision was read.",
+            "enum": [
+              "invalid",
+              "ambiguous",
+              "stale"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "detail",
+          "kind"
+        ],
+        "title": "SheetEditProblemOut",
+        "type": "object"
+      },
+      "SheetEditRowOut": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AmountIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "amount_shown": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Shown"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record it changes; none for a new one.",
+            "title": "Entity"
+          },
+          "held": {
+            "description": "Rules that hold it for review once saved (ADR 0127): saving needs `hold_reason`.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Held",
+            "type": "array"
+          },
+          "hrid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hrid"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What saving it does: `edited`; `unchanged`; `created`, `registered` (a new registry entry) or `added` (a record of an entry already registered); `blank`, a new row with nothing in it; or `failed`, with its problems.",
+            "enum": [
+              "edited",
+              "unchanged",
+              "created",
+              "registered",
+              "added",
+              "blank",
+              "failed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetEditPlaceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/SheetEditProblemOut"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record's revision the check read.",
+            "title": "Revision"
+          },
+          "shown": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Each cell as the record would have it, as the grid and its CSV say it.",
+            "title": "Shown",
+            "type": "object"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Each cell as it reads, as an edit gives it: send these to save.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "entity",
+          "hrid",
+          "revision",
+          "values",
+          "shown",
+          "problems",
+          "held"
+        ],
+        "title": "SheetEditRowOut",
+        "type": "object"
+      },
+      "SheetEditSaveIn": {
+        "properties": {
+          "hold_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why to save rows that break rules holding records for review (ADR 0127).",
+            "title": "Hold Reason"
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetEditLocaleIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the cells were read, for the audit trail."
+          },
+          "reason": {
+            "description": "Why, for each revision and the audit trail.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SheetEditSaveRowIn"
+            },
+            "maxItems": 1000,
+            "title": "Rows",
+            "type": "array"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "reason",
+          "rows"
+        ],
+        "title": "SheetEditSaveIn",
+        "type": "object"
+      },
+      "SheetEditSaveOut": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "edited": {
+            "title": "Edited",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SheetEditSavedRowOut"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows",
+          "edited",
+          "created"
+        ],
+        "title": "SheetEditSaveOut",
+        "type": "object"
+      },
+      "SheetEditSaveRowIn": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AmountIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record it changes; none for a new one.",
+            "title": "Entity"
+          },
+          "key": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetEditPlaceIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The revision of the record that was read and reviewed: required for a record. If it's changed since, nothing is saved.",
+            "title": "Revision"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Each field's value, as the check read it.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "SheetEditSaveRowIn",
+        "type": "object"
+      },
+      "SheetEditSavedRowOut": {
+        "properties": {
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity"
+          },
+          "hrid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hrid"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "edited",
+              "unchanged",
+              "created",
+              "registered",
+              "added",
+              "blank",
+              "failed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "entity",
+          "hrid",
+          "revision"
+        ],
+        "title": "SheetEditSavedRowOut",
+        "type": "object"
+      },
       "SheetLocaleIn": {
         "description": "How the sheet's text writes numbers and dates. Until it's said, a cell that reads\ntwo ways (1,234; 03/04/2026) is a problem, never a guess.",
         "properties": {
@@ -38137,6 +38769,43 @@
         ]
       }
     },
+    "/api/v1/entity-types/{name}/import-template.csv": {
+      "get": {
+        "description": "A CSV file with a heading for each field of the type a spreadsheet import can set\n(ADR 0178), in the type's order, a quantity's with its unit: `Concentration (mg/mL)`.\nThe import maps each heading back to its field. No heading starts as a formula would\n(ADR 0175), and the file starts with a byte order mark, so a spreadsheet opens its\nunits' symbols as they are.",
+        "operationId": "iki_server_api_sheets_import_template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "As CSV"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A type's import template",
+        "tags": [
+          "sheets"
+        ]
+      }
+    },
     "/api/v1/entries/{ref}": {
       "get": {
         "description": "For whoever reads a record of it, and its registry's registrars.",
@@ -42424,6 +43093,110 @@
         "summary": "The services a project may send requests to",
         "tags": [
           "requests"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/sheet-edits": {
+      "post": {
+        "description": "Makes the changes reviewed (ADR 0228, 0207): each record's, from the revision read,\nas a revision with the reason; each new record, with its starting amount and place.\nAll of them are made, or none. If a record changed since its revision, nothing is\n(412, ``stale``, its rows in ``rows``); if any row has a problem, nothing is (422,\neach problem at ``#/rows/<n>/values/<field>``, ``…/location``, ``…/amount`` or the row).\nThe audit trail records them as one change, ``records.sheet_saved``.",
+        "operationId": "iki_server_api_sheets_save_sheet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SheetEditSaveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SheetEditSaveOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Save a sheet's changes, all or none",
+        "tags": [
+          "sheets"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/sheet-edits/check": {
+      "post": {
+        "description": "Reads each row's cells as the type's fields read a spreadsheet's (ADR 0178), and\nfinds what saving them would do by making the changes, then undoing them: so a cell\nis held to every rule an edit is. Nothing is saved, and no HRID is spent. Needs Editor\nin the project, and in each record's own.",
+        "operationId": "iki_server_api_sheets_check_sheet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SheetEditCheckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SheetEditCheckOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Check a sheet's changes",
+        "tags": [
+          "sheets"
         ]
       }
     },

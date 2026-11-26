@@ -85,13 +85,14 @@ resource "google_storage_bucket" "files" {
   }
 
   # Browsers send upload parts straight here, and some pages read files, from Iki's
-  # public URL, with links Iki signed: setup_storage's CORS rule.
+  # public URL, with links Iki signed: setup_storage's CORS rule. Previews read large
+  # files in ranges and check the Content-Range that comes back (ADR 0227).
   dynamic "cors" {
     for_each = length(var.cors_origins) == 0 ? [] : [1]
     content {
       origin          = var.cors_origins
       method          = ["GET", "PUT"]
-      response_header = ["content-type"]
+      response_header = ["content-type", "range", "content-range"]
       max_age_seconds = 3600
     }
   }

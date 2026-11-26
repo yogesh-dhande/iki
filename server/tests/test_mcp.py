@@ -166,6 +166,8 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "update_entity",
         "set_entity_archived",
         "set_entity_state",
+        "check_record_sheet",
+        "save_record_sheet",
         "list_services",
         "submit_request",
         "get_request",
@@ -208,6 +210,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "update_entity",
         "set_entity_archived",
         "set_entity_state",
+        "save_record_sheet",
         "submit_request",
         "draw_amount",
         "transfer_amount",
@@ -653,6 +656,64 @@ async def test_agents_save_views_of_several_entities_each_at_a_revision(world: W
         await tool(token, "create_view", project=str(world.project.pk), name="Peek", shows=hidden)
     )
     assert "(404" in found and secret["values"]["sequence"] not in found
+
+
+async def test_agents_check_and_save_many_records_as_a_sheet(world: World) -> None:
+    token = await token_for(world)
+    project = str(world.project.pk)
+    made = data(
+        await tool(
+            token,
+            "create_entity",
+            type="acme/protein.Sample",
+            project=project,
+            values={"label": "ABL1-KD-001"},
+        )
+    )
+    rows = [
+        {"key": "a", "entity": made["id"], "revision": 1, "cells": {"purity": "97,5"}},
+        {"key": "b", "cells": {"label": "ABL1-KD-002", "purity": "96"}},
+    ]
+    checked = data(
+        await tool(
+            token,
+            "check_record_sheet",
+            project=project,
+            type="acme/protein.Sample",
+            rows=rows,
+            locale={"decimal": "comma"},
+        )
+    )["rows"]
+    assert [(r["kind"], r["values"].get("purity")) for r in checked] == [
+        ("edited", 97.5),
+        ("created", 96),
+    ]
+    saved = data(
+        await tool(
+            token,
+            "save_record_sheet",
+            project=project,
+            type="acme/protein.Sample",
+            rows=checked,
+            reason="Purity from the SEC export",
+        )
+    )
+    assert (saved["edited"], saved["created"]) == (1, 1)
+    history = data(await tool(token, "get_entity_history", ref=made["hrid"]))["items"]
+    assert history[0]["reason"] == "Purity from the SEC export"
+    assert history[0]["agent"] is not None
+    # Checked against a revision that's moved on, it saves nothing.
+    again = error(
+        await tool(
+            token,
+            "save_record_sheet",
+            project=project,
+            type="acme/protein.Sample",
+            rows=checked[:1],
+            reason="Again",
+        )
+    )
+    assert "(412" in again
 
 
 async def test_agents_create_and_change_entities_on_the_record(world: World) -> None:

@@ -213,6 +213,49 @@ class AmountIn(BaseModel):
     unit: str = Field(max_length=50, description="Its UCUM unit, such as uL, mg or umol.")
 
 
+class SheetRow(BaseModel):
+    """A row of a sheet: a record's, or a new one's."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(max_length=64, description="Yours, to match the answer's rows to these.")
+    entity: UUID | None = Field(default=None, description="The record's ID; none for a new one.")
+    revision: int | None = Field(
+        default=None, ge=1, description="The record's revision whose values you read."
+    )
+    cells: dict[str, str | None] = Field(
+        default_factory=dict,
+        description="Only the fields that change, each its cell's text: `98.5`, `1.2 mg/mL`, "
+        "`2027-04-03`, a reference's HRID or name, a list's items with `;` between. "
+        "An empty cell unsets it.",
+    )
+    location: str | None = Field(
+        default=None,
+        max_length=200,
+        description="A new record's place: a container's HRID, code or name, then a position "
+        "(`BOX-000002 A1`); just the container takes its next free position.",
+    )
+    amount: str | None = Field(
+        default=None,
+        max_length=100,
+        description="A new record's starting amount, such as `500` (its type's unit) or `0.5 mL`.",
+    )
+
+
+class SheetLocale(BaseModel):
+    """How a sheet's text writes numbers and dates."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decimal: Literal["point", "comma"] | None = Field(default=None, description="Its decimal mark.")
+    dates: Literal["day_first", "month_first"] | None = Field(
+        default=None, description="Whether 03/04 is the 3rd of April or March 4th."
+    )
+    time_zone: str | None = Field(
+        default=None, max_length=64, description="Its times' zone, such as Europe/Berlin."
+    )
+
+
 Inputs = Annotated[
     dict[str, UUID | list[UUID]],
     Field(
@@ -794,6 +837,69 @@ def build() -> MCPServer:
                 body={"state": state, "reason": reason},
                 if_match=f'"{revision}"',
             )
+        )
+
+    @server.tool(annotations=READ, title="Check many records' changes, as a sheet's")
+    async def check_record_sheet(
+        project: Annotated[UUID, Field(description="The project whose records these are.")],
+        type: Annotated[str, Field(description="Their type, such as acme/protein.Sample.")],
+        rows: Annotated[
+            list[SheetRow],
+            Field(min_length=1, max_length=200, description="Up to 200 rows at a time."),
+        ],
+        locale: Annotated[
+            SheetLocale | None,
+            Field(description="How the cells write numbers and dates, when they're text."),
+        ] = None,
+    ) -> CallToolResult:
+        """What saving many records' changes at once would do, changing nothing (ADR 0228):
+        each row a record's, at the revision you read, or a new one's, with its cells as a
+        spreadsheet's text, read as an import reads them. Each row comes back with what it
+        would do (`kind`), its `values` as read, which save_record_sheet takes, and its
+        `problems`, each at its cell. A cell that reads two ways (03/04/2027, 1,234) is a
+        problem until `locale` says how; never guess it. Show the person the changes and
+        problems before saving."""
+        body: dict[str, Any] = {
+            "type": type,
+            "rows": [r.model_dump(mode="json", exclude_none=True) for r in rows],
+        }
+        if locale is not None:
+            body["locale"] = locale.model_dump(mode="json", exclude_none=True)
+        return answer(
+            await call("POST", path("/projects/{p}/sheet-edits/check", p=str(project)), body=body)
+        )
+
+    @server.tool(annotations=CHANGE, title="Save many records' changes, all or none")
+    async def save_record_sheet(
+        project: Annotated[UUID, Field(description="The project whose records these are.")],
+        type: Annotated[str, Field(description="Their type, such as acme/protein.Sample.")],
+        rows: Annotated[
+            list[dict[str, Any]],
+            Field(
+                min_length=1,
+                max_length=1000,
+                description="The rows check_record_sheet returned, as it returned them: each "
+                "row's key, entity and revision, values, and a new one's location and amount.",
+            ),
+        ],
+        reason: Reason,
+        hold_reason: HoldReason = "",
+    ) -> CallToolResult:
+        """Saves what check_record_sheet checked, each change a revision with the reason,
+        every row or none. A record changed since its revision refuses it all (412): check
+        again. So does any row's problem, each named at its row and cell."""
+        kept = ("key", "entity", "revision", "values", "location", "amount")
+        sent = []
+        for row in rows:
+            one = {k: row[k] for k in kept if row.get(k) is not None}
+            if isinstance(place := one.get("location"), dict):
+                one["location"] = {k: place.get(k) for k in ("container", "position")}
+            sent.append(one)
+        body: dict[str, Any] = {"type": type, "reason": reason, "rows": sent}
+        if hold_reason:
+            body["hold_reason"] = hold_reason
+        return answer(
+            await call("POST", path("/projects/{p}/sheet-edits", p=str(project)), body=body)
         )
 
     @server.tool(annotations=READ, title="List the services a project may ask")

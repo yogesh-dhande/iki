@@ -19,6 +19,7 @@ doc-valid-idents = [
   "RNAstructure",
   "UNAFold",
   "Biopython",
+  "ProteoWizard",
   "dNTP",
   "dNTPs",
   "OligoAnalyzer",
@@ -27,4 +28,12 @@ doc-valid-idents = [
   "SantaLucia",
   "SnapGene",
   "WebAssembly",
+  # File formats, named as their specifications name them.
+  "BigTIFF",
+  "SubIFDs",
+  "PackBits",
+  "MSⁿ",
+  "OME-TIFF",
+  "OME-XML",
+  "JCAMP-DX",
 ]

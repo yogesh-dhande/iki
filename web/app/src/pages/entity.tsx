@@ -69,6 +69,7 @@ import { EntityTabs, neighboursOf, neighboursQuery, trailCount } from "./entity-
 import { objectList, type ObjectList } from "../object-lists";
 import { FEATURES_ID, FeatureTable, MiniMap, useMiniMap, type MapOf } from "./record-map";
 import { UtcTime, Via } from "./revision-text";
+import { PreviewButton } from "../previews/preview-places";
 import { Button, ConfirmDialog, Loading, RelativeTime, TextField, Time } from "../ui";
 
 export { EntityTabs } from "./entity-header";
@@ -395,7 +396,8 @@ export function Value({
           </a>{" "}
           <span className="muted">
             {formatSize(found.size)} · {found.media_type}
-          </span>
+          </span>{" "}
+          <PreviewButton id={value as string} name={found.name} mediaType={found.media_type} />
         </span>
       );
     }

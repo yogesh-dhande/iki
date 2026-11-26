@@ -17,7 +17,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-__all__ = ["Column", "NoColumn", "columns", "text"]
+__all__ = ["Column", "NoColumn", "columns", "heading", "text"]
 
 #: A row: a record as :func:`text` reads it, its values and what they refer to, as the API
 #: gives them (``values``, ``refs``, ``files``, ``people``, ``request``), and its own
@@ -89,10 +89,10 @@ def columns(
             continue
         if key in fields:
             f = fields[key]
-            out.append(Column(key, _heading(f), _field_cell(f)))
+            out.append(Column(key, heading(f), _field_cell(f)))
         elif key in _OWN and (key not in ("asked_by", "sent_to") or request or not fields):
-            heading, cell = _OWN[key]
-            out.append(Column(key, heading, cell))
+            said, cell = _OWN[key]
+            out.append(Column(key, said, cell))
         else:
             where = entity_type["name"] if entity_type else "every entity"
             raise NoColumn(index, f"{where} has no column `{key}`.")
@@ -124,7 +124,8 @@ def _grid(entity_type: Mapping[str, Any] | None, request: bool, *, projects: boo
     ]
 
 
-def _heading(f: Mapping[str, Any]) -> str:
+def heading(f: Mapping[str, Any]) -> str:
+    """A field's column heading: its label, a quantity's with its unit."""
     label = str(f["label"])
     return f"{label} ({_unit(f)})" if f["type"] == "quantity" else label
 

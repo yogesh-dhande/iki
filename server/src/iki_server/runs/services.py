@@ -1003,6 +1003,9 @@ def _elsewhere(user: User, project: Project, value: Any) -> bool:  # noqa: ANN40
 
 
 def _next_hrid(prefix: str = HRID_PREFIX, sequence: str = HRID_SEQUENCE) -> str:
+    # A run a check launches and rolls back (ADR 0228) spends no number.
+    if (made := hrids.provisional_hrid(prefix)) is not None:
+        return made
     with connection.cursor() as cursor:
         cursor.execute("SELECT nextval(%s::regclass)", [sequence])
         (number,) = cursor.fetchone()

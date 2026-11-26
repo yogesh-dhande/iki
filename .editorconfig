@@ -21,3 +21,10 @@ trim_trailing_whitespace = false
 [spec/src/iki_spec/units/{ucum-essence.xml,UCUM-LICENSE.md}]
 insert_final_newline = false
 trim_trailing_whitespace = false
+
+# File-preview samples stay exactly as published.
+[server/tests/data/previews/*.{ab1,jdx,dx,mzML}]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset

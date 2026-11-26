@@ -29,6 +29,7 @@ import {
 import { usePageTitle } from "../layout";
 import { useReadableProjects } from "../lists";
 import { useMedia } from "../media";
+import { FilePreviewSection } from "../previews/preview-places";
 import { useProject } from "./project-overview";
 import { StatusBadge } from "./runs";
 import {
@@ -232,6 +233,7 @@ export function FilePage() {
         ) : null}
       </dl>
       {file.read_groups.length ? <ReadGroups file={file} /> : null}
+      <FilePreviewSection file={file} />
       <UsedBy file={file} />
     </>
   );
