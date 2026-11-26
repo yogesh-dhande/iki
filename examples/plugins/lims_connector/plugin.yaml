@@ -1,9 +1,9 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 apiVersion: iki/v1
 kind: Plugin
-name: iki/lims_connector_example
+name: acme/lims_connector
 version: 0.1.0
-title: LIMS connector example
+title: Protein LIMS connector
 description: Example of synchronizing Iki protein records with an external LIMS by its record ID.
 license: Apache-2.0
 iki: ">=0.1"

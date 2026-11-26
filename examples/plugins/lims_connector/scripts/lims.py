@@ -88,7 +88,7 @@ class Client:
         self.headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/json",
-            "User-Agent": "iki-lims-connector-example",
+            "User-Agent": "lab-lims-connector",
         }
 
     def proteins(self, since: str | None) -> Any:  # noqa: ANN401 - a generator of JSON items

@@ -950,7 +950,8 @@ as the record in the LIMS. `{value}` is the value, and `{settings.name}` one
 of the plugin's settings, so each deployment can point at its own LIMS. A
 link starts with `https://` or a setting, and Iki shows only links that are
 https once the settings are filled in. The API, SDK and MCP look entities
-up by a unique field's value.
+up by a unique field's value. The [LIMS connector example](../examples/plugins/lims_connector/README.md)
+extends Protein with a field of this kind and uses it to match repeated imports.
 
 ```yaml
 lims_id:

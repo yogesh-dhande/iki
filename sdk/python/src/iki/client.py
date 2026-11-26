@@ -461,11 +461,11 @@ class Entities(_Part):
         *,
         project: str | Mapping[str, Any] | None = None,
     ) -> list[EntityOut]:
-        """The entities whose unique `field` is `value`, such as the ID a LIMS gives its
-        record, in each project you can read: at most one of each project's own::
+        """Find the entities whose unique `field` equals `value`, with at most one match
+        per readable project. For example, find a tube by barcode::
 
             iki.entities.lookup(
-                "iki/protein.Protein", "lims_id", "LIMS-0042", project="kinase-atlas"
+                "iki/inventory.Tube", "barcode", "TUBE-0042", project="kinase-atlas"
             )
         """
         client = self._client
