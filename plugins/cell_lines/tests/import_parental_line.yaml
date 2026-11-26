@@ -15,7 +15,7 @@ expect:
     creates:
       - type: iki/cell_lines.ParentalLine
         key: line
-        values: { name: WI-38, cellosaurus_id: CVCL_0579 }
+        values: { name: WI-38, catalogue: cellosaurus, cellosaurus_id: CVCL_0579 }
         origin: { source: Cellosaurus, id: CVCL_0579 }
       - type: iki/cell_lines.CellLineSource
         values: { supplier: ATCC, catalogue_id: CCL-75, line: { $create: line } }
@@ -35,7 +35,7 @@ expect:
     creates:
       - type: iki/cell_lines.ParentalLine
         key: line
-        values: { name: WI-38, cellosaurus_id: CVCL_0579 }
+        values: { name: WI-38, catalogue: cellosaurus, cellosaurus_id: CVCL_0579 }
       - type: iki/cell_lines.CellLineSource
         values: { supplier: Coriell, catalogue_id: AG06814-J, line: { $create: line } }
 ---
@@ -51,3 +51,33 @@ params:
 files: { catalogue: tests/data/wi-38.txt }
 expect:
   error: The supplier and catalogue ID do not occur together in this record.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: wi38_line_only
+description: >-
+  Material from a collaborator has no supplier catalogue number, so the line is
+  registered alone.
+action: import_parental_line
+params:
+  file: { $file: catalogue }
+files: { catalogue: tests/data/wi-38.txt }
+expect:
+  output:
+    creates:
+      - type: iki/cell_lines.ParentalLine
+        key: line
+        values: { name: WI-38, catalogue: cellosaurus, cellosaurus_id: CVCL_0579 }
+        origin: { source: Cellosaurus, id: CVCL_0579 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: supplier_without_catalogue_number
+description: A supplier is checked against the record only with its catalogue number.
+action: import_parental_line
+params:
+  file: { $file: catalogue }
+  supplier: ATCC
+files: { catalogue: tests/data/wi-38.txt }
+expect:
+  error: Give both the supplier and its catalogue ID, or neither.

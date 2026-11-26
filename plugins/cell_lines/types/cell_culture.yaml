@@ -2,15 +2,37 @@ apiVersion: iki/v1
 kind: EntityType
 name: CellCulture
 label: Cell culture
-schema_version: 1
+schema_version: 2
 sample: true
-description: A thaw or one subculture, with its recorded date, passage and applicable bank checks.
+description: >-
+  A thaw, one subculture, or a culture whose earlier history isn't in Iki, with
+  its recorded date, passage and applicable bank checks.
 hrid: { prefix: CUL }
 fields:
-  event: { type: enum, required: true, immutable: true, values: [thaw, passage] }
+  event:
+    type: enum
+    required: true
+    immutable: true
+    values: [thaw, passage, start]
+    description: >-
+      Start is a culture whose earlier history isn't recorded in Iki, such as one received
+      growing from another lab or one already in culture when the lab began recording.
   event_on: { type: date, required: true, immutable: true, indexed: true }
-  passage_number: { type: int, required: true, immutable: true, min: 0 }
-  bank: { type: ref, to: CellBank, required: true, immutable: true }
+  passage_number: { type: int, immutable: true, min: 0 }
+  passage_unknown:
+    type: bool
+    required: true
+    immutable: true
+    default: false
+    label: Passage unknown
+    description: The culture's passage isn't known, such as when its bank's or parent's isn't.
+  bank: { type: ref, to: CellBank, immutable: true }
+  line:
+    type: ref
+    to: [ParentalLine, EngineeredLine]
+    immutable: true
+    label: Cell line
+    description: The line of a started culture that comes from no bank in the project.
   vial: { type: ref, to: CellVial, immutable: true, label: Thawed vial }
   parent_culture: { type: ref, to: CellCulture, immutable: true }
   str_check: { type: ref, to: CellCheck, immutable: true, label: STR authentication }
@@ -18,11 +40,25 @@ fields:
 rules:
   origin:
     check: >-
-      record.event == "thaw" ?
-      record.vial != null && record.parent_culture == null :
-      record.parent_culture != null && record.vial == null
-    message: A thaw starts with a vial. A passage starts with one prior culture.
+      record.event == "thaw" ? record.vial != null && record.parent_culture == null :
+      record.event == "passage" ? record.parent_culture != null && record.vial == null :
+      record.vial == null && record.parent_culture == null
+    message: >-
+      A thaw starts with a vial and a passage with one prior culture. A culture started
+      outside Iki has neither.
     fields: [vial, parent_culture]
+  bank_or_line:
+    check: >-
+      record.event == "thaw" ? record.bank != null && record.line == null :
+      (record.bank == null) != (record.line == null)
+    message: >-
+      A culture names its bank, or names its line instead when it comes from no bank in
+      the project. A thaw is always from a bank.
+    fields: [bank, line]
+  passage_recorded:
+    check: "record.passage_unknown ? record.passage_number == null : record.passage_number != null"
+    message: Enter the passage number, or mark it unknown.
+    fields: [passage_number, passage_unknown]
   thaw_once:
     unique: [event, vial]
     while: { event: [thaw] }
@@ -31,34 +67,52 @@ rules:
     when: record.event == "thaw"
     check: >-
       record.vial.bank == record.bank.id && record.event_on >= record.bank.banked_on &&
-      record.passage_number == record.bank.passage_number
+      (record.bank.passage_unknown ? record.passage_unknown :
+      record.passage_number == record.bank.passage_number)
     message: Use the vial's bank and its frozen passage number, on or after its banking date.
     fields: [bank, vial, event_on, passage_number]
+  started_after_banking:
+    when: record.event == "start" && record.bank != null
+    check: record.event_on >= record.bank.banked_on
+    message: A culture from a bank starts on or after its banking date.
+    fields: [bank, event_on]
   next_passage:
-    when: record.event == "passage"
+    when: record.event == "passage" && record.bank != null
     check: >-
       record.parent_culture.bank == record.bank.id &&
       record.event_on >= record.parent_culture.event_on &&
-      record.passage_number == record.parent_culture.passage_number + 1
+      (record.parent_culture.passage_unknown ? record.passage_unknown :
+      record.passage_number == record.parent_culture.passage_number + 1)
     message: A passage keeps its parent's bank, follows it in date and increments passage by one.
     fields: [parent_culture, bank, event_on, passage_number]
+  next_passage_of_line:
+    when: record.event == "passage" && record.bank == null
+    check: >-
+      record.parent_culture.bank == null && record.parent_culture.line == record.line.id &&
+      record.event_on >= record.parent_culture.event_on &&
+      (record.parent_culture.passage_unknown ? record.passage_unknown :
+      record.passage_number == record.parent_culture.passage_number + 1)
+    message: A passage keeps its parent's line, follows it in date and increments passage by one.
+    fields: [parent_culture, line, event_on, passage_number]
   applicable_str:
     when: record.str_check != null
     check: >-
+      record.bank != null &&
       record.str_check.kind == "str_authentication" && record.str_check.bank == record.bank.id &&
       record.str_check.checked_on <= record.event_on &&
       (record.str_check.due_on == null || record.event_on <= record.str_check.due_on) &&
       record.str_check.review in ["accepted", "signed_off", "released"]
-    message: Select a final STR check for this bank that covers the culture date.
+    message: Select a final STR check for this culture's bank that covers the culture date.
     fields: [str_check]
   applicable_mycoplasma:
     when: record.mycoplasma_check != null
     check: >-
+      record.bank != null &&
       record.mycoplasma_check.kind == "mycoplasma" && record.mycoplasma_check.bank == record.bank.id &&
       record.mycoplasma_check.checked_on <= record.event_on &&
       (record.mycoplasma_check.due_on == null || record.event_on <= record.mycoplasma_check.due_on) &&
       record.mycoplasma_check.review in ["accepted", "signed_off", "released"]
-    message: Select a final mycoplasma check for this bank that covers the culture date.
+    message: Select a final mycoplasma check for this culture's bank that covers the culture date.
     fields: [mycoplasma_check]
 display:
-  title: "{{ hrid }} · {{ event }} P{{ passage_number }}"
+  title: "{{ hrid }} · {{ event }} P{{ passage_number or '?' }}"

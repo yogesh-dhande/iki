@@ -2,43 +2,74 @@ apiVersion: iki/v1
 kind: EntityType
 name: CellBank
 label: Cell bank
-schema_version: 1
+schema_version: 2
 sample: true
-description: A banking event for one line at a known passage.
+description: >-
+  A banking event for one line. A two-tier bank system has master banks and the
+  working banks made from them; a research lab's stock is one tier, made from
+  supplier material or another of the line's banks.
 hrid: { prefix: CBK }
 fields:
   name: { type: string, required: true, max_length: 160, indexed: true }
-  kind: { type: enum, required: true, immutable: true, values: [master, working] }
+  kind:
+    type: enum
+    required: true
+    immutable: true
+    values: [master, working, stock]
+    description: >-
+      Master and working banks are the two tiers of a bank system, as in ICH Q5D. A stock
+      is a single-tier bank, such as a research lab's frozen stock of a line.
   line: { type: ref, required: true, immutable: true, to: [ParentalLine, EngineeredLine] }
   banked_on: { type: date, required: true, immutable: true, indexed: true }
-  passage_number: { type: int, required: true, immutable: true, min: 0 }
+  passage_number: { type: int, immutable: true, min: 0 }
+  passage_unknown:
+    type: bool
+    required: true
+    immutable: true
+    default: false
+    label: Passage unknown
+    description: The line's passage at banking wasn't recorded, such as for material received without it.
   catalogue_source:
     type: ref
     to: CellLineSource
     immutable: true
-    description: The supplier entry for a master bank made from catalogue material.
-  source_bank: { type: ref, immutable: true, to: CellBank, label: Source master bank }
+    description: The supplier entry for a master bank or stock made from catalogue material.
+  source_bank:
+    type: ref
+    immutable: true
+    to: CellBank
+    label: Source bank
+    description: The master bank a working bank was made from, or the bank a stock was made from.
 rules:
+  passage_recorded:
+    check: "record.passage_unknown ? record.passage_number == null : record.passage_number != null"
+    message: Enter the passage number at banking, or mark it unknown.
+    fields: [passage_number, passage_unknown]
   catalogue_matches_master:
     when: record.catalogue_source != null
-    check: record.kind == "master" && record.catalogue_source.line == record.line.id
-    message: Select a catalogue source for the parental line of this master bank.
+    check: record.kind != "working" && record.catalogue_source.line == record.line.id
+    message: Select a catalogue source for the parental line of this master bank or stock.
     fields: [catalogue_source, line]
   bank_source:
-    check: '(record.kind == "master") == (record.source_bank == null)'
+    check: >-
+      record.kind == "master" ? record.source_bank == null :
+      record.kind == "working" ? record.source_bank != null : true
     message: A working bank needs its master bank. A master bank has no source bank.
     fields: [source_bank]
   same_line:
     when: record.source_bank != null
-    check: record.source_bank.kind == "master" && record.source_bank.line == record.line.id
-    message: Choose a master bank of this cell line.
+    check: >-
+      record.source_bank.line == record.line.id &&
+      (record.kind != "working" || record.source_bank.kind == "master")
+    message: Choose a bank of this cell line. A working bank's source is a master bank.
     fields: [source_bank, line]
   bank_order:
     when: record.source_bank != null
     check: >-
       record.banked_on >= record.source_bank.banked_on &&
-      record.passage_number >= record.source_bank.passage_number
-    message: The working bank's date and passage must follow or equal its master bank's.
+      (record.passage_unknown || record.source_bank.passage_unknown ||
+      record.passage_number >= record.source_bank.passage_number)
+    message: A bank's date and known passage must follow or equal its source bank's.
     fields: [banked_on, passage_number]
 display:
   title: "{{ name }}"
