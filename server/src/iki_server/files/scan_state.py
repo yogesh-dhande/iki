@@ -203,6 +203,13 @@ def record_result(
     if created and state in ("infected", "not_scanned"):
         action = "file.quarantined" if state == "infected" else "file.not_scanned"
         log.record(action, target=decision, data=_audit_data(decision))
+    if created and isinstance(source, Blob):
+        # Runs waiting for these bytes' scan can start, or end with why (ADR 0234).
+        from iki_server.runs import scan_waits
+        from iki_server.runs.tasks import scan_decided
+
+        if scan_waits.any_waiting():
+            scan_decided.enqueue(str(source.pk))
     return status_from_decision(decision)
 
 

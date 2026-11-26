@@ -795,3 +795,15 @@ outages. Once the scanner is available the retry path uses the retained
 object, so users can keep polling the same upload or registration. Changes to
 the size policy apply to future decisions. Existing decisions keep the policy
 recorded at inspection time.
+
+A run that reads a file still waiting for its scan, such as a record's file
+from before the upgrade, is queued and waits (ADR 0234). That holds however
+it was started: by a person, a trigger, a schedule or a workflow step. No
+worker takes it and no machine starts for it until the scan finds the file
+usable; then it starts by itself. If the file is quarantined or can't be
+scanned completely, the run fails with `file_quarantined` or
+`file_not_scanned` and says which file. Through a scanner outage it keeps
+waiting. The run's `waiting_for_scan` names the files, each attempt's
+`scan_wait` says when it waited, and the audit log records
+`run.waiting_for_scan` and `run.scan_wait_ended` with the decisions that
+ended the wait.

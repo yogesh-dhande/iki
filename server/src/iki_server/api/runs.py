@@ -39,6 +39,7 @@ from iki_server.runs import (
     outside,
     provisioner,
     quotas,
+    scan_waits,
     secrets,
     services,
     setups,
@@ -704,6 +705,19 @@ class RunImportedOut(Schema):
     project_slug: str = Field(description="The project it was imported into, for its link.")
 
 
+class ScanWaitFileOut(Schema):
+    id: UUID
+    name: str
+
+
+class RunScanWaitOut(Schema):
+    since: datetime = Field(description="When it began waiting.")
+    files: list[ScanWaitFileOut] = Field(
+        description="The files it still waits for that you can read, by name."
+    )
+    others: int = Field(description="How many more it waits for, that you can't read.")
+
+
 class RunOut(Schema):
     id: UUID
     hrid: str
@@ -772,8 +786,14 @@ class RunOut(Schema):
     metrics: dict[str, float]
     messages: list[MessageOut]
     waiting: str | None = Field(
-        description="Why a queued run hasn't started: a quota is holding it, or the machine "
-        "being started for it is waiting (for a node with a GPU, say)."
+        description="Why a queued run hasn't started: a file it reads is being scanned "
+        "(`waiting_for_scan`), a quota is holding it, or the machine being started for it "
+        "is waiting (for a node with a GPU, say)."
+    )
+    waiting_for_scan: RunScanWaitOut | None = Field(
+        description="While files it reads are being scanned for malware (ADR 0234): no "
+        "worker takes it until they're found usable, and it fails, saying why, if one is "
+        "held. Its attempts' `scan_wait` say when it waited."
     )
     needs_worker: Literal["unregistered", "offline", "busy"] | None = Field(
         description="Why a queued self-hosted run has no worker to take it (ADR 0112): "
@@ -1102,6 +1122,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
     missing = {env: setups.missing(env) for env in awaiting_volumes}
     # A Slurm cluster's runs wait for its worker, or its templates' room (ADR 0133).
     starting = {**provisioner.waiting(machines), **slurm.waiting(machines)}
+    scanning = _scan_waits(me, runs)
     held = _approvals_out(me, {r.approval_id for r in runs if r.approval_id is not None})
     batches = {
         b["id"]: b
@@ -1209,12 +1230,14 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
                 for m in outputs.get(run.pk, {}).get("messages") or []
             ],
             "waiting": (
-                holds[run.tier].why(run.project)
+                (_scan_waiting(scanning[run.pk]) if run.pk in scanning else None)
+                or holds[run.tier].why(run.project)
                 or (missing.get(_qualified_environment(run)) if run.volumes is None else None)
                 or starting.get(_qualified_environment(run))
                 if run.status == RunStatus.QUEUED
                 else None
             ),
+            "waiting_for_scan": scanning.get(run.pk) if run.status == RunStatus.QUEUED else None,
             "needs_worker": (
                 hosted.get(_self_hosted_need(run))
                 if run.status == RunStatus.QUEUED and run.tier == workers.SELF_HOSTED
@@ -1912,6 +1935,66 @@ class AttemptSlurmOut(Schema):
     ended_at: datetime | None
 
 
+def _scan_waits(me: User, runs: list[ActionRun]) -> dict[UUID, dict[str, Any]]:
+    """The runs among `runs` waiting for their files' scans (ADR 0234), with the files."""
+    jobs = list(
+        Job.objects.filter(
+            run__in=[r for r in runs if r.status == RunStatus.QUEUED],
+            state=JobState.QUEUED,
+            scan_wait_started_at__isnull=False,
+            scan_wait_ended_at__isnull=True,
+        )
+    )
+    if not jobs:
+        return {}
+    pending = scan_waits.pending_files(jobs)
+    names = dict(
+        access.readable_files(me)
+        .filter(pk__in={f for ids in pending.values() for f in ids})
+        .values_list("pk", "name")
+    )
+    out = {}
+    for job in jobs:
+        still = pending.get(job.run_id) or []
+        if not still:
+            # Its scans are done, and the queue is about to say so.
+            continue
+        out[job.run_id] = {
+            "since": job.scan_wait_started_at,
+            "files": sorted(
+                ({"id": f, "name": names[f]} for f in still if f in names),
+                key=lambda f: (f["name"], f["id"]),
+            ),
+            "others": sum(1 for f in still if f not in names),
+        }
+    return out
+
+
+def _scan_waiting(wait: dict[str, Any]) -> str:
+    files = [f["name"] for f in wait["files"]]
+    count = len(files) + wait["others"]
+    if count == 1:
+        which = f" ({files[0]})" if files else ""
+        return (
+            f"A file it reads{which} is being scanned for malware. It starts once the scan "
+            "finds it clean."
+        )
+    named = f" ({', '.join(files)}{' and others' if wait['others'] else ''})" if files else ""
+    return (
+        f"{count} files it reads{named} are being scanned for malware. It starts once the "
+        "scans find them clean."
+    )
+
+
+class AttemptScanWaitOut(Schema):
+    started_at: datetime
+    ended_at: datetime | None = Field(
+        description="When the files' scans were done, whether they were found usable or one "
+        "was held. None while it waits, and for one cancelled as it waited."
+    )
+    files: int = Field(description="How many of the files it reads it waited for.")
+
+
 class RunAttemptOut(Schema):
     attempt: int = Field(description="1 for the first, then 2, 3, ...")
     state: JobState
@@ -1954,6 +2037,9 @@ class RunAttemptOut(Schema):
     )
     slurm: AttemptSlurmOut | None = Field(
         description="When a Slurm cluster ran it: its Slurm job (ADR 0133)."
+    )
+    scan_wait: AttemptScanWaitOut | None = Field(
+        description="When it waited for files it reads to be scanned for malware (ADR 0234)."
     )
 
 
@@ -2050,6 +2136,13 @@ def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
                 "checkpoint": _checkpoint_out(saved["by_job"].get(job.pk)),
                 "resumed_from": _checkpoint_out(saved["by_id"].get(job.resumed_from_id)),
                 "slurm": _slurm_out(held),
+                "scan_wait": {
+                    "started_at": job.scan_wait_started_at,
+                    "ended_at": job.scan_wait_ended_at,
+                    "files": len(job.scan_wait_files),
+                }
+                if job.scan_wait_started_at is not None
+                else None,
             }
         )
     return out

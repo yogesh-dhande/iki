@@ -135,6 +135,8 @@ ACTIONS: dict[str, str] = {
     "outside_api.consented": "Agreed to send data to outside APIs",
     "run.parked": "A run parked, waiting on an outside API's job",
     "run.resumed": "A parked run's outside API job ended",
+    "run.waiting_for_scan": "A run waited for the files it reads to be scanned",
+    "run.scan_wait_ended": "The files a waiting run reads were scanned",
     "worker_registration.created": "Created a worker registration token",
     "worker_registration.revoked": "Revoked a worker registration token",
     "worker.registered": "A worker registered",
