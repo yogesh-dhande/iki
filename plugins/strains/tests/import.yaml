@@ -42,3 +42,58 @@ files: { catalogue: tests/duplicate.csv }
 params: { file: { $file: catalogue } }
 expect:
   error: Line 3 repeats ATCC 700926.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_collections_own_headers_are_mapped
+description: >-
+  One collection's bacteria, under the headers its export uses, with a column Iki
+  doesn't read. The run gives the collection and kind for every row. Strain facts
+  from https://www.atcc.org/products/700926; the file layout is illustrative.
+action: import_base_strains
+files: { catalogue: tests/data/bacteria_export.csv }
+params:
+  file: { $file: catalogue }
+  authority: ATCC
+  kind: bacterium
+  accession_column: Strain number
+  name_column: Designation
+  scientific_name_column: Organism
+  taxon_id_column: NCBI taxon
+  genotype_column: Genotype
+expect:
+  output:
+    creates:
+      - type: iki/core.Organism
+        key: taxon_562
+        fills: [scientific_name]
+        values: { taxon_id: 562, scientific_name: Escherichia coli }
+      - type: iki/strains.BaseStrain
+        values:
+          authority: ATCC
+          accession: "700926"
+          name: MG1655
+          organism: { $create: taxon_562 }
+          kind: bacterium
+          genotype: F- lambda- ilvG- rfb-50 rph-1
+        origin: { source: Strain catalogue CSV, id: ATCC 700926 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_value_is_given_once
+description: A file with an authority column can't also take one authority for every row.
+action: import_base_strains
+files: { catalogue: tests/data/atcc.csv }
+params: { file: { $file: catalogue }, authority: ATCC }
+expect:
+  error: Give authority in the authority column or for every row, not both.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: an_identity_column_is_required
+description: Without its accession column, no row can identify a strain.
+action: import_base_strains
+files: { catalogue: tests/data/bacteria_export.csv }
+params: { file: { $file: catalogue }, authority: ATCC, kind: bacterium }
+expect:
+  error: The file has no accession column for accession.
