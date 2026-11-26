@@ -1,7 +1,7 @@
 # Connect a hosted model to Iki
 
 Use this example when your lab submits jobs to a provider that returns results
-asynchronously. The adapter, `lab/hosted_models`, sends one Protein record to
+asynchronously. The adapter, `acme/hosted_models`, sends one Protein record to
 FoldCloud, a fictional service. Its `predict_structure` action parks while the
 provider works. On resume it imports the result as a ProteinStructure and
 records the model that produced it.

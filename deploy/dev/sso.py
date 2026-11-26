@@ -3552,7 +3552,7 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
 
 #: The example models plugin's outside API (examples/plugins/hosted_models), and where the dev
 #: cluster's settings point it: the fake FoldCloud (fixtures/fake-foldcloud.yaml).
-FOLDCLOUD = "lab/hosted_models.foldcloud"
+FOLDCLOUD = "acme/hosted_models.foldcloud"
 FOLDCLOUD_HOST = "fake-foldcloud.iki.svc"
 #: What the CI fixture charges for its calls, in USD: per call, and per GPU second
 #: the finished job reports. The fake reports half a GPU second per residue.
@@ -3576,7 +3576,7 @@ def foldcloud(alice: requests.Session, project: dict[str, Any]) -> None:
     approvals = f"/outside-apis/{FOLDCLOUD}/approvals"
     # One left by an earlier check that stopped part way.
     api_call(bob, "DELETE", f"{approvals}/{project['id']}")
-    action = "lab/hosted_models.predict_structure"
+    action = "acme/hosted_models.predict_structure"
     body = {"project": project["id"], "inputs": {"protein": protein["id"]}, "params": {}}
     refused = api_call(alice, "POST", f"/actions/{action}/runs", {**body, "consent": [FOLDCLOUD]})
     if refused.status_code != 409 or refused.json().get("code") != "outside_api_not_approved":

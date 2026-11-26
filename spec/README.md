@@ -2154,7 +2154,7 @@ unit of each usage the API reports, in the same currency.
 ```yaml
 apiVersion: iki/v1
 kind: ApiPrice
-api: lab/hosted_models.foldcloud
+api: acme/hosted_models.foldcloud
 per_call: 0.01
 usage: { gpu_seconds: 0.0011 }
 currency: USD

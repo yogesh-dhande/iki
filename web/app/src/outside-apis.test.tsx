@@ -13,7 +13,7 @@ import { entity, KINASE, PROTEIN_ID, renderApp, withTypes } from "./entity-fixtu
 import { ACTION, approval, run } from "./run-fixtures";
 import { answer, calls, page, project } from "./test-server";
 
-const API = "lab/hosted_models.foldcloud";
+const API = "acme/hosted_models.foldcloud";
 
 const STATEMENT: Schemas["ConsentStatementOut"] = {
   api: API,
@@ -28,7 +28,7 @@ const STATEMENT: Schemas["ConsentStatementOut"] = {
 
 const PREDICT: Schemas["ActionOut"] = {
   ...ACTION,
-  name: "lab/hosted_models.predict_structure",
+  name: "acme/hosted_models.predict_structure",
   label: "Predict a structure with FoldCloud",
   params: [],
   apis: [{ ...STATEMENT, priced: true, parks: true }],
@@ -37,12 +37,12 @@ const PREDICT: Schemas["ActionOut"] = {
 function outsideApi(approved: boolean): Schemas["OutsideApiOut"] {
   return {
     api: API,
-    plugin: "lab/hosted_models",
+    plugin: "acme/hosted_models",
     label: "FoldCloud",
     host: "api.foldcloud.example",
     purpose: STATEMENT.purpose,
     credential: {
-      key: "lab__hosted_models.FOLDCLOUD_API_KEY",
+      key: "acme__hosted_models.FOLDCLOUD_API_KEY",
       set: true,
       header: "Authorization",
       description: "",
@@ -254,7 +254,7 @@ describe("Admin → Outside APIs", () => {
     }));
     const { user } = await renderApp("/admin/outside-apis/");
     const card = await screen.findByRole("region", { name: /FoldCloud/ });
-    expect(card).toHaveTextContent("Set, as lab__hosted_models.FOLDCLOUD_API_KEY");
+    expect(card).toHaveTextContent("Set, as acme__hosted_models.FOLDCLOUD_API_KEY");
     expect(card).toHaveTextContent("$0.01 a call");
     expect(within(card).getByRole("table", { name: "Approved for" })).toHaveTextContent(
       "Kinase Atlas",

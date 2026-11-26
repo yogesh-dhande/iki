@@ -248,7 +248,7 @@ action name from its manifest.
 ```python
 try:
     run = iki.run(
-        "lab/hosted_models.predict_structure",
+        "acme/hosted_models.predict_structure",
         project="kinase-atlas",
         inputs={"protein": "PRT-000123"},
     )
@@ -258,7 +258,7 @@ except iki.ConsentRequired as refused:
     if input("Send the listed data? [y/N] ").strip().lower() != "y":
         raise SystemExit("Run cancelled")
     run = iki.run(
-        "lab/hosted_models.predict_structure",
+        "acme/hosted_models.predict_structure",
         project="kinase-atlas",
         inputs={"protein": "PRT-000123"},
         consent=refused.apis,

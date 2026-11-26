@@ -8,7 +8,7 @@ plugins:
     state: active
     settings: settings/lims_connector.yaml
   # Calls the fake FoldCloud (fake-foldcloud.yaml), an outside API.
-  - name: lab/hosted_models
+  - name: acme/hosted_models
     local: ../../../examples/plugins/hosted_models
     state: active
     settings: settings/hosted_models.yaml
