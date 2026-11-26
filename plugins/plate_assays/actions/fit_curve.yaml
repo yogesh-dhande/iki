@@ -3,12 +3,23 @@ kind: Action
 name: fit_curve
 label: Fit a dose-response curve
 description: >-
-  Fit the sample's dose series from a committed plate read. Each fit keeps
-  its measurements, raw responses, exclusions and the selected review flow.
+  Fit the sample's dose series from a committed plate read with a named method. Each fit
+  keeps its method and version, measurements, raw responses, exclusions and the selected
+  review flow.
 inputs:
   read: { type: PlateRead, schema: ">=1", include: [measurements, request] }
   sample: { type: iki/core.Entity, description: The sample assigned to the dilution series. }
 params:
+  method:
+    type: enum
+    values: [4PL-OLS]
+    default: 4PL-OLS
+    label: Fit method
+    description: >-
+      The reviewed method. The result records it with the version this release implements,
+      as fit_version. 4PL-OLS, version 1 (4PL-OLS/1): a variable-slope
+      four-parameter logistic with free plateaus, fitted by unweighted least squares on log
+      concentration, with a 95% t interval on the log midpoint. See the plugin's data/methods.md.
   endpoint_kind:
     type: enum
     values: [IC50, EC50]

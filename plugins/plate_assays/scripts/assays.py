@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -145,13 +146,25 @@ def exclusions_by_well(text: str) -> dict[str, str]:
     return excluded
 
 
-def fit_output(run: dict[str, Any]) -> dict[str, Any]:
-    from four_pl import fit_curve
+Fit = Callable[[list[tuple[float, float]], str], dict[str, Any]]
 
+
+def methods() -> dict[str, Fit]:
+    """The fit methods this plugin ships, by name. Each result records the method's name
+    and the version this release implements, such as 4PL-OLS/1, in `fit_version`."""
+    import four_pl
+
+    return {four_pl.METHOD.split("/")[0]: four_pl.fit_curve}
+
+
+def series(run: dict[str, Any]) -> dict[str, Any]:
+    """One sample's committed readings in one dose unit, with the operator's exclusions.
+
+    Independent of any fit method: what a fit reads and what its result pins.
+    """
     read = run["inputs"]["read"][0]
     sample_record = run["inputs"]["sample"][0]
-    sample = sample_record["id"]
-    reference_id = sample_record.get("entry_id", sample)
+    reference_id = sample_record.get("entry_id", sample_record["id"])
     read_values = read["values"]
     if not read_values.get("import_key"):
         raise ValueError("Choose a plate read created by the reader commit action.")
@@ -207,39 +220,64 @@ def fit_output(run: dict[str, Any]) -> dict[str, Any]:
     channels = {m["values"]["channel"] for m in selected}
     if len(channels) != 1 or len(response_units) != 1:
         raise ValueError("Fit one detector channel at a time.")
-    fitted = fit_curve(included, run["params"].get("endpoint_kind", "IC50"))
-    flow = run.get("settings", {}).get("review_flow", "research")
+    return {
+        "points": points,
+        "included": included,
+        "values": {
+            **{
+                k: read_values[k] for k in ("procedure", "procedure_revision") if read_values.get(k)
+            },
+            "read": read["id"],
+            "sample": sample_record["id"],
+            "points": points,
+            "channel": channels.pop(),
+            "response_unit": response_units.pop(),
+            "concentration_unit": unit,
+            "measurements": [m["id"] for m in selected],
+        },
+    }
+
+
+def result_type(run: dict[str, Any], flow: str) -> tuple[str, str | None]:
+    """The result class for the review flow, and for a requested sample, the request.
+
+    Which class a result is doesn't depend on its fit method.
+    """
     result_types = {"research": "ResearchAssayResult", "regulated_qc": "QCAssayResult"}
     if flow not in result_types:
         raise ValueError("Choose research or regulated_qc in the assay review settings.")
-    result_type = result_types[flow]
-    result = {
-        **fitted,
-        **{k: read_values[k] for k in ("procedure", "procedure_revision") if read_values.get(k)},
-        "read": read["id"],
-        "sample": sample,
-        "review_flow": flow,
-        "points": points,
-        "channel": channels.pop(),
-        "response_unit": response_units.pop(),
-        "concentration_unit": unit,
-        "measurements": [m["id"] for m in selected],
-    }
-    request = read_values.get("request")
+    read = run["inputs"]["read"][0]
+    sample = run["inputs"]["sample"][0]["id"]
+    request = read["values"].get("request")
     if any(
         item["id"] == request and sample in item.get("covered_materials", [])
         for item in read.get("included", {}).get("request", [])
     ):
-        result_type = f"Requested{result_type}"
+        return f"Requested{result_types[flow]}", request
+    return result_types[flow], None
+
+
+def fit_output(run: dict[str, Any]) -> dict[str, Any]:
+    method = run["params"].get("method", "4PL-OLS")
+    fit = methods().get(method)
+    if fit is None:
+        raise ValueError(f"Choose a fit method this plugin ships: {', '.join(methods())}.")
+    flow = run.get("settings", {}).get("review_flow", "research")
+    kind, request = result_type(run, flow)
+    measured = series(run)
+    fitted = fit(measured["included"], run["params"].get("endpoint_kind", "IC50"))
+    result = {**fitted, **measured["values"], "review_flow": flow}
+    if request:
         result["request"] = request
+    read, sample = run["inputs"]["read"][0]["id"], run["inputs"]["sample"][0]["id"]
     return {
         "apiVersion": "iki/v1",
         "kind": "RunOutput",
         "creates": [
             {
-                "type": f"{PLUGIN}.{result_type}",
+                "type": f"{PLUGIN}.{kind}",
                 "values": result,
-                "derived_from": [read["id"], sample],
+                "derived_from": [read, sample],
             }
         ],
     }

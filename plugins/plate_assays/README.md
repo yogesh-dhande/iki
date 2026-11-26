@@ -46,7 +46,9 @@ Each result keeps the flow selected when it was created.
    export already committed to the plate is refused.
    [Formats, export settings and public example files](data/reader.md)
 3. Run **Fit a dose-response curve** on the committed plate read and select
-   the sample. Choose IC50 or EC50 according to the assay. To exclude a well,
+   the sample. Choose IC50 or EC50 according to the assay. The fit method is
+   `4PL-OLS`, and each result records it with its version, `4PL-OLS/1`.
+   [What the method supports](data/methods.md) To exclude a well,
    enter its coordinate and a reason on one line, such as
    `A4: bubble noted at acquisition`. Open the result's **Curve** tab to inspect
    each reading, the excluded wells, parameters, endpoint and approximate
@@ -61,3 +63,9 @@ Control wells remain available for inspection. Extrapolated midpoints carry
 an above-range or below-range qualifier. An unreportable curve retains its
 readings and the reason an estimate was unavailable.
 [Assay design decision](../../docs/adr/0188-a-plate-read-keeps-the-wells-behind-a-fitted-endpoint.md)
+
+A lab that has qualified its own method writes it in its own plugin. Its
+results are Research or QC assay results under the same review. They
+record the lab's method, such as `acme/5PL-WLS/1`.
+[A lab's own method](data/methods.md#a-labs-own-method)
+[Named fit methods](../../docs/adr/0248-a-dose-response-fit-is-a-named-versioned-method.md)

@@ -4,7 +4,9 @@ name: AssayResult
 abstract: true
 schema_version: 3
 label: Assay result
-description: A four-parameter logistic fit of the selected sample's committed readings.
+description: >-
+  A dose-response result: an IC50 or EC50 fitted to one sample's committed readings by a
+  named method, recorded in fit_version. Other analyses of a plate read are their own types.
 fields:
   procedure: { type: string, computed: true, max_length: 200, label: Analytical procedure ID }
   procedure_revision: { type: string, computed: true, max_length: 80, label: Procedure revision }
@@ -28,7 +30,14 @@ fields:
   top: { type: float, computed: true }
   hill_slope: { type: float, computed: true }
   normalization: { type: string, computed: true, max_length: 100 }
-  fit_version: { type: string, computed: true, max_length: 100 }
+  fit_version:
+    type: string
+    computed: true
+    max_length: 100
+    label: Fit method
+    description: >-
+      The fit method's name and version, such as 4PL-OLS/1. A lab's own plugin may record a
+      locally qualified method under its own name.
   fit_reason: { type: text, computed: true }
   fit_status: { type: enum, computed: true, values: [fitted, unreportable] }
   qualifier:

@@ -1,4 +1,5 @@
-"""Unweighted four-parameter logistic fit of one sample's raw, continuous readout."""
+"""Method 4PL-OLS, version 1: an unweighted four-parameter logistic fit of one sample's
+raw, continuous readout. data/methods.md states what it supports and what it doesn't."""
 
 import math
 from collections.abc import Sequence
@@ -11,6 +12,9 @@ from scipy.special import expit
 from scipy.stats import t
 
 Vector = NDArray[np.float64]
+
+#: The method's name and version, as each result records it in `fit_version`.
+METHOD = "4PL-OLS/1"
 
 
 def _response(params: Vector, log_dose: Vector) -> Vector:
@@ -52,7 +56,7 @@ def fit_curve(points: Sequence[tuple[float, float]], endpoint: str) -> dict[str,
         raise ValueError("Choose IC50 or EC50.")
     result: dict[str, Any] = {
         "fit_status": "unreportable",
-        "fit_version": "4PL-OLS/1",
+        "fit_version": METHOD,
         "normalization": "none",
         "endpoint_kind": endpoint,
         "point_count": len(points),
