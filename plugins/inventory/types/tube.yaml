@@ -4,10 +4,12 @@ kind: EntityType
 name: Tube
 label: Tube
 label_plural: Tubes
-schema_version: 1
+extends: Container
+schema_version: 2
 description: >-
-  A barcoded tube holding material from one record. Its contents determine the
-  draw restrictions that apply at the bench.
+  A barcoded tube of liquid from one record, measured by volume. A draw needs its
+  code scanned first. Its contents determine the draw restrictions that apply at
+  the bench.
 hrid: { prefix: TUB }
 amount:
   unit: uL
@@ -20,52 +22,10 @@ storage:
   barcode: barcode
   confirm: [draw]
 fields:
-  name:
-    type: string
-    max_length: 40
-    description: >-
-      Its short name, as written on its label, such as "mAb-17 2 mg/mL".
-  barcode:
-    type: string
-    max_length: 64
-    unique: true
-    indexed: true
-    description: The 2D code on its base or label, if it has one; its HRID otherwise.
-  contents:
-    type: ref
-    to: iki/core.Entity
-    immutable: true
-    description: The material in the tube. An empty tube can be labeled before it is filled.
-  on_hold:
-    type: bool
-    default: false
-    indexed: true
-    reason_on_clear: true
-    description: This tube has been withdrawn from use.
-  hold_reason:
-    type: text
-    description: Why this tube was withdrawn.
   concentration:
     type: quantity
     unit: mg/mL
     min: 0
     description: Mass per unit volume, when known.
-  prepared_on:
-    type: date
-    label: Prepared
-    description: When it was filled.
-draw_guards:
-  available:
-    check: record.on_hold != true
-    message: This tube is on hold. Clear its hold with a reason before taking material.
-  identified:
-    check: record.contents != null
-    message: Identify the contents before taking material.
-rules:
-  hold_explained:
-    when: record.on_hold == true
-    check: record.hold_reason != null && size(record.hold_reason) > 0
-    message: Give a reason for withdrawing this tube.
-    fields: [hold_reason]
 display:
   title: "{{ name or hrid }}"

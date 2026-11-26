@@ -16,7 +16,7 @@ def test_check_runs_product_then_selected_fixtures(
     project = {"id": "fresh-project"}
     seed.check.return_value = project
     seed.kubectl.return_value = ""
-    fixture_checks = ["lims", "foldcloud", "containers"]
+    fixture_checks = ["lims", "foldcloud", "containers", "plugin_export"]
     steps = [
         "route",
         "set_up",

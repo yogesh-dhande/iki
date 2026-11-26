@@ -1376,7 +1376,7 @@ class Runs(_Part):
         every label, besides the ones the action needs, such as ``["lab-3"]``.
 
         An action that sends data to outside APIs (its ``apis``) needs ``consent``
-        naming each, such as ``["lab/hosted_models.foldcloud"]``: you agree to what its
+        naming each, such as ``["acme/hosted_models.foldcloud"]``: you agree to what its
         ``statement`` says is sent. Without it, :class:`ConsentRequired` gives the
         statements; :class:`NotApproved` means an Org Admin hasn't approved the API for
         the project (ADR 0130)."""

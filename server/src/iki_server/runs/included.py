@@ -23,7 +23,7 @@ from iki_server.entities import access, registry
 from iki_server.entities.models import Entity
 from iki_server.entities.values import UNREADABLE_REFERENCE, reference_positions, shape, to_json
 from iki_server.files.models import File
-from iki_server.files.scan_state import statuses_for_blobs
+from iki_server.files.scan_state import ScanStatus, statuses_for_blobs
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
 from iki_server.runs.models import ActionRun, RunInclusion, RunInput
@@ -269,16 +269,37 @@ def reference_mask(
 
 
 class Unavailable(Refused):
-    """The project's readers must be able to receive the complete pinned document."""
+    """The project's readers must be able to receive the complete pinned document.
+
+    ``ends_with`` says why an attempt that meets it ends: ``file_quarantined`` or
+    ``file_not_scanned`` for a file its scan holds (ADR 0216), else ``not_allowed``. (Not
+    ``code``: the API reads a refusal's ``code`` as its problem's.)"""
 
     def __init__(
         self,
         detail: str = "The run needs every pinned input, reference and file in its project.",
         *,
-        waiting_for_scan: bool = False,
+        ends_with: str = "not_allowed",
     ) -> None:
         super().__init__(detail)
-        self.waiting_for_scan = waiting_for_scan
+        self.ends_with = ends_with
+
+
+class WaitingForScan(Unavailable):
+    """Everything else is available, but files it reads are still being scanned (ADR
+    0234): it waits for them, rather than ending. ``found`` is its manifest, ``pending``
+    the files whose scans aren't done."""
+
+    def __init__(self, found: Manifest, pending: set[UUID]) -> None:
+        many = len(pending) > 1
+        super().__init__(
+            f"{'Files it reads are' if many else 'A file it reads is'} being scanned for "
+            "malware. It starts once the scan finds "
+            f"{'them' if many else 'it'} clean.",
+            ends_with="file_scanning",
+        )
+        self.found = found
+        self.pending = pending
 
 
 @dataclass
@@ -376,14 +397,69 @@ def manifest(run: ActionRun) -> Manifest:
         raise Unavailable()
     ids = result.param_files | result.input_files
     if ids:
-        blobs = dict(File.objects.filter(pk__in=ids).values_list("pk", "blob_id"))
-        if ids != blobs.keys():
+        files = {f.pk: f for f in File.objects.filter(pk__in=ids).only("pk", "name", "blob_id")}
+        if ids != files.keys():
             raise Unavailable()
-        try:
-            for scan in statuses_for_blobs(blobs.values()).values():
+        scans = statuses_for_blobs({f.blob_id for f in files.values()})
+        pending: set[UUID] = set()
+        # A held file ends it at once, whatever else is still being scanned.
+        for pk in sorted(ids):
+            scan = scans[files[pk].blob_id]
+            if scan.usable:
+                continue
+            if scan.state == "pending":
+                pending.add(pk)
+                continue
+            try:
                 scan.require_usable()
-        except Problem as error:
-            raise Unavailable(
-                error.detail, waiting_for_scan=error.code == "file_scanning"
-            ) from error
+            except Problem as error:
+                raise Unavailable(held(files[pk].name, scan), ends_with=error.code) from error
+        if pending:
+            raise WaitingForScan(result, pending)
     return result
+
+
+def still_scanning(
+    action: Action,
+    entities: Mapping[str, Sequence[Entity]],
+    entry_revisions: Mapping[UUID, int | None],
+    pins: Sequence[Pin],
+    params: Mapping[str, Any],
+) -> bool:
+    """Whether a run of `action` with these would read a file whose scan isn't done: so it
+    can't reuse an identical run's results until it is (ADR 0234). It reads them as the
+    manifest would."""
+    from iki_server.entities.services import values_and_entry_at
+    from iki_server.runs import input_files
+
+    ids: set[UUID] = set()
+    for name, f in action.params.items():
+        if params.get(name) is not None:
+            ids |= input_files.file_ids(f, params[name])
+    read = [(e, e.revision, entry_revisions.get(e.pk)) for g in entities.values() for e in g]
+    read += [(p.entity, p.revision, p.entry_revision) for p in pins]
+    for entity, revision, entry_revision in read:
+        values, _ = values_and_entry_at(entity, revision, entry_revision)
+        fields = shape(entity.type).fields()
+        for name, value in values.items():
+            if name in fields:
+                ids |= input_files.file_ids(fields[name], value)
+    if not ids:
+        return False
+    blobs = set(File.objects.filter(pk__in=ids).values_list("blob_id", flat=True))
+    return any(s.state == "pending" for s in statuses_for_blobs(blobs).values())
+
+
+def held(name: str, scan: ScanStatus) -> str:
+    """Why a run can't read a file its scan holds (ADR 0216), and what can be done."""
+    if scan.state == "infected":
+        return (
+            f"{name} is quarantined: the malware scanner flagged it. A Quarantine Admin can "
+            "review it under Admin → Security → Quarantine; once it's released, run this again."
+        )
+    if scan.reason == "too_large":
+        return (
+            f"{name} is held: it's larger than this deployment scans, and its policy holds "
+            "files it can't scan."
+        )
+    return f"{name} is held: the malware scanner couldn't inspect it completely."

@@ -19,6 +19,7 @@ actions have no module to call.
 from __future__ import annotations
 
 import importlib
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -74,6 +75,30 @@ def ensure_dna_annotation(project: Path) -> Path:
     return module
 
 
+#: The iki-writer SDK's crate (ADR 0230), which iki-spec carries so a deployment's build can
+#: give plugins' writers the SDK of the Iki that builds them.
+WRITER_SDK = Path("src", "iki_spec", "writers", "sdk", "iki-writer")
+_SDK_FILES = ("Cargo.toml", "README.md", "build-writer.sh")
+
+
+def ensure_writer_sdk(project: Path) -> Path:
+    """Copies the SDK's source into ``project`` from the checkout it's in, or, outside one,
+    checks it's there."""
+    source = project.parent / "worker" / "crates" / "iki-writer"
+    target = project / WRITER_SDK
+    if (source / "Cargo.toml").is_file():
+        if target.exists():
+            shutil.rmtree(target)
+        target.mkdir(parents=True)
+        for name in _SDK_FILES:
+            if (source / name).is_file():
+                shutil.copy2(source / name, target / name)
+        shutil.copytree(source / "src", target / "src")
+    if not (target / "Cargo.toml").is_file():
+        raise RuntimeError(f"iki-spec needs the iki-writer SDK ({WRITER_SDK}) to build.")
+    return target
+
+
 def _uv() -> Any:  # noqa: ANN401 - uv_build's module, which has no types
     """uv_build, which only the build's environment has."""
     return importlib.import_module("uv_build")
@@ -86,12 +111,14 @@ def build_wheel(
 ) -> str:
     ensure_wasm(Path.cwd())
     ensure_dna_annotation(Path.cwd())
+    ensure_writer_sdk(Path.cwd())
     return str(_uv().build_wheel(wheel_directory, config_settings, metadata_directory))
 
 
 def build_sdist(sdist_directory: str, config_settings: dict[str, Any] | None = None) -> str:
     ensure_wasm(Path.cwd())
     ensure_dna_annotation(Path.cwd())
+    ensure_writer_sdk(Path.cwd())
     return str(_uv().build_sdist(sdist_directory, config_settings))
 
 

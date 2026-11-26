@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Plate
+label: Plate
+schema_version: 1
+hrid: { prefix: PLT }
+description: A microplate as a liquid handler's worktable holds it.
+fields:
+  label:
+    type: string
+    required: true
+    max_length: 32
+    description: The labware's label on the worktable, as the method or script names it.
+  barcode: { type: string, max_length: 32, indexed: true }
+  labware_type:
+    type: string
+    max_length: 64
+    description: The labware definition's name, such as 96 Well Corning Flat.
+  wells: { type: enum, values: [plate_96, plate_384], required: true }
+display: { title: "{{ label }}" }

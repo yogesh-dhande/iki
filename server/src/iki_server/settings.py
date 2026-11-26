@@ -94,6 +94,20 @@ INSTALLED_APPS = [
 # directory rather than a pinned commit (`iki deploy build --allow-local`) are
 # for development, so the server only accepts them when told to.
 IKI_ALLOW_LOCAL_PLUGINS: bool = env.bool("IKI_ALLOW_LOCAL_PLUGINS", default=False)
+# Where plugins' export writers run (ADR 0230): the export sandbox's Service,
+# tcp://host:port, which the chart sets on web and task pods. `local` runs each writer
+# in a child process of the server itself, for development servers and tests only, so it
+# needs IKI_ALLOW_LOCAL_PLUGINS. Empty: no sandbox, and a plugin's format can't be exported.
+IKI_EXPORT_SANDBOX: str = env.str("IKI_EXPORT_SANDBOX", default="")
+if IKI_EXPORT_SANDBOX == "local" and not IKI_ALLOW_LOCAL_PLUGINS:
+    raise environ.ImproperlyConfigured(
+        "IKI_EXPORT_SANDBOX=local runs plugins' writers in the server's own pod, which is only "
+        "for development: set IKI_ALLOW_LOCAL_PLUGINS=true too, or give the sandbox's address."
+    )
+if IKI_EXPORT_SANDBOX not in ("", "local") and not IKI_EXPORT_SANDBOX.startswith("tcp://"):
+    raise environ.ImproperlyConfigured(
+        f"IKI_EXPORT_SANDBOX is tcp://host:port, or local; not {IKI_EXPORT_SANDBOX}."
+    )
 # The mirrors of Iki's repository this deployment fetches Iki's own plugins from
 # (ADR 0114), as its admin set them (the chart's plugins.mirrors). The server
 # refuses plugins a build fetched from any other.

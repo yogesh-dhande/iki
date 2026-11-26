@@ -40,6 +40,7 @@ from iki_server.runs import budgets as runs_budgets
 from iki_server.runs import imports as runs_imports
 from iki_server.runs import overview as runs_overview
 from iki_server.runs import queue as runs_queue
+from iki_server.runs import scan_waits as runs_scan_waits
 from iki_server.runs import setups as runs_setups
 from iki_server.runs import triggers as runs_triggers
 from iki_server.runs import workflows as runs_workflows
@@ -335,6 +336,10 @@ class Runner:
                 ended = runs_setups.recover_expired()
                 if ended:
                     logger.info("setups_recovered", count=ended)
+                # Runs whose files' scans are done, that no decision released (ADR 0234).
+                ended = runs_scan_waits.recover()
+                if ended:
+                    logger.info("scan_waits_ended", count=ended)
             except Exception:
                 logger.exception("jobs_housekeeping_error")
             finally:

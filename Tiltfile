@@ -17,7 +17,7 @@ plugin_deps = [
 ]
 chart_values = ['deploy/dev/values-dev.yaml']
 if fixtures == '1':
-    plugin_deps += ['deploy/dev/fixtures', 'examples/plugins/hosted_models', 'examples/plugins/lims_connector']
+    plugin_deps += ['deploy/dev/fixtures', 'examples/plugins/hosted_models', 'examples/plugins/lims_connector', 'examples/plugins/liquid_handling']
     chart_values.append('deploy/dev/fixtures/values.yaml')
 
 # --- Dependencies -------------------------------------------------------------
@@ -128,6 +128,8 @@ custom_build(
         # What deploy/dev/build-wasm.sh writes.
         '**/iki_spec/iki_wasm*', '**/oligo-measurement.wasm', '**/iki_spec/dna-annotation.wasm',
         '**/iki_spec/rust-standard-library.html', '**/iki_spec/modules/*.wasm',
+        # Plugins' export writers: their Rust builds, and the modules built from them.
+        '**/writers/*/target', '**/writers/*.wasm',
     ],
 )
 
@@ -148,7 +150,7 @@ custom_build(
     ignore=[
         '**/__pycache__', '**/iki_spec/iki_wasm*', '**/oligo-measurement.wasm',
         '**/iki_spec/dna-annotation.wasm', '**/iki_spec/rust-standard-library.html',
-        '**/iki_spec/modules/*.wasm',
+        '**/iki_spec/modules/*.wasm', '**/writers/*/target', '**/writers/*.wasm',
     ],
 )
 
@@ -176,6 +178,18 @@ k8s_resource(
     ],
 )
 k8s_resource('iki-tasks', resource_deps=['iki-migrate', 'otel-lgtm'], labels=['iki'])
+if fixtures == '1':
+    # Runs the fixture plugins' export writers (ADR 0230); nothing reaches it but web
+    # pods and task runners, and it reaches nothing.
+    k8s_resource(
+        'iki-sandbox',
+        objects=[
+            'iki-sandbox:serviceaccount',
+            'iki-sandbox:networkpolicy',
+            'iki-sandbox-clients:networkpolicy',
+        ],
+        labels=['iki'],
+    )
 k8s_resource(
     'iki-egress-proxy',
     objects=['iki-egress-proxy:serviceaccount', 'iki-egress-proxy:networkpolicy'],
