@@ -104,11 +104,15 @@ review history, including discrepancies and inconclusive results.
    action launches. The alignment retains its original file and the provenance
    of the comparison that produced it. These evidence references stay pinned
    through review.
-3. Assign a Verification reviewer in the project. At deployment, the
-   `iki/lots` setting `verification_flow` selects the review path for new
-   verifications. The record keeps the flow selected at creation.
+3. Assign a Verification reviewer in the project. A project's Admin chooses
+   the review path for new verifications in **Project settings → Starters →
+   Plasmid prep verification**, and assigns its roles there. A project that
+   hasn't chosen one uses the deployment's `verification_flow` setting. The
+   record keeps the flow in force when it was recorded, whatever the project
+   chooses later
+   ([ADR 0240](../../docs/adr/0240-a-project-chooses-its-release-stability-and-verification-review.md)).
 
-| Setting              | Signed transitions                                                                                                                    |
+| Flow                 | Signed transitions                                                                                                                    |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `research` (default) | From Recorded, the assigned reviewer signs off the outcome.                                                                           |
 | `regulated_qc`       | A Verification analyst signs submission, an independent assigned reviewer signs review, and an independent Lot QA signer releases it. |

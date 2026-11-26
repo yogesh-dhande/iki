@@ -4734,8 +4734,8 @@ export interface paths {
          *     If what applying does changed since the preview, as when another Admin removed a grant or
          *     applied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,
          *     what applying would do now, for review (ADR 0207). Reapplying a setup that's in place
-         *     changes nothing. Changing the flow selects the result type for future fits. Existing
-         *     results keep their flow.
+         *     changes nothing. Changing the flow applies to records opened from now on, such as
+         *     new fits or release cases. Existing ones keep their flow.
          */
         post: operations["iki_server_api_starters_apply_starter"];
         delete?: never;
@@ -18738,9 +18738,14 @@ export interface components {
             required_roles: string[];
             /**
              * Result Type
-             * @description Qualified result type for new fits in this flow.
+             * @description Qualified result type whose states this flow's records pass through.
              */
             result_type: string;
+            /**
+             * States
+             * @description The result type's states in this flow, where its one state field has a route per flow. Null: all of them.
+             */
+            states?: string[] | null;
         };
         /** StarterOut */
         StarterOut: {
@@ -18750,6 +18755,11 @@ export interface components {
             description: string;
             /** Flows */
             flows: components["schemas"]["StarterFlowOut"][];
+            /**
+             * Governs
+             * @description The records the project's choice applies to from now on, such as `release cases`. Those already opened keep the flow they were opened with.
+             */
+            governs: string;
             /** Id */
             id: string;
             /** Label */

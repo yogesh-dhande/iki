@@ -4958,6 +4958,7 @@ def _starter_api(page: Page) -> dict[str, Any]:
                 "label": "Dose-response plate assay",
                 "description": "Choose the review flow for new dose-response fits and assign "
                 "the assay roles.",
+                "governs": "dose-response fits",
                 "flows": [
                     {
                         "id": flow,
