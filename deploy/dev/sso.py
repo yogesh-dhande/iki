@@ -1764,7 +1764,7 @@ def lims(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(f"{sent['hrid']} wrote {first['hrid']} to external record {LIMS_RECORDS[0]}")
 
 
-#: examples/liquid_handling's Tecan worklist (ADR 0230) for one transfer: an aspirate from
+#: acme/liquid_handling's Tecan worklist (ADR 0230) for one transfer: an aspirate from
 #: well B3 of a 384-well source plate (column 3, row B: (3 - 1) x 16 + 2 = 34), a dispense
 #: to A1 of a 96-well plate (position 1), then a wash, as Freedom EVOware reads it.
 TECAN_WORKLIST = (
@@ -1776,9 +1776,9 @@ TECAN_WORKLIST = (
 
 def plugin_export(alice: requests.Session, project: dict[str, Any]) -> None:
     """Download a plugin's format: a liquid handler's worklist for a plate-to-plate
-    transfer, written by examples/liquid_handling's Wasm writer in the export sandbox,
+    transfer, written by acme/liquid_handling's Wasm writer in the export sandbox,
     and audited with the module that wrote it."""
-    kind = "examples/liquid_handling."
+    kind = "acme/liquid_handling."
     source = created(
         alice,
         project,
@@ -1852,12 +1852,12 @@ def plugin_export(alice: requests.Session, project: dict[str, Any]) -> None:
         not audited
         or audited.get("format") != format_name
         or audited.get("sha256") != digest
-        or writer.get("plugin") != "examples/liquid_handling"
+        or writer.get("plugin") != "acme/liquid_handling"
         or not re.fullmatch(r"[0-9a-f]{64}", str(writer.get("module_sha256", "")))
     ):
         fail(f"exporting {transfer['hrid']} was audited as {audited}")
     ok(
-        f"{transfer['hrid']} downloads as a Tecan worklist that examples/liquid_handling's writer "
+        f"{transfer['hrid']} downloads as a Tecan worklist that acme/liquid_handling's writer "
         f"wrote in the export sandbox (SHA-256 {digest[:12]}…), audited with module "
         f"{writer['module_sha256'][:12]}…"
     )

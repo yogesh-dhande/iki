@@ -28,7 +28,7 @@ def test_it_lists_each_writer_with_its_digest_and_crates() -> None:
     code, shown = run(EXAMPLE)
     assert code == 0
     tracked = (EXAMPLE / "writers" / "tecan-worklist.wasm.sha256").read_text().split()[0]
-    assert "examples/liquid_handling.tecan-worklist: Tecan worklist" in shown
+    assert "acme/liquid_handling.tecan-worklist: Tecan worklist" in shown
     assert f"sha256 {tracked}" in shown
     assert "iki-writer 0.1.0-dev.0" in shown and "serde_json " in shown
 
@@ -51,14 +51,12 @@ def test_the_builder_stages_a_context_as_a_deployments_build_does(tmp_path: Path
     assert loaded.plugin is not None
     writers = list(loaded.plugin.writers.values())
     crates = writer_build.stage(loaded.plugin.name, EXAMPLE, writers, tmp_path)
-    assert crates == {
-        "examples/liquid_handling.tecan-worklist": "examples__liquid_handling/tecan-worklist"
-    }
+    assert crates == {"acme/liquid_handling.tecan-worklist": "acme__liquid_handling/tecan-worklist"}
     staged = tmp_path / "plugins" / "iki_installed_plugins" / "writers"
-    assert (staged / "writers.txt").read_text() == "examples__liquid_handling/tecan-worklist\n"
+    assert (staged / "writers.txt").read_text() == "acme__liquid_handling/tecan-worklist\n"
     assert (
         not list(staged.rglob("*.wasm"))
-        and not (staged / "examples__liquid_handling" / "tecan-worklist" / "target").exists()
+        and not (staged / "acme__liquid_handling" / "tecan-worklist" / "target").exists()
     )
     assert (tmp_path / "Dockerfile").read_text() == writer_build.dockerfile()
 

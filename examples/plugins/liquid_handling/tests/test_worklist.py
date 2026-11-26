@@ -20,7 +20,7 @@ from iki_spec.writers.runtime import Instance, engine
 
 EXAMPLE = Path(__file__).resolve().parents[1]
 MODULE = EXAMPLE / "writers" / "tecan-worklist.wasm"
-WRITER = "examples/liquid_handling.tecan-worklist"
+WRITER = "acme/liquid_handling.tecan-worklist"
 
 pytestmark = pytest.mark.skipif(not MODULE.is_file(), reason="build the writer's module first")
 
@@ -32,7 +32,7 @@ def plate(hrid: str, label: str, wells: str, **fields: str) -> dict[str, Any]:
         "id": f"0190e9a4-0000-7000-8000-{hrid[-6:]:0>12}",
         "name": label,
         "revision": 1,
-        "type": "examples/liquid_handling.Plate",
+        "type": "acme/liquid_handling.Plate",
     }
 
 
@@ -56,7 +56,7 @@ def transfer(at: str, to: str, volume: float, **roles: Any) -> dict[str, Any]:
             "volume": {"unit": "uL", "value": volume},
             **roles,
         },
-        "type": "examples/liquid_handling.Transfer",
+        "type": "acme/liquid_handling.Transfer",
         "withheld": [],
     }
 
@@ -66,7 +66,7 @@ def written(*records: dict[str, Any]) -> list[tuple[int, bytes, list[dict[str, A
     writer = Instance(wasmtime.Module(compiler, MODULE.read_bytes()), compiler, 16 * 1024 * 1024)
     begin = {
         "abi": 1,
-        "format": "examples/liquid_handling.tecan-gwl",
+        "format": "acme/liquid_handling.tecan-gwl",
         "records": len(records),
         "writer": WRITER,
     }
