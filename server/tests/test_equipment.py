@@ -259,7 +259,7 @@ def exercise_trace(*, automatic: bool) -> None:
     instrument = make(PREFIX + "Instrument", name="Synthetic absorbance reader")
     tube = make("iki/inventory.Tube", name="Absorbance reference", contents=str(instrument.pk))
     amounts.record(editor, tube, amounts.Given.of({"value": 10, "unit": "uL"}))
-    measured = make("iki/samples.Sample", source=str(tube.pk), run="RUN-000001")
+    measured = make("iki/samples.ReviewedSample", source=str(tube.pk), run="RUN-000001")
     amounts.draw(
         editor,
         tube,

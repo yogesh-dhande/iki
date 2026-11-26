@@ -123,14 +123,14 @@ for release in iki.entities.request("QCR-000007")["result_releases"]:
 # a record locks whom it names too.
 iki.entities.update("SAM-000013", {"reviewer": "ana@example.com"}, revision=4)
 client = iki.client()  # uses the current sign-in
-for item in client.work.mine(type="iki/samples.Sample"):  # yours now, soonest due first
+for item in client.work.mine(type="iki/samples.ReviewedSample"):  # yours now, soonest due first
     print(item["entity"]["hrid"], item["fields"], item["due"])
 for item in client.work.open():  # nobody's yet, and open to your lab roles
     record = item["entity"]
     iki.entities.take(record["hrid"], item["fields"][0], revision=record["revision"])
 # Many at once, each its own revision; what can't change is skipped, with why.
 bos = {"field": "analyst", "op": "eq", "value": "bo@example.com"}
-late = list(iki.entities.search("iki/samples.Sample", where=bos))
+late = list(iki.entities.search("iki/samples.ReviewedSample", where=bos))
 iki.entities.assign(late, "analyst", "ana@example.com", reason="Bo is away")["skipped"]
 mine = {"field": "assigned", "op": "eq", "value": "{{ me }}"}  # whoever searches
 
@@ -141,8 +141,8 @@ for signature in iki.signatures.list("SAM-000012", verify=True)["items"]:
 # What you were told (ADR 0129), how you're told of each kind, and what you watch.
 for n in client.notifications.list(unread=True):
     print(n["title"], [r["hrid"] for r in n["records"]])
-client.notifications.choose({"iki/samples.Sample.in_review": "in_app"})
-client.notifications.choose({"iki/samples.Sample.in_review": "off"}, project="stability")
+client.notifications.choose({"iki/samples.ReviewedSample.in_review": "in_app"})
+client.notifications.choose({"iki/samples.ReviewedSample.in_review": "off"}, project="stability")
 client.notifications.watch("SAM-000013")  # or "muted", or "default"
 
 # Requests between projects (ADR 0132): sent to a core that takes them, for good,
@@ -170,7 +170,7 @@ iki.entities.graph("PRT-000123", up=2, down=1)  # a few steps each way, to draw
 # In a search, with any other condition: every sample drawn from a tube whose results are still pending.
 from_tube = {"field": "downstream", "op": "of", "value": "TUB-000001"}
 open_results = {"not": {"field": "state", "op": "eq", "value": "reviewed"}}
-iki.entities.search("iki/samples.Sample", where={"all": [from_tube, open_results]})
+iki.entities.search("iki/samples.ReviewedSample", where={"all": [from_tube, open_results]})
 
 # What plugins' rules caught (ADR 0127): what a rule holds for review, and what breaks a
 # rule it was saved before, by the rule's name, or by any with is_set. Each says why.

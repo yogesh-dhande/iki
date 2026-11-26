@@ -47,7 +47,7 @@ def check_seed(atlas: Project) -> None:
 
     # Results of the eleven scenarios previously reached only through the example connector.
     require("iki/equipment.Booking", 3)
-    require("iki/samples.Sample", signature="reviewed")
+    require("iki/samples.ReviewedSample", signature="reviewed")
     require("iki/stability.Measurement", signature="signed")
     require("iki/plate_assays.ResearchAssayResult", 2, signature="signed")
     require("iki/reagents.CountStockLot", 2)

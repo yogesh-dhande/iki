@@ -1,0 +1,100 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: ReviewedSample
+label: Reviewed sample
+extends: Sample
+schema_version: 1
+hrid: { prefix: SAM }
+description: >-
+  A sample whose measurements an analyst signs and an independent reviewer signs again,
+  for each testing cycle.
+draw_target: { from: source, state: { field: status, is: pending } }
+fields:
+  analyst:
+    type: person
+    role: iki/lab_roles.analyst
+    assignment: { field: status, states: [received, in_testing, retesting] }
+  reviewer:
+    type: person
+    role: iki/lab_roles.reviewer
+    assignment: { field: status, states: [in_review] }
+  status:
+    type: state
+    initial: pending
+    states:
+      pending: { label: Awaiting draw }
+      received:
+        label: Received
+        set_by: [iki/lab_roles.coordinator, iki/lab_roles.analyst]
+        guards:
+          drawn:
+            check: state.from == "pending" && size(draws) == 1
+            message: Record the draw from the assigned source before receiving this sample.
+      in_testing:
+        label: In testing
+        set_by: [iki/lab_roles.analyst]
+        guards:
+          received:
+            check: state.from == "received"
+            message: Receive the sample before testing it.
+      in_review:
+        label: In review
+        set_by: [iki/lab_roles.analyst]
+        locks: true
+        signatures: [{ meaning: authorship, statement: I recorded these measurements as observed. }]
+        guards:
+          tested:
+            check: state.from in ["in_testing", "retesting"] && record.measurements != null && size(record.measurements) > 0
+            message: Record at least one measurement in testing before submitting for review.
+      reviewed:
+        label: Reviewed
+        set_by: [iki/lab_roles.reviewer]
+        locks: true
+        signatures: [{ meaning: review }]
+        guards:
+          submitted:
+            check: state.from == "in_review"
+            message: Review the signed submission.
+          independent:
+            check: >-
+              last.status.in_review.by != actor.person &&
+              (last.status.retesting == null ?
+               edits.status.pending + edits.status.received + edits.status.in_testing :
+               edits.status.retesting).all(e, e.by != actor.person || !e.fields.exists(f, f in ["measurements", "notes"]))
+            message: Someone other than the submitter and measurement editors must review this testing cycle.
+      retesting:
+        label: Returned to testing
+        set_by: [iki/lab_roles.reviewer]
+        reason: required
+        signatures:
+          [
+            {
+              meaning: responsibility,
+              statement: I return these measurements to testing for the reason recorded.,
+            },
+          ]
+        guards:
+          signed:
+            check: state.from in ["in_review", "reviewed"]
+            message: Return a submitted or reviewed sample to testing.
+rules:
+  awaiting_testing:
+    when: record.status in ["pending", "received"]
+    check: record.measurements == null || size(record.measurements) == 0
+    message: Receive the draw and start testing before entering measurements.
+    fields: [measurements]
+  independent_assignment:
+    when: record.reviewer != null && record.analyst != null
+    check: record.reviewer != record.analyst
+    message: Assign a different reviewer and analyst.
+    fields: [reviewer]
+notifications:
+  in_review:
+    label: Sample ready for review
+    description: >-
+      Anyone watching a sample hears when it's submitted for review. Its assigned
+      reviewer is told it's ready for them.
+    when: { field: status, to: in_review }
+    tell: { watchers: true }
+    message: { title: "{{ hrid }} is ready for review" }

@@ -12220,7 +12220,7 @@ export interface components {
             id: string;
             /**
              * Kind
-             * @description What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.Sample.in_review.
+             * @description What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.ReviewedSample.in_review.
              */
             kind: string;
             /**

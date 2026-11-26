@@ -1,6 +1,9 @@
-"""A reasoned return to sample testing keeps the signed release and revision history."""
+"""Each sample profile: a reviewed sample's reasoned return to testing keeps its signed
+review and revision history, and a plain sample is completed by its analyst, without a
+signed review, and reopened only with a reason."""
 
 import json
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
@@ -23,6 +26,7 @@ from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
 from iki_server.org.models import LabRoleGrant, ProjectRole
 from iki_server.org.services import Refused
+from iki_server.signatures.models import Signature
 from iki_server.signatures.services import verify
 
 __all__ = ["database"]
@@ -76,11 +80,11 @@ def exercise_retesting() -> None:
     tube = make("iki/inventory.Tube", {"contents": str(work.pk)}, {"value": 100, "unit": "uL"})
     source = {"source": str(tube.pk)}
     with pytest.raises(Invalid):
-        make("iki/samples.Sample", source)
+        make("iki/samples.ReviewedSample", source)
     with pytest.raises(Invalid):
-        make("iki/samples.Sample", {**source, "purpose": str(work.pk), "run": "RUN-000001"})
+        make("iki/samples.ReviewedSample", {**source, "purpose": str(work.pk), "run": "RUN-000001"})
     sample = make(
-        "iki/samples.Sample", {**source, "purpose": str(work.pk), "analyst": str(editor.pk)}
+        "iki/samples.ReviewedSample", {**source, "purpose": str(work.pk), "analyst": str(editor.pk)}
     )
     analyst, reviewer = Api(world.browser("editor")), Api(world.browser("runner"))
     path = f"/entities/{sample.pk}"
@@ -118,7 +122,7 @@ def exercise_retesting() -> None:
 
     # Direct lot withdrawals are weighed, carry lot QA restrictions and have no tube scan.
     lot = make("iki/lots.GenericLot", {"of": str(work.pk)}, {"value": 12, "unit": "mg"})
-    direct = make("iki/samples.Sample", {"source": str(lot.pk), "run": "RUN-000001"})
+    direct = make("iki/samples.ReviewedSample", {"source": str(lot.pk), "run": "RUN-000001"})
     mass = amounts.Given.of({"value": 2, "unit": "mg"})
     with pytest.raises(amounts.Wrong, match="quarantined"):
         amounts.draw(editor, lot, mass, used_in=direct)
@@ -191,3 +195,58 @@ def exercise_retesting() -> None:
     ).signature
     assert fresh and all(check.ok for check in verify(fresh))
     assert all(check.ok for check in verify(original))
+
+    _plain_sample(world, make, work)
+
+
+def _plain_sample(world: Any, make: Callable[..., Entity], work: Entity) -> None:
+    """A discovery aliquot drawn as an assay's input: its analyst completes it, with or
+    without measurements, and nobody signs."""
+    editor = world.users["editor"]
+    tube = make("iki/inventory.Tube", {"contents": str(work.pk)}, {"value": 40, "unit": "uL"})
+    sample = make(
+        "iki/samples.PlainSample",
+        {"source": str(tube.pk), "purpose": str(work.pk), "analyst": str(editor.pk)},
+    )
+    assert sample.hrid.startswith("SMP-")
+    analyst, reviewer = Api(world.browser("editor")), Api(world.browser("runner"))
+    path = f"/entities/{sample.pk}"
+    status = f"{path}/states/status"
+
+    def advance(client: Api, state: str, reason: str = "") -> Any:
+        etag = client.get(path)["ETag"]
+        return client.post(status, {"state": state, "reason": reason}, headers={"If-Match": etag})
+
+    # Received only once its draw is recorded, as a reviewed sample is.
+    problem(advance(analyst, "received"), 409, "guard_refused")
+    problem(advance(analyst, "done"), 409, "guard_refused")
+    amounts.draw(
+        editor,
+        tube,
+        amounts.Given.of({"value": 5, "unit": "uL"}),
+        used_in=sample,
+        confirm=tube.hrid,
+    )
+    assert advance(analyst, "received").status_code == 200
+    # Used as it was received: done, with no measurements and no signature.
+    problem(advance(reviewer, "done"), 403, "forbidden")
+    done = advance(analyst, "done")
+    assert done.status_code == 200, done.content
+    current = analyst.get(path)
+    assert current.json()["locked"] and current.json()["values"]["status"] == "done"
+    assert not Signature.objects.filter(entity=sample).exists()
+    measurement = {"values": {"measurements": [{"method": "A280", "value": "0.81", "unit": "AU"}]}}
+    problem(analyst.patch(path, measurement, headers={"If-Match": current["ETag"]}), 409, "refused")
+
+    # Reopened only with a reason, then measured and done again.
+    problem(advance(analyst, "retesting"), 422, "validation_failed")
+    assert advance(analyst, "retesting", "Record the A280 reading").status_code == 200
+    reopened = analyst.patch(
+        path, {**measurement, "reason": ""}, headers={"If-Match": analyst.get(path)["ETag"]}
+    )
+    assert reopened.status_code == 200, reopened.content
+    assert advance(analyst, "done").status_code == 200
+    event = AuditEvent.objects.get(
+        action="entity.state_changed", target_id=sample.pk, data__to="retesting"
+    )
+    assert event.data["reason"] == "Record the A280 reading"
