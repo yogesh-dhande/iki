@@ -37,7 +37,8 @@ and the export's run header, kept verbatim. A MARS date stays text, as its
 order follows the instrument PC's locale. The first commit fixes the plate's
 size, assignments, procedure and request. Attaching another export and
 committing it adds the plate's next read on that layout. A read's key is a
-digest of the plate and the export's content, so the same export commits to a
+name-based UUID of the export's content digest within the plate (RFC 9562,
+UUIDv5). It fits the existing key column, and the same export commits to a
 plate once, including when two commits race, and its preview says it's already
 committed.
 

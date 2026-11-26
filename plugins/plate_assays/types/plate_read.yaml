@@ -17,9 +17,9 @@ fields:
     computed: true
     indexed: true
     unique: true
-    max_length: 64
+    max_length: 36
     description: >-
-      A digest of the plate ID and the reader file's content. The same export commits to a
+      A name-based UUID of the plate ID and the reader file's content digest. The same export commits to a
       plate once, including when commits race or requests overlap.
   reader_format:
     type: string
