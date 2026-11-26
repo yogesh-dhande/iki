@@ -241,9 +241,12 @@ def _plain_sample(world: Any, make: Callable[..., Entity], work: Entity) -> None
     # Reopened only with a reason, then measured and done again.
     problem(advance(analyst, "retesting"), 422, "validation_failed")
     assert advance(analyst, "retesting", "Record the A280 reading").status_code == 200
-    reopened = analyst.patch(
-        path, {**measurement, "reason": ""}, headers={"If-Match": analyst.get(path)["ETag"]}
-    )
+    # Its values changed after it was locked, so the edit says why, as any correction does.
+    etag = analyst.get(path)["ETag"]
+    unexplained = analyst.patch(path, {**measurement, "reason": ""}, headers={"If-Match": etag})
+    problem(unexplained, 422, "validation_failed")
+    explained = {**measurement, "reason": "A280 read after the plate was set up"}
+    reopened = analyst.patch(path, explained, headers={"If-Match": etag})
     assert reopened.status_code == 200, reopened.content
     assert advance(analyst, "done").status_code == 200
     event = AuditEvent.objects.get(
