@@ -27,6 +27,7 @@ from iki_spec.model import (
     Field,
     Guard,
     Rule,
+    as_refined,
     in_entry,
     lab_role_name,
 )
@@ -456,7 +457,12 @@ class _Rules:
 
     def fields_of(self, entity_type: EntityType) -> dict[str, Field]:
         """Every current field of its records: its chain's and installed extensions'."""
-        out = {n: f for n, (f, _) in self.s.all_fields(entity_type).items() if not f.removed}
+        lineage = [entity_type, *self.s.ancestors(entity_type)]
+        out = {
+            n: as_refined(lineage, n, f)
+            for n, (f, _) in self.s.all_fields(entity_type).items()
+            if not f.removed
+        }
         for extension in self.extensions_of(entity_type):
             for name, f in extension.current_fields.items():
                 out.setdefault(name, f)

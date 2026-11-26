@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-11-24
+- Service fields: production, sequencing and analytical fields and checks are each
+  service's own request and result types, under [ADR 0235](0235-a-services-own-request-types-carry-its-fields.md).
 - Connector distribution: the connector described below now ships as the [`acme/lims_connector` author example](../../examples/plugins/lims_connector/README.md) under [ADR 0218](0218-first-party-plugins-and-author-examples.md).
 
 ## Context
