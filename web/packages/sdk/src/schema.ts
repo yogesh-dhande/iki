@@ -19213,7 +19213,7 @@ export interface components {
             /** Stored */
             stored: string;
             /** Threshold */
-            threshold: string;
+            threshold: string | null;
             /** Unit */
             unit: string;
         };

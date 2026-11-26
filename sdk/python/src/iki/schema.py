@@ -6457,7 +6457,7 @@ class StockSummary(TypedDict):
     outstanding_packs: int
     physical: str
     stored: str
-    threshold: str
+    threshold: str | None
     unit: str
 
 

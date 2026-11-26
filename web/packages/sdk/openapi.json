@@ -29683,8 +29683,15 @@
             "type": "string"
           },
           "threshold": {
-            "title": "Threshold",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
           },
           "unit": {
             "title": "Unit",
