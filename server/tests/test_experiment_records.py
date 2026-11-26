@@ -289,7 +289,7 @@ def uncited(world: World, result: Entity) -> None:
     capture(world, gel, result)
     signature = sign(world, gel, "editor", "signed")
     evidence = json.loads(signature.content)["values"]
-    assert evidence["eln_url"] is None and evidence["protocol_id"] is None
+    assert evidence.get("eln_url") is None and evidence.get("protocol_id") is None
     assert evidence["review_flow"] == "author_signed"
 
 
@@ -332,7 +332,8 @@ def exercise(flow: str) -> None:
             world.project,
             {
                 "name": "Synthetic sequence result",
-                "sequence": "GSGA" if flow == "research" else "GAGS",
+                # Each flow's run registers its own sequence: registry facts are shared.
+                "sequence": {"author_signed": "GSAG", "research": "GSGA"}.get(flow, "GAGS"),
             },
         ).entity.pk
     )
