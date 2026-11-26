@@ -142,6 +142,24 @@ def test_certificate_preserves_the_original_result_and_investigation(
             "Open release testing",
         ),
         (
+            "lot-release",
+            {
+                "hrid": "QRC-000001",
+                "title": "Lot release",
+                "values": {
+                    "version": "USP 2015",
+                    "testing_on": "2026-11-22",
+                    "sealed": True,
+                    "context": "Release",
+                    "cycle": 1,
+                    "superseded": True,
+                },
+            },
+            "Release cycle 1 · Specification USP 2015 · 2026-11-22 · Followed by a later cycle",
+            "iki/qc_release.open_release",
+            "Open release testing",
+        ),
+        (
             "release-tests",
             {"hrid": "QRT-000001", "values": REPORT["tests"][0]},
             "Out of specification",
@@ -211,7 +229,9 @@ def test_release_navigation_and_actions_fit_the_lot_workflow(
         )
         expect(page.get_by_text(re.compile(text))).to_be_visible()
         if element == "lot-release":
+            # A lot with a case is tested again in another cycle or context.
             expect(page.get_by_role("button", name="Open release testing")).to_have_count(0)
+            expect(page.get_by_role("button", name="Open another release cycle")).to_be_visible()
         page.get_by_role("button", name=f"Open {row['hrid']}").click()
         assert page.evaluate("window.opened") == [row["hrid"]]
         accessible(page)

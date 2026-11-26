@@ -229,7 +229,7 @@ def exercise_qc() -> None:
     with pytest.raises(results.InvalidOutput) as duplicate:
         run, document = start("open_release", opening, testing_on=today.isoformat())
         commit(run, actions.open_release(document))
-    assert any("existing release case" in issue["detail"] for issue in duplicate.value.errors)
+    assert any("already has that cycle" in issue["detail"] for issue in duplicate.value.errors)
     pinned = services.current_values_of([case])[case.pk]
     assert pinned["specification"] == version.pk
     assert pinned["specification_revision"] == version.revision
@@ -240,7 +240,7 @@ def exercise_qc() -> None:
     )
     shown = Api(world.browser("editor")).get(f"/entities/{case.pk}")
     assert shown.status_code == 200, shown.content
-    assert shown.json()["title"] == f"Synthetic NaCl lot · {today.isoformat()}"
+    assert shown.json()["title"] == f"Synthetic NaCl lot · Release cycle 1 · {today.isoformat()}"
 
     assay, drying = specification["criteria"]
 
@@ -388,3 +388,42 @@ def exercise_qc() -> None:
         reader.get(export, format="signed-report-json", revision=certificate.revision).content
         == downloaded.content
     )
+
+    # The lot's retest date comes due. Its next cycle is a new case after the issued one,
+    # which keeps its certificate and takes no more tests. Shelf-life testing of the same
+    # lot is its own specification context, with its own cycle 1.
+    retest = made(
+        execute(
+            "open_release",
+            {**opening, "previous": [case.pk]},
+            testing_on=today.isoformat(),
+            reason="Synthetic: the lot reached its retest date.",
+        ),
+        "ReleaseCase",
+    )
+    cycles = services.current_values_of([case, retest])
+    assert (cycles[retest.pk]["cycle"], cycles[retest.pk]["previous"]) == (2, case.pk)
+    assert cycles[case.pk]["superseded"] is True
+    assert cycles[case.pk]["sealed"] is True
+    with pytest.raises(ValueError, match="later release cycle follows"):
+        execute("record_test", inputs, **params(drying, 0.2))
+    shelf_life = make(
+        PREFIX + "SpecificationSchedule", material=str(material.entry_id), context="Shelf life"
+    )
+    with pytest.raises(Invalid, match="in that context"):
+        make(PREFIX + "SpecificationSchedule", material=str(material.entry_id))
+    shelf_version = make(
+        PREFIX + "SpecificationVersion", schedule=str(shelf_life.pk), **specification
+    )
+    sign("admin", shelf_version, "approved", field="approval")
+    execute("publish_version", {"schedule": [shelf_life.pk], "version": [shelf_version.pk]})
+    stability = made(
+        execute(
+            "open_release",
+            {"lot": [lot.pk], "schedule": [shelf_life.pk]},
+            testing_on=today.isoformat(),
+        ),
+        "ReleaseCase",
+    )
+    pinned = services.current_values_of([stability])[stability.pk]
+    assert (pinned["context"], pinned["cycle"]) == ("Shelf life", 1)

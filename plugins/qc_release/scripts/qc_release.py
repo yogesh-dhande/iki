@@ -13,7 +13,6 @@ from typing import Any
 
 PLUGIN = "iki/qc_release"
 MAX_ATTEMPTS = 250
-LOT_MATERIAL_FIELDS = ("of", "protein", "oligonucleotide", "conjugate", "polymer", "plasmid")
 FLOWS = {
     "research": {
         "investigation": "ResearchOOSInvestigation",
@@ -139,11 +138,84 @@ def publish_version(run: dict[str, Any]) -> dict[str, Any]:
     return output("schedule", schedule, {"versions": [*ids, version["id"]]})
 
 
+def lot_material(lot: dict[str, Any]) -> object:
+    """The material a lot is of, by its type's declared material field, as the run reads it."""
+    field = lot.get("material_field")
+    if field == "id":
+        return lot["id"]
+    return lot["values"].get(field) if field else None
+
+
+def concluded(case: dict[str, Any], investigations: list[dict[str, Any]]) -> None:
+    """A case left without a certificate is tested again only once every out-of-specification
+    result in it has a signed conclusion: a new cycle never sidesteps an open investigation."""
+    final_state = FLOWS[case["values"]["review_flow"]]["investigation_final"]
+    results = {
+        row["sequence"]
+        for row in case["values"].get("attempts") or []
+        if row["outcome"] == "oos" and row.get("purpose") != "investigational"
+    }
+    covered = set()
+    for investigation in investigations:
+        values = investigation["values"]
+        test = next(iter(included(investigation, "test")), None)
+        if (
+            values.get("case") != case["id"]
+            or test is None
+            or test["id"] != values.get("test")
+            or test["values"].get("case") != case["id"]
+        ):
+            raise ValueError("Each investigation must be of a result in the previous case.")
+        if values.get("review") != final_state or not values.get("resolution"):
+            raise ValueError(
+                "Finish signing every investigation in the previous case before testing the "
+                "lot again."
+            )
+        covered.add(test["values"].get("sequence"))
+    if covered != results or len(investigations) != len(results):
+        raise ValueError(
+            "Include the signed investigation of every out-of-specification result in the "
+            "previous case."
+        )
+
+
+def next_cycle(
+    run: dict[str, Any], lot: dict[str, Any], schedule: dict[str, Any], testing_on: date
+) -> dict[str, Any]:
+    previous = optional_input(run, "previous")
+    reason = str(run["params"].get("reason") or "").strip()
+    investigations = run["inputs"].get("investigations") or []
+    if previous is None:
+        if reason or investigations:
+            raise ValueError(
+                "A lot's first release cycle has no previous case. Leave the reason and "
+                "investigations empty."
+            )
+        return {"cycle": 1}
+    values = previous["values"]
+    if values.get("lot") != lot["id"] or values.get("schedule") != schedule["id"]:
+        raise ValueError("The previous case must be this lot's, against this specification.")
+    if values.get("superseded"):
+        raise ValueError("A later cycle already follows that case. Choose the lot's latest case.")
+    if not reason:
+        raise ValueError("Say why the lot is tested again, such as its retest date or a rework.")
+    if testing_on < calendar_date(values["testing_on"]):
+        raise ValueError("A later cycle can't be tested before the cycle it follows.")
+    if values.get("sealed"):
+        if investigations:
+            raise ValueError(
+                "The previous case has its certificate. Leave the investigations empty."
+            )
+    else:
+        concluded(previous, investigations)
+    return {"cycle": (values.get("cycle") or 1) + 1, "previous": previous["id"], "reason": reason}
+
+
 def open_release(run: dict[str, Any]) -> dict[str, Any]:
     schedule = run["inputs"]["schedule"][0]
     lot = run["inputs"]["lot"][0]
     material = schedule["values"].get("material")
-    if not material or material not in (lot["values"].get(field) for field in LOT_MATERIAL_FIELDS):
+    if not material or material != lot_material(lot):
         raise ValueError(
             "The specification schedule must be for the material registered on this lot."
         )
@@ -158,6 +230,7 @@ def open_release(run: dict[str, Any]) -> dict[str, Any]:
     if version is None:
         raise ValueError("No approved specification version was effective on the testing date.")
     criteria(version)
+    cycle = next_cycle(run, lot, schedule, testing_on)
     flow = run.get("settings", {}).get("review_flow", "research")
     if flow not in FLOWS:
         raise ValueError("Choose Research or Regulated QC in the release testing settings.")
@@ -167,6 +240,8 @@ def open_release(run: dict[str, Any]) -> dict[str, Any]:
         "lot_number": lot_number,
         "schedule": schedule["id"],
         "schedule_revision": schedule["revision"],
+        "context": schedule["values"].get("context") or "Release",
+        **cycle,
         "specification": version["id"],
         "specification_revision": version["revision"],
         "version": version["values"]["version"],
@@ -177,15 +252,28 @@ def open_release(run: dict[str, Any]) -> dict[str, Any]:
     }
     # This no-op takes and checks the schedule lock, so a competing append cannot
     # race a case whose selected version would no longer be in force.
-    return output(
+    parents = [
+        lot,
+        schedule,
+        *([previous] if (previous := optional_input(run, "previous")) else []),
+    ]
+    result = output(
         "schedule",
         schedule,
         {"versions": [row["id"] for _, row in dated]},
-        create("ReleaseCase", values, lot, schedule),
+        create("ReleaseCase", values, *parents, *(run["inputs"].get("investigations") or [])),
     )
+    if previous is not None:
+        # Checked against the revision read: two retests can't both follow one cycle.
+        result["updates"]["previous"] = [
+            {"entity": previous["id"], "values": {"superseded": True}, "require_unchanged": True}
+        ]
+    return result
 
 
 def check_case(case: dict[str, Any]) -> dict[str, Any]:
+    if case["values"].get("superseded"):
+        raise ValueError("A later release cycle follows this case. Record tests in that cycle.")
     if case["values"].get("sealed") is not False:
         raise ValueError("Use an open release case. This case is closed or incomplete.")
     specification = pinned(case, "specification")

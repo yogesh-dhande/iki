@@ -14,8 +14,11 @@ QC Reviewer and Release Testing QA lab roles as appropriate. Research investigat
 certificates need one reviewer sign-off. Regulated QC needs an analyst, independent reviewer
 and separate QA signer. Iki retains each case's original flow when the setup changes.
 
-Register the material and a physical lot with its lot number. Create one **Specification
-schedule** for the material. Create a **Specification version** in that schedule with an
+Register the material and a physical lot with its lot number. Create a **Specification
+schedule** for the material in each **context** the lab specifies it for. The default is
+`Release`; others might be `Shelf life`, a market or a product grade (ICH Q6A §2.2). Each
+context has its own versions and effective dates, and a project has one schedule per
+material and context. Create a **Specification version** in that schedule with an
 effective date, a controlled source, and one criterion per attribute. Every criterion names
 its method and unit and has an inclusive lower limit, upper limit or both.
 
@@ -27,8 +30,9 @@ predecessor. Publication appends versions and retains all earlier ones.
 ## Test, investigate and issue
 
 1. On the lot's **QC release** tab, open release testing with the material's schedule and
-   the testing date. The action selects the most recent approved, published version
-   effective on that date. The case retains its lot number and the schedule and version
+   the testing date. The schedule must be for the material the lot's type declares, so
+   any lot type works; a strain isolate is its own material. The action selects the most
+   recent approved, published version effective on that date. The case retains its lot number and the schedule and version
    revisions the run read.
 2. Record each criterion's value with its declared method and unit. For a manual observation,
    attach the source laboratory report if available. The plate-assay path uses a signed,
@@ -52,8 +56,22 @@ predecessor. Publication appends versions and retains all earlier ones.
    and attached to the lot alongside any supplier certificates. Lot QA signs the lot's
    disposition through its existing workflow.
 
-One project holds one case per lot in this example. A lab that releases the same lot again
-under a retest or rework SOP needs its own disposition and case-series policy.
+## Test a lot again
+
+Each case is one **cycle** of a lot's testing against one specification context. To test
+the lot again, run **Open lot release testing** with the lot's latest case for that
+schedule as **Previous** and the reason, for example its retest date or a rework under a
+deviation. Iki then:
+
+- opens the next cycle;
+- marks the previous case as followed, so it takes no more tests;
+- keeps the previous case's attempts, investigations and any certificate unchanged.
+
+If the previous case has no certificate, include the signed investigation of each of its
+out-of-specification results. A lot isn't tested again around an open investigation. Two
+retests can't both follow the same cycle. A lot's first cycle against a shelf-life
+schedule is independent of its release cycles. The lot's disposition, including
+re-release after a retest, stays with Lot QA in `iki/lots`.
 
 ## Public teaching example
 

@@ -2,11 +2,21 @@ apiVersion: iki/v1
 kind: EntityType
 name: SpecificationSchedule
 label: Specification schedule
-schema_version: 1
+schema_version: 2
 hrid: { prefix: SPS }
-description: The ordered catalogue of published specification versions for one material in this project.
+description: The ordered catalogue of published specification versions for one material and context in this project.
 fields:
   material: { type: ref, to: iki/core.Entity, required: true, immutable: true }
+  context:
+    type: string
+    max_length: 120
+    required: true
+    immutable: true
+    default: Release
+    description: >-
+      Which approved specification this is for the material, such as Release, Shelf life,
+      a market or a product grade (ICH Q6A §2.2). Each context has its own versions and
+      effective dates.
   versions:
     type: list
     items: { type: ref, to: SpecificationVersion }
@@ -15,7 +25,7 @@ fields:
     description: The publication action appends approved versions in effective-date order.
 rules:
   material_schedule:
-    label: One release specification schedule per material
-    unique: [material]
-    message: This project already has a release specification schedule for the material.
-display: { title: "Specification schedule · {{ hrid }}" }
+    label: One specification schedule per material and context
+    unique: [material, context]
+    message: This project already has a specification schedule for the material in that context.
+display: { title: "{{ context }} specification · {{ hrid }}" }

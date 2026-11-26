@@ -137,6 +137,8 @@ expect:
           testing_on: 2024-12-31
           review_flow: regulated_qc
           sealed: false
+          context: Release
+          cycle: 1
 ---
 apiVersion: iki/v1
 kind: ActionTest
