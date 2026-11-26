@@ -8,30 +8,9 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/example
 version: 0.1.0
-title: Example
-description: A starting point for a lab's own entity types.
+title: Sample storage
+description: Register samples in a project and record where they are stored.
 # An SPDX identifier. For a plugin only your company uses, "LicenseRef-Proprietary".
 license: Apache-2.0
 # The Iki releases it works with. A deployment on any other release refuses it.
 iki: ">=0.1"
-# A rack scanner's export. The header is the ASCII word TUBESCAN and a tab.
-# File fields and action file parameters can accept it by its full format ID.
-formats:
-  tube-scan:
-    label: Tube scanner export
-    media_types: [application/x-acme-tube-scan]
-    extensions: [.tubescan]
-    signatures: [{ hex: "545542455343414e09" }]
-# The plugins whose types this one uses, with the schema versions it works with.
-dependencies:
-  iki/dna:
-    types:
-      DNASequence: ">=1"
-# Settings a deployment gives values for, checked when it builds. Your actions
-# read them; this one is an example.
-settings:
-  default_storage:
-    type: string
-    max_length: 100
-    default: "-80 °C freezer"
-    description: Where new samples are stored unless someone says otherwise.

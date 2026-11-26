@@ -25,6 +25,7 @@ from iki_server.bundles.models import BundleExport, ExportState
 from iki_server.entities import access, collections, registry
 from iki_server.entities.models import Entity
 from iki_server.files import storage
+from iki_server.files.scan_state import statuses_for_blobs
 from iki_server.org import holds
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action, can
@@ -166,6 +167,7 @@ def write_export(export_id: str) -> str:
     made.size = written.size
     made.counts = written.counts
     made.references = sorted(written.references)
+    made.scanned_blobs = sorted(written.scanned_blobs)
     made.finished_at = now
     made.expires_at = now + KEPT
     made.save(
@@ -175,6 +177,7 @@ def write_export(export_id: str) -> str:
             "size",
             "counts",
             "references",
+            "scanned_blobs",
             "finished_at",
             "expires_at",
         ]
@@ -206,6 +209,10 @@ def download_url(by: User, made: BundleExport) -> str:
         raise Refused("Make a fresh export to check read access to its complete history.")
     if not access.all_references_readable(by, made.references):
         raise Refused("This bundle refers to a record you can't read.")
+    if made.scanned_blobs is None:
+        raise Refused("Make a fresh export to check the files in this archive for malware.")
+    for scan in statuses_for_blobs(made.scanned_blobs).values():
+        scan.require_usable()
     audit.record(
         "bundle.downloaded",
         actor=by,

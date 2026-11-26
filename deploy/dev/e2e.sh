@@ -36,7 +36,7 @@ case ${IKI_DEV_FIXTURES:-0} in
   1)
     profile=fixtures
     locks+=("$here/fixtures/plugins.lock.yaml")
-    sso_args+=(--fixtures --lims-port 18091)
+    sso_args+=(--fixtures --lims-port 18091 --foldcloud-port 18092)
     ;;
   *) fail "IKI_DEV_FIXTURES must be 0 or 1" ;;
 esac
@@ -67,6 +67,7 @@ forward svc/mailpit 18025 8025
 forward svc/webhook-receiver 18090 8080
 if [[ "$profile" == fixtures ]]; then
   forward svc/fake-lims 18091 8080
+  forward svc/fake-foldcloud 18092 8080
 else
   services=$(kc get service fake-lims fake-foldcloud --ignore-not-found -o name)
   [[ -z "$services" ]] || fail "product cluster runs fixture services: $services"
@@ -209,7 +210,7 @@ pass "Keycloak serves the iki realm (issuer $issuer)"
 
 # --- Sign-in ----------------------------------------------------------------------
 # The real wizard and Keycloak's real login page, driven like a browser.
-uv run --quiet python "$here/sso.py" "${sso_args[@]}" \
+uv run --directory "$here/../.." --quiet python -m deploy.dev.sso "${sso_args[@]}" \
   --iki-port 18000 --keycloak-port 18080 --mailpit-port 18025 --webhook-port 18090 --web "pod/$web_pod"
 
 # --- SeaweedFS (S3) ---------------------------------------------------------------

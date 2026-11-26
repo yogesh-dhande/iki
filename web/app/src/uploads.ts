@@ -10,7 +10,7 @@
  * 3. Each part PUT straight to storage, a few at a time, with progress. A
  *    part that fails is sent again; one whose URL expired is signed again.
  * 4. `POST /uploads/{id}/complete`, then Iki reads the bytes back to check
- *    them against the hash, and the upload becomes a file.
+ *    them against the hash, then scans them before they can be used.
  *
  * Cancelling stops the transfers and cancels the upload, so storage keeps
  * nothing.
@@ -29,7 +29,18 @@ export type UploadedFile = Schemas["FileOut"];
 export type Progress =
   | { phase: "hashing"; done: number; total: number }
   | { phase: "sending"; done: number; total: number }
-  | { phase: "checking" };
+  | { phase: "checking" }
+  | { phase: "scanning" };
+
+export function progressLabel(progress: Progress, name: string): string {
+  const verb = {
+    hashing: "Reading",
+    sending: "Uploading",
+    checking: "Checking",
+    scanning: "Scanning",
+  };
+  return verb[progress.phase] + " " + name;
+}
 
 const SLICE = 1024 * 1024;
 /** Parts in flight at once: enough to fill a lab's uplink, few enough for a laptop's. */
@@ -162,7 +173,8 @@ async function uploadNow(
     }),
   );
   try {
-    if (started.state === "ready" && started.file) return started.file;
+    if (started.state === "ready") return checked(started.file);
+    if (started.state !== "pending") return await finished(started.id, onProgress, signal);
     await sendParts(
       file,
       started.parts,
@@ -184,7 +196,7 @@ async function uploadNow(
       }),
     );
     onProgress({ phase: "checking" });
-    return await finished(started.id, signal);
+    return await finished(started.id, onProgress, signal);
   } catch (error) {
     if (signal?.aborted) {
       // Nothing half-sent is kept.
@@ -257,7 +269,11 @@ export async function sendParts(
 }
 
 /** Waits for Iki to check the bytes. Large files take a while: it reads them back. */
-async function finished(uploadId: string, signal: AbortSignal | undefined): Promise<UploadedFile> {
+async function finished(
+  uploadId: string,
+  onProgress: (progress: Progress) => void,
+  signal: AbortSignal | undefined,
+): Promise<UploadedFile> {
   for (let delay = timing.poll; ; delay = Math.min(delay * 1.5, timing.maxPoll)) {
     const current = unwrap(
       await iki.GET("/api/v1/uploads/{upload_id}", {
@@ -266,15 +282,29 @@ async function finished(uploadId: string, signal: AbortSignal | undefined): Prom
         params: { path: { upload_id: uploadId } },
       }),
     );
-    if (current.state === "ready") {
-      if (current.file) return current.file;
-      throw new UploadFailed("The upload finished. You no longer have access to the file.");
-    }
-    if (current.state !== "checking" && current.state !== "pending") {
+    if (current.state === "ready") return checked(current.file);
+    if (current.state === "scanning") {
+      onProgress({ phase: "scanning" });
+    } else if (current.state !== "checking" && current.state !== "pending") {
       throw new UploadFailed(current.error || `The upload ${current.state}.`);
     }
     await wait(delay, signal);
   }
+}
+
+function checked(file: UploadedFile | null): UploadedFile {
+  if (file === null) {
+    throw new UploadFailed("The upload finished. You no longer have access to the file.");
+  }
+  if (!file.scan.usable) {
+    if (file.scan.state === "infected") {
+      throw new UploadFailed(`Iki quarantined ${file.name}. A Quarantine Admin can review it.`);
+    }
+    throw new UploadFailed(
+      `Iki could not scan ${file.name}. This deployment holds unscanned files.`,
+    );
+  }
+  return file;
 }
 
 /** What went wrong, in words, for any error an upload throws. */

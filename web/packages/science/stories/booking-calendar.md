@@ -16,10 +16,13 @@ each day.
 | `loading`          | optional boolean        | More bookings are being loaded                   |
 | `limited`          | optional boolean        | The supplied collection reached its host’s limit |
 | `error`            | optional string or null | Message to display in the status region          |
+| `showCancelled`    | optional boolean        | Offers “Show cancelled”, and whether it’s on     |
 
 Each booking has a string `id`, a string `title` and an ISO date-time string
 `startsAt`. Optional strings `endsAt` and `instrument` add an end time and a
-resource name. Use an explicit offset or `Z` for an absolute time. A date-time
+resource name, `bookedFor` the person the time is for, and `work` what it's for,
+such as a request: `09:00–11:00 Amplicon run (MiSeq), for Priya Shah · REQ-000004`. A
+booking with `cancelled: true` is drawn struck through, after the word Cancelled. Use an explicit offset or `Z` for an absolute time. A date-time
 with no offset is local to the viewer. A booking with an invalid start time is
 skipped. An invalid or absent end time displays only the start time.
 
@@ -28,15 +31,18 @@ to the current month. Its setter rejects invalid formats with a `RangeError`.
 The read-only `range` property gives the month’s inclusive start and exclusive
 end as ISO instants.
 
-| DOM event      | `event.detail`                   | When it fires                           |
-| -------------- | -------------------------------- | --------------------------------------- |
-| `booking-open` | `{ id: string }`                 | A booking is activated                  |
-| `month-change` | `{ start: string, end: string }` | A person uses a month navigation button |
+| DOM event          | `event.detail`                   | When it fires                           |
+| ------------------ | -------------------------------- | --------------------------------------- |
+| `booking-open`     | `{ id: string }`                 | A booking is activated                  |
+| `month-change`     | `{ start: string, end: string }` | A person uses a month navigation button |
+| `cancelled-change` | `{ shown: boolean }`             | A person switches “Show cancelled”      |
 
 Both events bubble and cross shadow boundaries. Setting `month` from code updates
 the display silently. Hosts that page by month can read `range` for the initial
-load and listen for `month-change` to load subsequent months. The entry exports
+load and listen for `month-change` to load subsequent months. With `showCancelled` given, the calendar
+leaves cancelled bookings out while it's false, as a resource calendar drops a cancelled
+meeting, and a host that searches for bookings can listen for `cancelled-change`. The entry exports
 the element class `BookingCalendar` and the types `Booking`, `BookingCalendarData`,
-`BookingMonth` and `BookingOpen`.
+`BookingMonth`, `BookingOpen` and `BookingCancelledChange`.
 
 [Run the instrument booking example](booking-calendar.html).

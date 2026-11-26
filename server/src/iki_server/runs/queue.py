@@ -442,7 +442,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         try:
             manifests = {run.pk: included.manifest(run)}
         except included.Unavailable as why:
-            fail_queued(job, "not_allowed", str(why))
+            _unavailable(job, why)
             return None
         template = worker.launch.template if worker.launch is not None else ""
         build = _build(worker, job.environment)
@@ -461,7 +461,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             try:
                 manifests[member.run_id] = included.manifest(member.run)
             except included.Unavailable as why:
-                fail_queued(member, "not_allowed", str(why))
+                _unavailable(member, why)
             else:
                 members.append(member)
         job.state = JobState.LEASED
@@ -519,6 +519,16 @@ def _record_waits(tier: str, template: str, waits: list[float]) -> None:
     labels = {"tier": tier, "template": template} if template else {"tier": tier}
     for wait in waits:
         queue_wait.record(wait, labels)
+
+
+def _unavailable(job: Job, why: included.Unavailable) -> None:
+    if why.waiting_for_scan:
+        # A job queued before an upgrade can pick up its original pins once scanning finishes.
+        job.queued_at = timezone.now() + timedelta(seconds=30)
+        job.progress_message = str(why)
+        job.save(update_fields=["queued_at", "progress_message"])
+    else:
+        fail_queued(job, "not_allowed", str(why))
 
 
 def _pack(job: Job, run: ActionRun) -> list[Job]:

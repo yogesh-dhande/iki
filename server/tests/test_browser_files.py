@@ -1,8 +1,9 @@
 # ruff: noqa: F811 - test_browser's fixtures, imported by name, are parameters here.
 """A project's Files (ADR 0177) in real browsers: found by part of a name, format and when
-their data was acquired; Used by links to the records and revisions that held a file;
-uploading files with when their data was acquired; the file picker in an entity form. Each
-passes axe in both themes and fits a phone's width."""
+their data was acquired, and by the instrument and operator a file states (ADR 0224); a
+file's page with what it states and its read groups; Used by links to the records and
+revisions that held a file; uploading files with when their data was acquired; the file
+picker in an entity form. Each passes axe in both themes and fits a phone's width."""
 
 import re
 from typing import Any
@@ -18,6 +19,7 @@ from test_browser import (  # noqa: F401 - fixtures
     open_as,
     playwright,
     server,
+    tasks,
     watch,
     world,
 )
@@ -25,6 +27,7 @@ from test_project_files import add
 
 from iki_server.entities import services as entities
 from iki_server.entities.models import Entity
+from iki_server.files import scan_state
 from iki_server.files.models import File
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app]
@@ -265,6 +268,86 @@ def test_finding_a_projects_files_by_name_format_and_acquisition(
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_finding_files_by_the_instrument_and_operator_they_state(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    admin = world.users["admin"]
+    a_plate(world)
+    tube = add(
+        world.project,
+        "Tube_003.fcs",
+        "application/vnd.isac.fcs",
+        size=1_204_224,
+        acquired="2026-03-14T10:02:11",
+        source="fcs",
+        by=admin,
+        facts={
+            "instrument": {"value": "LSRFortessa X-20", "stated_in": "FCS keyword $CYT"},
+            "serial": {"value": "R658222R1012", "stated_in": "FCS keyword $CYTSN"},
+            "operator": {"value": "Priya Raman", "stated_in": "FCS keyword $OP"},
+        },
+    )
+    bam = add(
+        world.project,
+        "NA12878.markdup.bam",
+        "application/x-bam",
+        size=7_340_032,
+        by=admin,
+        read_groups=[
+            {
+                "ID": f"HV7KCDSX5.{lane}",
+                "SM": "NA12878",
+                "LB": "lib-WGS-0412",
+                "PL": "ILLUMINA",
+                "PU": f"HV7KCDSX5.{lane}.ACGTACGT",
+                "CN": "Genomics core",
+                "DT": "2026-03-15T10:00:00",
+            }
+            for lane in (1, 2, 3, 4)
+        ],
+    )
+    page = open_as("admin", "/projects/kinase-atlas/files/", color_scheme)
+    table = page.get_by_role("table", name="Files in Kinase Atlas")
+    row = table.get_by_role("row", name=re.compile(r"^Tube_003\.fcs"))
+    expect(row).to_contain_text("LSRFortessa X-20 · R658222R1012 · Priya Raman")
+    assert_clean(page)
+
+    # By who ran it, in any case; and a read group's sample.
+    page.get_by_role("searchbox", name="Search").fill("priya")
+    page.wait_for_url(re.compile(r"q=priya"))
+    expect(table.locator("tbody tr")).to_have_count(1)
+    expect(table.locator("tbody tr")).to_contain_text("Tube_003.fcs")
+    page.get_by_role("searchbox", name="Search").fill("lib-wgs")
+    page.wait_for_url(re.compile(r"q=lib-wgs"))
+    expect(table.locator("tbody tr")).to_have_count(1)
+    expect(table.locator("tbody tr")).to_contain_text("NA12878.markdup.bam")
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    page.set_viewport_size({"width": 1440, "height": 900})
+
+    # Its page says what it states, and where in the file.
+    page.goto(f"/files/{tube.pk}/")
+    page.get_by_role("heading", level=1, name="Tube_003.fcs").wait_for()
+    facts = page.locator(".file-facts")
+    expect(facts).to_contain_text("LSRFortessa X-20 from FCS keyword $CYT")
+    expect(facts).to_contain_text("R658222R1012 from FCS keyword $CYTSN")
+    expect(facts).to_contain_text("Priya Raman from FCS keyword $OP")
+    expect(page.get_by_role("heading", name=re.compile("^Read groups"))).to_have_count(0)
+    assert_clean(page)
+
+    # An alignment's read groups, as its header gives them.
+    page.goto(f"/files/{bam.pk}/")
+    groups = page.get_by_role("table", name="Read groups in NA12878.markdup.bam")
+    expect(groups.locator("tbody tr")).to_have_count(4)
+    expect(groups.locator("thead")).to_contain_text("Sequencing centre")
+    expect(groups.locator("tbody tr").first).to_contain_text("HV7KCDSX5.1.ACGTACGT")
+    assert_clean(page)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    assert_clean(page)
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
 def test_used_by_links_to_the_records_and_revisions_that_held_a_file(
     open_as: Any, world: World, color_scheme: str
 ) -> None:
@@ -313,7 +396,7 @@ def test_used_by_links_to_the_records_and_revisions_that_held_a_file(
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
 def test_uploading_files_to_a_project_saying_when_their_data_was_acquired(
-    open_as: Any, world: World, color_scheme: str
+    open_as: Any, world: World, color_scheme: str, tasks: Any
 ) -> None:
     a_plate(world)
     page = open_as("admin", "/projects/kinase-atlas/files/", color_scheme)
@@ -341,6 +424,8 @@ def test_uploading_files_to_a_project_saying_when_their_data_was_acquired(
     expect(row).to_contain_text("2026-03-14")
     stored = File.objects.get(name="plate-7.csv")
     assert (stored.acquired_at, stored.acquired_from) == ("2026-03-14", "given")
+    # Added once the task runner had scanned it, even with no bytes to send.
+    assert scan_state.status_for(stored.blob).state == "clean"
     assert_clean(page)
 
 

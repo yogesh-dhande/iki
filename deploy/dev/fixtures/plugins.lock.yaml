@@ -2,15 +2,15 @@
 apiVersion: iki/v1
 kind: PluginLock
 plugins:
-  # Imports from the fake LIMS (../manifests/fake-lims.yaml), and writes back.
-  - name: iki/lims_connector_example
-    local: ../../../plugins/lims_connector_example
+  # Imports from the fake LIMS (fake-lims.yaml), and writes back.
+  - name: acme/lims_connector
+    local: ../../../examples/plugins/lims_connector
     state: active
-    settings: settings/lims_connector_example.yaml
-  # Calls the fake FoldCloud (../manifests/fake-foldcloud.yaml), an outside API.
-  - name: iki/example_models
-    local: ../../../plugins/example_models
+    settings: settings/lims_connector.yaml
+  # Calls the fake FoldCloud (fake-foldcloud.yaml), an outside API.
+  - name: lab/hosted_models
+    local: ../../../examples/plugins/hosted_models
     state: active
-    settings: settings/example_models.yaml
-  # The plugin template, for its container-tier action (ADR 0061).
-  - { name: acme/example, local: ../../../plugin-template, state: active }
+    settings: settings/hosted_models.yaml
+  # Exercise fresh and warm workers and the three reference-volume strategies.
+  - { name: fixtures/worker_execution, local: plugins/worker_execution, state: active }

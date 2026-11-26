@@ -5,7 +5,7 @@ from pathlib import Path
 from first_party_dependencies import PRODUCT_PLUGINS, ROOT
 from test_plugin_migrations import database, django, iki, migrate, query, sync
 
-from iki_spec import naming
+from iki_spec import first_party, naming
 
 __all__ = ["database"]
 
@@ -15,6 +15,15 @@ def test_all_first_party_migrations_reverse_after_sync(tmp_path: Path, database:
     # Action-only plugins can be installed without adding any database tables.
     built = iki("plugin", "build", *PRODUCT_PLUGINS.values(), "--output", out, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
+    # The retired provider and LIMS connector keep their mirror history, while a
+    # product build installs neither the old apps nor the lab examples that replaced them.
+    for old, example in (
+        ("iki/example_models", "lab/hosted_models"),
+        ("iki/lims_connector_example", "acme/lims_connector"),
+    ):
+        assert first_party.trees(old)
+        for name in (old, example):
+            assert not (out / naming.package(name)).exists()
     migrate(out, database)
     sync(out, database)
     # This rule names the FK that the initial cell-lines migration removes

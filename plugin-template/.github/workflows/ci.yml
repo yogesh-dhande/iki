@@ -1,5 +1,5 @@
 # Checks every change to the plugin, as a deployment's build will:
-#   - its manifests are valid against the plugins it depends on;
+#   - its manifests are valid;
 #   - its committed migrations match its manifests (run `iki plugin
 #     makemigrations .` and commit what it writes if not);
 #   - its actions pass their tests in tests/, run by the iki-worker release
@@ -24,9 +24,6 @@ concurrency:
 env:
   # The Iki your deployments run: a plugin is checked and built by the same version.
   IKI_VERSION: "0.1.0"
-  # The commit of yogesh-dhande/iki whose first-party plugins (here, dna) this one is
-  # checked against: the one your deployment's lockfile pins.
-  IKI_PLUGINS_SHA: "0000000000000000000000000000000000000000"
   UV_VERSION: "0.13.7"
 
 jobs:
@@ -51,14 +48,6 @@ jobs:
           persist-credentials: false
           # The upgrade test builds the plugin at the pull request's base commit.
           fetch-depth: 0
-      - name: Check out the plugins it depends on
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: yogesh-dhande/iki
-          ref: ${{ env.IKI_PLUGINS_SHA }}
-          path: .deps/iki
-          sparse-checkout: plugins/dna
-          persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
@@ -66,9 +55,9 @@ jobs:
       - name: Install the iki CLI
         run: uv tool install "iki-cli==${IKI_VERSION}"
       - name: Validate
-        run: iki plugin validate . --with .deps/iki/plugins/dna
+        run: iki plugin validate .
       - name: Migrations match the manifests
-        run: iki plugin makemigrations . --with .deps/iki/plugins/dna --check --no-input
+        run: iki plugin makemigrations . --check --no-input
       - name: Action and upgrade tests
         env:
           GH_TOKEN: ${{ github.token }}
@@ -84,5 +73,5 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
           upgrade=()
           if [ -n "$BASE" ]; then upgrade=(--upgrade-from "$BASE"); fi
-          iki plugin test . --with .deps/iki/plugins/dna --worker "$RUNNER_TEMP/$name/iki-worker" \
+          iki plugin test . --worker "$RUNNER_TEMP/$name/iki-worker" \
             "${upgrade[@]}"

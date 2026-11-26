@@ -2,23 +2,43 @@
 
 Use a worked plugin as the starting point for a procedure your lab owns. To
 start a new plugin, the [plugin template](../../plugin-template/README.md)
-includes a sample storage workflow, action tests and a GitHub Actions build.
+includes one record type, one action, its smoke tests and a GitHub Actions build.
 Iki's installable first-party plugins live in [`plugins/`](../../plugins).
 
+- [Automatic calibration impact tracing](calibration_tracing/README.md) opens
+  impact cases for affected measurements when an engineer marks an instrument's
+  calibration as failed.
+- [Hosted model adapter](hosted_models/README.md) submits a job to a fictional
+  provider and imports its result when the job finishes. Use it to adapt an
+  asynchronous service your lab has approved.
+- [Independent construct review](construct_review/README.md) adds a reviewed Assembly
+  for labs that require someone other than the builder or a later editor to verify a
+  matching comparison and lock the record.
+- [LIMS connector](lims_connector/README.md) imports changed proteins from a
+  LIMS and sends name changes back under the project’s chosen policy.
 - [Oligonucleotide design](oligo_design/README.md) registers a strand from its
   known bases and a lab’s standard pattern of modifications.
+- [Protein translation](protein_translation/README.md) chains translation and
+  property calculation for labs that characterize each translated protein.
+- [qPCR instrument intake](instrument_intake/README.md) sends each QuantStudio
+  run from the instrument PC to a facility's project, and reads its wells and
+  standard curves once the file is scanned clean.
+- [Request priority](request_priority/README.md) ranks a core facility's queue
+  by its own agreed ranking of the projects it serves, as each request arrives.
+- [Sample storage labels](storage_labels/README.md) expands a lab’s location
+  codes and displays them on sample labels. It includes an approved reference
+  dataset, a DNA extension, a two-step workflow and a creation trigger.
 
 ## Copy and name a plugin
 
 Choose a directory containing `plugin.yaml`. Its README describes the lab
 situation, the settings and actions to adapt, and the dependencies to check
-out. The commands below use the template, which depends on `iki/dna`. From
+out. The commands below use the dependency-free template. From
 the root of Iki's checkout, copy it into an empty directory for your new
 repository. Keep the tests, scripts and hidden CI files. Start fresh migrations
 for the new plugin identity.
 
 ```sh
-IKI_SRC=$PWD
 mkdir ../lab-storage
 rsync -a --exclude=/migrations/ plugin-template/ ../lab-storage/
 cd ../lab-storage
@@ -41,18 +61,16 @@ when validating, making migrations and testing. Give `build` those directories
 as positional arguments.
 
 ```sh
-DNA="$IKI_SRC/plugins/dna"
-iki plugin validate . --with "$DNA"
-iki plugin makemigrations . --with "$DNA"
-iki plugin makemigrations . --with "$DNA" --check --no-input
-iki plugin test . --with "$DNA"
-iki plugin build "$DNA" . --output ../build-lab-storage
+iki plugin validate .
+iki plugin makemigrations .
+iki plugin makemigrations . --check --no-input
+iki plugin test .
+iki plugin build . --output ../build-lab-storage
 ```
 
 Review the generated migration for your plugin's new name. Commit it with
 the manifests and tests. In the [template's CI workflow](../../plugin-template/.github/workflows/ci.yml),
-set `IKI_VERSION` and `IKI_PLUGINS_SHA` to the versions your deployment uses
-and update its dependency paths for your plugin.
+set `IKI_VERSION` to your deployment’s version. If you add dependencies, pin their commits and add their directories to the CLI calls.
 
 ## Deploy the reviewed copy
 

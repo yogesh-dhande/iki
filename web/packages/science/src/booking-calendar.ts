@@ -5,6 +5,12 @@ export interface Booking {
   startsAt: string;
   endsAt?: string;
   instrument?: string;
+  /** Whom the time is for, when it's someone the reader should be told of. */
+  bookedFor?: string;
+  /** What the time is for, such as a request: its ID and title, as the host names it. */
+  work?: string;
+  /** Cancelled: kept, but holding nothing. Drawn struck through and labelled so. */
+  cancelled?: boolean;
 }
 
 export interface BookingCalendarData {
@@ -13,6 +19,13 @@ export interface BookingCalendarData {
   loading?: boolean;
   limited?: boolean;
   error?: string | null;
+  /**
+   * Whether cancelled bookings are shown. Given, the calendar offers a "Show cancelled"
+   * switch and draws cancelled bookings only when it's on, as a resource calendar drops a
+   * cancelled meeting; it says when it's switched (`cancelled-change`), so a host that
+   * finds bookings by search can find them too. Left out, it draws whatever it's given.
+   */
+  showCancelled?: boolean;
 }
 
 /** ISO instants for the displayed month, from inclusive local midnight to exclusive local midnight. */
@@ -23,6 +36,10 @@ export interface BookingMonth {
 
 export interface BookingOpen {
   id: string;
+}
+
+export interface BookingCancelledChange {
+  shown: boolean;
 }
 
 const STYLE = `
@@ -40,6 +57,11 @@ const STYLE = `
   td[aria-current] .day { font-weight: 700; text-decoration: underline; }
   ul { list-style: none; margin: 0.25rem 0 0; padding: 0; display: grid; gap: 0.25rem; }
   li button { width: 100%; text-align: start; font-size: 0.8rem; padding: 0.15rem 0.3rem; overflow-wrap: anywhere; }
+  li button.cancelled { border-style: dashed; }
+  .tag { font-weight: 700; }
+  label { display: inline-flex; gap: 0.35rem; align-items: center; }
+  input:focus-visible { outline: 3px solid var(--focus, Highlight); outline-offset: 2px; }
+  label[hidden] { display: none; }
 `;
 
 const DAYS = 7;
@@ -71,6 +93,8 @@ export class BookingCalendar extends HTMLElement {
   #data: BookingCalendarData = { bookings: [] };
   readonly #status = document.createElement("p");
   readonly #scroll = document.createElement("div");
+  readonly #switch = document.createElement("label");
+  readonly #showing = document.createElement("input");
 
   constructor() {
     super();
@@ -79,6 +103,17 @@ export class BookingCalendar extends HTMLElement {
     style.textContent = STYLE;
     const bar = document.createElement("div");
     bar.className = "bar";
+    this.#showing.type = "checkbox";
+    this.#showing.addEventListener("change", () => {
+      this.dispatchEvent(
+        new CustomEvent<BookingCancelledChange>("cancelled-change", {
+          detail: { shown: this.#showing.checked },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+    });
+    this.#switch.append(this.#showing, "Show cancelled");
     this.#status.setAttribute("role", "status");
     bar.append(
       button("Previous month", () => {
@@ -90,6 +125,7 @@ export class BookingCalendar extends HTMLElement {
       button("Next month", () => {
         this.#show(firstOfMonth(this.#month, 1));
       }),
+      this.#switch,
       this.#status,
     );
     this.#scroll.className = "scroll";
@@ -143,7 +179,10 @@ export class BookingCalendar extends HTMLElement {
     const hours = Number.isFinite(end.getTime())
       ? `${time.format(start)}–${time.format(end)}`
       : time.format(start);
-    const text = `${hours} ${booking.title}${booking.instrument ? ` (${booking.instrument})` : ""}`;
+    const text =
+      `${hours} ${booking.title}${booking.instrument ? ` (${booking.instrument})` : ""}` +
+      (booking.bookedFor ? `, for ${booking.bookedFor}` : "") +
+      (booking.work ? ` · ${booking.work}` : "");
     const open = button(text, () => {
       this.dispatchEvent(
         new CustomEvent<BookingOpen>("booking-open", {
@@ -153,31 +192,51 @@ export class BookingCalendar extends HTMLElement {
         }),
       );
     });
-    open.setAttribute("aria-label", `Open ${booking.id}: ${text}`);
+    if (booking.cancelled) {
+      // Said in words, not only by its strike-through: what it was, and that it's off.
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = "Cancelled";
+      const was = document.createElement("s");
+      was.textContent = text;
+      open.className = "cancelled";
+      open.replaceChildren(tag, " ", was);
+    }
+    open.setAttribute(
+      "aria-label",
+      `Open ${booking.id}: ${booking.cancelled ? `Cancelled: ${text}` : text}`,
+    );
     const item = document.createElement("li");
     item.append(open);
     return item;
   }
 
   #draw(): void {
-    const { bookings, label = "Bookings", error, loading, limited } = this.#data;
+    const { bookings, label = "Bookings", error, loading, limited, showCancelled } = this.#data;
+    const offered = showCancelled !== undefined;
+    this.#switch.hidden = !offered;
+    this.#showing.checked = showCancelled === true;
     const first = new Date(this.#month);
     const end = firstOfMonth(first, 1);
     const entries = new Map<number, HTMLLIElement[]>();
     let count = 0;
+    let cancelled = 0;
     for (const booking of bookings) {
       const start = new Date(booking.startsAt);
       if (!(start >= first && start < end)) continue;
+      if (booking.cancelled && offered && !showCancelled) continue;
+      if (booking.cancelled) cancelled++;
+      else count++;
       const date = start.getDate();
       const items = entries.get(date) ?? [];
       items.push(this.#booking(booking, start));
       entries.set(date, items);
-      count++;
     }
     const month = monthName.format(first);
     this.#status.textContent =
       error ??
       `${String(count)} booking${count === 1 ? "" : "s"} in ${month}` +
+        (cancelled ? `, ${String(cancelled)} cancelled` : "") +
         (loading ? ", finding more…" : "") +
         (limited ? `: the first ${String(bookings.length)} it can show` : "");
     this.#scroll.setAttribute("aria-label", `${label} calendar`);

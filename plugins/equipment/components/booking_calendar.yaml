@@ -8,10 +8,13 @@ apiVersion: iki/v1
 kind: Component
 name: booking_calendar
 label: Calendar
-description: Bookings by day, a month at a time.
+description: Bookings by day, a month at a time. Cancelled ones show when asked.
 module: ./components/booking-calendar.js
 element: equipment-booking-calendar
-entities: { type: Booking, fields: [purpose, instrument, starts_at, ends_at], limit: 1000 }
+entities:
+  type: Booking
+  fields: [purpose, instrument, starts_at, ends_at, booked_by, work, cancelled]
+  limit: 1000
 slots:
   # An instrument's bookings, on its page.
   - slot: entity.tab
@@ -22,7 +25,17 @@ slots:
   - { slot: search.results, label: Calendar }
   # A section of the project's page: its bookings.
   - { slot: project.page, label: Instrument bookings, search: { sort: starts_at } }
-  # A section of each person's home: the bookings they made.
+  # A section of each person's home: the time booked for them, by them or by someone else
+  # (a core's coordinator booking its sequencer for an analyst), as a calendar shows the
+  # rooms booked for its owner's meetings. The bookings they made for others are
+  # bookings_made's.
   - slot: person.home
     label: Your bookings
-    search: { where: { field: created_by, op: eq, value: "{{ me }}" }, sort: starts_at }
+    search:
+      where:
+        any:
+          - { field: booked_by, op: eq, value: "{{ me }}" }
+          - all:
+              - { field: created_by, op: eq, value: "{{ me }}" }
+              - { field: booked_by, op: is_set, value: false }
+      sort: starts_at

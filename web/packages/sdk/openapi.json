@@ -1350,19 +1350,6 @@
             "title": "Flow",
             "type": "string"
           },
-          "requester_project": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Original requester for an assay project Admin who may edit that project.",
-            "title": "Requester Project"
-          },
           "version": {
             "title": "Version",
             "type": "string"
@@ -1370,8 +1357,7 @@
         },
         "required": [
           "version",
-          "flow",
-          "requester_project"
+          "flow"
         ],
         "title": "AppliedStarterOut",
         "type": "object"
@@ -3673,6 +3659,45 @@
         "title": "ComponentPersonOut",
         "type": "object"
       },
+      "CompoundExportOut": {
+        "properties": {
+          "data": {
+            "description": "The fields an SDF can carry as data, in order, which it carries unless `fields` names fewer: those of a kind SD holds as text (not files, people or JSON).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "export": {
+            "const": "compound",
+            "description": "What it writes. `compound`: a compound's structure, as a Molfile, and as an SDF with its fields as data (ADR 0229).",
+            "title": "Export",
+            "type": "string"
+          },
+          "formats": {
+            "description": "The files it's written as.",
+            "items": {
+              "$ref": "#/components/schemas/FileFormatOut"
+            },
+            "title": "Formats",
+            "type": "array"
+          },
+          "structure": {
+            "description": "The text field holding its Molfile.",
+            "title": "Structure",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export",
+          "formats",
+          "structure",
+          "data"
+        ],
+        "title": "CompoundExportOut",
+        "type": "object"
+      },
       "Condition": {
         "additionalProperties": false,
         "description": "A condition on a field, or a group of them: exactly one of ``field`` (with ``op`` and\n``value``), ``all``, ``any`` or ``not``.",
@@ -5232,7 +5257,7 @@
                 "type": "null"
               }
             ],
-            "description": "For a scheduled trigger: the service account its runs are launched as, one of its `run_as_choices`.",
+            "description": "For a trigger whose runs are launched as a service account (on a schedule, or as a request arrives): the account, one of its `run_as_choices`.",
             "title": "Run As"
           }
         },
@@ -5958,6 +5983,8 @@
             "items": {
               "discriminator": {
                 "mapping": {
+                  "compound": "#/components/schemas/CompoundExportOut",
+                  "protein": "#/components/schemas/ProteinExportOut",
                   "sequence": "#/components/schemas/FileExportOut",
                   "signed_report": "#/components/schemas/SignedReportExportOut"
                 },
@@ -5966,6 +5993,12 @@
               "oneOf": [
                 {
                   "$ref": "#/components/schemas/FileExportOut"
+                },
+                {
+                  "$ref": "#/components/schemas/ProteinExportOut"
+                },
+                {
+                  "$ref": "#/components/schemas/CompoundExportOut"
                 },
                 {
                   "$ref": "#/components/schemas/SignedReportExportOut"
@@ -6975,11 +7008,30 @@
       },
       "ExportParams": {
         "properties": {
+          "fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`).",
+            "title": "Fields"
+          },
           "format": {
             "description": "Which file, as its type's `exports` list them.",
             "enum": [
               "genbank",
               "fasta",
+              "protein-fasta",
+              "sdf",
+              "molfile",
               "signed-report-html",
               "signed-report-json"
             ],
@@ -7017,6 +7069,111 @@
           "format"
         ],
         "title": "ExportParams",
+        "type": "object"
+      },
+      "ExportSearchIn": {
+        "description": "The records a table shows, as ``POST /entities/search`` finds them.",
+        "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived"
+          },
+          "collection": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
+          },
+          "exact_type": {
+            "default": false,
+            "description": "Only the type itself, not its subtypes.",
+            "title": "Exact Type",
+            "type": "boolean"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Entities that belong to this project.",
+            "title": "Project"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run"
+          },
+          "sort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SortIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This type and its subtypes.",
+            "title": "Type"
+          },
+          "where": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Condition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ExportSearchIn",
         "type": "object"
       },
       "FacetParams": {
@@ -7087,6 +7244,7 @@
           },
           "q": {
             "default": "",
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
             "maxLength": 255,
             "title": "Q",
             "type": "string"
@@ -7354,6 +7512,18 @@
             ],
             "description": "A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise."
           },
+          "searchable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Text: true when a search finds its words with `matches`, which reads its first 100,000 characters (ADR 0233); false for machine text, such as a Molfile, which a search reads with `contains` only. Null for other kinds of field.",
+            "title": "Searchable"
+          },
           "states": {
             "description": "State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}. A correction can also return it to the current state's `on_edit` destination. Empty otherwise.",
             "items": {
@@ -7612,6 +7782,10 @@
             "title": "External",
             "type": "boolean"
           },
+          "facts": {
+            "$ref": "#/components/schemas/FileFactsOut",
+            "description": "Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224)."
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -7639,6 +7813,14 @@
             ],
             "description": "Where it was added. Null if you can't see it."
           },
+          "read_groups": {
+            "description": "A SAM or BAM file's read groups, each @RG line as it gives it (ADR 0224): every one, or none when any can't be read as the specification defines.",
+            "items": {
+              "$ref": "#/components/schemas/ReadGroupOut"
+            },
+            "title": "Read Groups",
+            "type": "array"
+          },
           "samples": {
             "description": "The samples it belongs to that you can read.",
             "items": {
@@ -7646,6 +7828,10 @@
             },
             "title": "Samples",
             "type": "array"
+          },
+          "scan": {
+            "$ref": "#/components/schemas/FileScanOut",
+            "description": "The deployment's malware scan of the file's bytes."
           },
           "sha256": {
             "title": "Sha256",
@@ -7671,8 +7857,11 @@
           "agent",
           "created_at",
           "external",
+          "scan",
           "acquired",
+          "facts",
           "used_by",
+          "read_groups",
           "origin",
           "samples"
         ],
@@ -7720,6 +7909,99 @@
           "features"
         ],
         "title": "FileExportOut",
+        "type": "object"
+      },
+      "FileFactsOut": {
+        "description": "What the file says about where its data came from (ADR 0224), read when it was\nadded once its scan let it be used: a held file's bytes aren't parsed. Each is null when\nthe file doesn't say, or doesn't say clearly.",
+        "properties": {
+          "instrument": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instrument's model, such as Aurora or Orbitrap Eclipse."
+          },
+          "instrument_name": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name the instrument was given, such as an AB1 trace's MCHN."
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who made the instrument."
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who operated the instrument."
+          },
+          "protocol": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instrument's protocol, such as a plate reader's test."
+          },
+          "serial": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instrument's serial number."
+          },
+          "software": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The software that recorded the data, and its version where given."
+          }
+        },
+        "required": [
+          "instrument",
+          "manufacturer",
+          "serial",
+          "instrument_name",
+          "operator",
+          "software",
+          "protocol"
+        ],
+        "title": "FileFactsOut",
         "type": "object"
       },
       "FileFilters": {
@@ -7816,7 +8098,7 @@
           },
           "q": {
             "default": "",
-            "description": "Part of its name, in any case.",
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
             "maxLength": 255,
             "title": "Q",
             "type": "string"
@@ -7882,6 +8164,9 @@
             "enum": [
               "genbank",
               "fasta",
+              "protein-fasta",
+              "sdf",
+              "molfile",
               "signed-report-html",
               "signed-report-json"
             ],
@@ -7891,6 +8176,15 @@
           "label": {
             "description": "Its name, such as GenBank.",
             "title": "Label",
+            "type": "string"
+          },
+          "many": {
+            "description": "`file`: many records make one file of it, from `POST /entity-exports` (ADR 0229); `one`: it holds one record.",
+            "enum": [
+              "file",
+              "one"
+            ],
+            "title": "Many",
             "type": "string"
           },
           "media_type": {
@@ -7904,7 +8198,8 @@
           "label",
           "extension",
           "media_type",
-          "description"
+          "description",
+          "many"
         ],
         "title": "FileFormatOut",
         "type": "object"
@@ -8011,6 +8306,10 @@
             "title": "External",
             "type": "boolean"
           },
+          "facts": {
+            "$ref": "#/components/schemas/FileFactsOut",
+            "description": "Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224)."
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -8035,6 +8334,10 @@
             ],
             "description": "Where it was added. Null if you can't see it."
           },
+          "scan": {
+            "$ref": "#/components/schemas/FileScanOut",
+            "description": "The deployment's malware scan of the file's bytes."
+          },
           "sha256": {
             "title": "Sha256",
             "type": "string"
@@ -8056,7 +8359,9 @@
           "agent",
           "created_at",
           "external",
-          "acquired"
+          "scan",
+          "acquired",
+          "facts"
         ],
         "title": "FileOut",
         "type": "object"
@@ -8158,6 +8463,10 @@
             "title": "External",
             "type": "boolean"
           },
+          "facts": {
+            "$ref": "#/components/schemas/FileFactsOut",
+            "description": "Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224)."
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -8181,6 +8490,10 @@
               }
             ],
             "description": "Where it was added. Null if you can't see it."
+          },
+          "scan": {
+            "$ref": "#/components/schemas/FileScanOut",
+            "description": "The deployment's malware scan of the file's bytes."
           },
           "sha256": {
             "title": "Sha256",
@@ -8206,10 +8519,89 @@
           "agent",
           "created_at",
           "external",
+          "scan",
           "acquired",
+          "facts",
           "used_by"
         ],
         "title": "FileRowOut",
+        "type": "object"
+      },
+      "FileScanOut": {
+        "properties": {
+          "decision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The immutable scan decision, once recorded.",
+            "title": "Decision Id"
+          },
+          "reason": {
+            "description": "The finding or reason the file could not be scanned.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "released": {
+            "description": "A Quarantine Admin released this infected decision.",
+            "title": "Released",
+            "type": "boolean"
+          },
+          "scanned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the decision was recorded.",
+            "title": "Scanned At"
+          },
+          "scanner": {
+            "description": "Scanner identity, when known.",
+            "title": "Scanner",
+            "type": "string"
+          },
+          "signature_version": {
+            "description": "Signatures used by the scanner, when available.",
+            "title": "Signature Version",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "clean",
+              "infected",
+              "not_scanned"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "usable": {
+            "description": "Whether the scan decision allows this file to be used.",
+            "title": "Usable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "state",
+          "usable",
+          "decision_id",
+          "scanner",
+          "signature_version",
+          "scanned_at",
+          "reason",
+          "released"
+        ],
+        "title": "FileScanOut",
         "type": "object"
       },
       "FileSignatureOut": {
@@ -8340,6 +8732,7 @@
               "entity.registered",
               "entity.state_changed",
               "entity.updated",
+              "request.received",
               "schedule"
             ],
             "title": "Event",
@@ -9058,6 +9451,98 @@
           "to"
         ],
         "title": "HandOverIn",
+        "type": "object"
+      },
+      "HeldCopyOut": {
+        "description": "Where held bytes are: a project's file, or a run's or a bundle's own upload.",
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that added it for them, if one did."
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who added it."
+          },
+          "file": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project file, for a ``file``, if you can read it: its page opens.",
+            "title": "File"
+          },
+          "kind": {
+            "description": "A project's ``file``; or a run's ``artifact`` or ``checkpoint``, or a ``bundle`` to import, each kept apart from the project's files.",
+            "enum": [
+              "file",
+              "artifact",
+              "checkpoint",
+              "bundle"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectRef"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run's ID, for an artifact or a checkpoint.",
+            "title": "Run"
+          }
+        },
+        "required": [
+          "kind",
+          "file",
+          "name",
+          "media_type",
+          "project",
+          "run",
+          "created_by",
+          "agent",
+          "created_at"
+        ],
+        "title": "HeldCopyOut",
         "type": "object"
       },
       "HeldOut": {
@@ -10343,6 +10828,9 @@
           "state": {
             "enum": [
               "uploading",
+              "scanning",
+              "quarantined",
+              "not_scanned",
               "planning",
               "planned",
               "refused",
@@ -10724,6 +11212,9 @@
           "state": {
             "enum": [
               "uploading",
+              "scanning",
+              "quarantined",
+              "not_scanned",
               "planning",
               "planned",
               "refused",
@@ -11020,6 +11511,12 @@
               }
             ],
             "title": "Description"
+          },
+          "from_project": {
+            "default": false,
+            "description": "Not chosen: each run is given every record of its type the project owns and hasn't archived (ADR 0232). Launching it with any is refused.",
+            "title": "From Project",
+            "type": "boolean"
           },
           "label": {
             "title": "Label",
@@ -12114,6 +12611,11 @@
             "title": "Manage Org",
             "type": "boolean"
           },
+          "manage_quarantine": {
+            "description": "Review held file scans and release false positives.",
+            "title": "Manage Quarantine",
+            "type": "boolean"
+          },
           "manage_webhooks": {
             "description": "The organization's webhooks.",
             "title": "Manage Webhooks",
@@ -12135,7 +12637,8 @@
           "create_projects",
           "manage_webhooks",
           "read_costs",
-          "manage_compute"
+          "manage_compute",
+          "manage_quarantine"
         ],
         "title": "MeCan",
         "type": "object"
@@ -12224,7 +12727,8 @@
               "enum": [
                 "org_admin",
                 "compute_admin",
-                "auditor"
+                "auditor",
+                "quarantine_admin"
               ],
               "type": "string"
             },
@@ -13711,7 +14215,8 @@
               "enum": [
                 "org_admin",
                 "compute_admin",
-                "auditor"
+                "auditor",
+                "quarantine_admin"
               ],
               "type": "string"
             },
@@ -13732,7 +14237,8 @@
               "enum": [
                 "org_admin",
                 "compute_admin",
-                "auditor"
+                "auditor",
+                "quarantine_admin"
               ],
               "type": "string"
             },
@@ -14620,6 +15126,64 @@
           "next_cursor"
         ],
         "title": "Page[ProjectOut]",
+        "type": "object"
+      },
+      "Page_QuarantineOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QuarantineOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[QuarantineOut]",
+        "type": "object"
+      },
+      "Page_RecordExportOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RecordExportOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[RecordExportOut]",
         "type": "object"
       },
       "Page_RegistrationOut_": {
@@ -15568,6 +16132,18 @@
               }
             ],
             "description": "A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise."
+          },
+          "searchable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Text: true when a search finds its words with `matches`, which reads its first 100,000 characters (ADR 0233); false for machine text, such as a Molfile, which a search reads with `contains` only. Null for other kinds of field.",
+            "title": "Searchable"
           },
           "states": {
             "description": "State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}. A correction can also return it to the current state's `on_edit` destination. Empty otherwise.",
@@ -17362,7 +17938,7 @@
                 "type": "null"
               }
             ],
-            "description": "Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a scheduled one's are. Null if nobody ever has."
+            "description": "Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a service account's are. Null if nobody ever has."
           },
           "field": {
             "description": "For `entity.state_changed`: the state field it watches. Empty otherwise.",
@@ -17417,12 +17993,13 @@
             "title": "Next Run At"
           },
           "on": {
-            "description": "What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.",
+            "description": "What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, a request of its type sent to the project as a service (ADR 0232), or its schedule.",
             "enum": [
               "entity.created",
               "entity.registered",
               "entity.state_changed",
               "entity.updated",
+              "request.received",
               "schedule"
             ],
             "title": "On",
@@ -17460,15 +18037,21 @@
                 "type": "null"
               }
             ],
-            "description": "On a schedule: the service account its runs are launched as."
+            "description": "On a schedule or a request's arrival: the service account its runs are launched as."
           },
           "run_as_choices": {
-            "description": "On a schedule, for the project's Admins: the service accounts it may run as, members who can run its action here.",
+            "description": "For one whose runs are launched as a service account, for the project's Admins: the accounts it may run as, members who can run its action here.",
             "items": {
               "$ref": "#/components/schemas/PersonRef"
             },
             "title": "Run As Choices",
             "type": "array"
+          },
+          "runs_as_account": {
+            "default": false,
+            "description": "Its runs are launched as a service account the Admin who turns it on chooses, on their authority: on a schedule, or as a request arrives, since nobody in the project made it happen (ADR 0081, ADR 0232).",
+            "title": "Runs As Account",
+            "type": "boolean"
           },
           "schedule": {
             "description": "On a schedule: when it runs, in cron's five fields. Empty otherwise.",
@@ -17559,6 +18142,36 @@
         "title": "ProjectTriggerOut",
         "type": "object"
       },
+      "ProteinExportOut": {
+        "properties": {
+          "export": {
+            "const": "protein",
+            "description": "What it writes. `protein`: a protein's residues, as FASTA (ADR 0229).",
+            "title": "Export",
+            "type": "string"
+          },
+          "formats": {
+            "description": "The files it's written as.",
+            "items": {
+              "$ref": "#/components/schemas/FileFormatOut"
+            },
+            "title": "Formats",
+            "type": "array"
+          },
+          "sequence": {
+            "description": "The protein sequence field it's written from.",
+            "title": "Sequence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export",
+          "formats",
+          "sequence"
+        ],
+        "title": "ProteinExportOut",
+        "type": "object"
+      },
       "PutAwayIn": {
         "properties": {
           "line": {
@@ -17612,6 +18225,180 @@
         "title": "PutAwayIn",
         "type": "object"
       },
+      "QuarantineFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "q": {
+            "default": "",
+            "description": "Part of a file's name, or the start of its SHA-256.",
+            "maxLength": 255,
+            "title": "Q",
+            "type": "string"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "infected",
+                  "not_scanned"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only malware findings, or only inspections that couldn't finish.",
+            "title": "State"
+          },
+          "status": {
+            "default": "held",
+            "description": "Held now, or infected findings released as false positives.",
+            "enum": [
+              "held",
+              "released"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "QuarantineFilters",
+        "type": "object"
+      },
+      "QuarantineOut": {
+        "properties": {
+          "file_count": {
+            "description": "How many places the bytes are, listed or not.",
+            "title": "File Count",
+            "type": "integer"
+          },
+          "files": {
+            "description": "Where the bytes are, oldest first: the first few in a list, every one in a decision's own.",
+            "items": {
+              "$ref": "#/components/schemas/HeldCopyOut"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "id": {
+            "description": "The decision ID for releasing a confirmed false positive.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "reason": {
+            "description": "What was found (the signature's name), or why an inspection could not finish: ``too_large``, ``unsupported_source``, ``clamd_stream_limit``, or the scanner's own reason, such as ``Heuristics.Encrypted.Zip``.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "releasable": {
+            "description": "An infected finding not yet released. An incomplete inspection never is: it found nothing to call false (ADR 0217).",
+            "title": "Releasable",
+            "type": "boolean"
+          },
+          "release": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuarantineReleaseOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its release, once released."
+          },
+          "scanned_at": {
+            "format": "date-time",
+            "title": "Scanned At",
+            "type": "string"
+          },
+          "scanner": {
+            "title": "Scanner",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "signature_version": {
+            "title": "Signature Version",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "infected",
+              "not_scanned"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sha256",
+          "size",
+          "state",
+          "scanner",
+          "signature_version",
+          "scanned_at",
+          "reason",
+          "releasable",
+          "release",
+          "files",
+          "file_count"
+        ],
+        "title": "QuarantineOut",
+        "type": "object"
+      },
+      "QuarantineReleaseOut": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "by": {
+            "$ref": "#/components/schemas/UserOut",
+            "description": "The Quarantine Admin who released it."
+          },
+          "reason": {
+            "description": "Why they found the finding false, as they gave it.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "by",
+          "at",
+          "reason"
+        ],
+        "title": "QuarantineReleaseOut",
+        "type": "object"
+      },
       "QueryIn": {
         "description": "A search, as ``POST /entities/search`` takes it, without its project or paging.",
         "properties": {
@@ -17652,6 +18439,15 @@
                 "type": "null"
               }
             ]
+          },
+          "then": {
+            "description": "Further sorts, in order, for what `sort` ties (ADR 0232).",
+            "items": {
+              "$ref": "#/components/schemas/SortIn"
+            },
+            "maxItems": 3,
+            "title": "Then",
+            "type": "array"
           },
           "type": {
             "anyOf": [
@@ -17994,6 +18790,72 @@
           "team_id"
         ],
         "title": "QuotaScopeOut",
+        "type": "object"
+      },
+      "ReadGroupOut": {
+        "description": "A SAM or BAM file's @RG line: the SAM specification's tags it gives (section 1.3),\nby their two-letter names, such as ID, SM (sample), LB (library) and PU (platform unit).",
+        "properties": {
+          "BC": {
+            "title": "Bc",
+            "type": "string"
+          },
+          "CN": {
+            "title": "Cn",
+            "type": "string"
+          },
+          "DS": {
+            "title": "Ds",
+            "type": "string"
+          },
+          "DT": {
+            "title": "Dt",
+            "type": "string"
+          },
+          "FO": {
+            "title": "Fo",
+            "type": "string"
+          },
+          "ID": {
+            "title": "Id",
+            "type": "string"
+          },
+          "KS": {
+            "title": "Ks",
+            "type": "string"
+          },
+          "LB": {
+            "title": "Lb",
+            "type": "string"
+          },
+          "PG": {
+            "title": "Pg",
+            "type": "string"
+          },
+          "PI": {
+            "title": "Pi",
+            "type": "string"
+          },
+          "PL": {
+            "title": "Pl",
+            "type": "string"
+          },
+          "PM": {
+            "title": "Pm",
+            "type": "string"
+          },
+          "PU": {
+            "title": "Pu",
+            "type": "string"
+          },
+          "SM": {
+            "title": "Sm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ID"
+        ],
+        "title": "ReadGroupOut",
         "type": "object"
       },
       "ReadIn": {
@@ -18811,6 +19673,226 @@
         "title": "ReconciliationOut",
         "type": "object"
       },
+      "RecordExportIn": {
+        "properties": {
+          "entities": {
+            "description": "The records, by UUID or HRID, in the file's order. Or give `search`.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "title": "Entities",
+            "type": "array"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An SDF's data: the fields it carries, in order. Every one all its records' types can carry, if left out.",
+            "title": "Fields"
+          },
+          "format": {
+            "description": "A format every record's type exports, as its `exports` list them, of which many records make one file (`many: file`).",
+            "enum": [
+              "genbank",
+              "fasta",
+              "protein-fasta",
+              "sdf"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For an HRID naming a registry entry's record in several projects: this project's (ADR 0115).",
+            "title": "Project"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExportSearchIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every record this search finds, in its order, up to 10,000: a table's whole result."
+          }
+        },
+        "required": [
+          "format"
+        ],
+        "title": "RecordExportIn",
+        "type": "object"
+      },
+      "RecordExportOut": {
+        "properties": {
+          "count": {
+            "description": "How many records it holds.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "done": {
+            "description": "How many of them are written so far.",
+            "title": "Done",
+            "type": "integer"
+          },
+          "error": {
+            "description": "Why it failed, if it did.",
+            "title": "Error",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When its file is deleted. Files of records in a project under a legal hold are kept until the hold is released.",
+            "title": "Expires At"
+          },
+          "fields": {
+            "description": "The fields an SDF carries as data.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "notes": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "What the file couldn't hold of each record, by HRID, as the file says it where the format has a place: GenBank's COMMENT, an SDF's IKI_NOTES. FASTA has none, so its notes are only here.",
+            "title": "Notes",
+            "type": "object"
+          },
+          "refused": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Records that couldn't be written, by HRID, and why: the export failed, so no file holds fewer records than were asked for.",
+            "title": "Refused",
+            "type": "object"
+          },
+          "selection": {
+            "description": "What was picked, in words.",
+            "title": "Selection",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "The file's SHA-256, once it's ready.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The file's size in bytes, once it's ready.",
+            "title": "Size"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "writing",
+              "ready",
+              "failed",
+              "expired"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "writer": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Which code wrote it: `builtin` and `version`.",
+            "title": "Writer",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "format",
+          "selection",
+          "count",
+          "done",
+          "file_name",
+          "size",
+          "sha256",
+          "fields",
+          "notes",
+          "refused",
+          "error",
+          "writer",
+          "created_at",
+          "finished_at",
+          "expires_at"
+        ],
+        "title": "RecordExportOut",
+        "type": "object"
+      },
       "RefOut": {
         "properties": {
           "archived": {
@@ -19032,6 +20114,7 @@
           "state": {
             "enum": [
               "checking",
+              "scanning",
               "ready",
               "failed"
             ],
@@ -19096,6 +20179,7 @@
           "state": {
             "enum": [
               "checking",
+              "scanning",
               "ready",
               "failed"
             ],
@@ -19498,6 +20582,22 @@
           "edges"
         ],
         "title": "RelatedOut",
+        "type": "object"
+      },
+      "ReleaseQuarantineIn": {
+        "properties": {
+          "reason": {
+            "description": "Why the finding is false.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ReleaseQuarantineIn",
         "type": "object"
       },
       "ReproduceIn": {
@@ -20860,6 +21960,17 @@
             "title": "Path",
             "type": "string"
           },
+          "scan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileScanOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scan decision for a verified upload."
+          },
           "sha256": {
             "description": "Of its bytes, as hex.",
             "title": "Sha256",
@@ -20871,9 +21982,12 @@
             "type": "integer"
           },
           "state": {
-            "description": "`kept` while it can be downloaded; `deleted` once its retention is over (its record stays); `failed` if its upload didn't finish.",
+            "description": "Whether the artifact can be downloaded, is still uploading or scanning, is held, or has expired.",
             "enum": [
               "uploading",
+              "scanning",
+              "quarantined",
+              "not_scanned",
               "kept",
               "failed",
               "deleted"
@@ -20891,6 +22005,7 @@
           "size",
           "sha256",
           "state",
+          "scan",
           "created_at",
           "expires_at",
           "deleted_at"
@@ -23285,6 +24400,15 @@
             "description": "A field to sort by.",
             "title": "Sort"
           },
+          "then": {
+            "description": "Further sorts, in order, for what `sort` ties: each a field, with `-` first for descending, as `-priority`.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Then",
+            "type": "array"
+          },
           "type": {
             "anyOf": [
               {
@@ -23572,6 +24696,15 @@
                 "type": "null"
               }
             ]
+          },
+          "then": {
+            "description": "Further sorts, in order, for what `sort` ties: a core's queue by its ranking, then priority, then when each is needed (ADR 0232). Blanks are last in each.",
+            "items": {
+              "$ref": "#/components/schemas/SortIn"
+            },
+            "maxItems": 3,
+            "title": "Then",
+            "type": "array"
           },
           "type": {
             "anyOf": [
@@ -23877,7 +25010,8 @@
               "enum": [
                 "org_admin",
                 "compute_admin",
-                "auditor"
+                "auditor",
+                "quarantine_admin"
               ],
               "type": "string"
             },
@@ -24826,6 +25960,638 @@
           "examples"
         ],
         "title": "SheetColumnOut",
+        "type": "object"
+      },
+      "SheetEditCheckIn": {
+        "properties": {
+          "locale": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetEditLocaleIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SheetEditCheckRowIn"
+            },
+            "maxItems": 200,
+            "title": "Rows",
+            "type": "array"
+          },
+          "type": {
+            "description": "The type of the sheet's records, such as acme/protein.Sample.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "rows"
+        ],
+        "title": "SheetEditCheckIn",
+        "type": "object"
+      },
+      "SheetEditCheckOut": {
+        "properties": {
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SheetEditRowOut"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "title": "SheetEditCheckOut",
+        "type": "object"
+      },
+      "SheetEditCheckRowIn": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much a new record starts with, in its type's amount unit or its own: `500`, `0.5 mL`.",
+            "title": "Amount"
+          },
+          "cells": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Each changed cell's text, by its field: null or empty to empty it.",
+            "title": "Cells",
+            "type": "object"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record it is; none for a new one.",
+            "title": "Entity"
+          },
+          "key": {
+            "description": "The row, as the caller names it.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A new record's place in storage: a container by its ID, code or name, and its position, such as `BOX-000002 A1`; just the container for its next free one.",
+            "title": "Location"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record's revision the cells were read from.",
+            "title": "Revision"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "SheetEditCheckRowIn",
+        "type": "object"
+      },
+      "SheetEditLocaleIn": {
+        "description": "How the sheet's text writes numbers and dates, as the person says (ADR 0178). Until\nit's said, a cell that reads two ways (1,234; 03/04/2026) is a problem, never a guess.",
+        "properties": {
+          "dates": {
+            "anyOf": [
+              {
+                "enum": [
+                  "day_first",
+                  "month_first"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "day_first: 31/12/2026; month_first: 12/31/2026. Null until you know.",
+            "title": "Dates"
+          },
+          "decimal": {
+            "anyOf": [
+              {
+                "enum": [
+                  "point",
+                  "comma"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "point: 1,234.5; comma: 1.234,5. Null until you know.",
+            "title": "Decimal"
+          },
+          "serial_dates": {
+            "default": false,
+            "description": "Plain numbers in date columns are Excel serial dates (46023).",
+            "title": "Serial Dates",
+            "type": "boolean"
+          },
+          "time_zone": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The IANA time zone of a date and time that gives none, such as the person's own: Europe/London. Without one, such a cell is a problem.",
+            "title": "Time Zone"
+          }
+        },
+        "title": "SheetEditLocaleIn",
+        "type": "object"
+      },
+      "SheetEditPlaceIn": {
+        "properties": {
+          "container": {
+            "description": "The container it goes in.",
+            "format": "uuid",
+            "title": "Container",
+            "type": "string"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its position, such as A1; none for the next free one.",
+            "title": "Position"
+          }
+        },
+        "required": [
+          "container"
+        ],
+        "title": "SheetEditPlaceIn",
+        "type": "object"
+      },
+      "SheetEditPlaceOut": {
+        "properties": {
+          "container": {
+            "format": "uuid",
+            "title": "Container",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "shown": {
+            "description": "As the sheet says it: `BOX-000002 A1`.",
+            "title": "Shown",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "container",
+          "hrid",
+          "title",
+          "position",
+          "shown"
+        ],
+        "title": "SheetEditPlaceOut",
+        "type": "object"
+      },
+      "SheetEditProblemOut": {
+        "properties": {
+          "at": {
+            "description": "Where: `values/<field>` for a cell, `location`, `amount`, or `` for the row.",
+            "title": "At",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`ambiguous`: the cell reads two ways, by how the sheet writes numbers or dates; `stale`: the record changed since its revision was read.",
+            "enum": [
+              "invalid",
+              "ambiguous",
+              "stale"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "detail",
+          "kind"
+        ],
+        "title": "SheetEditProblemOut",
+        "type": "object"
+      },
+      "SheetEditRowOut": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AmountIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "amount_shown": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Shown"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record it changes; none for a new one.",
+            "title": "Entity"
+          },
+          "held": {
+            "description": "Rules that hold it for review once saved (ADR 0127): saving needs `hold_reason`.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Held",
+            "type": "array"
+          },
+          "hrid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hrid"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What saving it does: `edited`; `unchanged`; `created`, `registered` (a new registry entry) or `added` (a record of an entry already registered); `blank`, a new row with nothing in it; or `failed`, with its problems.",
+            "enum": [
+              "edited",
+              "unchanged",
+              "created",
+              "registered",
+              "added",
+              "blank",
+              "failed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetEditPlaceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/SheetEditProblemOut"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record's revision the check read.",
+            "title": "Revision"
+          },
+          "shown": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Each cell as the record would have it, as the grid and its CSV say it.",
+            "title": "Shown",
+            "type": "object"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Each cell as it reads, as an edit gives it: send these to save.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "entity",
+          "hrid",
+          "revision",
+          "values",
+          "shown",
+          "problems",
+          "held"
+        ],
+        "title": "SheetEditRowOut",
+        "type": "object"
+      },
+      "SheetEditSaveIn": {
+        "properties": {
+          "hold_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why to save rows that break rules holding records for review (ADR 0127).",
+            "title": "Hold Reason"
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetEditLocaleIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the cells were read, for the audit trail."
+          },
+          "reason": {
+            "description": "Why, for each revision and the audit trail.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SheetEditSaveRowIn"
+            },
+            "maxItems": 1000,
+            "title": "Rows",
+            "type": "array"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "reason",
+          "rows"
+        ],
+        "title": "SheetEditSaveIn",
+        "type": "object"
+      },
+      "SheetEditSaveOut": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "edited": {
+            "title": "Edited",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SheetEditSavedRowOut"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows",
+          "edited",
+          "created"
+        ],
+        "title": "SheetEditSaveOut",
+        "type": "object"
+      },
+      "SheetEditSaveRowIn": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AmountIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record it changes; none for a new one.",
+            "title": "Entity"
+          },
+          "key": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetEditPlaceIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The revision of the record that was read and reviewed: required for a record. If it's changed since, nothing is saved.",
+            "title": "Revision"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Each field's value, as the check read it.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "SheetEditSaveRowIn",
+        "type": "object"
+      },
+      "SheetEditSavedRowOut": {
+        "properties": {
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity"
+          },
+          "hrid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hrid"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "edited",
+              "unchanged",
+              "created",
+              "registered",
+              "added",
+              "blank",
+              "failed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "entity",
+          "hrid",
+          "revision"
+        ],
+        "title": "SheetEditSavedRowOut",
         "type": "object"
       },
       "SheetLocaleIn": {
@@ -26234,7 +28000,7 @@
             "type": "boolean"
           },
           "field": {
-            "description": "A field to sort by: text, numbers, dates or yes/no.",
+            "description": "A field to sort by: text, numbers, dates or yes/no; or a request's `asked_by` or `sent_to`, by the project's name (ADR 0232).",
             "title": "Field",
             "type": "string"
           }
@@ -26851,6 +28617,7 @@
             "enum": [
               "pending",
               "checking",
+              "scanning",
               "ready",
               "failed",
               "cancelled",
@@ -26897,15 +28664,9 @@
             "type": "string"
           },
           "project": {
-            "description": "The assay service project. Requires its Admin role.",
+            "description": "The assay project. Requires its Admin role.",
             "format": "uuid",
             "title": "Project",
-            "type": "string"
-          },
-          "requester_project": {
-            "description": "A different project in which the caller can create the example request.",
-            "format": "uuid",
-            "title": "Requester Project",
             "type": "string"
           },
           "role_assignments": {
@@ -26916,7 +28677,7 @@
               },
               "type": "array"
             },
-            "description": "Each qualified lab role and the service project membership IDs receiving it.",
+            "description": "Each qualified lab role and the assay project membership IDs receiving it.",
             "title": "Role Assignments",
             "type": "object"
           },
@@ -26930,7 +28691,6 @@
         "required": [
           "version",
           "project",
-          "requester_project",
           "flow",
           "role_assignments",
           "plan"
@@ -26961,7 +28721,7 @@
             "type": "array"
           },
           "result_type": {
-            "description": "Qualified type for a requested result in this flow.",
+            "description": "Qualified result type for new fits in this flow.",
             "title": "Result Type",
             "type": "string"
           }
@@ -27081,15 +28841,9 @@
             "type": "string"
           },
           "project": {
-            "description": "The assay service project. Requires its Admin role.",
+            "description": "The assay project. Requires its Admin role.",
             "format": "uuid",
             "title": "Project",
-            "type": "string"
-          },
-          "requester_project": {
-            "description": "A different project in which the caller can create the example request.",
-            "format": "uuid",
-            "title": "Requester Project",
             "type": "string"
           },
           "role_assignments": {
@@ -27100,7 +28854,7 @@
               },
               "type": "array"
             },
-            "description": "Each qualified lab role and the service project membership IDs receiving it.",
+            "description": "Each qualified lab role and the assay project membership IDs receiving it.",
             "title": "Role Assignments",
             "type": "object"
           },
@@ -27114,7 +28868,6 @@
         "required": [
           "version",
           "project",
-          "requester_project",
           "flow",
           "role_assignments"
         ],
@@ -27127,23 +28880,6 @@
             "description": "Whether applying this choice would change anything (preview), or did (apply).",
             "title": "Changed",
             "type": "boolean"
-          },
-          "examples": {
-            "additionalProperties": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "description": "IDs of example records already present at preview or available after setup.",
-            "title": "Examples",
-            "type": "object"
-          },
-          "examples_to_create": {
-            "description": "Names of examples missing when the setup was checked.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Examples To Create",
-            "type": "array"
           },
           "flow": {
             "enum": [
@@ -27175,11 +28911,6 @@
             "title": "Project",
             "type": "string"
           },
-          "requester_project": {
-            "format": "uuid",
-            "title": "Requester Project",
-            "type": "string"
-          },
           "result_type": {
             "title": "Result Type",
             "type": "string"
@@ -27208,14 +28939,11 @@
           "starter",
           "version",
           "project",
-          "requester_project",
           "flow",
           "result_type",
           "changed",
           "role_assignments",
           "grants_to_add",
-          "examples_to_create",
-          "examples",
           "plan"
         ],
         "title": "StarterSetupOut",
@@ -27416,6 +29144,26 @@
           "signatures"
         ],
         "title": "StateOut",
+        "type": "object"
+      },
+      "StatedOut": {
+        "properties": {
+          "stated_in": {
+            "description": "Where in the file it's stated, such as ``FCS keyword $CYT``, to check it by.",
+            "title": "Stated In",
+            "type": "string"
+          },
+          "value": {
+            "description": "As the file gives it.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "stated_in"
+        ],
+        "title": "StatedOut",
         "type": "object"
       },
       "StepBatchOut": {
@@ -28293,6 +30041,7 @@
               "entity.registered",
               "entity.state_changed",
               "entity.updated",
+              "request.received",
               "schedule"
             ],
             "title": "Event",
@@ -28410,12 +30159,13 @@
             "type": "string"
           },
           "on": {
-            "description": "What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.",
+            "description": "What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, a request of its type sent to the project as a service (ADR 0232), or its schedule.",
             "enum": [
               "entity.created",
               "entity.registered",
               "entity.state_changed",
               "entity.updated",
+              "request.received",
               "schedule"
             ],
             "title": "On",
@@ -28443,6 +30193,12 @@
             "description": "Other inputs it gives the entities related to the one that fired it (ADR 0123), by input: each, every one of the input's type in the project that way of it. All of them or none: past the most an input takes, it fails.",
             "title": "Related",
             "type": "object"
+          },
+          "runs_as_account": {
+            "default": false,
+            "description": "Its runs are launched as a service account the Admin who turns it on chooses, on their authority: on a schedule, or as a request arrives, since nobody in the project made it happen (ADR 0081, ADR 0232).",
+            "title": "Runs As Account",
+            "type": "boolean"
           },
           "schedule": {
             "description": "On a schedule: when it runs, in cron's five fields. Empty otherwise.",
@@ -29131,6 +30887,7 @@
             "enum": [
               "pending",
               "checking",
+              "scanning",
               "ready",
               "failed",
               "cancelled",
@@ -29197,6 +30954,7 @@
             "enum": [
               "pending",
               "checking",
+              "scanning",
               "ready",
               "failed",
               "cancelled",
@@ -31196,7 +32954,7 @@
             "type": "string"
           },
           "name": {
-            "description": "Qualified, such as `protein.translate_and_characterize`.",
+            "description": "Workflow name in `namespace/plugin.workflow` form.",
             "title": "Name",
             "type": "string"
           },
@@ -34765,7 +36523,7 @@
     },
     "/api/v1/entities/search": {
       "post": {
-        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``\n(then by ID), oldest first without one.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case); a sequence\n  (a ``dna_sequence``, ``rna_sequence`` or ``protein_sequence``, its field's ``format``)\n  also ``motif`` (ADR 0175): its bases or residues in IUPAC codes, as ``GAATTY``, each\n  matching a residue it certainly is (Y matches C, T and Y; a record's N only N), found\n  on a duplex's other strand as its reverse complement, and across a circle's origin, as\n  the record's strands and topology say\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or in another by its UCUM code, as\n  ``{\"value\": 50, \"unit\": \"ku\"}`` for 50 kDa)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA state field (ADR 0125) is searched as an enum of its states, by name.\n``upstream`` and ``downstream`` (ADR 0123) take ``of``: what an entity (by ID or\nHRID) was derived from, or what was derived from it, through references and runs, as\n``{\"field\": \"downstream\", \"op\": \"of\", \"value\": \"TUB-000001\"}``, or with a ``depth``\nand ``edges``: ``{\"entity\": \"TUB-000001\", \"depth\": 5, \"edges\": [\"reference\"]}``; and\n``is_set``, whether anything you can read is that way.\n``held`` and ``breaks`` (ADR 0127) find what plugins' rules caught: records a rule holds\nfor review now, and records that break a rule they were saved before (one its plugin\nadded or changed since, or one a bundle brought). They take a rule's name with ``eq``,\n``ne`` and ``in``, as ``{\"field\": \"held\", \"op\": \"eq\", \"value\": \"mass_within_tolerance\"}``,\nand ``is_set``, held or breaking any rule. Each result's ``holds`` and ``breaches``\nsay which, and why.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
+        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``,\nthen by each of ``then`` (ADR 0232), then by ID; oldest first without one. Requests\nalso sort by ``asked_by`` and ``sent_to``: the projects on their two sides, by name.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case); a sequence\n  (a ``dna_sequence``, ``rna_sequence`` or ``protein_sequence``, its field's ``format``)\n  also ``motif`` (ADR 0175): its bases or residues in IUPAC codes, as ``GAATTY``, each\n  matching a residue it certainly is (Y matches C, T and Y; a record's N only N), found\n  on a duplex's other strand as its reverse complement, and across a circle's origin, as\n  the record's strands and topology say\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or in another by its UCUM code, as\n  ``{\"value\": 50, \"unit\": \"ku\"}`` for 50 kDa)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA state field (ADR 0125) is searched as an enum of its states, by name.\n``upstream`` and ``downstream`` (ADR 0123) take ``of``: what an entity (by ID or\nHRID) was derived from, or what was derived from it, through references and runs, as\n``{\"field\": \"downstream\", \"op\": \"of\", \"value\": \"TUB-000001\"}``, or with a ``depth``\nand ``edges``: ``{\"entity\": \"TUB-000001\", \"depth\": 5, \"edges\": [\"reference\"]}``; and\n``is_set``, whether anything you can read is that way.\n``held`` and ``breaks`` (ADR 0127) find what plugins' rules caught: records a rule holds\nfor review now, and records that break a rule they were saved before (one its plugin\nadded or changed since, or one a bundle brought). They take a rule's name with ``eq``,\n``ne`` and ``in``, as ``{\"field\": \"held\", \"op\": \"eq\", \"value\": \"mass_within_tolerance\"}``,\nand ``is_set``, held or breaking any rule. Each result's ``holds`` and ``breaches``\nsay which, and why.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
         "operationId": "iki_server_api_entities_search_entities",
         "parameters": [],
         "requestBody": {
@@ -34977,6 +36735,21 @@
               "default": false,
               "title": "Descending",
               "type": "boolean"
+            }
+          },
+          {
+            "description": "Further sorts, in order, for what `sort` ties: each a field, with `-` first for descending, as `-priority`.",
+            "in": "query",
+            "name": "then",
+            "required": false,
+            "schema": {
+              "description": "Further sorts, in order, for what `sort` ties: each a field, with `-` first for descending, as `-priority`.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 3,
+              "title": "Then",
+              "type": "array"
             }
           },
           {
@@ -35933,7 +37706,7 @@
     },
     "/api/v1/entities/{ref}/export": {
       "get": {
-        "description": "The record as one of the files its type exports (ADR 0171), at its latest revision or\nthe one asked for, written from its values then, so a revision is always the same file.\nAnyone who can read it may; each download is in the audit log (``entity.exported``),\nwith the file's SHA-256. What the file can't say, such as a feature across a linear\nmolecule's ends, is listed in it (GenBank's COMMENT), and ``Iki-Left-Out`` says how\nmany such notes there are.",
+        "description": "The record as one of the files its type exports (ADR 0171), at its latest revision or\nthe one asked for, written from its values then, so a revision is always the same file.\nAnyone who can read it may; each download is in the audit log (``entity.exported``),\nwith the file's SHA-256. What the file can't say, such as a feature across a linear\nmolecule's ends, is listed in it where the format has a place (GenBank's COMMENT, an\nSDF's ``IKI_NOTES``), and ``Iki-Left-Out`` says how many such notes there are. Many\nrecords make one file from ``POST /entity-exports`` (ADR 0229).",
         "operationId": "iki_server_api_entities_export_entity",
         "parameters": [
           {
@@ -35955,11 +37728,36 @@
               "enum": [
                 "genbank",
                 "fasta",
+                "protein-fasta",
+                "sdf",
+                "molfile",
                 "signed-report-html",
                 "signed-report-json"
               ],
               "title": "Format",
               "type": "string"
+            }
+          },
+          {
+            "description": "An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`).",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 500,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`).",
+              "title": "Fields"
             }
           },
           {
@@ -36005,8 +37803,11 @@
           "200": {
             "content": {
               "application/json": {},
+              "chemical/seq-aa-fasta": {},
               "chemical/seq-na-fasta": {},
               "chemical/seq-na-genbank": {},
+              "chemical/x-mdl-molfile": {},
+              "chemical/x-mdl-sdfile": {},
               "text/html": {}
             },
             "description": "The file, as an attachment named for the record."
@@ -37870,6 +39671,238 @@
         ]
       }
     },
+    "/api/v1/entity-exports": {
+      "get": {
+        "description": "Newest first: each file of records you asked for, ready to download again until it\nexpires a week after it's written.",
+        "operationId": "iki_server_api_record_exports_list_record_exports",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RecordExportOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Your exports of records",
+        "tags": [
+          "entities"
+        ]
+      },
+      "post": {
+        "description": "Records you can read as one file of a format each of their types exports (ADR 0229):\nthose picked, in order, or every one a search finds, up to 10,000. Each is written at\nthe revision it has now, read in one snapshot, so editing one afterwards doesn't change\nthe file. Up to 100 are written at once (201, ready to download); more in the\nbackground (202): read the export until it's ready. A record the format can't be\nwritten for fails it, naming each such record, so no file holds fewer than asked for.\nAsking and each download are in the audit log.",
+        "operationId": "iki_server_api_record_exports_start_record_export",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordExportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordExportOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordExportOut"
+                }
+              }
+            },
+            "description": "Accepted"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Export records as one file, such as FASTA or SDF",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entity-exports/{export_id}": {
+      "get": {
+        "description": "How far it's got (``done`` of ``count``), and once it's ready, its file.",
+        "operationId": "iki_server_api_record_exports_get_record_export",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Export Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordExportOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "An export of records",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entity-exports/{export_id}/content": {
+      "get": {
+        "description": "Redirects to the file, for a few minutes, while you can still read every record it\nholds and what they refer to. Each download is in the audit log.",
+        "operationId": "iki_server_api_record_exports_download_record_export",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Export Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Download an export of records",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entity-exports/{export_id}/content-url": {
+      "get": {
+        "description": "The signed URL ``/content`` redirects to, for a client that fetches it without its\nIki token, such as an agent. Each one issued is in the audit log, as a download.",
+        "operationId": "iki_server_api_record_exports_record_export_content_url",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Export Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentUrlOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A link to an export of records",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
     "/api/v1/entity-types": {
       "get": {
         "description": "Every type the deployment's plugins define, abstract ones included, by name.",
@@ -37983,6 +40016,43 @@
         "summary": "A type's state fields and possible transitions",
         "tags": [
           "entities"
+        ]
+      }
+    },
+    "/api/v1/entity-types/{name}/import-template.csv": {
+      "get": {
+        "description": "A CSV file with a heading for each field of the type a spreadsheet import can set\n(ADR 0178), in the type's order, a quantity's with its unit: `Concentration (mg/mL)`.\nThe import maps each heading back to its field. No heading starts as a formula would\n(ADR 0175), and the file starts with a byte order mark, so a spreadsheet opens its\nunits' symbols as they are.",
+        "operationId": "iki_server_api_sheets_import_template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "As CSV"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A type's import template",
+        "tags": [
+          "sheets"
         ]
       }
     },
@@ -38367,7 +40437,7 @@
     },
     "/api/v1/files": {
       "get": {
-        "description": "A project's files, or every file you can read: those added to the projects, and\nthose their records hold (ADR 0177). Found by part of the name, format, when acquired,\nsample and run; newest first unless ``sort`` says otherwise. Each says how many records\nand runs you can read use it.",
+        "description": "A project's files, or every file you can read: those added to the projects, and\nthose their records hold (ADR 0177). Found by part of the name or of what the file\nstates (ADR 0224), format, when acquired, sample and run; newest first unless ``sort``\nsays otherwise. Each says how many records and runs you can read use it.",
         "operationId": "iki_server_api_files_list_files",
         "parameters": [
           {
@@ -38422,13 +40492,13 @@
             }
           },
           {
-            "description": "Part of its name, in any case.",
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
               "default": "",
-              "description": "Part of its name, in any case.",
+              "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
               "maxLength": 255,
               "title": "Q",
               "type": "string"
@@ -38629,11 +40699,13 @@
             }
           },
           {
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
               "default": "",
+              "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
               "maxLength": 255,
               "title": "Q",
               "type": "string"
@@ -38800,11 +40872,13 @@
             }
           },
           {
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
               "default": "",
+              "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
               "maxLength": 255,
               "title": "Q",
               "type": "string"
@@ -42272,6 +44346,110 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/sheet-edits": {
+      "post": {
+        "description": "Makes the changes reviewed (ADR 0228, 0207): each record's, from the revision read,\nas a revision with the reason; each new record, with its starting amount and place.\nAll of them are made, or none. If a record changed since its revision, nothing is\n(412, ``stale``, its rows in ``rows``); if any row has a problem, nothing is (422,\neach problem at ``#/rows/<n>/values/<field>``, ``…/location``, ``…/amount`` or the row).\nThe audit trail records them as one change, ``records.sheet_saved``.",
+        "operationId": "iki_server_api_sheets_save_sheet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SheetEditSaveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SheetEditSaveOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Save a sheet's changes, all or none",
+        "tags": [
+          "sheets"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/sheet-edits/check": {
+      "post": {
+        "description": "Reads each row's cells as the type's fields read a spreadsheet's (ADR 0178), and\nfinds what saving them would do by making the changes, then undoing them: so a cell\nis held to every rule an edit is. Nothing is saved, and no HRID is spent. Needs Editor\nin the project, and in each record's own.",
+        "operationId": "iki_server_api_sheets_check_sheet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SheetEditCheckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SheetEditCheckOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Check a sheet's changes",
+        "tags": [
+          "sheets"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/spreadsheet-imports": {
       "get": {
         "description": "Yours, and those committed, newest first.",
@@ -42903,7 +45081,7 @@
     },
     "/api/v1/projects/{project_id}/triggers/{name}/enable": {
       "post": {
-        "description": "From now on an entity trigger's runs are launched as you, and a scheduled one's as the\nservice account you choose (`run_as`), on your authority: either way you must be able to\nrun its action here. Only in the web app: no token, and so no agent, can turn one on.",
+        "description": "From now on an entity trigger's runs are launched as you, and a scheduled one's, or one\non a request's arrival, as the service account you choose (`run_as`), on your authority:\neither way you must be able to run its action here. Only in the web app: no token, and so\nno agent, can turn one on.",
         "operationId": "iki_server_api_triggers_enable_trigger",
         "parameters": [
           {
@@ -43089,6 +45267,215 @@
         "summary": "Add a webhook to a project",
         "tags": [
           "webhooks"
+        ]
+      }
+    },
+    "/api/v1/quarantine": {
+      "get": {
+        "description": "For Quarantine Admins. Newest first, across the deployment: what's held now, or with\n``status=released``, the infected findings released as false positives. Each entry\nidentifies the held bytes, the finding, and where the bytes are: several project files\ncan share one source, and so its scan.",
+        "operationId": "iki_server_api_files_list_quarantine",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Held now, or infected findings released as false positives.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "held",
+              "description": "Held now, or infected findings released as false positives.",
+              "enum": [
+                "held",
+                "released"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only malware findings, or only inspections that couldn't finish.",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "infected",
+                    "not_scanned"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only malware findings, or only inspections that couldn't finish.",
+              "title": "State"
+            }
+          },
+          {
+            "description": "Part of a file's name, or the start of its SHA-256.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "Part of a file's name, or the start of its SHA-256.",
+              "maxLength": 255,
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_QuarantineOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "List quarantined files",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/quarantine/{decision_id}": {
+      "get": {
+        "description": "For Quarantine Admins: a held decision, or a released one, with every place its\nbytes are.",
+        "operationId": "iki_server_api_files_read_quarantine",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Decision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuarantineOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Read a quarantined file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/quarantine/{decision_id}/release": {
+      "post": {
+        "description": "For Quarantine Admins. The given reason and the reviewer are recorded with the\nrelease and in the audit log. Every file covered by this decision becomes usable and\nkeeps its original finding. An incomplete inspection can't be released.",
+        "operationId": "iki_server_api_files_release_quarantine",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Decision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseQuarantineIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuarantineOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Release an infected file after reviewing its finding",
+        "tags": [
+          "files"
         ]
       }
     },
@@ -44074,7 +46461,7 @@
         ]
       },
       "post": {
-        "description": "Pins one version of an object in an approved, versioned bucket. Iki reads it to learn\nits SHA-256 (202), then it's ready. An object version registered before is ready at once\n(201).",
+        "description": "Pins one version of an object in an approved, versioned bucket. Iki reads it to learn\nits SHA-256 and scan it (202). A version with a completed registration can be reused\nimmediately (201). Its file says whether it is usable.",
         "operationId": "iki_server_api_files_register_file",
         "parameters": [],
         "requestBody": {
@@ -46886,7 +49273,7 @@
     },
     "/api/v1/starters/{starter}/apply": {
       "post": {
-        "description": "Apply the plan a preview returned: create the examples and grant the chosen roles.\nIf what applying does changed since the preview, as when another Admin removed a grant or\napplied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,\nwhat applying would do now, for review (ADR 0207). Reapplying a setup that's in place\nchanges nothing. Changing the flow selects the result type for future fits. Existing\nresults keep their flow.",
+        "description": "Apply the reviewed flow and role grants to the assay project.\nIf what applying does changed since the preview, as when another Admin removed a grant or\napplied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,\nwhat applying would do now, for review (ADR 0207). Reapplying a setup that's in place\nchanges nothing. Changing the flow selects the result type for future fits. Existing\nresults keep their flow.",
         "operationId": "iki_server_api_starters_apply_starter",
         "parameters": [
           {
@@ -46937,7 +49324,7 @@
     },
     "/api/v1/starters/{starter}/preview": {
       "post": {
-        "description": "Check the installed version, projects, roles and flow without changing either project.",
+        "description": "Preview the version, review flow and role grants for the assay project.",
         "operationId": "iki_server_api_starters_preview_starter",
         "parameters": [
           {
@@ -48062,7 +50449,7 @@
         ]
       },
       "post": {
-        "description": "Answers with the parts to send. An empty file needs none, and is ready at once.",
+        "description": "Answers with the parts to send. An empty file needs none.",
         "operationId": "iki_server_api_files_start_upload",
         "parameters": [],
         "requestBody": {
@@ -48185,7 +50572,7 @@
     },
     "/api/v1/uploads/{upload_id}/complete": {
       "post": {
-        "description": "Once every part has arrived. Iki then checks the bytes (202), and the upload becomes\nready, or fails if they don't match its SHA-256. Finishing it again changes nothing.",
+        "description": "Once every part has arrived. Iki then checks the bytes (202), and the upload becomes\nready after its malware scan, or fails if its bytes don't match the SHA-256.\nFinishing it again returns its current state.",
         "operationId": "iki_server_api_files_complete_upload",
         "parameters": [
           {

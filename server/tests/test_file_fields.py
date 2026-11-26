@@ -5,13 +5,14 @@ from typing import Any
 import pytest
 from django.db import connection, transaction
 from django.db.utils import DatabaseError
+from scan_fixtures import clean_blob
 
 from iki_server.accounts.models import User
 from iki_server.core.ids import uuid7
 from iki_server.entities import access, schema, services, values
 from iki_server.entities.models import Entity
 from iki_server.files import services as files
-from iki_server.files.models import Blob, File, FileUse
+from iki_server.files.models import File, FileUse
 from iki_server.org.models import Project, ProjectMembership, ProjectRole, Team
 
 pytestmark = pytest.mark.django_db
@@ -44,9 +45,7 @@ def add_file(
     size: int = 1024,
     digit: str = "a",
 ) -> File:
-    blob, _ = Blob.objects.get_or_create(
-        sha256=digit * 64, defaults={"size": size, "storage_uri": f"s3://iki/{digit}"}
-    )
+    blob = clean_blob(sha256=digit * 64, size=size, storage_uri=f"s3://iki/{digit}")
     return File.objects.create(blob=blob, name=name, media_type=media_type, project=project)
 
 

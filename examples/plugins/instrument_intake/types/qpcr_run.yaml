@@ -1,0 +1,155 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: QPCRRun
+label: qPCR run
+schema_version: 1
+hrid: { prefix: QPCR }
+description: >-
+  One run on a QuantStudio or ViiA 7 instrument: the results file its software
+  exported, and what the import read from it. The instrument PC's uploader makes
+  the record. The fields the import fills are read from the file, so nobody
+  types them.
+fields:
+  results_file:
+    type: file
+    label: Results export
+    description: >-
+      The run's results, exported from QuantStudio Real-Time PCR Software as
+      text (File → Export → Results). Kept as the instrument's software wrote it.
+    media_types: [iki/core.text]
+    max_size: 64MiB
+    required: true
+    immutable: true
+  source_sha256:
+    type: string
+    label: Export SHA-256
+    description: >-
+      The results file's SHA-256, as the uploader computed it before sending the
+      file. A project has one run for each export, so sending the same export
+      again finds this record instead of making another.
+    pattern: "^[0-9a-f]{64}$"
+    pattern_help: 64 lower-case hexadecimal digits. Use the file's SHA-256
+    max_length: 64
+    indexed: true
+    unique: true
+    required: true
+    immutable: true
+  instrument:
+    type: string
+    label: Instrument
+    description: >-
+      The instrument as the facility names it, such as QuantStudio 7 Flex, bay 3:
+      the uploader's setting on that instrument's PC.
+    max_length: 200
+    indexed: true
+  experiment_name: { type: string, label: Experiment, max_length: 255, computed: true }
+  experiment_type:
+    type: string
+    label: Experiment type
+    description: Such as Standard Curve or Comparative Cт (ΔΔCт), as the software names it.
+    max_length: 100
+    computed: true
+  instrument_type: { type: string, label: Instrument type, max_length: 100, computed: true }
+  instrument_serial:
+    { type: string, label: Instrument serial number, max_length: 100, computed: true }
+  block: { type: string, label: Block, max_length: 100, computed: true }
+  chemistry: { type: string, label: Chemistry, max_length: 50, computed: true }
+  passive_reference: { type: string, label: Passive reference, max_length: 50, computed: true }
+  cycle_method:
+    type: string
+    label: Quantification cycle method
+    description: Ct, or Crt for relative threshold analysis.
+    max_length: 20
+    computed: true
+  endogenous_control:
+    type: string
+    label: Endogenous control
+    description: A comparative Cт (ΔΔCт) analysis's reference target, such as GAPDH.
+    max_length: 255
+    computed: true
+  reference_sample:
+    type: string
+    label: Reference sample
+    description: A comparative Cт (ΔΔCт) analysis's calibrator, the sample others are relative to.
+    max_length: 255
+    computed: true
+  run_ended:
+    type: string
+    label: Run ended
+    description: >-
+      When the run ended, as the export states it, with the PC's time zone
+      abbreviation. Kept as written: an abbreviation such as CST names more than
+      one zone.
+    max_length: 64
+    computed: true
+  operator:
+    type: string
+    label: Operator, as the export states
+    description: The user name the instrument's software recorded for the run, if it recorded one.
+    max_length: 200
+    computed: true
+  expired_calibrations:
+    type: list
+    label: Expired calibrations
+    description: The instrument calibrations the export says had expired when the run was analysed.
+    items: { type: string, max_length: 100 }
+    max_items: 50
+    computed: true
+  wells:
+    type: list
+    label: Wells
+    description: >-
+      Each well's result for each target, as the analysis exported it: a
+      multiplexed well has a row for each of its reporters.
+    max_items: 1536
+    computed: true
+    items:
+      type: row
+      fields:
+        well: { type: string, label: Well, required: true, max_length: 3 }
+        sample: { type: string, label: Sample, max_length: 255 }
+        target: { type: string, label: Target, required: true, max_length: 255 }
+        task:
+          { type: string, label: Task, description: "UNKNOWN, STANDARD or NTC.", max_length: 40 }
+        reporter: { type: string, label: Reporter, max_length: 50 }
+        quencher: { type: string, label: Quencher, max_length: 50 }
+        omitted:
+          {
+            type: bool,
+            label: Omitted,
+            description: The analyst omitted the well from the analysis.,
+          }
+        cq:
+          {
+            type: float,
+            label: Cq,
+            min: 0,
+            description: Empty when the curve crossed no threshold.,
+          }
+        undetermined:
+          type: bool
+          label: Undetermined
+          description: The software found no Cq, as it should for a no-template control.
+        threshold: { type: float, label: Threshold, min: 0 }
+        quantity:
+          type: float
+          label: Quantity
+          description: A standard's quantity as entered, or an unknown's from the standard curve, in the run's units.
+          min: 0
+  standard_curves:
+    type: list
+    label: Standard curves
+    description: Each target's standard curve, as the analysis fitted it.
+    max_items: 96
+    computed: true
+    items:
+      type: row
+      fields:
+        target: { type: string, label: Target, required: true, max_length: 255 }
+        slope: { type: float, label: Slope }
+        y_intercept: { type: float, label: Y-intercept }
+        r_squared: { type: float, label: R², min: 0, max: 1 }
+        efficiency:
+          { type: float, label: Efficiency (%), description: "100 × (10^(−1/slope) − 1)." }
+display: { title: "{{ experiment_name or hrid }}" }

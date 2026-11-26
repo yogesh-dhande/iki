@@ -10,21 +10,23 @@ from iki import Client, Conflict, Forbidden
 from iki_cli.main import main
 
 PROJECT = str(UUID(int=1))
-REQUESTER = str(UUID(int=2))
 FIRST = str(UUID(int=3))
 SECOND = str(UUID(int=4))
 REVIEWER = "iki/plate_assays.reviewer"
-RESULT = "iki/plate_assays.RequestedResearchAssayResult"
+RESULTS = {
+    "research": "iki/plate_assays.ResearchAssayResult",
+    "regulated_qc": "iki/plate_assays.QCAssayResult",
+}
 PLAN = "3f" * 32
 STARTER = {
     "id": "dose-response",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "label": "Dose-response plate assay",
-    "description": "Receive a request and fit a curve.",
-    "flows": [{"id": "research", "label": "Research", "result_type": RESULT}],
+    "description": "Configure an assay review flow and assign its project roles.",
+    "flows": [{"id": "research", "label": "Research", "result_type": RESULTS["research"]}],
     "roles": [{"id": REVIEWER, "label": "Assay reviewer"}],
-    "types": [RESULT],
-    "applied": {"version": "1.0.0", "flow": "research"},
+    "types": list(RESULTS.values()),
+    "applied": {"version": "2.0.0", "flow": "research"},
 }
 
 
@@ -49,7 +51,7 @@ def test_list_installed_starters(
     assert main(args) == 0
     output = capsys.readouterr().out
     if project:
-        for item in ("dose-response 1.0.0", "Research", REVIEWER, RESULT, "Applied"):
+        for item in ("dose-response 2.0.0", "Research", REVIEWER, RESULTS["research"], "Applied"):
             assert item in output
     else:
         assert json.loads(output) == [STARTER]
@@ -67,9 +69,8 @@ def test_preview_and_apply_send_the_selected_version_scope_flow_and_members(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     setup = {
-        "version": "1.0.0",
+        "version": "2.0.0",
         "project": PROJECT,
-        "requester_project": REQUESTER,
         "flow": flow,
         "role_assignments": {REVIEWER: [FIRST, SECOND]},
     }
@@ -79,10 +80,8 @@ def test_preview_and_apply_send_the_selected_version_scope_flow_and_members(
         **setup,
         "plan": PLAN,
         "starter": "dose-response",
-        "result_type": RESULT,
+        "result_type": RESULTS[flow],
         "changed": changed,
-        "examples": {"plate": str(UUID(int=5))},
-        "examples_to_create": ["request"] if changed else [],
         "grants_to_add": {REVIEWER: [SECOND]} if changed else {},
     }
 
@@ -98,11 +97,9 @@ def test_preview_and_apply_send_the_selected_version_scope_flow_and_members(
         command,
         "dose-response",
         "--version",
-        "1.0.0",
+        "2.0.0",
         "--project",
         PROJECT,
-        "--requester-project",
-        REQUESTER,
         "--flow",
         flow,
         "--role",
@@ -121,17 +118,16 @@ def test_preview_and_apply_send_the_selected_version_scope_flow_and_members(
     for item in (
         status,
         "dose-response",
-        "1.0.0",
+        "2.0.0",
         PROJECT,
-        REQUESTER,
         flow,
+        RESULTS[flow],
         REVIEWER,
         FIRST,
         SECOND,
     ):
         assert item in out
     if command == "preview":
-        assert "Create example request" in out
         assert f"Grant {REVIEWER} to {SECOND}" in out
         assert f"Plan              {PLAN}" in out
     assert main([*args, "--json"]) == 0
@@ -144,13 +140,11 @@ def test_apply_needs_the_reviewed_plan(capsys: pytest.CaptureFixture[str]) -> No
         "apply",
         "dose-response",
         "--version",
-        "1.0.0",
+        "2.0.0",
         "--flow",
         "research",
         "--project",
         PROJECT,
-        "--requester-project",
-        REQUESTER,
     ]
     for extra in ([], ["--plan", "latest"]):
         with pytest.raises(SystemExit) as exc:
@@ -164,16 +158,13 @@ def test_a_changed_plan_applies_nothing_and_shows_what_applying_does_now(
 ) -> None:
     now = {
         "starter": "dose-response",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "project": PROJECT,
-        "requester_project": REQUESTER,
         "flow": "research",
-        "result_type": RESULT,
+        "result_type": RESULTS["research"],
         "changed": True,
         "role_assignments": {REVIEWER: [FIRST]},
         "grants_to_add": {REVIEWER: [FIRST]},
-        "examples_to_create": [],
-        "examples": {},
         "plan": "4a" * 32,
     }
 
@@ -188,13 +179,11 @@ def test_a_changed_plan_applies_nothing_and_shows_what_applying_does_now(
         "apply",
         "dose-response",
         "--version",
-        "1.0.0",
+        "2.0.0",
         "--flow",
         "research",
         "--project",
         PROJECT,
-        "--requester-project",
-        REQUESTER,
         "--role",
         f"{REVIEWER}={FIRST}",
         "--plan",
@@ -214,13 +203,11 @@ def test_role_assignment_needs_a_membership_uuid(capsys: pytest.CaptureFixture[s
                 "apply",
                 "dose-response",
                 "--version",
-                "1.0.0",
+                "2.0.0",
                 "--flow",
                 "research",
                 "--project",
                 PROJECT,
-                "--requester-project",
-                REQUESTER,
                 "--role",
                 f"{REVIEWER}=handle",
             ]

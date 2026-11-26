@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: ActionTest
 name: atcc_bacterial_and_yeast_strains
 action: import_base_strains
-files: { catalogue: data/atcc.csv }
+files: { catalogue: tests/data/atcc.csv }
 params: { file: { $file: catalogue } }
 expect:
   output:

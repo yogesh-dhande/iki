@@ -181,12 +181,25 @@
           }
         },
         "reader": {
-          "enum": ["abif", "fcs", "mzml", "jcamp-dx", "image", "sam"],
-          "description": "Which of Iki's own readers takes the file's metadata, such as when it was acquired: `abif` for Sanger traces, `fcs` for flow cytometry, `mzml` for mass spectra. A manifest can't supply its own."
+          "enum": ["abif", "fcs", "mzml", "jcamp-dx", "image", "sam", "czi", "csv"],
+          "description": "Which of Iki's own readers takes the file's metadata, such as when it was acquired: `abif` for Sanger traces, `fcs` for flow cytometry, `mzml` for mass spectra, `czi` for Zeiss microscope images, `csv` for tables. A manifest can't supply its own."
         },
         "viewer": {
-          "enum": ["structure-pdb", "structure-mmcif", "alignment"],
-          "description": "Which of Iki's own viewers shows the file, where a record's viewer needs to decode it: a PDB or mmCIF structure, or an alignment."
+          "description": "The Iki viewer that shows this format's contents: on a file's page and from the records and runs that hold it (ADR 0226), and, for structure and alignment, in a type's display.viewers.",
+          "enum": [
+            "structure-pdb",
+            "structure-mmcif",
+            "alignment",
+            "pdf",
+            "image",
+            "image-tiff",
+            "table-csv",
+            "table-tsv",
+            "table-xlsx",
+            "chromatogram-abif",
+            "spectrum-mzml",
+            "spectrum-jcamp-dx"
+          ]
         }
       },
       "additionalProperties": false

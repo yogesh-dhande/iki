@@ -29,12 +29,14 @@ from uuid import UUID
 from django.db import transaction
 
 from iki_server.amounts import services as amounts
+from iki_server.api.problems import Problem
 from iki_server.entities import access, assignments, holds, registry, unique
 from iki_server.entities import services as entities
 from iki_server.entities.identity import hash_of, identity_of
 from iki_server.entities.models import Entity, UniqueValue
 from iki_server.entities.values import Invalid, shape, subtypes
 from iki_server.files.models import File
+from iki_server.files.scan_state import require_usable
 from iki_server.org import permissions
 from iki_server.org.models import registry_of
 from iki_server.org.services import Refused
@@ -254,9 +256,18 @@ def _creates_file(check: Check, given: object) -> UUID | None:
     except ValueError:
         check.error(_pointer("creates_file"), "Give the uploaded file's ID.")
         return None
-    own = RunUpload.objects.filter(run=check.run, upload__file_id=file_id).exists()
-    if not own:
+    own = (
+        RunUpload.objects.filter(run=check.run, upload__file_id=file_id)
+        .select_related("upload__file__blob")
+        .first()
+    )
+    if own is None or own.upload.file is None:
         check.error(_pointer("creates_file"), "Give a file this run uploaded, once it's ready.")
+        return None
+    try:
+        require_usable(own.upload.file.blob)
+    except Problem as error:
+        check.error(_pointer("creates_file"), error.detail)
         return None
     return file_id
 

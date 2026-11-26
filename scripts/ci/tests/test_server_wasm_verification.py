@@ -12,6 +12,7 @@ import pytest
 VERIFY = Path(__file__).resolve().parents[2] / "verify-server-wasm.sh"
 PINS = {
     "iki_wasm.wasm": "server/iki_wasm.wasm.sha256",
+    "iki_previews.wasm": "web/app/iki_previews.wasm.sha256",
     "dna-annotation.wasm": "plugins/plasmid/data/dna-annotation.wasm.sha256",
     "oligo-measurement.wasm": "plugins/dna/data/oligo-measurement.sha256",
     "plasmid-tools.wasm": "plugins/plasmid/data/plasmid-tools.wasm.sha256",

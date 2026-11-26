@@ -4,6 +4,13 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputProject {
+    pub id: String,
+    pub slug: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputFile {
     /// Its file name, such as model_1.pdb.
     pub name: String,
@@ -41,12 +48,22 @@ pub struct RunInputEntity {
     pub revision: i64,
     /// Field values at the pinned revision. Files and readable references carry IDs. A reference outside the project’s read access at launch carries the string `unreadable` on every attempt.
     pub values: serde_json::Map<String, serde_json::Value>,
+    /// For a request between projects (ADR 0132): the project that asked, which owns it, and the service it was sent to (null until it's sent), each by ID, slug and name, as either side's people see them (ADR 0232).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<RunInputEntityRequest>,
     /// Direct input records covered by this included service request at launch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub covered_materials: Option<Vec<String>>,
     /// The entities its references name, when the action's input includes them: for each reference, a list (one entity for a reference, a list's in order, none when it's empty), at the revisions the run was launched on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub included: Option<std::collections::BTreeMap<String, Vec<RunInputEntity>>>,
+}
+
+/// For a request between projects (ADR 0132): the project that asked, which owns it, and the service it was sent to (null until it's sent), each by ID, slug and name, as either side's people see them (ADR 0232).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputEntityRequest {
+    pub asking_project: RunInputProject,
+    pub service: Option<RunInputProject>,
 }
 
 /// What an action's command reads: the run, its params, and its inputs' values at the revisions the run was launched on. Commands receive the job ID, timeout and resource limits. The full job envelope is private to the worker.

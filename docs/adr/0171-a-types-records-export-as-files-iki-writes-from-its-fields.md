@@ -6,6 +6,8 @@
   [0052](0052-imports-file-params-and-origins.md),
   [0163](0163-a-plasmid-is-a-record-about-a-sequence-not-a-kind-of-sequence.md),
   [0168](0168-a-plasmids-topology-is-its-entrys-and-a-linear-molecules-ends-are-ends.md)
+- Refined by: [0229](0229-many-records-export-as-one-file-each-pinned-at-its-revision.md),
+  on many records as one file, and on protein and compound exports
 
 ## Context
 
@@ -200,8 +202,8 @@ Iki doesn't write `.dna`, for these reasons:
   change to the record.
 - The writers are Iki's, so every type that names its fields exports alike,
   and a fix reaches all of them. A plugin can't add a format of its own this
-  way. A file only a plugin can write, such as an SDF of a compound library,
-  stays an action that writes an artifact.
+  way. (ADR 0229 added Iki's own Molfile and SDF writers for compounds, and
+  removed the `export_sdf` action; ADR 0230 lets a plugin add a format.)
 - A `.dna` file comes into Iki, but goes out as GenBank. A lab that needs
   `.dna` back opens the GenBank file in SnapGene and saves it. If SnapGene
   publishes its format, or a reference writer can be tested against it, a

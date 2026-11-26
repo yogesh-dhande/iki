@@ -21,7 +21,6 @@ from iki_cli.workers import bundle
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / "plugin-template"
 SKILLS = TEMPLATE / ".agents/skills"
-DNA = ROOT / "plugins/dna"
 MAIN_LINK = re.compile(r"https://github\.com/yogesh-dhande/iki/(?:blob|tree)/main/([^\s)#]+)")
 
 
@@ -82,17 +81,21 @@ def template(tmp_path: Path) -> Path:
     return shutil.copytree(TEMPLATE, tmp_path / "my lab plugin", symlinks=True)
 
 
-def test_template_packages_the_agent_skills(template: Path, tmp_path: Path) -> None:
+def test_the_template_copy_includes_skills_only_for_authors(template: Path, tmp_path: Path) -> None:
     archive = tmp_path / "plugin.tar.gz"
     bundle(template, archive)
     with tarfile.open(archive, "r:gz") as packaged:
         members = set(packaged.getnames())
     for guide in SKILLS.glob("*/SKILL.md"):
         skill = guide.parent
-        assert guide.relative_to(TEMPLATE).as_posix() in members
-        assert f".claude/skills/{skill.name}/SKILL.md" in members
-        for script in (skill / "scripts").glob("*.sh"):
-            assert script.relative_to(TEMPLATE).as_posix() in members
+        for file in (
+            guide,
+            TEMPLATE / ".claude/skills" / skill.name / "SKILL.md",
+            *(skill / "scripts").glob("*.sh"),
+        ):
+            relative = file.relative_to(TEMPLATE)
+            assert (template / relative).read_bytes() == file.read_bytes()
+            assert relative.as_posix() not in members
 
 
 def run_skill(
@@ -115,9 +118,7 @@ def run_skill(
 
 def test_write_skill_generates_the_initial_migration(template: Path) -> None:
     shutil.rmtree(template / "migrations")
-    checked = run_skill(
-        template, "iki-write-plugin/scripts/validate-and-migrate.sh", ".", "--with", DNA
-    )
+    checked = run_skill(template, "iki-write-plugin/scripts/validate-and-migrate.sh", ".")
     assert checked.returncode == 0, checked.stdout + checked.stderr
     assert (template / "migrations/0001_initial.py").is_file()
 
@@ -146,7 +147,6 @@ def test_upgrade_skill_sends_the_built_candidate(
                 "iki-upgrade-plugin/scripts/build-and-preflight.sh",
                 "acme/example",
                 ".",
-                DNA,
                 IKI_URL=f"http://127.0.0.1:{server.server_port}",
                 IKI_TOKEN="fixture-token",
                 TMPDIR=str(tmp_path),

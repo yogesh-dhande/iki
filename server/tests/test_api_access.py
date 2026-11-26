@@ -15,6 +15,7 @@ from api_client import Api
 from ninja import NinjaAPI
 from org_world import PRINCIPALS, World, build_world
 from pydantic import BaseModel
+from test_files import run_tasks
 
 from iki_server.accounts import service_accounts
 from iki_server.api.v1 import api
@@ -84,18 +85,11 @@ def viewer_lab_roles(w: World) -> tuple[str, Any]:
 
 def starter_choice(operation: str) -> Build:
     def build(w: World) -> tuple[str, Any]:
-        from iki_server.org.models import Project, ProjectMembership, ProjectRole
-
-        requester = Project.objects.create(team=w.team, name="Assay requester")
-        ProjectMembership.objects.create(
-            project=requester, user=w.users["admin"], role=ProjectRole.EDITOR
-        )
         # The fixture deployment has no such starter. Only an authorized project Admin
         # reaches the catalog lookup.
         return f"/starters/dose-response/{operation}", {
             "project": str(w.project.pk),
-            "requester_project": str(requester.pk),
-            "version": "1.0.0",
+            "version": "2.0.0",
             "flow": "research",
             "role_assignments": {},
             **({"plan": "0" * 64} if operation == "apply" else {}),
@@ -144,6 +138,39 @@ def plasmid_export(w: World) -> tuple[Any, ...]:
 
     found = entities.create(w.users["editor"], "acme/dna.Plasmid", w.project, {"bases": "ACGT"})
     return f"/entities/{found.entity.pk}/export?format=genbank", None
+
+
+def record_export_request(w: World) -> tuple[Any, ...]:
+    """Many records as one file (ADR 0229): a plasmid, as FASTA."""
+    path, _ = plasmid_export(w)
+    hrid = path.split("/")[2]
+    return "/entity-exports", {"format": "fasta", "entities": [hrid]}
+
+
+def record_export(suffix: str = "") -> Build:
+    """The viewer's export of a plasmid, written: only they see it."""
+
+    def build(w: World) -> tuple[Any, ...]:
+        from iki_server.entities.models import RecordExport
+
+        found = _entity(w)
+        made = RecordExport.objects.create(
+            requested_by=w.users["viewer"],
+            via="web",
+            format="fasta",
+            selection=found.hrid,
+            records=[[str(found.pk), found.hrid, found.revision]],
+            projects=[w.project.pk],
+            read_in=[w.project.pk],
+            references=[found.pk],
+            name="Kinase Atlas DNA sequences (1).fasta",
+            state="ready",
+            sha256="0" * 64,
+            size=1,
+        )
+        return f"/entity-exports/{made.pk}{suffix}", None
+
+    return build
 
 
 def project_board(w: World) -> tuple[Any, ...]:
@@ -463,7 +490,7 @@ def bundle_export(suffix: str = "") -> Build:
             w.users["admin"], w.project, reason="For production", entities=[_entity(w).hrid]
         )
         BundleExport.objects.filter(pk=made.pk).update(
-            state="ready", sha256="0" * 64, size=1, references=made.picked
+            state="ready", sha256="0" * 64, size=1, references=made.picked, scanned_blobs=[]
         )
         return f"/bundles/{made.pk}{suffix}", None
 
@@ -928,6 +955,7 @@ def _workbook(w: World) -> Any:
         size=0,
         sha256=EMPTY_SHA256,
     )
+    run_tasks()
     upload.refresh_from_db()
     return upload.file
 
@@ -970,6 +998,18 @@ def spreadsheet_import(suffix: str = "", body: Any = None, *, if_match: bool = F
         return f"/spreadsheet-imports/{made.pk}{suffix}", body, headers
 
     return build
+
+
+def sheet_edit(w: World) -> tuple[str, Any]:
+    """A record's name changed in its project's sheet, from the revision read."""
+    record = _entity(w)
+    return f"/projects/{w.project.pk}/sheet-edits", {
+        "type": "acme/dna.DNASequence",
+        "reason": "Named after its insert",
+        "rows": [
+            {"key": "a", "entity": str(record.pk), "revision": 1, "values": {"name": "pUC19-ins"}}
+        ],
+    }
 
 
 def spreadsheet_mapping(w: World) -> tuple[str, Any]:
@@ -1041,7 +1081,7 @@ def registration() -> Build:
 
 
 def file(suffix: str = "") -> Build:
-    """An empty file, which is ready as soon as it's added."""
+    """An empty file, ready to use after scanning."""
 
     def build(w: World) -> tuple[Any, ...]:
         from iki_server.files import services as files
@@ -1055,6 +1095,7 @@ def file(suffix: str = "") -> Build:
             size=0,
             sha256=EMPTY_SHA256,
         )
+        run_tasks()
         added.refresh_from_db()
         return f"/files/{added.file_id}{suffix}", None
 
@@ -1512,6 +1553,16 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/entities/{ref}/contributors", entity("/contributors"), readers(200)),
     ("GET", "/entities/{ref}/revisions.csv", entity("/revisions.csv"), readers(200)),
     ("GET", "/entities/{ref}/export", plasmid_export, readers(200)),
+    ("POST", "/entity-exports", record_export_request, readers(201)),
+    ("GET", "/entity-exports", fixed("/entity-exports"), row(200)),
+    ("GET", "/entity-exports/{export_id}", record_export(), row(404, viewer=200)),
+    ("GET", "/entity-exports/{export_id}/content", record_export("/content"), row(404, viewer=302)),
+    (
+        "GET",
+        "/entity-exports/{export_id}/content-url",
+        record_export("/content-url"),
+        row(404, viewer=200),
+    ),
     ("GET", "/entities/{ref}/origins", entity("/origins"), readers(200)),
     ("GET", "/entities/{ref}/making", entity("/making"), readers(200)),
     ("GET", "/entities/{ref}/bundles", entity("/bundles"), readers(200)),
@@ -1820,6 +1871,22 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         visible(403, **dict.fromkeys(ENTITY_EDITORS, 201)),
     ),
     ("GET", "/uploads", fixed("/uploads"), row(200)),
+    ("GET", "/quarantine", fixed("/quarantine"), row(403, quarantine_admin=200)),
+    (
+        "GET",
+        "/quarantine/{decision_id}",
+        fixed("/quarantine/00000000-0000-0000-0000-000000000001"),
+        row(403, quarantine_admin=404),
+    ),
+    (
+        "POST",
+        "/quarantine/{decision_id}/release",
+        fixed(
+            "/quarantine/00000000-0000-0000-0000-000000000001/release",
+            {"reason": "Matched the independently verified original."},
+        ),
+        row(403, quarantine_admin=404),
+    ),
     ("GET", "/uploads/{upload_id}", upload(), row(404, editor=200)),
     ("POST", "/uploads/{upload_id}/parts", upload("/parts", {}), row(404, editor=200)),
     (
@@ -2124,6 +2191,20 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         visible(200, org_admin=403),
     ),
     ("DELETE", "/spreadsheet-mappings/{mapping_id}", spreadsheet_mapping, editors(204)),
+    # A type's records edited as a sheet (ADR 0228): an Editor's, as each record's edit is.
+    (
+        "POST",
+        "/projects/{project_id}/sheet-edits/check",
+        project("/sheet-edits/check", {"type": "acme/dna.DNASequence", "rows": []}),
+        {**editors(200), "org_admin": 403},
+    ),
+    ("POST", "/projects/{project_id}/sheet-edits", sheet_edit, {**editors(200), "org_admin": 403}),
+    (
+        "GET",
+        "/entity-types/{name}/import-template.csv",
+        fixed("/entity-types/acme/dna.DNASequence/import-template.csv"),
+        row(200),
+    ),
     # Stock, reorder lines and lot locations all require a project reader (ADR 0190).
     ("GET", "/projects/{project_id}/stock", project("/stock"), visible(200, org_admin=403)),
     (
@@ -2204,7 +2285,15 @@ def test_operation_matrix(
     request: pytest.FixtureRequest,
 ) -> None:
     if template.startswith(
-        ("/uploads", "/files", "/registrations", "/bundles", "/imports", "/spreadsheet")
+        (
+            "/uploads",
+            "/files",
+            "/registrations",
+            "/bundles",
+            "/imports",
+            "/spreadsheet",
+            "/entity-exports",
+        )
     ) or (template.endswith(("/bundles", "/imports", "/spreadsheet-imports"))):
         request.getfixturevalue("s3")
         settings = request.getfixturevalue("settings")

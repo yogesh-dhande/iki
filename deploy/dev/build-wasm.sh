@@ -14,6 +14,7 @@ container="$(docker create --platform linux/amd64 "$image")"
 tmp="$(mktemp -d spec/src/iki_spec/iki_wasm.XXXXXX)"
 trap 'docker rm "$container" >/dev/null; rm -rf "$tmp"' EXIT
 for file in /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm \
+  /src/worker/target/wasm32-unknown-unknown/release/iki_previews.wasm \
   /src/worker/oligo-measurement.wasm /src/worker/dna-annotation.wasm \
   /src/worker/rust-standard-library.html /src/plugins/plasmid/data/plasmid-tools.wasm \
   /src/plugins/dna/data/oligo-checks.wasm; do
@@ -24,5 +25,7 @@ done
 # Verify the staged canonical bytes before replacing any installed resource.
 scripts/verify-server-wasm.sh --portable-only "$tmp"
 mkdir -p spec/src/iki_spec/modules
+# Browsers alone run the previews' readers: the web app's image build has its own copy.
+rm "$tmp/iki_previews.wasm"
 mv "$tmp/plasmid-tools.wasm" "$tmp/oligo-checks.wasm" spec/src/iki_spec/modules/
 mv "$tmp"/* spec/src/iki_spec/

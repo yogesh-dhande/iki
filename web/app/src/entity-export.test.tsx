@@ -39,6 +39,7 @@ const SEQUENCE_TYPE = {
           extension: "gb",
           media_type: "chemical/seq-na-genbank",
           description: "The bases, topology and features, with their qualifiers.",
+          many: "file" as const,
         },
         {
           format: "fasta" as const,
@@ -46,6 +47,7 @@ const SEQUENCE_TYPE = {
           extension: "fasta",
           media_type: "chemical/seq-na-fasta",
           description: "The bases, with the record's ID, name and topology in its header.",
+          many: "file" as const,
         },
       ],
       sequence: "bases",

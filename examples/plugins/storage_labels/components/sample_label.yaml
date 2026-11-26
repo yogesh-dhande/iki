@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A component: a Web Component in one JavaScript module, which Iki shows in a
+# sandboxed frame with no network and no access to the person's session. Iki
+# gives it what it shows, as the person viewing it may read it. Use one only
+# for what Iki's own pages can't show.
+apiVersion: iki/v1
+kind: Component
+name: sample_label
+label: Label
+description: The sample's label, as it's printed for its tube.
+# One file, with everything it needs bundled in: the frame loads nothing else.
+module: ./components/sample-label.js
+# The custom element the module defines: lower case, with a hyphen.
+element: storage-sample-label
+# The many samples it can show at once, and only the fields it reads of each.
+entities: { type: Sample, fields: [name, kind, storage], limit: 200 }
+slots:
+  # A tab on each sample's page: its label.
+  - { slot: entity.tab, type: Sample }
+  # "Show as" in the grid of samples: a sheet of labels for what the grid finds.
+  - { slot: search.results, label: Labels }

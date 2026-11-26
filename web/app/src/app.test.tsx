@@ -159,6 +159,7 @@ describe("the frame", () => {
   it("shows the navigation each person may use", async () => {
     signedIn({
       can: {
+        manage_quarantine: false,
         manage_org: true,
         read_audit: false,
         create_projects: true,
@@ -197,6 +198,7 @@ describe("the frame", () => {
   it("offers every section to someone who may open them all, as server pages do", async () => {
     signedIn({
       can: {
+        manage_quarantine: false,
         manage_org: false,
         read_audit: true,
         create_projects: false,
@@ -294,6 +296,7 @@ describe("home", () => {
   it("welcomes people and lists their active projects", async () => {
     signedIn({
       can: {
+        manage_quarantine: false,
         manage_org: true,
         read_audit: false,
         create_projects: true,
@@ -355,6 +358,7 @@ describe("home", () => {
   it("points Org Admins without a team at teams", async () => {
     signedIn({
       can: {
+        manage_quarantine: false,
         manage_org: true,
         read_audit: true,
         create_projects: false,
@@ -374,6 +378,7 @@ describe("home", () => {
     provisionedOverScim();
     signedIn({
       can: {
+        manage_quarantine: false,
         manage_org: true,
         read_audit: true,
         create_projects: false,
@@ -394,6 +399,7 @@ describe("home", () => {
   it("tells everyone else whom to ask", async () => {
     signedIn({
       can: {
+        manage_quarantine: false,
         manage_org: false,
         read_audit: false,
         create_projects: false,
@@ -465,6 +471,7 @@ describe("a new project", () => {
   it("explains how to get a team", async () => {
     signedIn({
       can: {
+        manage_quarantine: false,
         manage_org: false,
         read_audit: false,
         create_projects: false,
@@ -567,6 +574,7 @@ describe("a project", () => {
   it("lets an Org Admin who isn't a member add themselves", async () => {
     signedIn({
       can: {
+        manage_quarantine: false,
         manage_org: true,
         read_audit: false,
         create_projects: false,
@@ -1565,6 +1573,7 @@ describe("webhooks", () => {
   const HOOKS = `/api/v1/projects/${PROJECT.id}/webhooks`;
   const ORG_ADMIN = {
     can: {
+      manage_quarantine: false,
       manage_org: true,
       read_audit: true,
       create_projects: true,

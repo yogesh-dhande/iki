@@ -253,6 +253,16 @@
     }
   },
   "$defs": {
+    "project": {
+      "type": "object",
+      "required": ["id", "slug", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "slug": { "type": "string" },
+        "name": { "type": "string" }
+      }
+    },
     "job": {
       "type": "object",
       "description": "For iki-worker, not the command: the lease it holds, and its limits.",
@@ -645,6 +655,16 @@
         "values": {
           "type": "object",
           "description": "Field values at the pinned revision. Files and readable references carry IDs. A reference outside the project’s read access at launch carries the string `unreadable` on every attempt."
+        },
+        "request": {
+          "description": "For a request between projects (ADR 0132): the project that asked, which owns it, and the service it was sent to (null until it's sent), each by ID, slug and name, as either side's people see them (ADR 0232).",
+          "type": "object",
+          "required": ["asking_project", "service"],
+          "additionalProperties": false,
+          "properties": {
+            "asking_project": { "$ref": "#/$defs/project" },
+            "service": { "oneOf": [{ "$ref": "#/$defs/project" }, { "type": "null" }] }
+          }
         },
         "covered_materials": {
           "description": "Direct input records covered by this included service request at launch.",

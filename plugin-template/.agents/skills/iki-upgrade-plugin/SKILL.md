@@ -9,15 +9,15 @@ Record the exact deployed plugin commit and dependency pins from the deployment 
 
 1. Edit the manifests and bump the plugin `version`. Increase each affected type's `schema_version` when what a record may hold changes, such as a new field or tightened rule. Review dependent plugins' schema ranges before releasing. Add optional fields first if old records have no value.
 2. Validate using the intended dependency versions. Run `iki plugin makemigrations` interactively for a rename and confirm the intended pair. Mark removed fields `removed: true` so historical values remain readable. If you remove a state, give stored records a valid destination and review the effect on signed history. [Generated migrations](https://github.com/yogesh-dhande/iki/blob/main/docs/adr/0033-plugin-codegen-and-migrations.md) · [State migrations](https://github.com/yogesh-dhande/iki/blob/main/docs/adr/0121-a-plugin-cant-strand-records-in-a-state-it-removes.md)
-3. Review the migration and test against the base commit. Set `PLUGIN` to the plugin directory, `BASE` to the deployed Git revision, and `IKI_TEST_DATABASE_URL` to an isolated PostgreSQL server where the test can create a scratch database. Run with a compatible `iki-worker` on `PATH` or in `IKI_WORKER`. The example uses a dependency directory `DNA`; omit it when unused and repeat `--with` for other dependencies.
+3. Review the migration and test against the base commit. Set `PLUGIN` to the plugin directory, `BASE` to the deployed Git revision, and `IKI_TEST_DATABASE_URL` to an isolated PostgreSQL server where the test can create a scratch database. Run with a compatible `iki-worker` on `PATH` or in `IKI_WORKER`. The template has no external dependencies. For a lab plugin with dependencies, add each directory using `--with`.
 
 ```sh
-iki plugin validate "$PLUGIN" --with "$DNA"
-iki plugin makemigrations "$PLUGIN" --with "$DNA"
-iki plugin test "$PLUGIN" --with "$DNA" --upgrade-from "$BASE"
+iki plugin validate "$PLUGIN"
+iki plugin makemigrations "$PLUGIN"
+iki plugin test "$PLUGIN" --upgrade-from "$BASE"
 ```
 
-Use `MigrateValues` for a backfill, with a reason, plugin version and migration name. The callback returns the columns to set on each historical model instance. Add `after` to a current `upgrade: true` fixture to check the exact values on each sample, for example `after: { sample: [{ notes: S1 }] }`. A newly added field taking its manifest default needs no `after`. [Backfill example](https://github.com/yogesh-dhande/iki/blob/main/cli/README.md#iki-plugin-test)
+Use `MigrateValues` for a backfill, with a reason, plugin version and migration name. The callback returns the columns to set on each historical model instance. Add `after` to a current `upgrade: true` fixture to check the exact values on each sample, for example `after: { sample: [{ notes: S1 }] }`. A newly added field taking its manifest default needs no `after`. [Backfill example](https://ikisci.org/reference/cli/#iki-plugin-test)
 
 Read the upgrade output and confirm that it created representative samples, moved them forward with history intact and rolled them back with their previous values. Add an explicit migration test when the base action fixtures don't cover important existing values or a signed revision. [Upgrade test contract](https://github.com/yogesh-dhande/iki/blob/main/docs/adr/0094-a-plugins-upgrade-is-tested-from-an-earlier-commit.md)
 
@@ -26,7 +26,7 @@ Read the upgrade output and confirm that it created representative samples, move
 Select the deployment to check with the Iki SDK sign-in or `IKI_URL` and an all-project `IKI_TOKEN` with the `read` and `admin` scopes. Run as an Org Admin with read access to every project, including archived projects. Set `SKILL_DIR` to this skill directory and `PLUGIN_NAME` to the qualified plugin name. The script takes dependency directories as positional arguments. It uses `iki plugin build` to write a temporary compiled package, then runs `iki plugin preflight` with its `manifest.json`.
 
 ```sh
-sh "$SKILL_DIR/scripts/build-and-preflight.sh" "$PLUGIN_NAME" "$PLUGIN" "$DNA"
+sh "$SKILL_DIR/scripts/build-and-preflight.sh" "$PLUGIN_NAME" "$PLUGIN"
 ```
 
 Record the candidate and configuration revisions from the report. Exit 0 is clear, exit 1 calls for review of findings or incomplete sample coverage, and exit 2 is an input, connection or access error. Resolve incompatible existing records through a reviewed migration or remediation plan and rerun the check. For a promotion, run preflight using the manifest built with the deployment's actual settings and pinned dependencies. [Preflight and promotion](https://ikisci.org/guides/keep-configuration-in-a-repository/#promote-a-change-to-production)

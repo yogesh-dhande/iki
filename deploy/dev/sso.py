@@ -1,8 +1,8 @@
 """Sets up sign-in on the dev cluster through the real wizard and Keycloak.
 
-    uv run python deploy/dev/sso.py                     # set up SSO, bob becomes admin
-    uv run python deploy/dev/sso.py --check             # exercise sign-in and product scenarios
-    uv run python deploy/dev/sso.py --check --fixtures  # also exercise the dev-ci overlay
+    uv run python -m deploy.dev.sso                     # set up SSO, bob becomes admin
+    uv run python -m deploy.dev.sso --check             # exercise sign-in and product scenarios
+    uv run python -m deploy.dev.sso --check --fixtures  # also exercise the dev-ci overlay
 
 It drives Iki like a browser: opens a one-time setup link from
 `iki-server setup_link`, fills in the wizard, signs in on Keycloak's login
@@ -36,8 +36,7 @@ from uuid import UUID
 
 import requests
 import urllib3.util.connection
-
-from iki_server.setup import public_plate
+from examples.dose_response import public_plate, tutorial
 
 IKI = "http://localhost:8000"
 #: The web workload to exec into and read logs from (``--web``).
@@ -52,6 +51,7 @@ RECEIVER = {"url": "http://127.0.0.1:8090"}
 RECEIVER_IN_CLUSTER = "http://webhook-receiver.iki.svc:8080"
 #: The fake LIMS's list of the requests it took (Tilt's port-forward).
 LIMS = {"url": "http://127.0.0.1:8091"}
+FOLDCLOUD_REQUESTS = {"url": "http://127.0.0.1:8092/requests"}
 CONTEXT = "kind-iki"
 NAMESPACE = "iki"
 
@@ -660,6 +660,23 @@ def rest_api(admin: requests.Session) -> None:
     if not atlas:
         fail("alice's Atlas project isn't listed as hers")
     project_id = atlas[-1]["id"]
+    # EICAR's harmless antivirus test file exercises the deployed clamd and its signatures.
+    eicar = rb"X5O!P%@AP[4\PZX54(P^)7CC)7}" + b"$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+    held = upload(
+        alice, atlas[-1], "eicar.com", eicar, "application/octet-stream", expected_scan="infected"
+    )
+    evidence = api_call(alice, "GET", f"/files/{held}").json()["scan"]
+    if (
+        not evidence["scanner"].startswith("ClamAV ")
+        or not evidence["signature_version"]
+        or "eicar" not in evidence["reason"].lower()
+    ):
+        fail(f"EICAR has incomplete scanner evidence: {evidence}")
+    refused_url = api_call(alice, "GET", f"/files/{held}/content-url")
+    if refused_url.status_code != 409 or refused_url.json().get("code") != "file_quarantined":
+        fail(f"a quarantined file's content URL answered HTTP {refused_url.status_code}")
+    ok("ClamAV detected the EICAR test file and Iki quarantined it")
+
     granted = api_call(
         alice,
         "PUT",
@@ -1315,7 +1332,7 @@ def strain_stocks(
     alice: requests.Session, project: dict[str, Any], plasmid: dict[str, Any]
 ) -> None:
     """A catalogue strain, a local transformant and the data from a scanned stock draw."""
-    catalogue = Path(__file__).resolve().parents[2] / "plugins/strains/data/atcc.csv"
+    catalogue = Path(__file__).resolve().parents[2] / "plugins/strains/tests/data/atcc.csv"
     file_id = upload(alice, project, "atcc.csv", catalogue.read_bytes(), "text/csv")
     imported = launch(alice, project, "iki/strains.import_base_strains", {}, {"file": file_id})
     entries = [
@@ -1691,7 +1708,7 @@ def sequences_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
     )
 
 
-#: The fake LIMS's records (deploy/dev/manifests/fake-lims.yaml).
+#: The fake LIMS's records (deploy/dev/fixtures/fake-lims.yaml).
 LIMS_RECORDS = ("LIMS-0001", "LIMS-0002", "LIMS-0003")
 
 
@@ -1699,7 +1716,7 @@ def lims(alice: requests.Session, project: dict[str, Any]) -> None:
     """Run the example connector against the fake LIMS, importing records over HTTPS,
     through the egress proxy, at the host the deployment's settings give, then again,
     matching each record to its protein, and a write-back."""
-    action = "iki/lims_connector_example.import_from_lims"
+    action = "acme/lims_connector.import_from_lims"
     run = launch(alice, project, action, {})
     if run["network"] != ["fake-lims.iki.svc"]:
         fail(f"{run['hrid']} may reach {run['network']}, not the host lims_host gives")
@@ -1728,9 +1745,7 @@ def lims(alice: requests.Session, project: dict[str, Any]) -> None:
         fail(f"importing again ({again['hrid']}) gave {again['effects']}, not the same three")
     ok(f"importing again matched each record to its protein, unchanged ({again['hrid']})")
     first = found[LIMS_RECORDS[0]]
-    sent = launch(
-        alice, project, "iki/lims_connector_example.send_to_lims", {"proteins": [first["id"]]}
-    )
+    sent = launch(alice, project, "acme/lims_connector.send_to_lims", {"proteins": [first["id"]]})
     deadline = time.monotonic() + 30
     while True:
         patched = [
@@ -2833,7 +2848,7 @@ def core_facility_requests(
 ) -> None:
     """The working core returns production and sequencing deliverables through Requests."""
     give_lab_roles(analyst, core, "iki/lab_roles.coordinator")
-    example = Path(__file__).resolve().parents[2] / "plugins" / "requests" / "examples"
+    example = Path(__file__).resolve().parents[2] / "examples" / "core-facility-requests"
     # The production transaction is simulated; only the registered UniProt identity is public.
     fasta = (example / "P00330.fasta").read_text().splitlines()
     protein = created(
@@ -2903,12 +2918,71 @@ def core_facility_requests(
             f"{request['hrid']}: {delivery['hrid']} returned its report "
             f"with {len(steps)} signatures"
         )
+        if prefix == "QC":
+            booked_for_the_analyst(analyst, reviewer, core, request)
         if prefix == "Research":
             plain = created(
                 analyst, asking, "iki/requests.PlainRequest", {"title": "Training handoff"}
             )
             start_service_work(analyst, core, plain)
             work_and_deliverable(analyst, reviewer, requester, core, plain, report)
+
+
+def booked_for_the_analyst(
+    coordinator: requests.Session,
+    analyst: requests.Session,
+    core: dict[str, Any],
+    request: dict[str, Any],
+) -> None:
+    """The core's coordinator books its sequencer for the analyst who runs the request:
+    it's on the analyst's home and the request's lineage, and on the coordinator's home
+    among the bookings she made for others, not her own."""
+    who = api_call(analyst, "GET", "/me").json()["id"]
+    stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    sequencer = created(
+        coordinator, core, "iki/equipment.Instrument", {"name": f"PromethION {stamp}"}
+    )
+    start = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) + timedelta(days=1)
+    booking = created(
+        coordinator,
+        core,
+        "iki/equipment.Booking",
+        {
+            "purpose": "Long-read sequencing run",
+            "instrument": sequencer["id"],
+            "starts_at": start.isoformat(),
+            "ends_at": (start + timedelta(hours=48)).isoformat(),
+            "booked_by": who,
+            "work": request["id"],
+        },
+    )
+    this = {"field": "hrid", "op": "eq", "value": booking["hrid"]}
+
+    def home(session: requests.Session, component: str) -> list[dict[str, Any]]:
+        path = f"/components/iki/equipment.{component}/entities"
+        found = api_call(session, "POST", path, {"home": True, "refine": {"where": this}})
+        if found.status_code != 200:
+            fail(f"{component} on a home answered HTTP {found.status_code}: {found.text[:300]}")
+        items: list[dict[str, Any]] = found.json()["items"]
+        return items
+
+    theirs = home(analyst, "booking_calendar")
+    if [i["hrid"] for i in theirs] != [booking["hrid"]]:
+        fail(f"the analyst's home shows {[i['hrid'] for i in theirs]}, not {booking['hrid']}")
+    if theirs[0]["refs"].get(request["id"], {}).get("hrid") != request["hrid"]:
+        fail(f"{booking['hrid']} on the analyst's home doesn't say it's for {request['hrid']}")
+    if home(coordinator, "booking_calendar"):
+        fail(f"the coordinator's own bookings include {booking['hrid']}, made for the analyst")
+    made = home(coordinator, "bookings_made")
+    if [i["hrid"] for i in made] != [booking["hrid"]] or who not in made[0]["people"]:
+        fail(f"the coordinator's bookings for others show {made}")
+    lineage = api_call(analyst, "GET", f"/entities/{request['id']}/downstream")
+    if booking["id"] not in {i["entity"]["id"] for i in lineage.json()["items"]}:
+        fail(f"{request['hrid']}'s lineage doesn't list {booking['hrid']}: {lineage.text[:300]}")
+    ok(
+        f"{booking['hrid']}, booked by the core's coordinator for the analyst running "
+        f"{request['hrid']}, is on the analyst's home and the request's lineage"
+    )
 
 
 def work_and_deliverable(
@@ -3345,7 +3419,8 @@ def bookings(alice: requests.Session, project: dict[str, Any]) -> None:
     items = tab.json()["items"]
     if [i["hrid"] for i in items] != [b["hrid"] for b in booked[:2]]:
         fail(f"{reader['hrid']}'s calendar shows {[i['hrid'] for i in items]}, not its bookings")
-    if set(items[0]["values"]) != {"purpose", "instrument", "starts_at", "ends_at"}:
+    reads = {"purpose", "instrument", "starts_at", "ends_at", "booked_by", "work", "cancelled"}
+    if not {"purpose", "instrument", "starts_at", "ends_at"} <= set(items[0]["values"]) <= reads:
         fail(f"the calendar was given {sorted(items[0]['values'])}, not the fields it reads")
     if items[0]["refs"].get(entry_of(reader), {}).get("hrid") != reader["hrid"]:
         fail(f"the calendar wasn't given {reader['hrid']}, which its bookings name")
@@ -3368,7 +3443,7 @@ def bookings(alice: requests.Session, project: dict[str, Any]) -> None:
         fail(f"Alice's home calendar shows {[i['hrid'] for i in home]} of the bookings she made")
     ok(
         f"the booking calendar shows {reader['hrid']}'s bookings on its tab, a day of them "
-        "when it narrows, and Alice's on her home, with only the four fields it reads"
+        "when it narrows, and Alice's on her home, with only the fields it reads"
     )
     # An app places it beside Iki's own grid, given the instrument picked there.
     spec = {
@@ -3475,9 +3550,9 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
     antibodies(alice, project)
 
 
-#: The example models plugin's outside API (plugins/example_models), and where the dev
-#: cluster's settings point it: the fake FoldCloud (manifests/fake-foldcloud.yaml).
-FOLDCLOUD = "iki/example_models.foldcloud"
+#: The example models plugin's outside API (examples/plugins/hosted_models), and where the dev
+#: cluster's settings point it: the fake FoldCloud (fixtures/fake-foldcloud.yaml).
+FOLDCLOUD = "lab/hosted_models.foldcloud"
 FOLDCLOUD_HOST = "fake-foldcloud.iki.svc"
 #: What the CI fixture charges for its calls, in USD: per call, and per GPU second
 #: the finished job reports. The fake reports half a GPU second per residue.
@@ -3501,7 +3576,7 @@ def foldcloud(alice: requests.Session, project: dict[str, Any]) -> None:
     approvals = f"/outside-apis/{FOLDCLOUD}/approvals"
     # One left by an earlier check that stopped part way.
     api_call(bob, "DELETE", f"{approvals}/{project['id']}")
-    action = "iki/example_models.predict_structure"
+    action = "lab/hosted_models.predict_structure"
     body = {"project": project["id"], "inputs": {"protein": protein["id"]}, "params": {}}
     refused = api_call(alice, "POST", f"/actions/{action}/runs", {**body, "consent": [FOLDCLOUD]})
     if refused.status_code != 409 or refused.json().get("code") != "outside_api_not_approved":
@@ -3524,6 +3599,23 @@ def foldcloud(alice: requests.Session, project: dict[str, Any]) -> None:
         park = run["park"] or {}
         if park.get("api") != "foldcloud" or park.get("outcome") != "done":
             fail(f"{run['hrid']} didn't park on FoldCloud's job and resume: {park}")
+        # The request log is written once Iki answers the callback.
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            callbacks = requests.get(FOLDCLOUD_REQUESTS["url"], timeout=5).json()
+            if any(
+                event["method"] == "CALLBACK"
+                and event["job"] == park["job"]
+                and 200 <= event["status"] < 300
+                for event in callbacks
+            ):
+                break
+            time.sleep(0.5)
+        else:
+            fail(f"FoldCloud did not deliver the signed callback for {park['job']}")
+        attempts = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+        if [(a["attempt"], a["state"]) for a in attempts] != [(1, "parked"), (2, "succeeded")]:
+            fail(f"{run['hrid']}'s attempts did not park and resume: {attempts}")
         me = api_call(alice, "GET", "/me").json()
         consent = run["consent"] or {}
         if (
@@ -3581,8 +3673,51 @@ def foldcloud(alice: requests.Session, project: dict[str, Any]) -> None:
             f"({run['hrid']}): parked on {park['job']}, woke on its webhook after "
             f"{park['polls']} poll(s), made by fold-2 2.1.0, costing {cost['apis']} USD"
         )
+        cancel_foldcloud(alice, action, body)
     finally:
         api_call(bob, "DELETE", f"{approvals}/{project['id']}")
+
+
+def cancel_foldcloud(alice: requests.Session, action: str, body: dict[str, Any]) -> None:
+    """Cancel a second job after it parks and check what the provider received."""
+    # The fixture spends five seconds on each recycle. A longer job leaves time to
+    # observe the park and cancel it through the same API the Runs page uses.
+    launched = api_call(
+        alice,
+        "POST",
+        f"/actions/{action}/runs",
+        {**body, "params": {"num_recycles": 20}, "consent": [FOLDCLOUD]},
+    )
+    if launched.status_code != 201:
+        fail(f"launching {action} for cancellation answered {launched.status_code}")
+    path = f"/runs/{launched.json()['id']}"
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        run = api_call(alice, "GET", path).json()
+        if run["status"] == "parked":
+            break
+        if run["finished_at"]:
+            fail(f"{run['hrid']} ended before cancellation: {run['status']}")
+        time.sleep(1)
+    else:
+        fail(f"{path} did not park for cancellation")
+    job = run["park"]["job"]
+    cancelled = api_call(alice, "POST", f"{path}/cancel", {"reason": "Fixture cancellation check"})
+    if cancelled.status_code != 200 or cancelled.json()["status"] != "cancelled":
+        fail(f"cancelling {run['hrid']} answered {cancelled.status_code}: {cancelled.text[:300]}")
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        ended = api_call(alice, "GET", path).json()
+        if ended["park"]["outcome"] == "cancelled":
+            break
+        time.sleep(1)
+    else:
+        fail(f"{run['hrid']}'s park did not record its cancellation")
+    calls = api_call(alice, "GET", f"{path}/api-calls").json()["items"]
+    sent = [(c["method"], c["path"], c["status"]) for c in calls if c["kind"] == "cancel"]
+    if sent != [("POST", f"/v1/predictions/{job}/cancel", 200)] or ended["effects"]:
+        fail(f"{run['hrid']}'s cancellation recorded {sent} and effects {ended['effects']}")
+    ok(f"{action} cancelled {job} at FoldCloud without importing a structure")
 
 
 #: Aspirin, its standard InChIKey, and its sodium salt.
@@ -4035,18 +4170,51 @@ def fit_assay_plate(
     return fits
 
 
-def dose_response_starters(alice: requests.Session, asking: dict[str, Any]) -> None:
-    """Two cores choose different flows for the same assay and return the signed result."""
+class TutorialApi:
+    """Run the same tutorial as a lab, through Alice's browser session and upload URLs."""
+
+    def __init__(self, session: requests.Session) -> None:
+        self.session = session
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> Any:  # noqa: ANN401 - parsed API response
+        response = api_call(self.session, method, path, json, headers)
+        if not 200 <= response.status_code < 300:
+            fail(f"{method} {path} answered HTTP {response.status_code}: {response.text[:300]}")
+        return response.json() if response.content else None
+
+    def upload(self, project: str, path: Path) -> str:
+        return upload(self.session, {"id": project}, path.name, path.read_bytes(), "text/csv")
+
+
+def dose_response_tutorial(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Run the Tox21 tutorial in each review flow and return the signed fits to its requester."""
     bob, carol = sign_in_as("bob"), sign_in_as("carol")
     people = {
         name: api_call(s, "GET", "/me").json()["id"]
         for name, s in (("alice", alice), ("bob", bob), ("carol", carol))
     }
-    requester = cli_read_token(alice, project=asking["id"])
-    for flow, name in (("research", "Research plate assays"), ("regulated_qc", "QC plate assays")):
-        core = core_project(alice, asking, name)
-        example = apply_plate_starter(alice, core, asking, flow, people)
-        receive_starter_tubes(alice, example["request"], [example[k] for k in public_plate.SERIES])
+    api = TutorialApi(alice)
+    team = project["team"]["id"]
+    for flow in ("research", "regulated_qc"):
+        example = tutorial.prepare(
+            api,
+            team=team,
+            flow=flow,
+            state=tutorial.state_path(IKI, team, flow),
+            analyst=people["alice"],
+            reviewer=people["bob"],
+            qa=people["carol"] if flow == "regulated_qc" else None,
+        )
+        core = api.request("GET", f"/projects/{example['project']}")
+        requester = cli_read_token(alice, project=example["requester_project"])
+        receive_tutorial_tubes(alice, example["request"], [example[k] for k in public_plate.SERIES])
         plate = record(alice, example["plate"])
         if plate["values"]["reagent_tube"] != example["tube"]:
             fail("the example plate lost its luciferase reagent tube")
@@ -4060,66 +4228,11 @@ def dose_response_starters(alice: requests.Session, asking: dict[str, Any]) -> N
                 or plate["values"]["reader_file"] != example["reader_file"]
             ):
                 fail(f"{result['hrid']} failed to retain the starter flow, source or request")
-            sign_starter_result(result, example["request"], requester, alice, bob, carol, people)
-        ok(f"{name} returned both signed flavonoid IC50s to {asking['name']}")
+            sign_tutorial_result(result, example["request"], requester, alice, bob, carol, people)
+        ok(f"{core['name']} returned both signed flavonoid IC50s to its tutorial requester")
 
 
-def apply_plate_starter(
-    alice: requests.Session,
-    core: dict[str, Any],
-    asking: dict[str, Any],
-    flow: str,
-    people: dict[str, str],
-) -> dict[str, str]:
-    name = core["name"]
-    members = {}
-    for user, user_id in people.items():
-        grant = api_call(
-            alice,
-            "PUT",
-            f"/projects/{core['id']}/members/users/{user_id}",
-            {"role": "admin" if user == "alice" else "editor"},
-        )
-        if grant.status_code != 200:
-            fail(f"adding {user} to {name} answered HTTP {grant.status_code}: {grant.text}")
-        members[user] = grant.json()["id"]
-    catalogue = api_call(alice, "GET", f"/starters?project={core['id']}").json()
-    starter = next(st for st in catalogue if st["id"] == "dose-response")
-    assignments = {
-        "iki/lab_roles.coordinator": [members["alice"]],
-        "iki/plate_assays.analyst": [members["alice"]],
-        "iki/plate_assays.reviewer": [members["bob"]],
-    }
-    if flow == "regulated_qc":
-        assignments["iki/plate_assays.qa"] = [members["carol"]]
-    setup = {
-        "version": starter["version"],
-        "project": core["id"],
-        "requester_project": asking["id"],
-        "flow": flow,
-        "role_assignments": assignments,
-    }
-    path = f"/starters/{starter['id']}"
-    # Applying names the plan its preview returned: what was reviewed (ADR 0207).
-    for operation in ("preview", "apply"):
-        response = api_call(alice, "POST", f"{path}/{operation}", setup)
-        if response.status_code != 200:
-            fail(f"{operation} for {name} answered HTTP {response.status_code}: {response.text}")
-        setup = {**setup, "plan": response.json()["plan"]}
-    installed = response.json()
-    again = api_call(alice, "POST", f"{path}/apply", setup)
-    if (
-        again.status_code != 200
-        or again.json()["changed"]
-        or (again.json()["examples"] != installed["examples"])
-    ):
-        fail(f"applying the starter twice in {name} gave {again.status_code}: {again.text}")
-
-    examples: dict[str, str] = installed["examples"]
-    return examples
-
-
-def sign_starter_result(
+def sign_tutorial_result(
     result: dict[str, Any],
     request: str,
     requester: str,
@@ -4165,7 +4278,7 @@ def sign_starter_result(
         fail(f"{result['hrid']} did not return the signed fit and its release revision")
 
 
-def receive_starter_tubes(alice: requests.Session, request_id: str, tube_ids: list[str]) -> None:
+def receive_tutorial_tubes(alice: requests.Session, request_id: str, tube_ids: list[str]) -> None:
     """Scan all the labelled tubes once, even if the dev check is being run again."""
     path = f"/entities/{request_id}/receipts"
     prior = api_call(alice, "GET", path).json()["receipts"]
@@ -4210,14 +4323,14 @@ def receive_starter_tubes(alice: requests.Session, request_id: str, tube_ids: li
             fail(f"completing the example receipt answered {done.status_code}: {done.text}")
         completed = [done.json()]
     if len(completed) != 1:
-        fail(f"the starter request has {len(completed)} completed receipts")
+        fail(f"the tutorial request has {len(completed)} completed receipts")
     received = read_completed_receipt(alice, completed[0]["id"])
     if {
         line["entity"]
         for line in received["lines"]
         if line["outcome"] == "matched" and line["received_unplaced"] and line["put_away"] is None
     } != set(tube_ids) or len(received["lines"]) != len(tube_ids):
-        fail(f"the starter tubes were not received in unplaced custody: {received['lines']}")
+        fail(f"the tutorial tubes were not received in unplaced custody: {received['lines']}")
 
 
 def linked_experiment(
@@ -4644,16 +4757,6 @@ def equipment_calibration(
             "suspect_since": performed.isoformat(),
         },
     )
-    configured = api_call(
-        alice,
-        "POST",
-        f"/projects/{project['id']}/triggers/{prefix}trace_failed_instrument/enable",
-        {},
-    )
-    if configured.status_code != 200 or not configured.json()["enabled"]:
-        fail(
-            f"enabling the calibration trigger answered {configured.status_code}: {configured.text}"
-        )
     for field, state in (("service", "out_of_service"), ("calibration", "failed")):
         change(
             instrument,
@@ -4661,26 +4764,18 @@ def equipment_calibration(
             {"state": state, "reason": "Synthetic calibration failure"},
             method="POST",
         )
-    deadline = time.monotonic() + 120
-    while time.monotonic() < deadline:
-        cases = api_call(
-            alice,
-            "POST",
-            "/entities/search",
-            {
-                "type": prefix + "CalibrationImpact",
-                "project": project["id"],
-                "where": {"field": "failure", "op": "eq", "value": failure["id"]},
-            },
-        )
-        if cases.status_code != 200:
-            fail(f"reading calibration impacts answered HTTP {cases.status_code}: {cases.text}")
-        if cases.json()["items"]:
-            break
-        time.sleep(2)
-    else:
-        fail(f"the calibration trigger did not find {use['hrid']} for {failure['hrid']}")
-    [impact] = cases.json()["items"]
+    traced = launch(
+        alice,
+        project,
+        prefix + "trace_failed_calibrations",
+        {
+            "instrument": instrument["id"],
+            "calibrations": [passing["id"], failure["id"]],
+            "uses": [use["id"]],
+        },
+    )
+    [case] = [effect["entity"] for effect in traced["effects"]]
+    impact = record(alice, case)
     if (
         impact["values"]["use"] != use["id"]
         or impact["values"]["failure_revision"] != failure["revision"]
@@ -4879,18 +4974,11 @@ def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
     another origin on the other strand finding the entries it has already; a plasmid under
     a material transfer agreement having to name it (ADR 0127); and a cloning plan that
     puts pUC19's own polylinker back between its EcoRI and HindIII sites making pUC19
-    again — the same molecule, so the registry gives back the entry it has (ADR 0138) —
-    which its construct states then follow, up to the four-eyes guard that won't let
-    whoever built it verify it (ADR 0128)."""
-    give_lab_roles(alice, project, "iki/plasmid.cloner", "iki/plasmid.construct_reviewer")
-    # A trigger is off until a project Admin turns it on, and then its runs are launched as
-    # them: nothing annotates a plasmid, or checks a plan against the clone's sequence,
-    # before alice turns these on herself.
+    again — the same molecule, so the registry gives back the entry it has (ADR 0138)."""
     annotating = "iki/plasmid.annotate_new_plasmid"
-    for trigger in (annotating, "iki/plasmid.check_stated_product"):
-        on = api_call(alice, "POST", f"/projects/{project['id']}/triggers/{trigger}/enable", {})
-        if on.status_code != 200 or not on.json().get("enabled"):
-            fail(f"turning {trigger} on answered HTTP {on.status_code}: {on.text[:300]}")
+    on = api_call(alice, "POST", f"/projects/{project['id']}/triggers/{annotating}/enable", {})
+    if on.status_code != 200 or not on.json().get("enabled"):
+        fail(f"turning {annotating} on answered HTTP {on.status_code}: {on.text[:300]}")
     action = "iki/plasmid.register_plasmid"
     run, plasmid = register_puc19(alice, project)
     kinds = {e["type"]: e["kind"] for e in run["effects"]}
@@ -4973,8 +5061,7 @@ def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
         f"reused ({run['hrid']})"
     )
     read_bases(alice, project, plasmid)
-    plan = assembled(alice, project, plasmid)
-    constructs(alice, project, plan)
+    assembled(alice, project, plasmid)
     strain_stocks(alice, project, plasmid)
 
 
@@ -5098,9 +5185,7 @@ def read_bases(alice: requests.Session, project: dict[str, Any], plasmid: dict[s
     )
 
 
-def assembled(
-    alice: requests.Session, project: dict[str, Any], plasmid: dict[str, Any]
-) -> dict[str, Any]:
+def assembled(alice: requests.Session, project: dict[str, Any], plasmid: dict[str, Any]) -> None:
     """A cloning plan, worked out: pUC19 cut with EcoRI and HindIII keeps its 2,635 bp
     fragment, and its polylinker goes back in as the 51 bp piece between the two sites, so
     the plan makes 2,686 bp — pUC19 again, which the registry recognises. Then the clone is
@@ -5185,42 +5270,6 @@ def assembled(
     ok(
         f"{assembly['hrid']}: the clone's sequence stated, and the trigger's check found "
         f"the plan makes it (2686 bp, the same molecule from any origin and either strand)"
-    )
-    return assembly
-
-
-def constructs(alice: requests.Session, project: dict[str, Any], assembly: dict[str, Any]) -> None:
-    """A construct's states: Checked only once the plan matches its product, Built from
-    Checked, and Verified by someone other than whoever built it (ADR 0128)."""
-    for state in ("checked", "built"):
-        etag = api_call(alice, "GET", f"/entities/{assembly['id']}").headers["ETag"]
-        moved = api_call(
-            alice,
-            "POST",
-            f"/entities/{assembly['id']}/states/status",
-            {"state": state, "reason": ""},
-            {"If-Match": etag},
-        )
-        if moved.status_code != 200:
-            fail(
-                f"setting {assembly['hrid']} {state} answered HTTP {moved.status_code}: "
-                f"{moved.text[:300]}"
-            )
-    etag = api_call(alice, "GET", f"/entities/{assembly['id']}").headers["ETag"]
-    refused = api_call(
-        alice,
-        "POST",
-        f"/entities/{assembly['id']}/states/status",
-        {"state": "verified", "reason": ""},
-        {"If-Match": etag},
-    )
-    if refused.status_code != 409 or refused.json().get("code") != "guard_refused":
-        fail(
-            f"verifying her own construct answered HTTP {refused.status_code}: {refused.text[:300]}"
-        )
-    ok(
-        f"{assembly['hrid']} is Checked and Built, and alice may not verify what she built: "
-        f"{refused.json()['detail']}"
     )
 
 
@@ -6282,6 +6331,8 @@ def upload(
     name: str,
     data: bytes,
     media_type: str = "chemical/x-pdb",
+    *,
+    expected_scan: str = "clean",
 ) -> str:
     """A file added as the web app adds one: its parts sent to the URLs Iki signs, then
     checked. Returns its ID."""
@@ -6316,8 +6367,11 @@ def upload(
     while time.monotonic() < deadline:
         made = api_call(alice, "GET", f"/uploads/{made['id']}").json()
         if made["state"] == "ready":
+            scan = made["file"]["scan"]
+            if scan["state"] != expected_scan or scan["usable"] != (expected_scan == "clean"):
+                fail(f"unexpected scan decision for {name}: {scan}")
             return str(made["file"]["id"])
-        if made["state"] != "checking":
+        if made["state"] not in ("checking", "scanning"):
             fail(f"the upload of {name} is {made['state']}")
         time.sleep(1)
     fail(f"the upload of {name} wasn't checked within a minute")
@@ -6510,7 +6564,7 @@ def secondary(alice: requests.Session, project: dict[str, Any], structure: dict[
     )
 
 
-#: The plugin template's image (plugin-template/environments/tools.yaml): Python on Alpine,
+#: The execution fixture's image (environments/tools.yaml): Python on Alpine,
 #: so iki-worker, copied in, must be static.
 TOOLS_IMAGE = (
     "docker.io/library/python:3.13-alpine"
@@ -6554,20 +6608,7 @@ def _labelled_run_pod(version: str, worker: str, run: str, project: str) -> dict
 
 
 def _sample(alice: requests.Session, project: dict[str, Any], **values: str) -> dict[str, Any]:
-    made = api_call(
-        alice,
-        "POST",
-        "/entities",
-        {
-            "type": "acme/example.Sample",
-            "project": project["id"],
-            "values": {"name": f"e2e-{secrets.token_hex(4)}", "kind": "dna", **values},
-        },
-    )
-    if made.status_code not in (200, 201):
-        fail(f"registering a sample answered HTTP {made.status_code}: {made.text[:300]}")
-    sample: dict[str, Any] = made.json()
-    return sample
+    return created(alice, project, "fixtures/worker_execution.ExecutionSample", values)
 
 
 def _contained(
@@ -6596,14 +6637,17 @@ def _contained(
 
 
 def containers(alice: requests.Session, project: dict[str, Any]) -> None:
-    """The plugin template's actions on the container tier (ADR 0061, 0062): the provisioner
+    """The execution fixture's actions on the container tier (ADR 0061, 0062): the provisioner
     starts a pod of its own in iki-runs for one, running the environment's image with
     iki-worker copied in; the other, persistent, runs one after another on a warm pod."""
     listed = {a["name"]: a for a in api_call(alice, "GET", "/actions").json()}
-    for action in ("acme/example.assign_storage", "acme/example.tidy_storage"):
+    for action in (
+        "fixtures/worker_execution.assign_storage",
+        "fixtures/worker_execution.tidy_storage",
+    ):
         if not listed.get(action, {}).get("available"):
             fail(f"{action} isn't available to run: {listed.get(action)}")
-    action = "acme/example.assign_storage"
+    action = "fixtures/worker_execution.assign_storage"
     sample = _sample(alice, project)
     # A short run can finish and its pod disappear before followed() returns.
     version = json.loads(kubectl("get", "--raw", f"{RUN_PODS}?limit=1"))["metadata"][
@@ -6611,7 +6655,7 @@ def containers(alice: requests.Session, project: dict[str, Any]) -> None:
     ]
     run, attempt, storage = _contained(alice, project, action, sample)
     if storage != "-80 °C freezer":
-        fail(f"{run['hrid']} wrote {storage!r}, not the plugin's default storage")
+        fail(f"{run['hrid']} wrote {storage!r}, not the fixture's default storage")
     if attempt["template"] != "container-small":
         fail(f"{run['hrid']} didn't run on a pod of its own: {attempt}")
     pod = _labelled_run_pod(version, attempt["worker"], run["id"], project["id"])
@@ -6624,7 +6668,7 @@ def containers(alice: requests.Session, project: dict[str, Any]) -> None:
     )
     ok(f"{attempt['worker']} is labelled with {run['hrid']}'s run and project")
 
-    action = "acme/example.tidy_storage"
+    action = "fixtures/worker_execution.tidy_storage"
     # container-warm keeps one pod and allows no more (fixtures/compute.yaml), so both runs share
     # it only if it ran one after the other; what runs where doesn't depend on which of
     # two free pods won a lease.
@@ -6730,7 +6774,7 @@ def _until_ended(session: requests.Session, ref: str) -> dict[str, Any]:
 
 def setup_builds(project: dict[str, Any]) -> None:
     """An environment's reference data (ADRs 0075, 0077, 0078): bob, a Compute admin, asks
-    for a setup build of the plugin template's `reference` environment, which runs in three
+    for a setup build of the execution fixture's `reference` environment, which runs in three
     places; alice, another, approves each. In iki-runs its script fills a disk, which is
     snapshotted; in iki-runs-shared, its own directory on a shared file system; in
     iki-runs-bucket, a disk that's then copied into its own directory in a bucket. A run of
@@ -6748,7 +6792,7 @@ def setup_builds(project: dict[str, Any]) -> None:
         if granted.status_code != 200:
             fail(f"{me['email']} couldn't be made a Compute Admin")
     try:
-        environment = "acme/example.reference"
+        environment = "fixtures/worker_execution.reference"
         (listed,) = [
             e
             for e in api_call(bob, "GET", "/compute/volumes").json()
@@ -6778,10 +6822,7 @@ def setup_builds(project: dict[str, Any]) -> None:
             log = api_call(bob, "GET", f"{ref}/log").json()["text"]
             if build["state"] != "succeeded":
                 fail(f"{build['hrid']} {build['state']}: {build['error']}\n{log[-2000:]}")
-            if (
-                build["data_version"] != "Storage codes 2026-11"
-                or "bytes of storage codes" not in log
-            ):
+            if build["data_version"] != build["hrid"] or "bytes of storage codes" not in log:
                 said = build["data_version"]
                 fail(f"{build['hrid']} didn't say what it wrote: {said!r}, {log!r}")
         snapshots, shared = builds["iki-runs"], builds["iki-runs-shared"]
@@ -6813,9 +6854,14 @@ def setup_builds(project: dict[str, Any]) -> None:
         ok(f"{bucket['hrid']} filled a disk, which a Job copied into the bucket, {prefix}")
 
         sample = _sample(alice, project, storage="-80")
-        run, attempt, storage = _contained(alice, project, "acme/example.decode_storage", sample)
+        run, attempt, storage = _contained(
+            alice, project, "fixtures/worker_execution.decode_storage", sample
+        )
         read = (attempt.get("volumes") or {}).get("storage-codes") or {}
-        if storage != "-80 °C freezer" or read.get("hrid") != snapshots["hrid"]:
+        if (
+            storage != f"-80 °C freezer ({snapshots['hrid']})"
+            or read.get("hrid") != snapshots["hrid"]
+        ):
             fail(f"{run['hrid']} wrote {storage!r} from {attempt.get('volumes')}")
         ok(
             f"{run['hrid']} read a copy of version {read['version']} ({read['data_version']}) "
@@ -6833,9 +6879,14 @@ def setup_builds(project: dict[str, Any]) -> None:
 
         # With no version in iki-runs, runs go where one is ready, and mount it read-only.
         sample = _sample(alice, project, storage="ln2")
-        run, attempt, storage = _contained(alice, project, "acme/example.decode_storage", sample)
+        run, attempt, storage = _contained(
+            alice, project, "fixtures/worker_execution.decode_storage", sample
+        )
         read = (attempt.get("volumes") or {}).get("storage-codes") or {}
-        if storage != "Liquid nitrogen dewar" or read.get("hrid") != shared["hrid"]:
+        if (
+            storage != f"Liquid nitrogen dewar ({shared['hrid']})"
+            or read.get("hrid") != shared["hrid"]
+        ):
             fail(f"{run['hrid']} wrote {storage!r} from {attempt.get('volumes')}")
         ok(f"{run['hrid']} read {shared['hrid']}'s directory on the shared file system")
 
@@ -6853,9 +6904,11 @@ def setup_builds(project: dict[str, Any]) -> None:
 
         # And then to the bucket.
         sample = _sample(alice, project, storage="4")
-        run, attempt, storage = _contained(alice, project, "acme/example.decode_storage", sample)
+        run, attempt, storage = _contained(
+            alice, project, "fixtures/worker_execution.decode_storage", sample
+        )
         read = (attempt.get("volumes") or {}).get("storage-codes") or {}
-        if storage != "4 °C fridge" or read.get("hrid") != bucket["hrid"]:
+        if storage != f"4 °C fridge ({bucket['hrid']})" or read.get("hrid") != bucket["hrid"]:
             fail(f"{run['hrid']} wrote {storage!r} from {attempt.get('volumes')}")
         ok(f"{run['hrid']} read {bucket['hrid']}'s directory in the bucket")
         ref = f"/compute/setups/{bucket['hrid']}"
@@ -6933,7 +6986,7 @@ def product_scenarios(alice: requests.Session, project: dict[str, Any]) -> None:
     stability_study(alice, project)
     plate_assay(alice, project)
     reagent_stock(alice, project)
-    dose_response_starters(alice, project)
+    dose_response_tutorial(alice, project)
     qc_release(alice, project)
     sequencing(alice, project)
     sequencing_analysis(alice, project)
@@ -6953,6 +7006,7 @@ def main() -> None:
     parser.add_argument("--mailpit-port", type=int, default=8025)
     parser.add_argument("--webhook-port", type=int, default=8090)
     parser.add_argument("--lims-port", type=int, default=8091)
+    parser.add_argument("--foldcloud-port", type=int, default=8092)
     parser.add_argument(
         "--web", default=WEB["target"], help="web pod or deployment for exec and logs"
     )
@@ -6963,6 +7017,7 @@ def main() -> None:
     MAILPIT["url"] = f"http://127.0.0.1:{args.mailpit_port}"
     RECEIVER["url"] = f"http://127.0.0.1:{args.webhook_port}"
     LIMS["url"] = f"http://127.0.0.1:{args.lims_port}"
+    FOLDCLOUD_REQUESTS["url"] = f"http://127.0.0.1:{args.foldcloud_port}/requests"
     route(args.iki_port, args.keycloak_port)
     admin = set_up(args.admin)
     if args.check:

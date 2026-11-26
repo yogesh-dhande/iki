@@ -321,6 +321,10 @@
           "maximum": 100000
         },
         "optional": { "description": "A run can be launched without it.", "type": "boolean" },
+        "from_project": {
+          "description": "Not chosen by whoever launches the run: each run is given every record of its type that its project owns and hasn't archived, at their current revisions, such as a core's ranking of the projects it serves (ADR 0232). It takes many, at most its `max` and 1000; with none there, a run that needs it can't start.",
+          "type": "boolean"
+        },
         "include": {
           "description": "Its type's references whose entities the run reads too, such as a structure's `chains`, or a list of rows' (ADR 0161), such as a complex's `components.part`: each one or list of them, at the revision it had when the run was launched, under each input entity's `included`. Whoever launches the run must be able to read them.",
           "type": "array",

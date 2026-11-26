@@ -110,7 +110,7 @@ def test_chart_renders_expected_resources() -> None:
 
 
 def test_every_pod_meets_pod_security_restricted() -> None:
-    specs = list(pod_specs(manifests()))
+    specs = list(pod_specs(manifests(FILES)))
     assert specs
     for name, spec in specs:
         psc = spec["securityContext"]
@@ -650,11 +650,16 @@ def test_webhook_networks_must_be_cidrs() -> None:
 FILES: dict[str, Any] = {"files": {"bucket": "iki-files", "prefix": "prod"}}
 
 
+def file_server_pods(docs: list[Manifest]) -> Iterator[tuple[str, Manifest]]:
+    # The scanner gets neither the bucket address nor storage credentials.
+    return ((name, pod) for name, pod in pod_specs(docs) if name != "Deployment/iki-clamd")
+
+
 def test_files_are_off_unless_a_bucket_is_set_and_then_reach_every_container() -> None:
-    for name, spec in pod_specs(manifests()):
+    for name, spec in file_server_pods(manifests()):
         env = {e["name"] for e in spec["containers"][0]["env"]}
         assert not {v for v in env if v.startswith(("IKI_FILES_", "AWS_"))}, name
-    for name, spec in pod_specs(manifests(FILES)):
+    for name, spec in file_server_pods(manifests(FILES)):
         variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
         assert variables["IKI_FILES_BUCKET"] == "iki-files", name
         assert variables["IKI_FILES_PREFIX"] == "prod", name
@@ -669,7 +674,7 @@ def test_files_are_off_unless_a_bucket_is_set_and_then_reach_every_container() -
 
 def test_cloud_storage_takes_no_key_and_gs_locations() -> None:
     values = {"files": {"bucket": "iki_files", "backend": "gcs"}}
-    for name, spec in pod_specs(manifests(values)):
+    for name, spec in file_server_pods(manifests(values)):
         variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
         assert variables["IKI_FILES_BACKEND"] == "gcs", name
         assert variables["IKI_FILES_BUCKET"] == "iki_files", name
@@ -677,7 +682,7 @@ def test_cloud_storage_takes_no_key_and_gs_locations() -> None:
     error = render({"files": {**values["files"], "credentials": {"existingSecret": "k"}}}, ok=False)
     assert "Google service account" in str(error)
     located = {"files": {**values["files"], "registerLocations": ["gs://lab-data/runs/"]}}
-    for name, spec in pod_specs(manifests(located)):
+    for name, spec in file_server_pods(manifests(located)):
         variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
         assert variables["IKI_FILES_REGISTER_LOCATIONS"] == "gs://lab-data/runs/", name
     error = render({"files": {**values["files"], "registerLocations": ["s3://lab"]}}, ok=False)
@@ -695,7 +700,7 @@ def test_storage_keys_come_only_from_a_secret() -> None:
             "credentials": {"existingSecret": "iki-s3"},
         }
     }
-    for name, spec in pod_specs(manifests(values)):
+    for name, spec in file_server_pods(manifests(values)):
         variables = {e["name"]: e for e in spec["containers"][0]["env"]}
         assert variables["AWS_ACCESS_KEY_ID"]["valueFrom"]["secretKeyRef"] == {
             "name": "iki-s3",
@@ -711,11 +716,99 @@ def test_storage_keys_come_only_from_a_secret() -> None:
         # Workers' name the public one too, unless they have their own.
         assert variables["IKI_FILES_WORKER_ENDPOINT_URL"]["value"] == "", name
     values["files"]["workerEndpoint"] = "https://s3.cluster.example.com"
-    for name, spec in pod_specs(manifests(values)):
+    for name, spec in file_server_pods(manifests(values)):
         variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
         assert variables["IKI_FILES_WORKER_ENDPOINT_URL"] == "https://s3.cluster.example.com", name
     assert "workerEndpoint" in str(
         render({"files": {"bucket": "iki", "workerEndpoint": "s3.cluster"}}, ok=False)
+    )
+
+
+def test_bundled_scanner_uses_pinned_signatures_and_serves_only_scan_clients() -> None:
+    docs = manifests(
+        merged(
+            FILES,
+            {
+                "files": {"scanner": {"clamd": {"privateMirror": "https://mirror.internal"}}},
+                "networkPolicy": {
+                    "egress": {"signatureUpdates": {"to": [{"ipBlock": {"cidr": "10.2.3.4/32"}}]}}
+                },
+            },
+        )
+    )
+    pod = named(docs, "Deployment", "iki-clamd")["spec"]["template"]["spec"]
+    assert pod["initContainers"][0]["securityContext"]["runAsUser"] == 1000
+    assert pod["serviceAccountName"] == "iki-clamd"
+    assert not named(docs, "ServiceAccount", "iki-clamd")["metadata"].get("annotations")
+    for container in [*pod["initContainers"], *pod["containers"]]:
+        assert re.fullmatch(
+            r"docker.io/clamav/clamav-debian@sha256:[a-f0-9]{64}", container["image"]
+        )
+        assert "env" not in container
+    config = named(docs, "ConfigMap", "iki-clamd")["data"]
+    assert "AlertExceedsMax yes" in config["clamd.conf"]
+    assert "AlertEncrypted yes" in config["clamd.conf"]
+    assert "MaxFileSize 104857600" in config["clamd.conf"]
+    assert "PrivateMirror https://mirror.internal" in config["freshclam.conf"]
+    assert "DatabaseMirror" not in config["freshclam.conf"]
+    for _, spec in file_server_pods(docs):
+        env = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
+        assert env["IKI_FILES_SCAN_MAX_SIZE"] == "104857600B"
+        assert env["IKI_FILES_SCAN_OVERSIZE_POLICY"] == "refuse"
+    service = named(docs, "Service", "iki-clamd")["spec"]
+    assert service["type"] == "ClusterIP"
+    clients = named(docs, "NetworkPolicy", "iki-scan-clients")["spec"]
+    assert clients["podSelector"]["matchExpressions"][0]["values"] == ["web", "tasks"]
+    scanner = named(docs, "NetworkPolicy", "iki-clamd")["spec"]
+    assert clients["egress"] == [
+        {
+            "to": [{"podSelector": scanner["podSelector"]}],
+            "ports": [{"protocol": "TCP", "port": 3310}],
+        }
+    ]
+    assert scanner["ingress"] == [
+        {
+            "from": [{"podSelector": clients["podSelector"]}],
+            "ports": [{"protocol": "TCP", "port": 3310}],
+        }
+    ]
+    dns, mirrors = scanner["egress"]
+    assert [port["port"] for port in dns["ports"]] == [53, 53]
+    assert mirrors == {
+        "to": [{"ipBlock": {"cidr": "10.2.3.4/32"}}],
+        "ports": [{"protocol": "TCP", "port": 443}],
+    }
+
+
+def test_external_scanner_replaces_clamd_and_has_explicit_egress() -> None:
+    rule = {
+        "to": [{"ipBlock": {"cidr": "10.2.3.4/32"}}],
+        "ports": [{"protocol": "TCP", "port": 443}],
+    }
+    docs = manifests(
+        merged(
+            FILES,
+            {
+                "files": {
+                    "scanner": {
+                        "adapter": "local.scan",
+                        "oversizePolicy": "allow",
+                        "clamd": {"enabled": False},
+                    }
+                },
+                "networkPolicy": {"egress": {"externalScanner": [rule]}},
+            },
+        )
+    )
+    assert all(doc["metadata"]["name"] != "iki-clamd" for doc in docs)
+    clients = named(docs, "NetworkPolicy", "iki-scan-clients")["spec"]
+    assert clients["egress"] == [rule]
+    tasks = named(docs, "Deployment", "iki-tasks")["spec"]["template"]["spec"]
+    env = {e["name"]: e.get("value") for e in tasks["containers"][0]["env"]}
+    assert env["IKI_FILES_SCANNER"] == "local.scan"
+    assert env["IKI_FILES_SCAN_OVERSIZE_POLICY"] == "allow"
+    assert "image" in str(
+        render({"files": {"scanner": {"clamd": {"image": "clamav:latest"}}}}, ok=False)
     )
 
 
@@ -751,7 +844,7 @@ def test_artifact_retention_is_checked_by_the_schema() -> None:
 
 def test_checkpoints_are_saved_as_often_as_set_and_no_more_than_once_a_minute() -> None:
     servers = 0
-    for name, spec in pod_specs(manifests()):
+    for name, spec in file_server_pods(manifests()):
         variables = {e["name"]: e.get("value") for e in spec["containers"][0].get("env", [])}
         if "IKI_SECRET_KEY" in variables:
             assert variables["IKI_RUNS_CHECKPOINT_INTERVAL"] == "10m", name
@@ -763,10 +856,10 @@ def test_checkpoints_are_saved_as_often_as_set_and_no_more_than_once_a_minute() 
 
 def test_register_locations_reach_every_container_and_are_checked() -> None:
     values = {"files": {"bucket": "iki", "registerLocations": ["s3://lab-data/runs/", "s3://cro"]}}
-    for name, spec in pod_specs(manifests(values)):
+    for name, spec in file_server_pods(manifests(values)):
         variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
         assert variables["IKI_FILES_REGISTER_LOCATIONS"] == "s3://lab-data/runs/,s3://cro", name
-    for name, spec in pod_specs(manifests(FILES)):
+    for name, spec in file_server_pods(manifests(FILES)):
         variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
         assert variables["IKI_FILES_REGISTER_LOCATIONS"] == "", name
     error = render({"files": {"bucket": "iki", "registerLocations": ["lab-data/runs"]}}, ok=False)
@@ -927,7 +1020,7 @@ def test_workers_never_reach_the_database_and_reach_only_dns_and_the_server() ->
         e["key"]: (e["operator"], e["values"])
         for e in policies["iki-egress"]["podSelector"]["matchExpressions"]
     }
-    assert selector["app.kubernetes.io/component"] == ("NotIn", ["worker"])
+    assert selector["app.kubernetes.io/component"] == ("NotIn", ["worker", "clamd"])
     worker = policies["iki-worker-egress"]
     assert worker["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == "worker"
     assert worker["policyTypes"] == ["Egress"]
@@ -1033,9 +1126,11 @@ def test_only_workers_reach_the_egress_proxy_and_only_it_reaches_the_internet() 
     assert to_proxy["ports"] == [{"protocol": "TCP", "port": 3128}]
     # The proxy reaches the database (to check credentials and keep what runs reached).
     shared = policies["iki-egress"]["podSelector"]["matchExpressions"]
-    assert {"key": "app.kubernetes.io/component", "operator": "NotIn", "values": ["worker"]} in (
-        shared
-    )
+    assert {
+        "key": "app.kubernetes.io/component",
+        "operator": "NotIn",
+        "values": ["worker", "clamd"],
+    } in (shared)
 
 
 def test_the_egress_proxy_calls_outside_apis_with_its_gateway_key() -> None:

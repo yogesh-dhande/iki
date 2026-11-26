@@ -66,8 +66,11 @@ def server_env(role: tuple[str, str], static_root: Path, **extra: str) -> dict[s
     inherited = {
         k: v for k, v in os.environ.items() if not k.startswith(("IKI_", "DJANGO_", "OTEL_"))
     }
+    python_path = extra.pop("PYTHONPATH", inherited.get("PYTHONPATH", ""))
     return {
         **inherited,
+        "PYTHONPATH": os.pathsep.join(p for p in (str(Path(__file__).parent), python_path) if p),
+        "IKI_FILES_SCANNER": settings.IKI_FILES_SCANNER,
         "DJANGO_SETTINGS_MODULE": "iki_server.settings",
         "IKI_SECRET_KEY": "e2e-" + "s" * 60,
         "IKI_ALLOWED_HOSTS": "127.0.0.1",

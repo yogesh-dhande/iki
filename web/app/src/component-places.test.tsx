@@ -341,6 +341,81 @@ describe("sections", () => {
     expect(calls("POST", BOARD_PATH)[0]?.body).toEqual({ home: true, limit: 3 });
   });
 
+  // As the equipment plugin has them: the time booked for you, whoever booked it, and the
+  // time you booked for other people.
+  function bookingsHome(made: ComponentEntity[]) {
+    const home = (name: string, element: string, label: string): PluginComponent => ({
+      ...BOARD,
+      name: `iki/equipment.${name}`,
+      plugin: "iki/equipment",
+      label,
+      description: "Bookings by day, a month at a time.",
+      element,
+      slots: [
+        {
+          slot: "person.home",
+          type: "iki/equipment.Booking",
+          label,
+          search: { where: null, sort: "starts_at", descending: false },
+        },
+      ],
+      entities: {
+        type: "iki/equipment.Booking",
+        fields: ["purpose", "instrument", "starts_at", "ends_at", "booked_by", "work", "cancelled"],
+        limit: 1000,
+      },
+      selects: "",
+    });
+    const components = [
+      home("booking_calendar", "equipment-booking-calendar", "Your bookings"),
+      home("bookings_made", "equipment-bookings-made", "Bookings you made for others"),
+    ];
+    const paths = components.map((c) => `/api/v1/components/${c.name}/entities`);
+    withTypes();
+    answer("GET /api/v1/components", components);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer("GET /api/v1/registries", page([]));
+    answer(`POST ${paths[0] ?? ""}`, page([booking(1)]));
+    answer(`POST ${paths[1] ?? ""}`, page(made));
+    return paths;
+  }
+
+  function booking(n: number): ComponentEntity {
+    return {
+      ...item(n),
+      hrid: `BKG-00000${String(n)}`,
+      title: "16S amplicon run",
+      type: "iki/equipment.Booking",
+      values: { purpose: "16S amplicon run", starts_at: "2026-11-26T09:00:00Z" },
+    };
+  }
+
+  it("on a person's home, each of a plugin's is under its own heading, in order", async () => {
+    const paths = bookingsHome([booking(2)]);
+    await renderApp("/");
+    const yours = await screen.findByRole("region", { name: "Your bookings" });
+    const made = await screen.findByRole("region", { name: "Bookings you made for others" });
+    expect(yours.compareDocumentPosition(made) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(yours).getByTitle("Your bookings")).toBeInTheDocument();
+    expect(within(made).getByTitle("Bookings you made for others")).toBeInTheDocument();
+    for (const path of paths) {
+      expect(calls("POST", path)[0]?.body).toEqual({ home: true, limit: 100 });
+    }
+  });
+
+  it("on a person's home, take no room for someone who booked nothing for others", async () => {
+    const paths = bookingsHome([]);
+    await renderApp("/");
+    expect(await screen.findByRole("region", { name: "Your bookings" })).toBeInTheDocument();
+    await vi.waitFor(() => {
+      expect(calls("POST", paths[1] ?? "")).toHaveLength(1);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(
+      screen.queryByRole("region", { name: "Bookings you made for others" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("say so when their search is refused", async () => {
     onProject();
     answer(

@@ -8,6 +8,10 @@ An entity created or changed in the project whose trigger it fires is recorded, 
 change's transaction, as a :class:`TriggerFiring`; a task launches its run once the change
 has committed, and task runners sweep for any left behind each minute.
 
+A request sent to a project as a service fires that project's ``request.received``
+triggers (ADR 0232), as :func:`received`: nobody in the service's project made it, so, as a
+schedule's, its runs are launched as a service account an Admin chooses, on their authority.
+
 Loop protection is GitHub's: what a triggered run writes never fires a trigger, so a
 trigger can't fire itself, or another that fires it back. Chaining belongs in workflows.
 """
@@ -50,7 +54,7 @@ from iki_server.runs.models import (
     TriggerFiring,
 )
 from iki_spec import cron
-from iki_spec.model import Action, Trigger
+from iki_spec.model import ACCOUNT_EVENTS, Action, Trigger
 from iki_spec.workflows import literal
 
 __all__ = [
@@ -62,6 +66,7 @@ __all__ = [
     "label",
     "next_run",
     "noticed",
+    "received",
     "recheck_edit",
     "rechecks",
     "recover",
@@ -152,6 +157,32 @@ def noticed(entity: Entity, revision: Revision, *, registered: Revision | None =
         if (spec := installed.get(row.trigger)) is not None
         and not spec.recheck
         and _fires(spec, name, entity.type, changed)
+    ]
+    if not made:
+        return 0
+    TriggerFiring.objects.bulk_create(made)
+    from iki_server.runs.tasks import fire_trigger
+
+    for firing in made:
+        fire_trigger.enqueue(str(firing.pk))
+    return len(made)
+
+
+def received(request: Entity, service: Project, revision: int) -> int:
+    """Records the firings a request makes as it's sent to ``service`` (ADR 0232): its
+    ``request.received`` triggers for the request's type, in the service's project, not
+    the asking one's. Call in the sending transaction. Returns how many."""
+    run = _writing.get()
+    if run is not None and run.via == Via.TRIGGER:
+        return 0
+    installed = triggers()
+    made = [
+        TriggerFiring(
+            trigger=row, event="request.received", entity_id=request.pk, revision=revision
+        )
+        for row in ProjectTrigger.objects.filter(project=service, enabled=True)
+        if (spec := installed.get(row.trigger)) is not None
+        and _fires(spec, "request.received", request.type, [])
     ]
     if not made:
         return 0
@@ -330,7 +361,23 @@ def _fire(firing: TriggerFiring, *, editor: User | None = None) -> None:
             approvals.for_trigger(row),
             transaction.atomic(),
         ):
-            if firing.entity is None:
+            if firing.entity is not None and spec.on in ACCOUNT_EVENTS:
+                # A request arrived (ADR 0232): nobody here sent it, so its run is the
+                # service account's, on the Admin's authority, as a schedule's is.
+                assert row.run_as is not None  # noqa: S101 - turned on with one
+                user = row.run_as
+                services.may_launch(authority, action, project)
+                asking = firing.entity.owner_project
+                run = services.launch(
+                    user,
+                    action,
+                    project,
+                    inputs,
+                    params,
+                    reason=f"Trigger “{spec.label}”: {firing.entity.hrid} arrived"
+                    + (f" from {asking.name}." if asking is not None else "."),
+                )
+            elif firing.entity is None:
                 assert row.run_as is not None and firing.scheduled_for is not None  # noqa: S101
                 user = row.run_as
                 # Its authority is the Admin's: they must still be able to run it too.
@@ -579,7 +626,7 @@ def why_not_enable(user: User, project: Project, spec: Trigger) -> str | None:
     try:
         services.may_launch(user, action, project)
     except PermissionDenied:
-        if spec.on == "schedule":
+        if spec.on in ACCOUNT_EVENTS:
             return (
                 f"Its runs are launched on your authority, and you can't run {action.tier}-tier "
                 "actions in this project."
@@ -590,9 +637,12 @@ def why_not_enable(user: User, project: Project, spec: Trigger) -> str | None:
         )
     except Refused as error:
         return str(error)
-    if spec.on == "schedule" and not run_as_choices(project, spec):
+    if spec.on in ACCOUNT_EVENTS and not run_as_choices(project, spec):
+        what = (
+            "A scheduled trigger" if spec.on == "schedule" else "A trigger on a request's arrival"
+        )
         return (
-            f"A scheduled trigger runs as a service account, and none in {project.name} can run "
+            f"{what} runs as a service account, and none in {project.name} can run "
             f"{action.tier}-tier actions. Add one as a member first."
         )
     return None
@@ -602,7 +652,7 @@ def run_as_choices(project: Project, spec: Trigger) -> list[User]:
     """The service accounts a scheduled trigger may run as in the project: active members
     who can run its action's tier, by name."""
     action = catalog.action(f"{spec.plugin}.{spec.run}")
-    if spec.on != "schedule" or action is None:
+    if spec.on not in ACCOUNT_EVENTS or action is None:
         return []
     least = permissions.least_role(services.TIER_PERMISSIONS[action.tier])
     return list(
@@ -622,7 +672,8 @@ def enable(
     user: User, project: Project, name: str, *, run_as: User | None = None
 ) -> ProjectTrigger:
     """Turns the trigger on in the project. An entity trigger's runs are launched as `user`
-    from now on; a scheduled one's as the service account `run_as`, on `user`'s authority.
+    from now on; a scheduled one's, or one on a request's arrival, as the service account
+    `run_as`, on `user`'s authority.
     Raises :class:`PermissionDenied` for anyone but the project's Admins, and
     :class:`Refused` if it can't run here, or as them."""
     permissions.require(user, permissions.Action.PROJECT_TRIGGERS_MANAGE, project)
@@ -633,11 +684,12 @@ def enable(
     if why is not None:
         raise Refused(why)
     scheduled = spec.on == "schedule"
-    if scheduled and run_as is None:
+    account = spec.on in ACCOUNT_EVENTS
+    if account and run_as is None:
         raise Refused("Choose the service account it runs as.")
-    if not scheduled and run_as is not None:
+    if not account and run_as is not None:
         raise Refused("A trigger that fires on changes runs as whoever turns it on.")
-    if scheduled and run_as not in run_as_choices(project, spec):
+    if account and run_as not in run_as_choices(project, spec):
         raise Refused(
             "It can only run as an active service account that's a member of the project and "
             "can run its action here."
@@ -666,7 +718,8 @@ def enable(
                 "trigger": name,
                 "action": f"{spec.plugin}.{spec.run}",
                 "on": spec.on,
-                **({"run_as": run_as.name, "schedule": spec.schedule} if run_as else {}),
+                **({"run_as": run_as.name} if run_as else {}),
+                **({"schedule": spec.schedule} if scheduled else {}),
             },
         )
     return row

@@ -8,8 +8,9 @@ from typing import Any
 import pytest
 from api_client import Api
 from django.core.exceptions import PermissionDenied
-from first_party_dependencies import PLUGINS, build_order
+from first_party_dependencies import PLUGINS, ROOT, build_order
 from org_world import World, build_world
+from scan_fixtures import clean_blob
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, ready, signed
 
@@ -18,7 +19,7 @@ from iki_server.amounts.models import DrawPurpose
 from iki_server.entities import access, requests, services, states
 from iki_server.entities.models import Entity, ProjectLink
 from iki_server.entities.values import Invalid
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
 from iki_server.org.models import LabRoleGrant, Project, ProjectMembership, ProjectRole
 from iki_server.org.services import Refused
 from iki_server.signatures.models import Signature
@@ -29,7 +30,7 @@ from iki_server.storage.models import ReceiptStatus
 __all__ = ["database"]
 
 PLUGIN = PLUGINS / "requests"
-EXAMPLES = PLUGIN / "examples"
+EXAMPLES = ROOT / "examples" / "core-facility-requests"
 REQUESTS = "iki/requests."
 PLAIN = REQUESTS + "PlainRequest"
 RESEARCH = REQUESTS + "ResearchRequest"
@@ -82,7 +83,7 @@ def test_returned_sample_covers_its_draw(
 
 def _report(project: Project, name: str, content: bytes) -> str:
     digest = hashlib.sha256(content).hexdigest()
-    blob = Blob.objects.create(sha256=digest, size=len(content), storage_uri=f"s3://iki/{digest}")
+    blob = clean_blob(sha256=digest, size=len(content), storage_uri=f"s3://iki/{digest}")
     return str(
         File.objects.create(project=project, blob=blob, name=name, media_type="text/plain").pk
     )

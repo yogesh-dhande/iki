@@ -71,6 +71,9 @@ if TYPE_CHECKING:
         SavedMappingOut,
         ServiceOut,
         SettingsOut,
+        SheetEditCheckOut,
+        SheetEditRowOut,
+        SheetEditSaveOut,
         SignatureOut,
         SignaturesOut,
         SignatureVerificationOut,
@@ -458,11 +461,11 @@ class Entities(_Part):
         *,
         project: str | Mapping[str, Any] | None = None,
     ) -> list[EntityOut]:
-        """The entities whose unique `field` is `value`, such as the ID a LIMS gives its
-        record, in each project you can read: at most one of each project's own::
+        """Find the entities whose unique `field` equals `value`, with at most one match
+        per readable project. For example, find a tube by barcode::
 
             iki.entities.lookup(
-                "iki/protein.Protein", "lims_id", "LIMS-0042", project="kinase-atlas"
+                "iki/inventory.Tube", "barcode", "TUBE-0042", project="kinase-atlas"
             )
         """
         client = self._client
@@ -1373,7 +1376,7 @@ class Runs(_Part):
         every label, besides the ones the action needs, such as ``["lab-3"]``.
 
         An action that sends data to outside APIs (its ``apis``) needs ``consent``
-        naming each, such as ``["iki/example_models.foldcloud"]``: you agree to what its
+        naming each, such as ``["lab/hosted_models.foldcloud"]``: you agree to what its
         ``statement`` says is sent. Without it, :class:`ConsentRequired` gives the
         statements; :class:`NotApproved` means an Org Admin hasn't approved the API for
         the project (ADR 0130)."""
@@ -1627,7 +1630,9 @@ class Files(_Part):
         page_size: int = 100,
         **filters: Unpack[FileFilters],
     ) -> Results[FileRowOut]:
-        """Files you can read, a page at a time. ``q`` matches part of the name in any case.
+        """Files you can read, a page at a time. ``q`` matches part of the name, or of what
+        the file states (its instrument, serial number, operator, software, protocol or read
+        groups), in any case.
 
         Filter by ``project``, ``format`` (a format ID, media type, family or sequence of these),
         inclusive days ``acquired_from`` and ``acquired_to``, ``sample`` or ``run`` (ID or
@@ -1658,6 +1663,8 @@ class Files(_Part):
         page_size: int = 100,
     ) -> FileWithUses:
         """Metadata, origin and samples, with the records and runs that use this file.
+        ``facts`` gives what the file states of its instrument, serial number, operator,
+        software and protocol, and ``read_groups`` a SAM or BAM file's read groups.
 
         Both ``records`` and ``runs`` contain ``items`` and a ``next_cursor``. Pass either
         cursor back to continue that list. Each record gives the revision spans and fields
@@ -1696,7 +1703,9 @@ class Files(_Part):
         version to compute its SHA-256. The location must keep immutable object versions.
         The name defaults to the object's own. Iki checks its media type against the
         installed format declarations. ``acquired`` supplies a date when the format lacks
-        one. ``timeout`` limits the wait for verification in seconds.
+        one. The returned record includes the scan decision for the pinned version.
+        Check ``file["scan"]["usable"]`` before using the file.
+        ``timeout`` limits the wait for verification and scanning, in seconds.
         """
         from iki._uploads import wait_for_file
 
@@ -1749,7 +1758,9 @@ class Files(_Part):
         ``acquired`` is when its data was acquired, a date or datetime, or ISO 8601 text such
         as ``"2026-03-14"`` or ``"2026-03-14T09:21"``, for a file whose format doesn't record
         it: where it does, the file's own wins (ADR 0177). Without either, it's unknown.
-        ``timeout`` limits the wait for Iki to check the upload, in seconds.
+        Iki waits for a scan decision before returning the file. Check ``file["scan"]["usable"]``
+        before using it. A quarantined file keeps its metadata and finding.
+        ``timeout`` limits the wait for verification and scanning, in seconds.
         """
         from iki._uploads import upload
 
@@ -1763,6 +1774,34 @@ class Files(_Part):
             timeout,
             poll,
             given,
+        )
+
+    def wait(
+        self,
+        pending: Mapping[str, str],
+        *,
+        timeout: float | None = None,
+        poll: float = 2.0,
+    ) -> FileOut:
+        """Wait again for an upload or registration whose ``upload`` or ``register`` timed
+        out, given the ``pending`` of its ``iki.TimedOut``: ``{"upload": id}`` or
+        ``{"registration": id}``. Returns its file once Iki has checked and scanned it, as
+        they do. The file is never sent again, so a script that's run again later doesn't
+        add it twice."""
+        from iki._uploads import wait_for_file
+
+        if poll < 0 or (timeout is not None and timeout < 0):
+            raise ValueError("poll and timeout must be nonnegative.")
+        (operation, found), *more = pending.items() if pending else [("", "")]
+        if more or operation not in ("upload", "registration") or not found:
+            raise ValueError('Give the pending upload or registration: {"upload": id}.')
+        kind: Literal["upload", "registration"] = (
+            "upload" if operation == "upload" else "registration"
+        )
+        path = _path(f"/{kind}s/{{id}}", id=found)
+        status = self._client.request("GET", path)
+        return wait_for_file(
+            self._client, path, status, str(status.get("name") or found), kind, timeout, poll
         )
 
     def download(self, file_id: str, to: str | os.PathLike[str]) -> str:
@@ -1783,6 +1822,20 @@ class Files(_Part):
 _IMPORT_ENDED = frozenset({"imported", "failed", "cancelled", "discarded"})
 
 
+def _saved_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    """A row to save: as a check returned it, or as given."""
+    out: dict[str, Any] = {"key": str(row["key"]), "values": dict(row.get("values") or {})}
+    if row.get("entity"):
+        out["entity"] = str(row["entity"])
+        out["revision"] = row.get("revision")
+    place = row.get("location")
+    if place:
+        out["location"] = {"container": str(place["container"]), "position": place.get("position")}
+    if row.get("amount"):
+        out["amount"] = dict(row["amount"])
+    return out
+
+
 class Spreadsheets(_Part):
     """Spreadsheets imported into records (ADR 0178): an XLSX workbook or a CSV file,
     its columns mapped to a type's fields, every row checked, then written by one run,
@@ -1795,7 +1848,81 @@ class Spreadsheets(_Part):
     Each step after ``start`` is made from the import as you read it: give the import each
     step returned, or its ``revision``. If it changed since (in another session, say),
     the step raises ``iki.Conflict`` and changes nothing: ``get`` it, then choose again.
+
+    A type's records already in a project are changed many at once, as a sheet's cells
+    (ADR 0228): ``check_edits`` reads each row's cells as an import reads them and says
+    what saving them would do, and ``save_edits`` saves what was checked, with a reason,
+    all of it or none. ``template`` is a type's import template, as CSV.
     """
+
+    #: The most rows the API checks at once: ``check_edits`` sends more in parts.
+    CHECK_ROWS = 200
+
+    def check_edits(
+        self,
+        project: str | Mapping[str, Any],
+        *,
+        type: str,
+        rows: Sequence[Mapping[str, Any]],
+        locale: Mapping[str, Any] | None = None,
+    ) -> builtins.list[SheetEditRowOut]:
+        """What saving ``rows`` would do, row by row, changing nothing. Each row is a
+        record's (``entity``, and the ``revision`` its values were read at) or a new one's,
+        with the ``cells`` that change as text (``{"purity": "98,5"}``), and for a new
+        record its ``location`` (``"BOX-000002 A1"``) and starting ``amount`` (``"500"``).
+        Each returned row says what it would do (``kind``), its ``values`` as read, to
+        save, and its ``problems``, each at its cell. ``locale`` says how the cells write
+        numbers and dates, as for :meth:`import_sheet`."""
+        client = self._client
+        path = _path("/projects/{p}/sheet-edits/check", p=client._project_id(project))
+        out: builtins.list[SheetEditRowOut] = []
+        given = [dict(r) for r in rows]
+        for start in range(0, len(given), self.CHECK_ROWS):
+            body: dict[str, Any] = {"type": type, "rows": given[start : start + self.CHECK_ROWS]}
+            if locale is not None:
+                body["locale"] = dict(locale)
+            out.extend(cast("SheetEditCheckOut", client.request("POST", path, json=body))["rows"])
+        return out
+
+    def save_edits(
+        self,
+        project: str | Mapping[str, Any],
+        *,
+        type: str,
+        rows: Sequence[Mapping[str, Any]],
+        reason: str,
+        hold_reason: str | None = None,
+        locale: Mapping[str, Any] | None = None,
+    ) -> SheetEditSaveOut:
+        """Saves rows as :meth:`check_edits` returned them (or as ``{"entity",
+        "revision", "values"}`` and, for a new record, ``location`` and ``amount``), each
+        change a revision with ``reason``, all of them or none. A record changed since its
+        revision raises ``iki.Conflict``, and any row's problem ``iki.ApiError`` with each
+        problem, and nothing is saved."""
+        client = self._client
+        body: dict[str, Any] = {
+            "type": type,
+            "reason": reason,
+            "rows": [_saved_row(r) for r in rows],
+        }
+        if hold_reason is not None:
+            body["hold_reason"] = hold_reason
+        if locale is not None:
+            body["locale"] = dict(locale)
+        return cast(
+            "SheetEditSaveOut",
+            client.request(
+                "POST", _path("/projects/{p}/sheet-edits", p=client._project_id(project)), json=body
+            ),
+        )
+
+    def template(self, type: str) -> str:
+        """``type``'s import template: a CSV file's text, a heading for each field an
+        import sets, with its unit, for a collaborator or vendor to fill in."""
+        response = self._client._send(
+            "GET", _path("/entity-types/{t}/import-template.csv", t=_Name(type))
+        )
+        return response.content.decode("utf-8-sig")
 
     def import_sheet(
         self,

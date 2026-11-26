@@ -18,9 +18,12 @@ from typing import Any
 from uuid import UUID
 
 from iki_server.accounts.models import User
+from iki_server.api.problems import Problem
 from iki_server.entities import access, registry
 from iki_server.entities.models import Entity
 from iki_server.entities.values import UNREADABLE_REFERENCE, reference_positions, shape, to_json
+from iki_server.files.models import File
+from iki_server.files.scan_state import statuses_for_blobs
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
 from iki_server.runs.models import ActionRun, RunInclusion, RunInput
@@ -268,8 +271,14 @@ def reference_mask(
 class Unavailable(Refused):
     """The project's readers must be able to receive the complete pinned document."""
 
-    def __init__(self) -> None:
-        super().__init__("The run needs every pinned input, reference and file in its project.")
+    def __init__(
+        self,
+        detail: str = "The run needs every pinned input, reference and file in its project.",
+        *,
+        waiting_for_scan: bool = False,
+    ) -> None:
+        super().__init__(detail)
+        self.waiting_for_scan = waiting_for_scan
 
 
 @dataclass
@@ -283,6 +292,7 @@ class Manifest:
 
 def manifest(run: ActionRun) -> Manifest:
     """Read and authorize the same pinned documents for launch, reuse and each lease."""
+    from iki_server.entities import requests
     from iki_server.entities.services import values_and_entry_at
     from iki_server.runs import input_files
 
@@ -328,6 +338,8 @@ def manifest(run: ActionRun) -> Manifest:
         amount = amount_of(entity.type, registry.types())
         if amount is not None and amount.material is not None:
             item["material_field"] = amount.material
+        if (sides := requests.run_sides([entity]).get(entity.pk)) is not None:
+            item["request"] = sides
         if entity.entry_id is not None and entry is not None:
             entry_id, _ = entry
             entries.add(entry_id)
@@ -362,4 +374,16 @@ def manifest(run: ActionRun) -> Manifest:
         pk__in=result.param_files
     ).count() != len(result.param_files):
         raise Unavailable()
+    ids = result.param_files | result.input_files
+    if ids:
+        blobs = dict(File.objects.filter(pk__in=ids).values_list("pk", "blob_id"))
+        if ids != blobs.keys():
+            raise Unavailable()
+        try:
+            for scan in statuses_for_blobs(blobs.values()).values():
+                scan.require_usable()
+        except Problem as error:
+            raise Unavailable(
+                error.detail, waiting_for_scan=error.code == "file_scanning"
+            ) from error
     return result

@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: tidy_storage
+label: Tidy storage locations
+description: Writes each sample's storage location the same way, such as "-80 °C freezer" for "-80C  freezer".
+inputs:
+  sample: { type: ExecutionSample, schema: ">=1" }
+effects:
+  updates: [{ input: sample, fields: [storage] }]
+runs_on: { tier: container, environment: tools, lifecycle: persistent }
+command: [python, ./scripts/storage.py, --tidy]
+deterministic: true
+batchable: 50
+timeout: 5m

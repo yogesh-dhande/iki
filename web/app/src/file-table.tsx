@@ -14,6 +14,7 @@ import { FieldInput } from "./entity-inputs";
 import { formatSize, typesQuery, type FieldDef } from "./entities";
 import {
   acquiredText,
+  factsLine,
   fileCountQuery,
   fileFormatsQuery,
   filesQuery,
@@ -25,6 +26,7 @@ import {
   type Takes,
 } from "./files";
 import { formatsQuery } from "./media";
+import { scanFlag } from "./quarantine";
 import { SearchBox, ToolbarSelect } from "./pages/entity-filters";
 import { Button, Loading, ProblemAlert, RelativeTime } from "./ui";
 
@@ -144,7 +146,7 @@ export function FileTable({
       <div className="list-toolbar">
         <SearchBox
           value={filter.q}
-          placeholder="Search files by name"
+          placeholder="Search by name, instrument or operator"
           onSearch={(q) => {
             set({ q });
           }}
@@ -278,7 +280,7 @@ export function FileTable({
       {files.isSuccess && items.length === 0 ? (
         <p className="muted empty">
           {searched
-            ? "No files match. Try another part of the name, or fewer filters."
+            ? "No files match. Try another part of the name or instrument, or fewer filters."
             : takes?.accepts.length
               ? `No ${media?.either(takes.accepts) ?? takes.accepts.join(", ")} files here yet. Upload one instead.`
               : projectId
@@ -362,7 +364,11 @@ function FileRowView({
   const held = pick?.held.has(file.id) ?? false;
   const chosen = held || (pick?.chosen.has(file.id) ?? false);
   const full = Boolean(pick?.multiple && pick.room !== undefined && pick.chosen.size >= pick.room);
-  const locked = held || (!chosen && full);
+  // Nothing can use a file its malware scan holds, or hasn't finished (ADR 0216).
+  const flag = scanFlag(file.scan);
+  const unusable = !file.scan.usable && !chosen;
+  const locked = held || unusable || (!chosen && full);
+  const stated = factsLine(file.facts);
   return (
     <tr
       className={chosen ? "file-row-chosen" : undefined}
@@ -391,18 +397,22 @@ function FileRowView({
           />
         </td>
       ) : null}
-      <td className="list-fill" title={file.name}>
-        <span className="list-fill-text">
-          {pick ? (
-            <label htmlFor={id} className="list-name file-name">
-              {file.name}
-              {held ? <span className="muted"> (chosen)</span> : null}
-            </label>
-          ) : (
-            <Link className="list-name file-name" to="/files/$id/" params={{ id: file.id }}>
-              {file.name}
-            </Link>
-          )}
+      <td className="list-fill" title={stated ? `${file.name}\n${stated}` : file.name}>
+        <span className={flag ? "list-fill-flagged" : undefined}>
+          <span className="list-fill-text">
+            {pick ? (
+              <label htmlFor={id} className="list-name file-name">
+                {file.name}
+                {held ? <span className="muted"> (chosen)</span> : null}
+              </label>
+            ) : (
+              <Link className="list-name file-name" to="/files/$id/" params={{ id: file.id }}>
+                {file.name}
+              </Link>
+            )}
+            {stated ? <span className="cell-meta">{stated}</span> : null}
+          </span>
+          {flag ? <span className={`badge ${flag.tone}`}>{flag.text}</span> : null}
         </span>
       </td>
       {projectName !== undefined ? <td className="muted">{projectName}</td> : null}

@@ -244,7 +244,17 @@ class ImportOut(Schema):
     id: UUID
     project: UUID = Field(alias="project_id")
     state: Literal[
-        "uploading", "planning", "planned", "refused", "applying", "applied", "failed", "discarded"
+        "uploading",
+        "scanning",
+        "quarantined",
+        "not_scanned",
+        "planning",
+        "planned",
+        "refused",
+        "applying",
+        "applied",
+        "failed",
+        "discarded",
     ]
     error: str = Field(description="Why it was refused or failed, if it was.")
     requested_by: PersonRef
@@ -354,7 +364,9 @@ class ImportEntityParams(ImportMemberParams):
 def _import(request: HttpRequest, import_id: UUID) -> BundleImport:
     me = caller(request)
     made = (
-        BundleImport.objects.select_related("project__team", "requested_by", "applied_by", "upload")
+        BundleImport.objects.select_related(
+            "project__team", "requested_by", "applied_by", "upload__scan_result__release"
+        )
         .filter(pk=import_id)
         .first()
     )
@@ -381,9 +393,9 @@ def _member_page[M: Model](
 
 
 def _imported(made: BundleImport) -> BundleImport:
-    return BundleImport.objects.select_related("requested_by", "applied_by", "upload").get(
-        pk=made.pk
-    )
+    return BundleImport.objects.select_related(
+        "requested_by", "applied_by", "upload__scan_result__release"
+    ).get(pk=made.pk)
 
 
 @router.post(
@@ -444,7 +456,7 @@ def list_imports(
     me = caller(request)
     target = project(me, project_id, Action.PROJECT_IMPORT)
     found = BundleImport.objects.filter(project=target).select_related(
-        "requested_by", "applied_by", "upload"
+        "requested_by", "applied_by", "upload__scan_result__release"
     )
     return page(found, params, newest_first=True)
 

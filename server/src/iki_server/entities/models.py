@@ -816,3 +816,89 @@ class RulesChecked(models.Model):
 
     def __str__(self) -> str:
         return f"{self.type} {self.digest[:12]}"
+
+
+class RecordExportState(models.TextChoices):
+    QUEUED = "queued", "Queued"
+    WRITING = "writing", "Writing"
+    READY = "ready", "Ready"
+    FAILED = "failed", "Failed"
+    #: Its file was deleted when it expired; the record of it stays.
+    EXPIRED = "expired", "Expired"
+
+
+class RecordExport(models.Model):
+    """Many records as one file of a format each exports (ADR 0229), asked for by someone
+    who can read them all: each at the revision it had when they asked, written in the
+    background, and kept for them to download for a week."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    agent = models.ForeignKey(
+        "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    via = models.CharField(max_length=16)
+    format = models.CharField(max_length=40)
+    #: What was picked, in words: "12 plasmids picked", or the search.
+    selection = models.TextField()
+    #: The search it's from, as given, if it's a table's; None for records picked.
+    search = models.JSONField(null=True, blank=True)
+    #: Each record, in the file's order, at the revision it had when asked for:
+    #: [[its UUID, its HRID, its revision], …].
+    records = models.JSONField()
+    #: The fields an SDF carries as data, in order; empty for other formats.
+    fields = ArrayField(models.CharField(max_length=100), default=list, blank=True)
+    #: The projects its records belong to, so a legal hold on one keeps its file.
+    projects = ArrayField(models.UUIDField(), default=list, blank=True)
+    #: A project its requester read each record through, when they asked: it's theirs to
+    #: see while they can read each of these (ADR 0152).
+    read_in = ArrayField(models.UUIDField(), default=list, blank=True)
+    #: Every record read to write it, its own and what they refer to: whoever downloads it
+    #: must still be able to read them all.
+    references = ArrayField(models.UUIDField(), null=True, blank=True)
+    state = models.CharField(
+        max_length=16, choices=RecordExportState.choices, default=RecordExportState.QUEUED
+    )
+    #: Why it failed, said to the person who asked.
+    error = models.TextField(blank=True, default="")
+    #: How many of its records are written so far.
+    done = models.PositiveIntegerField(default=0)
+    name = models.CharField(max_length=200, db_comment="The file's name.")
+    sha256 = models.CharField(max_length=64, blank=True, default="")
+    size = models.BigIntegerField(null=True, blank=True, db_comment="Bytes.")
+    #: What the file couldn't hold, by each record's HRID, as the file says it.
+    notes = models.JSONField(default=dict, blank=True)
+    #: Records its writer refused, by HRID, and why: it failed, so no file has fewer
+    #: records than were asked for.
+    refused = models.JSONField(default=dict, blank=True)
+    #: Which code wrote it: a built-in writer's name and Iki's version (ADR 0230).
+    writer = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    finished_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "iki_record_export"
+        db_table_comment = "Many records asked for as one file, such as FASTA or SDF."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["requested_by", "-created_at"], name="iki_record_export_by"),
+            models.Index(
+                fields=["expires_at"],
+                name="iki_record_export_expiring",
+                condition=Q(state="ready"),
+            ),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(state__in=RecordExportState.values), name="iki_record_export_state"
+            ),
+            models.CheckConstraint(
+                condition=~Q(state="ready") | Q(sha256__regex=r"^[0-9a-f]{64}$"),
+                name="iki_record_export_ready_sha256",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name}"[:254]

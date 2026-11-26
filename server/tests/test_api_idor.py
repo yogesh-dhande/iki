@@ -145,7 +145,15 @@ def test_another_projects_objects_are_never_reached(
     method: str, template: str, build: Build, request: pytest.FixtureRequest
 ) -> None:
     if template.startswith(
-        ("/uploads", "/files", "/registrations", "/bundles", "/imports", "/spreadsheet-imports")
+        (
+            "/uploads",
+            "/files",
+            "/registrations",
+            "/bundles",
+            "/imports",
+            "/spreadsheet-imports",
+            "/entity-exports",
+        )
     ) or (template.endswith(("/bundles", "/imports", "/spreadsheet-imports"))):
         request.getfixturevalue("s3")
         settings = request.getfixturevalue("settings")

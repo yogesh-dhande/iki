@@ -83,7 +83,8 @@ import {
   TextField,
   useMessages,
 } from "../ui";
-import { upload, uploadError, type Progress } from "../uploads";
+import { templateUrl } from "../sheet";
+import { progressLabel, upload, uploadError, type Progress } from "../uploads";
 import { useProject } from "./project-overview";
 
 /** The types a sheet's rows can become: those whose records can be made. */
@@ -253,16 +254,27 @@ export function ChooseWorkbook({
           ...choices.map((t) => ({ value: t.name, label: t.label_plural })),
         ]}
       />
+      {type ? (
+        // A sheet to fill in, its headings the fields an import sets (ADR 0228).
+        <p className="field-help">
+          <a href={templateUrl(type)} download>
+            Download the import template
+          </a>{" "}
+          for {inSentence(choices.find((t) => t.name === type)?.label_plural ?? "these records")}: a
+          CSV file with a heading for each field, its unit in brackets, to fill in or send to a
+          collaborator.
+        </p>
+      ) : null}
       {file && progress ? (
         <div className="upload">
           <p className="visually-hidden" role="status">
-            {progress.phase === "checking" ? `Checking ${file.name}` : `Uploading ${file.name}`}
+            {progressLabel(progress, file.name)}
           </p>
           <p aria-hidden="true">
             <UploadStatus name={file.name} progress={progress} />
           </p>
-          {progress.phase === "checking" ? (
-            <progress aria-label={`Checking ${file.name}`} />
+          {progress.phase === "checking" || progress.phase === "scanning" ? (
+            <progress aria-label={progressLabel(progress, file.name)} />
           ) : (
             <>
               <progress

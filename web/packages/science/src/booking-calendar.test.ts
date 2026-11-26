@@ -14,7 +14,13 @@ function calendar() {
         endsAt: "2024-03-01T08:00:00",
         instrument: "Microscope",
       },
-      { id: "maintenance", title: "Maintenance", startsAt: "2024-03-01T12:00:00" },
+      {
+        id: "maintenance",
+        title: "Maintenance",
+        startsAt: "2024-03-01T12:00:00",
+        bookedFor: "Example engineer",
+        work: "EQS-000002 Optics service",
+      },
       { id: "invalid", title: "No valid start", startsAt: "invalid" },
     ],
   };
@@ -57,7 +63,9 @@ describe("booking calendar", () => {
       { start: new Date(2024, 2, 1).toISOString(), end: new Date(2024, 3, 1).toISOString() },
     ]);
     expect(element.month).toBe("2024-03");
-    expect(root.querySelector("li")?.textContent).toContain("Maintenance");
+    expect(root.querySelector("li")?.textContent).toMatch(
+      /Maintenance, for Example engineer · EQS-000002 Optics service$/,
+    );
     expect(root.querySelector("li")?.textContent).not.toContain("Lens");
     element.month = "2025-01";
     expect(ranges).toHaveLength(1);
@@ -77,5 +85,47 @@ describe("booking calendar", () => {
     expect(root.querySelector('[role="status"]')?.textContent).toContain("finding more");
     element.data = { bookings: [], error: "Unable to load bookings" };
     expect(root.querySelector('[role="status"]')?.textContent).toBe("Unable to load bookings");
+  });
+
+  it("leaves cancelled bookings out until asked, then strikes them through and says so", () => {
+    const element = document.body.appendChild(document.createElement("iki-booking-calendar"));
+    element.month = "2024-02";
+    const bookings = [
+      { id: "run", title: "Amplicon run", startsAt: "2024-02-12T09:00:00" },
+      { id: "off", title: "Metagenomics run", startsAt: "2024-02-13T09:00:00", cancelled: true },
+    ];
+    element.data = { bookings, showCancelled: false };
+    const root = element.shadowRoot;
+    assert(root);
+    const toggle = root.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    assert(toggle);
+    expect(toggle.closest("label")?.hidden).toBe(false);
+    expect(toggle.closest("label")?.textContent).toBe("Show cancelled");
+    expect(toggle.checked).toBe(false);
+    expect(root.querySelectorAll("li button")).toHaveLength(1);
+    expect(root.querySelector('[role="status"]')?.textContent).toMatch(/^1 booking in [^,]*$/);
+    const asked: unknown[] = [];
+    element.addEventListener("cancelled-change", (event) => {
+      asked.push((event as CustomEvent<unknown>).detail);
+      expect(event.composed && event.bubbles).toBe(true);
+    });
+    toggle.click();
+    expect(asked).toEqual([{ shown: true }]);
+
+    element.data = { bookings, showCancelled: true };
+    const off = root.querySelector<HTMLButtonElement>("li button.cancelled");
+    assert(off);
+    expect(off.querySelector(".tag")?.textContent).toBe("Cancelled");
+    expect(off.querySelector("s")?.textContent).toMatch(/Metagenomics run$/);
+    expect(off.getAttribute("aria-label")).toMatch(/^Open off: Cancelled: .*Metagenomics run$/);
+    expect(root.querySelector('[role="status"]')?.textContent).toMatch(
+      /^1 booking in .*, 1 cancelled$/,
+    );
+
+    // A host that doesn't offer the switch gets what it gives, still marked cancelled.
+    element.data = { bookings };
+    expect(toggle.closest("label")?.hidden).toBe(true);
+    expect(root.querySelectorAll("li button.cancelled")).toHaveLength(1);
+    element.remove();
   });
 });

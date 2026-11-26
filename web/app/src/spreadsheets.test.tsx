@@ -8,7 +8,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { queryClient } from "./api";
-import { entity, KINASE, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
+import { entity, KINASE, NO_FACTS, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import {
   columnName,
   columnsWith,
@@ -24,7 +24,7 @@ import {
   type SheetColumn,
   type SheetImport,
 } from "./spreadsheets";
-import { answer, calls, page, problem, respond, type Sent } from "./test-server";
+import { answer, calls, CLEAN_SCAN, page, problem, respond, type Sent } from "./test-server";
 
 // jsdom lays nothing out; the grid draws the rows that fit in its scrolling region.
 const sizes = { clientHeight: 600, clientWidth: 1000, offsetHeight: 600, offsetWidth: 1000 };
@@ -374,6 +374,8 @@ describe("where an import starts", () => {
       created_at: "2026-11-11T09:00:00Z",
       external: false,
       acquired: null,
+      facts: NO_FACTS,
+      scan: CLEAN_SCAN,
       used_by: { records: 0, runs: 0 },
     };
     answer("GET /api/v1/files", page([workbook]));

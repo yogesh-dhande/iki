@@ -9,6 +9,11 @@ come round, and run at most every five minutes, and its action must need no inpu
 A trigger may give other inputs the entities related to the one that fired it (ADR 0123):
 ``related: {aliquots: {direction: downstream}}`` gives ``aliquots`` every Aliquot in the
 project derived from it. Each such input takes many, and isn't the one the entity goes to.
+An input ``from_project`` (ADR 0232) is filled by the run itself, so a trigger never gives
+it the entity, nor needs to give it anything.
+
+``request.received`` fires in a service's project as a request of its type is sent there
+(ADR 0232): its type must be a request type.
 """
 
 from __future__ import annotations
@@ -69,7 +74,7 @@ def taking(trigger: Trigger, action: Action, is_a: Any) -> list[str]:  # noqa: A
     return [
         n
         for n, put in action.inputs.items()
-        if n not in trigger.related and is_a(trigger.type, put.type)
+        if n not in trigger.related and not put.from_project and is_a(trigger.type, put.type)
     ]
 
 
@@ -127,6 +132,19 @@ class _Rules:
                 self.entered(trigger, source)
             if (
                 target is not None
+                and trigger.on == "request.received"
+                and self.s.request_of(target) is None
+            ):
+                self.add(
+                    "trigger-received-not-a-request",
+                    f"`{trigger.type}` isn't a request type, so its records are never sent to "
+                    "a service.",
+                    source,
+                    ("type",),
+                    hint="Name a request type, such as one that extends `iki/requests.Request`.",
+                )
+            if (
+                target is not None
                 and trigger.on == "entity.registered"
                 and not any(t.identity for t in [target, *self.s.ancestors(target)])
             ):
@@ -149,7 +167,7 @@ class _Rules:
             return trigger
         if scheduled:
             for name, put in action.inputs.items():
-                if not put.optional:
+                if not put.optional and not put.from_project:
                     self.add(
                         "trigger-input-missing",
                         f"`{trigger.run}` needs `{name}`, and a scheduled trigger gives it no "
@@ -209,7 +227,12 @@ class _Rules:
                 )
         if given:
             for name, put in action.inputs.items():
-                if name != given and name not in trigger.related and not put.optional:
+                if (
+                    name != given
+                    and name not in trigger.related
+                    and not put.optional
+                    and not put.from_project
+                ):
                     self.add(
                         "trigger-input-missing",
                         f"`{trigger.run}` also needs `{name}`, and a trigger gives it only the "
@@ -248,6 +271,16 @@ class _Rules:
                     path,
                     key=True,
                     hint=schemas._did_you_mean(name, list(action.inputs)),
+                )
+            elif put.from_project:
+                self.add(
+                    "trigger-input-from-project",
+                    f"`{name}` is given every record of its type the project owns, so it "
+                    "can't take related ones.",
+                    source,
+                    path,
+                    key=True,
+                    hint="Give related entities to another input.",
                 )
             elif name == given:
                 self.add(
@@ -426,6 +459,16 @@ class _Rules:
                     source,
                     ("input",),
                     hint=schemas._did_you_mean(trigger.input, list(action.inputs)),
+                )
+                return ""
+            if put.from_project:
+                self.add(
+                    "trigger-input-from-project",
+                    f"`{trigger.input}` is given every record of its type the project owns, so "
+                    "it can't take the entity that fired the trigger.",
+                    source,
+                    ("input",),
+                    hint="Give the entity to another input.",
                 )
                 return ""
             if not self.is_a(trigger.type, put.type):

@@ -776,6 +776,40 @@ describe("a project's Requests tab", () => {
     expect(within(chips).getAllByRole("button", { name: /^Filter \d/ })).toHaveLength(1);
   });
 
+  it("sorts the queue by priority, urgent first, then by the project that asked", async () => {
+    on(CORE, { intake: TAKES, from: [KINASE] });
+    searching({ queued: true, rows: [request({}, { ...SENT, yours: ["service"] })] });
+    const { router, user } = await renderApp("/projects/protein-core/requests/");
+    await screen.findByRole("table", { name: "1 assay request" });
+    await user.click(screen.getByRole("button", { name: /^Sort: / }));
+    // An enum sorts in the order its type declares: routine, then urgent (ADR 0232).
+    await user.click(await screen.findByRole("menuitemradio", { name: "Priority, urgent first" }));
+    await waitFor(() => {
+      expect(router.state.location.search).toMatchObject({ sort: "priority", desc: true });
+    });
+    await user.click(await screen.findByRole("button", { name: "Then by…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Asked by, A to Z" }));
+    await waitFor(() => {
+      expect(router.state.location.search).toMatchObject({
+        sort: "priority",
+        desc: true,
+        then: ["asked_by"],
+      });
+    });
+    await waitFor(() => {
+      expect(lastSearch()).toMatchObject({
+        sort: { field: "priority", descending: true },
+        then: [{ field: "asked_by", descending: false }],
+      });
+    });
+    // Each further sort is its own menu, which takes it away too.
+    await user.click(screen.getByRole("button", { name: "then Asked by, A to Z" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Don’t sort by asked by" }));
+    await waitFor(() => {
+      expect(router.state.location.search).not.toHaveProperty("then");
+    });
+  });
+
   it("is the requests an asking project sent, filtered by status and service", async () => {
     on(KINASE, { to: [CORE] });
     searching({ owns: true, rows: [request({}, SENT)] });

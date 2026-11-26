@@ -66,6 +66,8 @@ class Action(StrEnum):
     """Org settings, people's org roles, deactivating people."""
     TEAM_CREATE = "team.create"
     COMPUTE_MANAGE = "compute.manage"
+    QUARANTINE_MANAGE = "quarantine.manage"
+    """Review held file scans and release a false positive (ADR 0217)."""
     AUDIT_READ = "audit.read"
     COSTS_READ = "costs.read"
     """What runs cost across the organization, by project, team, template and action."""
@@ -128,6 +130,7 @@ ORG_ACTIONS = frozenset(
         Action.ORG_MANAGE,
         Action.TEAM_CREATE,
         Action.COMPUTE_MANAGE,
+        Action.QUARANTINE_MANAGE,
         Action.AUDIT_READ,
         Action.COSTS_READ,
         Action.ORG_WEBHOOKS_MANAGE,
@@ -162,6 +165,7 @@ ACTION_SCOPES: dict[Action, str] = {
     Action.TEAM_CREATE: "admin",
     Action.TEAM_MANAGE: "admin",
     Action.COMPUTE_MANAGE: "admin",
+    Action.QUARANTINE_MANAGE: "admin",
     Action.COSTS_READ: "read",
     # Webhooks send data out of Iki: a scope of their own, as GitHub's admin:*_hook.
     Action.ORG_WEBHOOKS_MANAGE: "webhooks",
@@ -228,6 +232,7 @@ _ORG_ACTION_ROLES = {
     Action.ORG_MANAGE: {OrgRole.ORG_ADMIN},
     Action.TEAM_CREATE: {OrgRole.ORG_ADMIN},
     Action.COMPUTE_MANAGE: {OrgRole.COMPUTE_ADMIN},
+    Action.QUARANTINE_MANAGE: {OrgRole.QUARANTINE_ADMIN},
     Action.AUDIT_READ: {OrgRole.AUDITOR},
     # Who answers for what's spent: those who run compute, audit it, and run the org.
     Action.COSTS_READ: {OrgRole.COMPUTE_ADMIN, OrgRole.AUDITOR, OrgRole.ORG_ADMIN},
@@ -568,14 +573,26 @@ def teams_for_new_project(user: Any) -> QuerySet[Team]:  # noqa: ANN401
     return teams
 
 
+#: ``/me``'s ``can`` that are an organization-wide action, which org roles grant.
+_CAPABILITY_ACTIONS = {
+    "manage_org": Action.ORG_MANAGE,
+    "read_audit": Action.AUDIT_READ,
+    "manage_webhooks": Action.ORG_WEBHOOKS_MANAGE,
+    "read_costs": Action.COSTS_READ,
+    "manage_compute": Action.COMPUTE_MANAGE,
+    "manage_quarantine": Action.QUARANTINE_MANAGE,
+}
+
+
 def capabilities(user: Any) -> dict[str, bool]:  # noqa: ANN401
     """What the person may do across the organization: ``/me``'s ``can``, and what the
     header's navigation offers them (:mod:`iki_server.web.navigation`)."""
-    return {
-        "manage_org": can(user, Action.ORG_MANAGE),
-        "read_audit": can(user, Action.AUDIT_READ),
-        "create_projects": teams_for_new_project(user).exists(),
-        "manage_webhooks": can(user, Action.ORG_WEBHOOKS_MANAGE),
-        "read_costs": can(user, Action.COSTS_READ),
-        "manage_compute": can(user, Action.COMPUTE_MANAGE),
-    }
+    can_do = {name: can(user, action) for name, action in _CAPABILITY_ACTIONS.items()}
+    return {**can_do, "create_projects": teams_for_new_project(user).exists()}
+
+
+def roles_granting(capability: str) -> frozenset[OrgRole]:
+    """The org roles that give a person this one of :func:`capabilities` (none for one
+    that isn't an org role's, such as ``create_projects``)."""
+    action = _CAPABILITY_ACTIONS.get(capability)
+    return frozenset(_ORG_ACTION_ROLES[action]) if action is not None else frozenset()

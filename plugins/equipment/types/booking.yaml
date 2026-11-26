@@ -4,8 +4,10 @@ kind: EntityType
 name: Booking
 label: Booking
 label_plural: Bookings
-schema_version: 1
-description: Time someone booked on an instrument. Its calendar shows them by day.
+schema_version: 2
+description: >-
+  Time booked on an instrument, for the person who booked it or someone they booked it
+  for, and for the record it's needed for. Its calendar shows them by day.
 hrid: { prefix: BKG }
 fields:
   purpose: { type: string, required: true, max_length: 200 }
@@ -15,8 +17,25 @@ fields:
   cancelled:
     type: bool
     default: false
-    description: Cancelled bookings are kept, and don't hold the instrument.
-  booked_by: { type: person, label: Booked by, description: Who the time is for. }
+    description: >-
+      Cancelled bookings are kept, and don't hold the instrument: another booking can
+      take their time. Calendars leave them out unless asked to show them.
+  booked_by:
+    type: person
+    label: Booked for
+    description: >-
+      Who the time is for: it's on their home, and they hear when the instrument goes out
+      of service. Left empty, it's for whoever booked it.
+  # Any record, so equipment needs no plugin of its own: a request, a sample, an
+  # experiment. A booking can name only what its project may use (ADR 0067), such as a
+  # request sent to it (ADR 0132), and shows it only to those who can read it.
+  work:
+    type: ref
+    to: iki/core.Entity
+    label: For
+    description: >-
+      The record the time is for, such as the request it runs. The record's lineage lists
+      its bookings.
 display:
   title: "{{ purpose }}"
 # Rules its records keep at every save (ADR 0127).
@@ -47,11 +66,15 @@ notifications:
   instrument_down:
     label: Instrument out of service
     description: >-
-      Whoever a booking is for hears when its instrument goes out of service
-      before the booking ends, so they can book another.
+      Whoever a booking is for, and whoever booked it, hear when its instrument
+      goes out of service before the booking ends, so they can book another. A
+      cancelled booking tells no one.
     when: { field: instrument.service, to: out_of_service }
-    where: { field: ends_at, op: gte, value: "{{ now }}" }
-    tell: { fields: [booked_by] }
+    where:
+      all:
+        - { field: ends_at, op: gte, value: "{{ now }}" }
+        - { field: cancelled, op: eq, value: false }
+    tell: { fields: [booked_by], creator: true }
     message:
       title: "{{ instrument }} is out of service"
-      body: "Your booking “{{ purpose }}” starts {{ starts_at }}."
+      body: "The booking “{{ purpose }}” starts {{ starts_at }}."

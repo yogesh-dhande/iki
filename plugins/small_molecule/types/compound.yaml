@@ -4,7 +4,7 @@ kind: EntityType
 name: Compound
 label: Compound
 label_plural: Compounds
-schema_version: 1
+schema_version: 2
 description: >-
   A chemical compound, by its standardised structure. Two with the same standard
   InChIKey are the same compound: one registry entry, with one ID, which each
@@ -41,6 +41,18 @@ fields:
     max_length: 20000
     computed: true
     description: Its standard InChI, from the InChI Trust's library.
+  molfile:
+    type: text
+    registry: derived
+    label: Molfile
+    max_length: 4000000
+    computed: true
+    # Machine text: its "words" are coordinates and atom symbols (ADR 0233).
+    searchable: false
+    description: >-
+      Its structure as an MDL Molfile, laid out in 2D by RDKit's CoordGen, kekulized,
+      with its stereocentres wedged: V2000, or V3000 when it has more atoms or bonds
+      than V2000's 999. Iki writes its Molfile and SDF exports from it.
   name:
     type: string
     max_length: 255
@@ -241,3 +253,8 @@ fields:
       stereocentres it has, not which of these the material is.
 display:
   title: "{{ name or hrid }}"
+# Its structure as a Molfile, and with its fields as an SDF's data, alone or with others
+# from the records table, written by Iki from its Molfile at any revision (ADR 0229).
+exports:
+  - export: compound
+    structure: molfile

@@ -21,6 +21,11 @@ A sequence (a string with a sequence format) also takes ``motif`` (ADR 0175): ba
 residues in IUPAC codes, ``GAATTY``, found on a duplex's other strand as its reverse
 complement, and across a circle's origin, as its ``strands`` and ``topology`` fields say.
 
+A text field's ``matches`` finds words, as a search engine takes them, in its first
+100,000 characters (``conditions.WORDS_SEARCHED``, ADR 0233): what its full-text index
+holds. A text field that isn't ``searchable`` (machine text, such as a Molfile) has no
+such index, and takes ``contains`` only.
+
 A date or a time can be compared with ``{{ now }}``: when the search runs (a date with
 today's, in UTC). Fields naming people (ADR 0122) take a person's ID, their email address, or
 ``{{ me }}``, whoever searches (so a saved search shared with a project means each
@@ -48,6 +53,11 @@ those it lists, or those its own search finds, run as the same caller.
 Results come in pages, sorted by one field, then by ID. Pages are keyset
 pages, so they stay fast and stable however deep they go. Searches run with
 a time limit, so one search can't hold the database for long.
+
+A sort can go on to others (``then``) for what it ties, as a core's queue is sorted by
+its own ranking, then priority, then when each is needed (ADR 0232). Requests also sort
+by the projects on their two sides, by name (``asked_by``, ``sent_to``), which each side
+sees of the other (ADR 0132). Blanks are last in each, either way.
 """
 
 from __future__ import annotations
@@ -65,9 +75,22 @@ from typing import Any, cast
 from django.contrib.postgres.search import SearchQuery, SearchVector, SearchVectorExact
 from django.core import signing
 from django.db import OperationalError, connection, transaction
-from django.db.models import Exists, F, Model, OuterRef, Q, QuerySet, Subquery, TextField
+from django.db.models import (
+    Case,
+    Exists,
+    F,
+    IntegerField,
+    Model,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    TextField,
+    Value,
+    When,
+)
 from django.db.models.functions import Concat, Left, Length, Lower, Right
-from django.db.models.lookups import GreaterThanOrEqual, IRegex
+from django.db.models.lookups import Exact, GreaterThanOrEqual, IRegex
 
 from iki_server.entities import access, registry
 from iki_server.entities.models import Entity, ProjectLink
@@ -188,11 +211,51 @@ class Search:
     #: Of any one of these types, or their subtypes: what a reference to several types may
     #: name (ADR 0136). Conditions then name only the columns every entity has.
     types: tuple[str, ...] = ()
+    #: Further sorts, each a field and whether it's descending, for what ``sort`` ties.
+    then: tuple[tuple[str, bool], ...] = ()
 
 
 #: What a dynamic collection keeps as its ``search``: a search without paging,
 #: or a collection of its own (collections don't nest).
-STORED_KEYS = ("project", "type", "exact_type", "archived", "q", "where", "sort", "descending")
+STORED_KEYS = (
+    "project",
+    "type",
+    "exact_type",
+    "archived",
+    "q",
+    "where",
+    "sort",
+    "descending",
+    "then",
+)
+#: The most sorts a search has, its first among them.
+MAX_SORTS = 4
+
+
+def then_of(value: Any) -> tuple[tuple[str, bool], ...]:  # noqa: ANN401 - JSON
+    """A search's further sorts, as JSON keeps them: ``[{"field": …, "descending": …}]``.
+    Raises :class:`SearchError`."""
+    if value is None:
+        return ()
+    if not isinstance(value, list | tuple):
+        raise SearchError([("#/then", "must be a list of sorts.")])
+    out = []
+    for index, item in enumerate(value):
+        if isinstance(item, list | tuple) and len(item) == 2:
+            field, descending = item
+        elif isinstance(item, Mapping) and set(item) <= {"field", "descending"}:
+            field, descending = item.get("field"), item.get("descending", False)
+        else:
+            raise SearchError([(f"#/then/{index}", "must be a field and its direction.")])
+        if not isinstance(field, str) or not isinstance(descending, bool):
+            raise SearchError([(f"#/then/{index}", "must be a field and its direction.")])
+        out.append((field, descending))
+    return tuple(out)
+
+
+def then_json(then: Iterable[tuple[str, bool]]) -> list[dict[str, Any]]:
+    """Further sorts, as JSON keeps them."""
+    return [{"field": f, "descending": d} for f, d in then]
 
 
 def stored(data: Mapping[str, Any]) -> Search:
@@ -206,6 +269,7 @@ def stored(data: Mapping[str, Any]) -> Search:
             values["project"] = uuid.UUID(str(values["project"]))
         except ValueError:
             raise SearchError([("#/project", "must be a project's ID.")]) from None
+    values["then"] = then_of(values.get("then"))
     return Search(**values)
 
 
@@ -338,7 +402,11 @@ class _Compiler:
         op = node.get("op")
         allowed = (
             "is_set",
-            *conditions.operators(col.kind, col.field.format if col.field else None),
+            *conditions.operators(
+                col.kind,
+                col.field.format if col.field else None,
+                searchable=col.field.searchable if col.field else True,
+            ),
         )
         if op not in allowed:
             return self.fail(
@@ -394,10 +462,11 @@ class _Compiler:
             if not isinstance(value, str) or not value.strip() or len(value) > MAX_TEXT:
                 return self.fail(at, f"must be some text, up to {MAX_TEXT} characters.")
             if op == "matches":
-                # `-fragment` matches text without the word, not entities without text.
+                # `-fragment` matches text without the word, not entities without text. The
+                # words are its first characters', as its index has them (ADR 0233).
                 return Q(**{f"{col.path}__isnull": False}) & Q(
                     SearchVectorExact(
-                        SearchVector(col.path, config="simple"),
+                        SearchVector(Left(col.path, conditions.WORDS_SEARCHED), config="simple"),
                         SearchQuery(value, config="simple", search_type="websearch"),
                     )
                 )
@@ -979,14 +1048,77 @@ def queryset(
         errors += compiler.errors
         found = found.filter(where)
     if search.sort is not None:
-        col = column(form, search.sort)
-        if col is None:
-            errors.append(("#/sort", f"There’s no field `{search.sort}` to sort by."))
-        elif col.kind not in SORTABLE or col.items is not None:
-            errors.append(("#/sort", f"`{search.sort}` can't be sorted by."))
+        errors += _sort_problems(form, search.sort, "#/sort")
+    if search.then and search.sort is None:
+        errors.append(("#/then", "goes on from a sort: give `sort` first."))
+    elif search.then:
+        if len(search.then) >= MAX_SORTS:
+            errors.append(("#/then", f"A search sorts by at most {MAX_SORTS} fields."))
+        seen = {search.sort}
+        for index, (name, _) in enumerate(search.then):
+            if name in seen:
+                errors.append((f"#/then/{index}", f"`{name}` is sorted by already."))
+            seen.add(name)
+            errors += _sort_problems(form, name, f"#/then/{index}")
     if errors:
         raise SearchError(errors)
     return found.select_related("created_by")
+
+
+def _sort_problems(form: Shape | None, name: str, pointer: str) -> list[tuple[str, str]]:
+    col = sort_column(form, name)
+    if col is None:
+        return [(pointer, f"There’s no field `{name}` to sort by.")]
+    if (col.kind not in SORTABLE and name not in _SIDES) or col.items is not None:
+        return [(pointer, f"`{name}` can't be sorted by.")]
+    return []
+
+
+#: What requests also sort by (ADR 0132, ADR 0232): the project on either side, by its name,
+#: which each side's people see of the other. Other records have none.
+_SIDES = {
+    "asked_by": Column("asked_by", "project", "owner_project_id"),
+    "sent_to": _BUILT_IN["sent_to"],
+}
+
+
+def sort_column(form: Shape | None, name: str) -> Column | None:
+    """The column a search sorts by, or None: a field, a column every entity has, or a
+    request's side."""
+    return _SIDES.get(name) or column(form, name)
+
+
+def _sort_expression(col: Column) -> Any:  # noqa: ANN401 - a query expression
+    """What a search sorts by for a column: its value, its registry entry's, or for a
+    request's side, its project's name."""
+    if col.name in _SIDES:
+        from iki_server.entities.requests import request_types
+        from iki_server.org.models import Project
+
+        name = Subquery(Project.objects.filter(pk=OuterRef(col.path)).values("name")[:1])
+        if col.name == "sent_to":
+            return name
+        return Case(
+            When(type__in=request_types(), then=name),
+            default=Value(None),
+            output_field=TextField(),
+        )
+    value: Any = F(col.path)
+    if col.entry is not None:
+        # A registry entry's field: each record sorts by its entry's.
+        value = Subquery(
+            col.entry._default_manager.filter(pk=OuterRef("entry_id")).values(col.path)[:1]
+        )
+    if col.kind == "enum" and col.field is not None and col.field.values:
+        # An enum, or a state field's states, in the order its type declares them, as a
+        # queue's priority is routine then urgent (ADR 0232): a value it no longer has is
+        # blank.
+        return Case(
+            *(When(Exact(value, Value(v)), then=Value(i)) for i, v in enumerate(col.field.values)),
+            default=Value(None),
+            output_field=IntegerField(),
+        )
+    return value
 
 
 #: The most projects a search across them names one by one, for Postgres to plan by.
@@ -1073,7 +1205,9 @@ def page(
 ) -> tuple[list[Entity], str | None]:
     """One page of the search's results, and the cursor for the next (or None)."""
     form = form_of(search.type)
-    col = column(form, search.sort) if search.sort else None
+    if search.sort and search.then:
+        return _page_by_sorts(found, search, form, cursor, limit)
+    col = sort_column(form, search.sort) if search.sort else None
     key = search.sort, search.descending
     # Sorting by when entities were made is sorting by ID (UUIDv7), which is indexed.
     by_id = col is None or col.name == "created_at"
@@ -1091,12 +1225,7 @@ def page(
         last = got[-1] if got and more else None
         return got, _encode(key, None, last.pk) if last is not None else None
     assert col is not None  # noqa: S101 - not by ID
-    expression: Any = F(col.path)
-    if col.entry is not None:
-        # A registry entry's field: each record sorts by its entry's.
-        expression = Subquery(
-            col.entry._default_manager.filter(pk=OuterRef("entry_id")).values(col.path)[:1]
-        )
+    expression: Any = _sort_expression(col)
     if col.field is None and search.type is not None and not search.exact_type:
         # Every entity's own columns (when it changed) are indexed after its type. The type's
         # table holds only it and its subtypes, but saying so lets that index serve.
@@ -1140,13 +1269,67 @@ def page(
     return rows, _encode(key, _plain(getattr(last, "sort_value", None)), last.pk)
 
 
+def _page_by_sorts(
+    found: QuerySet[Entity], search: Search, form: Shape | None, cursor: str | None, limit: int
+) -> tuple[list[Entity], str | None]:
+    """A page sorted by several fields: each in its direction, blanks last in each, then
+    by ID. Keyset pages, as one sort's, past the row each ends with."""
+    assert search.sort is not None  # noqa: S101 - only with sorts
+    sorts = [(search.sort, search.descending), *search.then]
+    cols = [sort_column(form, name) for name, _ in sorts]
+    assert all(c is not None for c in cols)  # noqa: S101 - checked by the search
+    key = (search.sort, search.descending, [[n, d] for n, d in search.then])
+    names = [f"sort_{i}" for i in range(len(sorts))]
+    ordered = found.annotate(
+        **{n: _sort_expression(c) for n, c in zip(names, cols, strict=True) if c is not None}
+    ).order_by(
+        *(
+            F(n).desc(nulls_last=True) if descending else F(n).asc(nulls_last=True)
+            for n, (_, descending) in zip(names, sorts, strict=True)
+        ),
+        "pk",
+    )
+    if cursor:
+        values, pk = _decode(cursor, key)
+        if not isinstance(values, list) or len(values) != len(sorts):
+            raise SearchError([("#/cursor", "This cursor is from a search sorted another way.")])
+        restored = [_restore(c, v) for c, v in zip(cols, values, strict=True) if c is not None]
+        ordered = ordered.filter(_past(names, [d for _, d in sorts], restored, pk))
+    first = cols[0]
+    assert first is not None  # noqa: S101 - checked by the search
+    _refuse_a_long_sort(ordered[: limit + 1], first, form)
+    rows = list(ordered[: limit + 1])
+    more = len(rows) > limit
+    rows = rows[:limit]
+    if not rows or not more:
+        return rows, None
+    last = rows[-1]
+    return rows, _encode(key, [_plain(getattr(last, n)) for n in names], last.pk)
+
+
+def _past(names: list[str], descending: list[bool], values: list[Any], pk: uuid.UUID) -> Q:
+    """The rows after one with these sort values and ID, blanks last in each sort."""
+    after = Q(pk__gt=pk)
+    for name, down, value in reversed(list(zip(names, descending, values, strict=True))):
+        if value is None:
+            # Blank: only blanks are level with it, and none come after it.
+            after = Q(**{f"{name}__isnull": True}) & after
+        else:
+            beyond = Q(**{f"{name}__{'lt' if down else 'gt'}": value}) | Q(
+                **{f"{name}__isnull": True}
+            )
+            after = beyond | (Q(**{name: value}) & after)
+    return after
+
+
 def _indexed(col: Column) -> bool:
     if col.entry is not None:
         # Indexed in its entries' table, which can't order the records.
         return False
     if col.field is None:
         return col.name in _INDEXED_BUILT_IN
-    return col.field.indexed
+    # An enum sorts in its declared order, which its index on the values can't read.
+    return col.field.indexed and col.kind != "enum"
 
 
 def _refuse_a_long_sort(query: QuerySet[Entity], col: Column, form: Shape | None) -> None:
@@ -1195,18 +1378,19 @@ def _restore(col: Column, value: Any) -> Any:  # noqa: ANN401 - from a cursor
     return value
 
 
-def _encode(key: tuple[str | None, bool], value: Any, pk: uuid.UUID) -> str:  # noqa: ANN401
+def _encode(key: tuple[Any, ...], value: Any, pk: uuid.UUID) -> str:  # noqa: ANN401
     return signing.Signer(salt=_SALT).sign_object([*key, value, str(pk)], compress=True)
 
 
-def _decode(cursor: str, key: tuple[str | None, bool]) -> tuple[Any, uuid.UUID]:
+def _decode(cursor: str, key: tuple[Any, ...]) -> tuple[Any, uuid.UUID]:
     try:
-        sort, descending, value, pk = signing.Signer(salt=_SALT).unsign_object(cursor)
+        *sorted_by, value, pk = signing.Signer(salt=_SALT).unsign_object(cursor)
+        found = uuid.UUID(pk)
     except (signing.BadSignature, ValueError, TypeError) as error:
         raise SearchError([("#/cursor", "Not a cursor from this API.")]) from error
-    if (sort, descending) != key:
+    if sorted_by != list(key):
         raise SearchError([("#/cursor", "This cursor is from a search sorted another way.")])
-    return value, uuid.UUID(pk)
+    return value, found
 
 
 #: What :func:`time_limit` sets, for the rest of its block.

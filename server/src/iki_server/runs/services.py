@@ -34,7 +34,7 @@ from iki_server.audit import log as audit
 from iki_server.entities import access, hrids, registry, requests, states
 from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity
-from iki_server.entities.values import Invalid, Refs, to_db
+from iki_server.entities.values import Invalid, Refs, subtypes, to_db
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
@@ -841,6 +841,7 @@ def check_inputs(
     between projects (ADR 0132) only in the fields of the side that project is."""
     for name in sorted(given.keys() - action.inputs.keys()):
         errors[f"inputs/{name}"] = [f"`{action.qualified_name}` has no input `{name}`."]
+    given = {**given, **_from_project(action, project, given, errors)}
     wanted = {i for name in action.inputs for i in given.get(name, ())}
     found = {e.pk: e for e in access.visible(user).filter(pk__in=wanted)}
     if updated is None:
@@ -848,9 +849,13 @@ def check_inputs(
     out: dict[str, list[Entity]] = {}
     for name, put in action.inputs.items():
         key = f"inputs/{name}"
+        if key in errors:
+            continue
         ids = list(given.get(name, ()))
         if not ids:
-            if not put.optional:
+            if getattr(put, "from_project", False) and not put.optional:
+                errors[key] = [f"{project.name} has no {_plural(put.type)} of its own yet."]
+            elif not put.optional:
                 errors[key] = ["Choose an entity for this input."]
             continue
         if put.cardinality == "one" and len(ids) > 1 and name != each:
@@ -894,6 +899,60 @@ def check_inputs(
         else:
             out[name] = chosen
     return out
+
+
+#: The most records an input ``from_project`` is given, whatever its ``max``.
+FROM_PROJECT_MAX = 1000
+
+
+def _from_project(
+    action: Action | Workflow,
+    project: Project,
+    given: Mapping[str, Sequence[UUID]],
+    errors: dict[str, list[str]],
+) -> dict[str, list[UUID]]:
+    """What each of the action's inputs ``from_project`` is given (ADR 0232): every record
+    of its type the project owns and hasn't archived, oldest first. They aren't chosen, so
+    one given them is refused, as are more than it takes."""
+    out: dict[str, list[UUID]] = {}
+    for name, put in action.inputs.items():
+        if not getattr(put, "from_project", False):
+            continue
+        key = f"inputs/{name}"
+        if given.get(name):
+            errors[key] = [
+                f"It's given every {_plural(put.type, one=True)} {project.name} owns, so it "
+                "isn't chosen: leave it out."
+            ]
+            continue
+        at_most = min(put.max or FROM_PROJECT_MAX, FROM_PROJECT_MAX)
+        ids = list(
+            Entity.objects.filter(
+                owner_project=project,
+                type__in=sorted(subtypes(put.type)),
+                archived_at__isnull=True,
+                purged_at__isnull=True,
+            )
+            .order_by("pk")
+            .values_list("pk", flat=True)[: at_most + 1]
+        )
+        if len(ids) > at_most:
+            errors[key] = [
+                f"{project.name} has more than {at_most} {_plural(put.type)}, the most this "
+                "input takes. Archive those it no longer uses."
+            ]
+            continue
+        out[name] = ids
+    return out
+
+
+def _plural(type_name: str, *, one: bool = False) -> str:
+    """A type's records, as a sentence names them: "projects served"."""
+    found = registry.types().get(type_name)
+    if found is None:
+        return "record" if one else "records"
+    label = found.label if one else (found.label_plural or f"{found.label}s")
+    return label[:1].lower() + label[1:] if label[1:2].islower() else label
 
 
 def updated_fields(updates: Iterable[Updates]) -> dict[str, set[str]]:
@@ -1003,6 +1062,9 @@ def _elsewhere(user: User, project: Project, value: Any) -> bool:  # noqa: ANN40
 
 
 def _next_hrid(prefix: str = HRID_PREFIX, sequence: str = HRID_SEQUENCE) -> str:
+    # A run a check launches and rolls back (ADR 0228) spends no number.
+    if (made := hrids.provisional_hrid(prefix)) is not None:
+        return made
     with connection.cursor() as cursor:
         cursor.execute("SELECT nextval(%s::regclass)", [sequence])
         (number,) = cursor.fetchone()

@@ -117,6 +117,10 @@ class Field:
     #: rather than of each project's record (ADR 0115). None for a record's own field.
     registry: str | None = None
     indexed: bool = False
+    #: For text: a search finds its words (``matches``), from a full-text index of its first
+    #: ``conditions.WORDS_SEARCHED`` characters (ADR 0233). False for machine text, such as
+    #: a Molfile, which gets no full-text index.
+    searchable: bool = True
     #: No two entities in a project share a value (ADR 0082); for a registry fact, no two
     #: entries in a registry.
     unique: bool = False
@@ -210,6 +214,7 @@ class Field:
             reason_on_clear=bool(data.get("reason_on_clear", False)),
             registry=data.get("registry"),
             indexed=bool(data.get("indexed", False)),
+            searchable=bool(data.get("searchable", True)),
             unique=bool(data.get("unique", False)),
             link=data.get("link"),
             removed=bool(data.get("removed", False)),
@@ -910,7 +915,7 @@ class EntityType:
     viewers: tuple[Viewer, ...] = ()
     #: The files Iki writes of its records, such as GenBank (ADR 0171). Subtypes have their
     #: nearest ancestor's unless they declare their own.
-    exports: tuple[Export | ReportExport, ...] = ()
+    exports: tuple[AnyExport, ...] = ()
     file: str | None = None
     #: The date or datetime field saying when its records are due (ADR 0122): its own or a
     #: parent's. Subtypes have their ancestor's unless they name their own.
@@ -1010,6 +1015,25 @@ class Export:
 
 
 @dataclass(frozen=True)
+class ProteinExport:
+    """A protein's residues as FASTA (``export: protein``, ADR 0229)."""
+
+    export: str  # "protein"
+    sequence: str  # a string field with format protein_sequence
+    description: str = ""  # a string or text field, or ""
+    organism: str = ""  # a reference to iki/core.Organism, or ""
+
+
+@dataclass(frozen=True)
+class CompoundExport:
+    """A compound's structure as a Molfile, and with its fields as an SDF's data
+    (``export: compound``, ADR 0229)."""
+
+    export: str  # "compound"
+    structure: str  # a text field holding an MDL Molfile, V2000 or V3000
+
+
+@dataclass(frozen=True)
 class ReportExport:
     """A JSON report issued by a signed state change."""
 
@@ -1017,6 +1041,10 @@ class ReportExport:
     report: str
     review: str
     issued: tuple[str, ...]
+
+
+#: Any of the files a type's records export as.
+type AnyExport = Export | ProteinExport | CompoundExport | ReportExport
 
 
 @dataclass(frozen=True)
@@ -1091,6 +1119,9 @@ class Input:
     description: str | None = None
     #: Its type's reference fields whose entities the run reads too.
     include: tuple[str, ...] = ()
+    #: Not chosen: each run is given every record of its type its project owns, not
+    #: archived, such as a core's ranking of the projects it serves (ADR 0232).
+    from_project: bool = False
 
 
 @dataclass(frozen=True)
@@ -1414,17 +1445,28 @@ class Workflow:
 
 
 #: What fires a trigger: an entity of its type created, a new registry entry of it
-#: registered (ADR 0115), a record's state field set (ADR 0125), an entity changed, or
-#: its schedule.
+#: registered (ADR 0115), a record's state field set (ADR 0125), an entity changed, a
+#: request sent to the project as a service (ADR 0232), or its schedule.
 TRIGGER_EVENTS = (
     "entity.created",
     "entity.registered",
     "entity.state_changed",
     "entity.updated",
+    "request.received",
     "schedule",
 )
 #: The events that fire a trigger for an entity.
-ENTITY_EVENTS = ("entity.created", "entity.registered", "entity.state_changed", "entity.updated")
+ENTITY_EVENTS = (
+    "entity.created",
+    "entity.registered",
+    "entity.state_changed",
+    "entity.updated",
+    "request.received",
+)
+#: The events whose trigger's runs are launched as a service account the Admin who turns
+#: it on chooses, on their authority (ADR 0081, ADR 0232): nobody in the project made
+#: them happen.
+ACCOUNT_EVENTS = ("request.received", "schedule")
 
 
 #: Which way a trigger's related entities are (ADR 0123): derived from the entity, or what
@@ -1725,6 +1767,8 @@ _DATACLASSES = (
     WorkItemSpec,
     EntityType,
     Export,
+    ProteinExport,
+    CompoundExport,
     ReportExport,
     Extension,
     Plugin,
@@ -1816,9 +1860,13 @@ def _viewer(data: dict[str, Any]) -> Viewer:
     return Viewer(**{**data, "tracks": tracks})
 
 
-def _export(data: dict[str, Any]) -> Export | ReportExport:
+def _export(data: dict[str, Any]) -> AnyExport:
     if data["export"] == "signed_report":
         return ReportExport(**{**data, "issued": tuple(data["issued"])})
+    if data["export"] == "protein":
+        return ProteinExport(**data)
+    if data["export"] == "compound":
+        return CompoundExport(**data)
     return Export(**data)
 
 

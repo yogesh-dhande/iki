@@ -939,7 +939,8 @@ def test_the_admin_area_has_a_frame_of_its_own(
     from iki_server.org.models import OrgRole, OrgRoleAssignment
     from iki_server.web import admin_area
 
-    OrgRoleAssignment.objects.create(user=world.users["org_admin"], role=OrgRole.COMPUTE_ADMIN)
+    for role in (OrgRole.COMPUTE_ADMIN, OrgRole.QUARANTINE_ADMIN):
+        OrgRoleAssignment.objects.create(user=world.users["org_admin"], role=role)
     page = open_as("org_admin", "/admin/compute/", color_scheme)
     page.set_viewport_size({"width": 1440, "height": 900})
     page.get_by_role("heading", name="Compute", level=1).wait_for()
@@ -2290,6 +2291,91 @@ def test_exporting_a_collection_and_downloading_its_bundle(
     assert {e["hrid"] for e in bundle.lines("entities.ndjson")} == {kinases.hrid, protein.hrid}
 
 
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_reader_exports_the_proteins_picked_as_one_fasta_file(
+    open_as: Any, world: World, color_scheme: str, tmp_path: Path
+) -> None:
+    """A Viewer picks rows to export (ADR 0229), though they run and edit nothing, and the
+    file is the records picked, in the table's order, each at its revision."""
+    from Bio import SeqIO
+
+    from iki_server.audit.models import AuditEvent
+    from iki_server.entities import services as entities
+
+    made: list[Any] = [
+        entities.create(
+            world.users["editor"],
+            "acme/protein.Protein",
+            world.project,
+            {"sequence": sequence, "name": name},
+        ).entity
+        for name, sequence in (("HBA1", "MVLSPADKTNVKAAWGKVGAHAG"), ("HBB", "MVHLTPEEKSAVTALWGKV"))
+    ]
+    page: Page = open_as(
+        "viewer", "/projects/kinase-atlas/entities/?type=acme/protein.Protein", color_scheme
+    )
+    page.get_by_role("checkbox", name=f"Select {made[0].hrid}").check()
+    page.get_by_role("checkbox", name=f"Select {made[1].hrid}").check()
+    page.get_by_text("2 selected", exact=True).wait_for()
+    page.get_by_role("button", name="Export selected").click()
+    dialog = page.get_by_role("dialog", name="Export 2 selected")
+    dialog.get_by_role("radio", name=re.compile("^FASTA")).wait_for()
+    assert dialog.get_by_role("radio", name=re.compile("^FASTA")).is_checked()
+    assert_clean(page)
+    with page.expect_download() as downloading:
+        dialog.get_by_role("button", name="Export").click()
+    saved = tmp_path / downloading.value.suggested_filename
+    downloading.value.save_as(saved)
+    # WebKit saves it with underscores for spaces.
+    assert saved.name.replace("_", " ") == "Kinase Atlas Proteins (2).fasta"
+    with saved.open() as text:
+        shown = [r.id for r in SeqIO.parse(text, "fasta")]  # type: ignore[no-untyped-call]
+    # In the table's order: last changed first, as it opens.
+    newest_first = [e.hrid for e in reversed(made)]
+    assert shown == newest_first
+    dialog.get_by_role("status").get_by_text("2 records", exact=False).wait_for()
+    assert_clean(page)
+    taken = AuditEvent.objects.get(action="entities.exported")
+    assert [r["hrid"] for r in taken.data["records"]] == newest_first
+    assert taken.data["writer"]["builtin"] == "protein-fasta"
+    dialog.get_by_role("button", name="Done").click()
+    page.get_by_role("button", name="Export selected").wait_for()
+    assert page.get_by_role("dialog").count() == 0
+
+
+def test_a_whole_table_is_written_in_the_background_and_downloaded_when_ready(
+    open_as: Any, world: World, tasks: Server, tmp_path: Path
+) -> None:
+    """Past a hundred records, the file is written by a task: the dialog shows how far it's
+    got, then a link to the file."""
+    from Bio import SeqIO
+
+    from iki_server.entities import services as entities
+
+    residues = "ACDEFGHIKLMNPQRSTVWY"
+    for n in range(101):
+        entities.create(
+            world.users["editor"],
+            "acme/protein.Protein",
+            world.project,
+            {"sequence": residues[n % 20] + residues + residues[: n % 17], "name": f"Variant {n}"},
+        )
+    page: Page = open_as("viewer", "/projects/kinase-atlas/entities/?type=acme/protein.Protein")
+    page.get_by_role("button", name="Export", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Export all proteins the table shows")
+    dialog.get_by_role("button", name="Export", exact=True).click()
+    link = dialog.get_by_role("link", name="Kinase Atlas Proteins (101).fasta")
+    link.wait_for(timeout=60_000)
+    dialog.get_by_role("status").get_by_text("101 records", exact=False).wait_for()
+    assert_clean(page)
+    with page.expect_download() as downloading:
+        link.click()
+    saved = tmp_path / downloading.value.suggested_filename
+    downloading.value.save_as(saved)
+    with saved.open() as text:
+        assert len(list(SeqIO.parse(text, "fasta"))) == 101  # type: ignore[no-untyped-call]
+
+
 def test_importing_a_bundle_and_reading_its_plan(
     open_as: Any, world: World, tasks: Server, tmp_path: Path
 ) -> None:
@@ -3266,11 +3352,21 @@ def test_a_records_lists_of_objects_and_its_map_from_another_records_sequence(
     assert_clean(page, axe_in_firefox=False)
 
 
-def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_type: str) -> Any:
-    """A file in the project, its bytes put straight into the store the server reads."""
+def _stored_file(
+    world: World,
+    s3_endpoint: str,
+    bucket: str,
+    path: Path,
+    media_type: str,
+    *,
+    scanned: bool = True,
+) -> Any:
+    """A file in the project, its bytes put straight into the store the server reads: found
+    clean by the scan, or, if not ``scanned``, still waiting for it."""
     import hashlib
 
     import boto3
+    from scan_fixtures import clean_blob
 
     from iki_server.files.models import Blob, File
 
@@ -3284,8 +3380,11 @@ def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_
         aws_access_key_id=S3_ACCESS_KEY,
         aws_secret_access_key=S3_SECRET_KEY,
     ).put_object(Bucket=bucket, Key=key, Body=data)
-    blob, _ = Blob.objects.get_or_create(
-        sha256=sha256, defaults={"size": len(data), "storage_uri": f"s3://{bucket}/{key}"}
+    uri = f"s3://{bucket}/{key}"
+    blob = (
+        clean_blob(sha256=sha256, size=len(data), storage_uri=uri)
+        if scanned
+        else Blob.objects.create(sha256=sha256, size=len(data), storage_uri=uri)
     )
     return File.objects.create(
         blob=blob,
@@ -4392,7 +4491,7 @@ def test_a_core_takes_requests_a_project_sends_one_and_the_core_works_it(
     heading = page.get_by_role("heading", name="Requests it takes")
     heading.wait_for()
     card = page.locator("section", has=heading)
-    card.get_by_role("checkbox", name="Assay request").check()
+    card.get_by_role("checkbox", name="Assay request", exact=True).check()
     card.get_by_role("radio", name=re.compile("^Every project in the")).check()
     assert_clean(page)
     card.get_by_role("button", name="Save").click()
@@ -4499,6 +4598,8 @@ def test_a_project_follows_the_requests_it_sent_in_its_requests_tab(
     tab = tabs.get_by_role("link", name=re.compile(r"^Requests\b"))
     page.wait_for_url(re.compile(r"/requests/"))
     assert tab.get_attribute("aria-current") == "page"
+    # It sends two types of request: its assay requests, by the type they are.
+    page.get_by_role("combobox", name="Type").select_option(label="Assay request")
     # Only what it sent: not the request it hasn't sent yet.
     grid = page.get_by_role("table", name="1 assay request", exact=True)
     row = grid.get_by_role("row").filter(has=page.get_by_role("link", name=request.hrid))
@@ -4514,6 +4615,81 @@ def test_a_project_follows_the_requests_it_sent_in_its_requests_tab(
     grid = page.get_by_role("table", name="1 assay request match")
     grid.get_by_role("link", name=request.hrid).wait_for()
     assert_clean(page)
+    page.context.close()
+
+
+def test_a_core_sorts_its_queue_by_its_ranking_then_priority_then_need(
+    open_as: Any, world: World
+) -> None:
+    """A service orders its own work (ADR 0232): its queue sorts by a service field of its
+    own, then by priority in its declared order, urgent first, then by when each is needed.
+    By role, never by label (Firefox; see above)."""
+    from iki_server.entities import requests
+    from iki_server.entities import services as entities
+
+    core = Project.objects.create(team=world.team, name="Protein Core", description="Assays")
+    tech = User.objects.create_user("tech@example.com", "Tech")
+    world.users["tech"] = tech
+    ProjectMembership.objects.create(project=core, user=tech, role=ProjectRole.EDITOR)
+    editor = world.users["editor"]
+    requests.set_intake(
+        core,
+        types=["acme/protein.RankedAssayRequest"],
+        from_registry=True,
+        sources=[],
+        by=world.users["admin"],
+    )
+    hrids = {}
+    for title, rank, priority, needed_by in (
+        ("Intact mass, lot 7", 2, "urgent", "2026-12-04"),
+        ("SEC purity, lot 9", 1, "routine", "2026-12-01"),
+        ("Peptide map, lot 3", 1, "urgent", "2026-12-09"),
+        ("Endotoxin, lot 5", 1, "urgent", "2026-12-02"),
+    ):
+        made = entities.create(
+            editor,
+            "acme/protein.RankedAssayRequest",
+            world.project,
+            {"title": title, "needed_by": needed_by},
+        )
+        request = Entity.objects.get(pk=made.entity.pk)
+        requests.submit(editor, request, core, expected_revision=request.revision)
+        request.refresh_from_db()
+        entities.update(
+            tech,
+            request,
+            {"client_rank": rank, "priority": priority},
+            expected_revision=request.revision,
+            acting_in=core,
+        )
+        hrids[title] = request.hrid
+
+    page: Page = open_as("tech", f"/projects/{core.slug}/requests/")
+    grid = page.get_by_role("table", name="4 ranked assay requests", exact=True)
+    grid.wait_for()
+    page.get_by_role("button", name=re.compile("^Sort: ")).click()
+    page.get_by_role("menuitemradio", name="Client rank, lowest first").click()
+    page.get_by_role("button", name="Then by…").click()
+    page.get_by_role("menuitem", name="Priority, urgent first").click()
+    page.get_by_role("button", name="Then by…").click()
+    page.get_by_role("menuitem", name="Needed by, oldest first").click()
+    page.get_by_role("button", name="then Needed by, oldest first").wait_for()
+    assert_clean(page)
+    expected = [
+        hrids["Endotoxin, lot 5"],
+        hrids["Peptide map, lot 3"],
+        hrids["SEC purity, lot 9"],
+        hrids["Intact mass, lot 7"],
+    ]
+
+    def order() -> list[str]:
+        links = grid.get_by_role("row").get_by_role("link", name=re.compile("^RAR-"))
+        return [links.nth(i).inner_text() for i in range(links.count())]
+
+    deadline = time.monotonic() + 10
+    while order() != expected and time.monotonic() < deadline:
+        page.wait_for_timeout(100)
+    assert order() == expected
     page.context.close()
 
 
@@ -4755,7 +4931,7 @@ PLATE = "iki/plate_assays."
 def _starter_api(page: Page) -> dict[str, Any]:
     """Answers the starter API as a deployment with plate assays installed would (ADR 0198):
     this one's fixture plugins don't include them. This stubs the API for the screen's sake
-    and is not its coverage: what the endpoints themselves do, grants and examples included,
+    and is not its coverage: what the endpoints themselves do, including role grants,
     is tested against the real server in test_starter_applications, test_starter_api and
     test_dose_response_starter. Members, projects and everything else here are the real
     server's. Like the server, it applies only the plan previewed (ADR 0207): a grant put in
@@ -4766,7 +4942,6 @@ def _starter_api(page: Page) -> dict[str, Any]:
 
     fixtures = json.loads(FLOW_FIXTURES.read_text())
     roles = {
-        "iki/lab_roles.coordinator": ("Coordinator", "editor"),
         PLATE + "analyst": ("Assay analyst", "editor"),
         PLATE + "reviewer": ("Assay reviewer", "viewer"),
         PLATE + "qa": ("Assay QA", "viewer"),
@@ -4779,16 +4954,16 @@ def _starter_api(page: Page) -> dict[str, Any]:
         return [
             {
                 "id": "dose-response",
-                "version": "1.0.0",
+                "version": "2.0.0",
                 "label": "Dose-response plate assay",
-                "description": "Receive an example request, map a reader file to wells, fit a "
-                "curve and return the signed result to the requester.",
+                "description": "Choose the review flow for new dose-response fits and assign "
+                "the assay roles.",
                 "flows": [
                     {
                         "id": flow,
                         "label": "Research" if flow == "research" else "Regulated QC",
-                        "result_type": f"{PLATE}Requested{base}",
-                        "required_roles": required if flow == "regulated_qc" else required[:3],
+                        "result_type": f"{PLATE}{base}",
+                        "required_roles": required if flow == "regulated_qc" else required[:2],
                     }
                     for flow, base in flows.items()
                 ],
@@ -4805,9 +4980,7 @@ def _starter_api(page: Page) -> dict[str, Any]:
         name = urllib.parse.unquote(route.request.url.split("/entity-types/")[1]).removesuffix(
             "/flow"
         )
-        base = PLATE + name.removeprefix(PLATE + "Requested")
-        found = next(t for t in fixtures["types"] if t["type"] == base)
-        route.fulfill(json={**found, "type": name, "label": f"Requested {found['label']}"})
+        route.fulfill(json=next(t for t in fixtures["types"] if t["type"] == name))
 
     def lab_roles(route: Any) -> None:
         served = route.fetch().json()
@@ -4836,17 +5009,17 @@ def _starter_api(page: Page) -> dict[str, Any]:
             for role, members in body["role_assignments"].items()
             if (missing := [m for m in members if (role, m) not in state["held"]])
         }
+        applied = {"version": body["version"], "flow": body["flow"]}
         plan = {
             **body,
             "starter": "dose-response",
-            "result_type": f"{PLATE}Requested{flows[body['flow']]}",
-            "changed": True,
+            "result_type": f"{PLATE}{flows[body['flow']]}",
+            "changed": applied != state["applied"] or bool(grants),
             "grants_to_add": grants,
-            "examples_to_create": ["request", "protein", "sample", "tube", "plate"],
-            "examples": {},
         }
-        plan["plan"] = hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).hexdigest()
-        if applying and reviewed != plan["plan"]:
+        shown = {**plan, "before": state["applied"]}
+        plan["plan"] = hashlib.sha256(json.dumps(shown, sort_keys=True).encode()).hexdigest()
+        if applying and plan["changed"] and reviewed != plan["plan"]:
             route.fulfill(
                 status=409,
                 content_type="application/problem+json",
@@ -4862,16 +5035,12 @@ def _starter_api(page: Page) -> dict[str, Any]:
             )
             return
         if applying:
-            state["applied"] = {
-                "version": "1.0.0",
-                "flow": body["flow"],
-                "requester_project": body["requester_project"],
-            }
-            plan["examples"] = {"request": str(uuid.uuid4())}
+            state["applied"] = applied
+            state["held"].update((role, member) for role, ids in grants.items() for member in ids)
         route.fulfill(json=plan)
 
     page.route(re.compile(r"/api/v1/starters(\?.*)?$"), lambda r: r.fulfill(json=starters()))
-    page.route(re.compile(r"/api/v1/entity-types/.*Requested.*/flow$"), flow_of)
+    page.route(re.compile(r"/api/v1/entity-types/.*(?:Research|QC)AssayResult/flow$"), flow_of)
     page.route(re.compile(r"/api/v1/lab-roles$"), lab_roles)
     page.route(re.compile(r"/api/v1/starters/dose-response/(preview|apply)$"), setup)
     page.reload()
@@ -4882,14 +5051,9 @@ def _starter_api(page: Page) -> dict[str, Any]:
 def test_an_admin_sets_a_project_up_from_a_starter(
     open_as: Any, world: World, color_scheme: str
 ) -> None:
-    """A starter (ADR 0198): its Admin chooses Regulated QC, seeing its flow drawn; the
-    requesting project; and three different people for its three signatures, which the
-    screen checks before asking. Preview says what applying will do, then it applies. At
-    1440px and 390px, in both schemes. By role (Firefox; see above)."""
-    requester = Project.objects.create(team=world.team, name="Assay Requests")
-    ProjectMembership.objects.create(
-        project=requester, user=world.users["admin"], role=ProjectRole.EDITOR
-    )
+    """An Admin previews the Regulated QC flow and assigns three independent signers.
+    The screen validates the grants and previews what applying them will change.
+    At 1440px and 390px, in both schemes (ADR 0198)."""
     page: Page = open_as("admin", "/projects/kinase-atlas/settings/", color_scheme)
     page.set_viewport_size({"width": 1440, "height": 900})
     sent = _starter_api(page)
@@ -4900,9 +5064,6 @@ def test_an_admin_sets_a_project_up_from_a_starter(
     states = card.get_by_role("list", name="Review’s states", exact=True)
     states.get_by_role("button", name=re.compile(r"^QA released")).wait_for()
     assert states.get_by_role("button").count() == 4
-    card.get_by_role("combobox", name=re.compile("^Requesting project")).select_option(
-        label="Assay Requests"
-    )
 
     # Who may hold each role: people of their own, active, with a high enough role.
     analysts = card.get_by_role("group", name="Assay analyst")
@@ -4910,7 +5071,6 @@ def test_an_admin_sets_a_project_up_from_a_starter(
     reviewers = card.get_by_role("group", name="Assay reviewer")
     assert reviewers.get_by_role("checkbox").count() == 5  # and Viewer, Mixed
     qa = card.get_by_role("group", name="Assay QA")
-    card.get_by_role("group", name="Coordinator").get_by_role("checkbox", name="Admin").check()
     for group in (analysts, reviewers, qa):
         group.get_by_role("checkbox", name="Editor").check()
     card.get_by_role("button", name="Preview").click()
@@ -4926,7 +5086,7 @@ def test_an_admin_sets_a_project_up_from_a_starter(
     card.get_by_role("button", name="Preview").click()
     plan = card.get_by_role("status", name="What applying will do")
     plan.get_by_text("Viewer becomes Assay reviewer.").wait_for()
-    plan.get_by_text(re.compile("^Kinase Atlas takes no requests yet")).wait_for()
+    plan.get_by_text("New results follow the Regulated QC flow.").wait_for()
     assert_clean(page, axe_in_firefox=False)
 
     page.set_viewport_size({"width": 390, "height": 844})
@@ -4935,8 +5095,10 @@ def test_an_admin_sets_a_project_up_from_a_starter(
 
     card.get_by_role("button", name="Apply").click()
     page.get_by_text("Applied Dose-response plate assay with the Regulated QC flow.").wait_for()
-    card.get_by_text("Applied: Regulated QC, version 1.0.0").wait_for()
+    card.get_by_text("Applied: Regulated QC, version 2.0.0").wait_for()
     assert [what for what, _ in sent["sent"]] == ["preview", "apply"]
+    assert set(sent["sent"][0][1]) == {"project", "version", "flow", "role_assignments"}
+    assert set(sent["sent"][1][1]) == {*sent["sent"][0][1], "plan"}
     assert sent["sent"][1][1]["role_assignments"][PLATE + "qa"] == [
         str(world.project.memberships.get(user=world.users["admin"]).pk)
     ]
@@ -4952,10 +5114,6 @@ def test_a_starter_whose_plan_changed_is_reviewed_again_before_it_applies(
     reviewer's grant after the preview, so applying would also grant it: nothing is applied,
     the screen says what changed and shows what applying does now, and applying that
     applies it. At 390px, in both schemes."""
-    requester = Project.objects.create(team=world.team, name="Assay Requests")
-    ProjectMembership.objects.create(
-        project=requester, user=world.users["admin"], role=ProjectRole.EDITOR
-    )
     page: Page = open_as("admin", "/projects/kinase-atlas/settings/starters/", color_scheme)
     page.set_viewport_size({"width": 390, "height": 844})
     api = _starter_api(page)
@@ -4964,10 +5122,6 @@ def test_a_starter_whose_plan_changed_is_reviewed_again_before_it_applies(
     card = page.get_by_role("region", name="Dose-response plate assay")
     card.get_by_text("Not applied here").wait_for()
     card.get_by_role("radio", name=re.compile("^Research")).check()
-    card.get_by_role("combobox", name=re.compile("^Requesting project")).select_option(
-        label="Assay Requests"
-    )
-    card.get_by_role("group", name="Coordinator").get_by_role("checkbox", name="Admin").check()
     card.get_by_role("group", name="Assay analyst").get_by_role("checkbox", name="Editor").check()
     card.get_by_role("group", name="Assay reviewer").get_by_role("checkbox", name="Viewer").check()
     card.get_by_role("button", name="Preview").click()
@@ -4992,7 +5146,7 @@ def test_a_starter_whose_plan_changed_is_reviewed_again_before_it_applies(
 
     card.get_by_role("button", name="Apply").click()
     page.get_by_text("Applied Dose-response plate assay with the Research flow.").wait_for()
-    card.get_by_text("Applied: Research, version 1.0.0").wait_for()
+    card.get_by_text("Applied: Research, version 2.0.0").wait_for()
     applies = [body for what, body in api["sent"] if what == "apply"]
     assert len(applies) == 2 and applies[0]["plan"] != applies[1]["plan"]
     assert note.count() == 0
@@ -5019,16 +5173,17 @@ def test_a_member_reads_a_project_s_starters(open_as: Any, world: World) -> None
     page.context.close()
 
 
-def test_leaving_the_starters_as_they_arrive_leaves_no_error(open_as: Any, world: World) -> None:
+def test_leaving_the_starters_as_they_arrive_leaves_no_error(open_as: Any) -> None:
     """A page's reads stop once a navigation away begins, not only at pagehide: WebKit
     refuses a fetch the departing document starts in between, and raised an access-control
     error for it. Here the starters arrive just after the Admin heads elsewhere, and the
-    card they draw would ask for every project."""
+    card they draw would ask for the selected result type’s flow."""
     page: Page = open_as("admin", "/projects/kinase-atlas/settings/starters/")
-    _starter_api(page)
+    result_flow = re.compile(r"/api/v1/entity-types/.*plate_assays\.ResearchAssayResult/flow$")
+    with page.expect_request(result_flow):
+        _starter_api(page)
     card = page.get_by_role("region", name="Dose-response plate assay")
     card.wait_for()
-    every_project = re.compile(r"/api/v1/projects\?limit=100$")
     starters = re.compile(r"/api/v1/starters\?project=")
     elsewhere = re.compile(r"/account/apps/$")
     held: dict[str, Route] = {}
@@ -5042,7 +5197,7 @@ def test_leaving_the_starters_as_they_arrive_leaves_no_error(open_as: Any, world
         page.reload()
     assert not card.is_visible()
     asked: list[str] = []
-    page.on("request", lambda r: asked.append(r.url) if every_project.search(r.url) else None)
+    page.on("request", lambda r: asked.append(r.url) if result_flow.search(r.url) else None)
 
     # The next page waits too, so the old one stays while the starters come.
     page.route(elsewhere, hold("elsewhere"))

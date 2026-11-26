@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# Python's standard library is all the ranking needs.
+apiVersion: iki/v1
+kind: Environment
+name: python
+label: Python
+description: Python 3.12, with nothing installed.
+tiers: [backend, self_hosted]
+resources: { cpu: 0.1, memory: 128Mi }
+python: { version: "3.12", requirements: requirements.txt }

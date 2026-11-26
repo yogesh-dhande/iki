@@ -110,6 +110,18 @@
         ]
       },
       {
+        "label": "Security",
+        "items": [
+          {
+            "label": "Quarantine",
+            "href": "/admin/quarantine/",
+            "requires": ["manage_quarantine"],
+            "app": true,
+            "icon": ["M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z", "M12 8v4.5M12 15.5v.5"]
+          }
+        ]
+      },
+      {
         "label": "Compliance",
         "items": [
           {

@@ -12,7 +12,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVector
 from django.db import models
 from django.db.models import Q
-from django.db.models.functions import Length
+from django.db.models.functions import Left, Length
 from django.db.models.lookups import GreaterThanOrEqual, LessThanOrEqual
 
 from iki_server.accounts.models import User
@@ -109,11 +109,11 @@ class AssayRequest(Entity):
         ]
         indexes = [
             GinIndex(
-                SearchVector('instructions', config='simple'),
+                SearchVector(Left('instructions', 100000), config='simple'),
                 name='instructio_fts_6d8ee9eeea08520',
             ),
             GinIndex(
-                SearchVector('core_notes', config='simple'),
+                SearchVector(Left('core_notes', 100000), config='simple'),
                 name='core_notes_fts_78bb93fba8fb721',
             ),
         ]
@@ -648,6 +648,177 @@ class Box_History(models.Model):
         db_table = 'acme__protein_box__history'
 
 
+class Compound(Entity):
+    """Compound (acme/protein.Compound), schema version 1."""
+
+    IKI_TYPE = 'acme/protein.Compound'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    name = models.CharField(max_length=255, null=True, db_index=True)
+    synonyms = ArrayField(models.CharField(max_length=255), null=True)
+    description = models.TextField(null=True)
+    stereochemistry = models.TextField(null=True)
+    supplier = models.ForeignKey(Entity, models.PROTECT, related_name='+', null=True)
+
+    class Meta:
+        db_table = 'acme__protein_compound'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('name'), 1),
+                name='acme__protein_compound__name__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(name__regex='[\\r\\n]'),
+                name='acme__protein_compound__name__one_line',
+            ),
+            models.CheckConstraint(
+                condition=checks.IsPlainList('synonyms'),
+                name='acme__protein_compound__synonyms__plain_list',
+            ),
+            models.CheckConstraint(
+                condition=checks.AllLengthsBetween('synonyms', 1, None),
+                name='acme__protein_compound__synonyms__item_length',
+            ),
+            models.CheckConstraint(
+                condition=checks.NoneMatch('synonyms', '[\\r\\n]'),
+                name='acme__protein_compound__synonyms__item_one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('description'), 1),
+                name='acme__protein_compound__description__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=LessThanOrEqual(Length('description'), 10000),
+                name='acme__protein_compound__description__max_length',
+            ),
+            models.CheckConstraint(
+                condition=Q(stereochemistry__in=['achiral', 'absolute', 'racemic', 'unknown']),
+                name='acme__protein_compound__stereochemistry__values',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['name'],
+                opclasses=['gin_trgm_ops'],
+                name='name_trgm_a82352d5f75bd93d9577',
+            ),
+            GinIndex(
+                SearchVector('description', config='simple'),
+                name='descriptio_fts_f1b87780ad0e0e7',
+            ),
+        ]
+
+
+class Compound_History(models.Model):
+    """The history of acme__protein_compound: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Compound'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    name = models.TextField(null=True)
+    synonyms = ArrayField(models.TextField(), null=True)
+    description = models.TextField(null=True)
+    stereochemistry = models.TextField(null=True)
+    supplier = models.UUIDField(db_column='supplier_id', null=True)
+
+    class Meta:
+        db_table = 'acme__protein_compound__history'
+
+
+class Compound_Entry(Entity):
+    """Registry entries of Compound (acme/protein.Compound), ADR 0115."""
+
+    IKI_TYPE = 'acme/protein.Compound'
+    IKI_ENTRY = True
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    smiles = models.CharField(max_length=20000)
+    inchikey = models.CharField(max_length=27, db_index=True)
+    molecular_weight = QuantityField(unit='g/mol', null=True)
+    heavy_atoms = models.BigIntegerField(null=True)
+    molfile = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_compound__entry'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('smiles'), 1),
+                name='acme__protein_compound__entry__smiles__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(smiles__regex='[\\r\\n]'),
+                name='acme__protein_compound__entry__smiles__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('inchikey'), 1),
+                name='acme__protein_compound__entry__inchikey__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(inchikey__regex='[\\r\\n]'),
+                name='acme__protein_compound__entry__inchikey__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(molecular_weight__gt=float('-inf'), molecular_weight__lt=float('inf')),
+                name='acme__protein_compound__entry__molecular_weight__finite',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('molfile'), 1),
+                name='acme__protein_compound__entry__molfile__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=LessThanOrEqual(Length('molfile'), 4000000),
+                name='acme__protein_compound__entry__molfile__max_length',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['inchikey'],
+                opclasses=['gin_trgm_ops'],
+                name='inchikey_trgm_e6989095b17cbb44',
+            ),
+            GinIndex(
+                SearchVector('molfile', config='simple'),
+                name='molfile_fts_ef99c390e3ae7db94d',
+            ),
+        ]
+
+
+class Compound_Entry_History(models.Model):
+    """The history of acme__protein_compound__entry: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Compound_Entry'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    smiles = models.TextField(null=True)
+    inchikey = models.TextField(null=True)
+    molecular_weight = QuantityField(unit='g/mol', null=True)
+    heavy_atoms = models.BigIntegerField(null=True)
+    molfile = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_compound__entry__history'
+
+
 class Freezer(Entity):
     """Freezer (acme/protein.Freezer), schema version 1. A freezer, holding racks and boxes on its shelves (ADR 0180)."""
 
@@ -913,6 +1084,7 @@ class Protein(iki_plugin_acme__dna.models.Sequence):
     temperature_optimum = QuantityField(unit='Cel', null=True)
     uniprot_ids = ArrayField(models.TextField(), null=True)
     summary = models.TextField(null=True)
+    pdb_text = models.TextField(null=True)
     host = models.CharField(max_length=200, null=True, db_index=True)
     hydropathy = models.JSONField(null=True)
 
@@ -973,6 +1145,10 @@ class Protein(iki_plugin_acme__dna.models.Sequence):
                 name='acme__protein_protein__summary__not_empty',
             ),
             models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('pdb_text'), 1),
+                name='acme__protein_protein__pdb_text__not_empty',
+            ),
+            models.CheckConstraint(
                 condition=GreaterThanOrEqual(Length('host'), 1),
                 name='acme__protein_protein__host__not_empty',
             ),
@@ -993,7 +1169,7 @@ class Protein(iki_plugin_acme__dna.models.Sequence):
                 name='lims_id_trgm_8eb1fa52d218dbeb4',
             ),
             GinIndex(
-                SearchVector('summary', config='simple'),
+                SearchVector(Left('summary', 100000), config='simple'),
                 name='summary_fts_44d975f33c3986725e',
             ),
             GinIndex(
@@ -1021,6 +1197,7 @@ class Protein_History(models.Model):
     temperature_optimum = QuantityField(unit='Cel', null=True)
     uniprot_ids = ArrayField(models.TextField(), null=True)
     summary = models.TextField(null=True)
+    pdb_text = models.TextField(null=True)
     host = models.TextField(null=True)
     hydropathy = models.JSONField(null=True)
 
@@ -1465,7 +1642,10 @@ class Sample(Entity):
                 opclasses=['gin_trgm_ops'],
                 name='label_trgm_569071a1e789b3a1e52',
             ),
-            GinIndex(SearchVector('notes', config='simple'), name='notes_fts_a5bf4641b5eb98a678ff'),
+            GinIndex(
+                SearchVector(Left('notes', 100000), config='simple'),
+                name='notes_fts_a5bf4641b5eb98a678ff',
+            ),
         ]
 
 

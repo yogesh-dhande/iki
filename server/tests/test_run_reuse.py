@@ -9,6 +9,7 @@ from api_client import problem
 from django.utils import timezone
 from org_world import World
 from test_api_entities import api_as, patch
+from test_files import run_tasks
 from test_run_imports import IMPORT, importing, origin, stored
 from test_run_results import done, output, weight
 from test_runs import launch, launch_each, protein, world
@@ -165,6 +166,7 @@ def test_only_runs_the_launcher_can_read_are_reused(world: World) -> None:
     theirs = files.start(
         stranger, elsewhere, name="k.fasta", media_type="text/plain", size=0, sha256=EMPTY_SHA256
     )
+    run_tasks()
     theirs.refresh_from_db()
     run = launch(
         api_as(world, "outsider"), elsewhere, {}, IMPORT, params={"file": str(theirs.file_id)}

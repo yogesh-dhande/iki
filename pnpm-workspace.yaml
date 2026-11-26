@@ -21,6 +21,9 @@ strictDepBuilds: true
 # Astro (the docs site) can resize images with sharp, whose libvips binaries are
 # LGPL-3.0. The docs site has no images to resize and uses Astro's passthrough image
 # service, so sharp isn't installed at all.
+# pdf.js (file previews, ADR 0226) offers a native canvas for rendering in Node. The app
+# renders in browsers, and a canvas in jsdom would change what the app's tests run.
 ignoredOptionalDependencies:
   - sharp
+  - "@napi-rs/canvas"
 engineStrict: true

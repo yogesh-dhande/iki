@@ -104,6 +104,17 @@ export function field(overrides: Partial<Field> & Pick<Field, "name" | "label" |
   };
 }
 
+/** A file that states nothing of its instrument (ADR 0224), as most do. */
+export const NO_FACTS: Schemas["FileFactsOut"] = {
+  instrument: null,
+  manufacturer: null,
+  serial: null,
+  instrument_name: null,
+  operator: null,
+  software: null,
+  protocol: null,
+};
+
 export const PROTEIN: Schemas["EntityTypeOut"] = {
   name: "iki/protein.Protein",
   plugin: "iki/protein",

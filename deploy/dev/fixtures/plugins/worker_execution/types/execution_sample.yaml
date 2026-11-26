@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: ExecutionSample
+label: Execution sample
+schema_version: 1
+hrid: { prefix: EXS }
+fields:
+  storage: { type: string, max_length: 100 }

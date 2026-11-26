@@ -144,9 +144,11 @@ def test_equipment_evidence_fits_a_phone_and_opens_the_record(
         assert page.get_by_text("Example engineer").is_visible()
         assert page.get_by_text(REPORT, exact=True).count() == 0
         assert page.get_by_role("button", name="Schedule service").count() == 0
-        place(page, element, {"slot": "entity.tab", "runs": ["iki/equipment.schedule_service"]})
+        available = ["iki/equipment.schedule_service", "iki/equipment.trace_failed_calibrations"]
+        place(page, element, {"slot": "entity.tab", "runs": available})
         page.get_by_role("button", name="Schedule service").click()
-        assert page.evaluate("window.ran") == ["iki/equipment.schedule_service"]
+        page.get_by_role("button", name="Trace failed calibrations").click()
+        assert page.evaluate("window.ran") == available
         opened = CALIBRATION
     elif element == IMPACT:
         give(page, element, [IMPACT_ROW])

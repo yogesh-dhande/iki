@@ -14,6 +14,7 @@ __all__ = [
     "MAX_DEPTH",
     "OPERATORS",
     "SORTABLE",
+    "WORDS_SEARCHED",
     "operators",
 ]
 
@@ -68,9 +69,20 @@ ALL_OPERATORS = (
 )
 
 
-def operators(kind: str, format: str | None = None) -> tuple[str, ...]:
+#: How much of a text field's value its words are searched in (ADR 0233): its first this
+#: many characters. Postgres keeps a value's words in a tsvector of at most 1 MiB, and
+#: refuses a bigger one; a character adds at most 8 bytes to it (a hyphenated word of
+#: 4-byte letters is kept whole and as its parts), so this many always fit, and a save
+#: never fails for its index. It's some 15,000 words of prose, about as far as Postgres
+#: keeps words' positions (16,383) for a phrase.
+WORDS_SEARCHED = 100_000
+
+
+def operators(kind: str, format: str | None = None, *, searchable: bool = True) -> tuple[str, ...]:
     """The operators a kind of field takes, besides ``is_set``: a string's, with those its
-    format adds."""
+    format adds; a text field's without ``matches`` when it isn't ``searchable`` (ADR 0233)."""
+    if kind == "text" and not searchable:
+        return tuple(op for op in OPERATORS[kind] if op != "matches")
     extra = BY_FORMAT.get(format or "", ()) if kind == "string" else ()
     return (*OPERATORS[kind], *extra)
 

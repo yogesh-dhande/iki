@@ -21,6 +21,7 @@ import {
 import {
   answer,
   calls,
+  CLEAN_SCAN,
   MAIN_REGISTRY,
   page,
   problem,
@@ -779,6 +780,7 @@ describe("file fields", () => {
     };
     const made = {
       id: MADE,
+      scan: CLEAN_SCAN,
       name: "1abc.pdb",
       media_type: "chemical/x-pdb",
       size: 12,
@@ -872,7 +874,14 @@ describe("file fields", () => {
       created_at: "2026-03-14T09:00:00Z",
       expires_at: "2026-03-15T09:00:00Z",
     };
-    const made = { ...upload, id: MADE, project: null, created_by: null, external: false };
+    const made = {
+      ...upload,
+      id: MADE,
+      scan: CLEAN_SCAN,
+      project: null,
+      created_by: null,
+      external: false,
+    };
     // A new answer for each call: the files upload side by side.
     answer("POST /api/v1/uploads", () =>
       respond(201, {

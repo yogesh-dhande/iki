@@ -989,8 +989,9 @@ export interface paths {
          * Search entities
          * @description Entities you can read that match every filter given: a type (with its subtypes), a
          *     project, archived or not, text in their HRID or title (``q``), membership of a
-         *     ``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``
-         *     (then by ID), oldest first without one.
+         *     ``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``,
+         *     then by each of ``then`` (ADR 0232), then by ID; oldest first without one. Requests
+         *     also sort by ``asked_by`` and ``sent_to``: the projects on their two sides, by name.
          *
          *     Each kind of field takes its own operators, and every field takes ``is_set``:
          *
@@ -1348,8 +1349,9 @@ export interface paths {
          *     the one asked for, written from its values then, so a revision is always the same file.
          *     Anyone who can read it may; each download is in the audit log (``entity.exported``),
          *     with the file's SHA-256. What the file can't say, such as a feature across a linear
-         *     molecule's ends, is listed in it (GenBank's COMMENT), and ``Iki-Left-Out`` says how
-         *     many such notes there are.
+         *     molecule's ends, is listed in it where the format has a place (GenBank's COMMENT, an
+         *     SDF's ``IKI_NOTES``), and ``Iki-Left-Out`` says how many such notes there are. Many
+         *     records make one file from ``POST /entity-exports`` (ADR 0229).
          */
         get: operations["iki_server_api_entities_export_entity"];
         put?: never;
@@ -1869,6 +1871,99 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entity-exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your exports of records
+         * @description Newest first: each file of records you asked for, ready to download again until it
+         *     expires a week after it's written.
+         */
+        get: operations["iki_server_api_record_exports_list_record_exports"];
+        put?: never;
+        /**
+         * Export records as one file, such as FASTA or SDF
+         * @description Records you can read as one file of a format each of their types exports (ADR 0229):
+         *     those picked, in order, or every one a search finds, up to 10,000. Each is written at
+         *     the revision it has now, read in one snapshot, so editing one afterwards doesn't change
+         *     the file. Up to 100 are written at once (201, ready to download); more in the
+         *     background (202): read the export until it's ready. A record the format can't be
+         *     written for fails it, naming each such record, so no file holds fewer than asked for.
+         *     Asking and each download are in the audit log.
+         */
+        post: operations["iki_server_api_record_exports_start_record_export"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-exports/{export_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An export of records
+         * @description How far it's got (``done`` of ``count``), and once it's ready, its file.
+         */
+        get: operations["iki_server_api_record_exports_get_record_export"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-exports/{export_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download an export of records
+         * @description Redirects to the file, for a few minutes, while you can still read every record it
+         *     holds and what they refer to. Each download is in the audit log.
+         */
+        get: operations["iki_server_api_record_exports_download_record_export"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-exports/{export_id}/content-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A link to an export of records
+         * @description The signed URL ``/content`` redirects to, for a client that fetches it without its
+         *     Iki token, such as an agent. Each one issued is in the audit log, as a download.
+         */
+        get: operations["iki_server_api_record_exports_record_export_content_url"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entity-types": {
         parameters: {
             query?: never;
@@ -1918,6 +2013,30 @@ export interface paths {
          * @description The declared flow, independent of any record or current assignment (ADR 0198).
          */
         get: operations["iki_server_api_entities_get_type_flow"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-types/{name}/import-template.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A type's import template
+         * @description A CSV file with a heading for each field of the type a spreadsheet import can set
+         *     (ADR 0178), in the type's order, a quantity's with its unit: `Concentration (mg/mL)`.
+         *     The import maps each heading back to its field. No heading starts as a formula would
+         *     (ADR 0175), and the file starts with a byte order mark, so a spreadsheet opens its
+         *     units' symbols as they are.
+         */
+        get: operations["iki_server_api_sheets_import_template"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2048,9 +2167,9 @@ export interface paths {
         /**
          * Files you can read
          * @description A project's files, or every file you can read: those added to the projects, and
-         *     those their records hold (ADR 0177). Found by part of the name, format, when acquired,
-         *     sample and run; newest first unless ``sort`` says otherwise. Each says how many records
-         *     and runs you can read use it.
+         *     those their records hold (ADR 0177). Found by part of the name or of what the file
+         *     states (ADR 0224), format, when acquired, sample and run; newest first unless ``sort``
+         *     says otherwise. Each says how many records and runs you can read use it.
          */
         get: operations["iki_server_api_files_list_files"];
         put?: never;
@@ -3144,6 +3263,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/sheet-edits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save a sheet's changes, all or none
+         * @description Makes the changes reviewed (ADR 0228, 0207): each record's, from the revision read,
+         *     as a revision with the reason; each new record, with its starting amount and place.
+         *     All of them are made, or none. If a record changed since its revision, nothing is
+         *     (412, ``stale``, its rows in ``rows``); if any row has a problem, nothing is (422,
+         *     each problem at ``#/rows/<n>/values/<field>``, ``…/location``, ``…/amount`` or the row).
+         *     The audit trail records them as one change, ``records.sheet_saved``.
+         */
+        post: operations["iki_server_api_sheets_save_sheet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/sheet-edits/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a sheet's changes
+         * @description Reads each row's cells as the type's fields read a spreadsheet's (ADR 0178), and
+         *     finds what saving them would do by making the changes, then undoing them: so a cell
+         *     is held to every rule an edit is. Nothing is saved, and no HRID is spent. Needs Editor
+         *     in the project, and in each record's own.
+         */
+        post: operations["iki_server_api_sheets_check_sheet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/spreadsheet-imports": {
         parameters: {
             query?: never;
@@ -3314,9 +3481,10 @@ export interface paths {
         put?: never;
         /**
          * Turn a trigger on in a project
-         * @description From now on an entity trigger's runs are launched as you, and a scheduled one's as the
-         *     service account you choose (`run_as`), on your authority: either way you must be able to
-         *     run its action here. Only in the web app: no token, and so no agent, can turn one on.
+         * @description From now on an entity trigger's runs are launched as you, and a scheduled one's, or one
+         *     on a request's arrival, as the service account you choose (`run_as`), on your authority:
+         *     either way you must be able to run its action here. Only in the web app: no token, and so
+         *     no agent, can turn one on.
          */
         post: operations["iki_server_api_triggers_enable_trigger"];
         delete?: never;
@@ -3340,6 +3508,72 @@ export interface paths {
          * @description Iki sends it a ``ping`` at once. The response holds the secret, shown only now.
          */
         post: operations["iki_server_api_webhooks_create_project_webhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quarantine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List quarantined files
+         * @description For Quarantine Admins. Newest first, across the deployment: what's held now, or with
+         *     ``status=released``, the infected findings released as false positives. Each entry
+         *     identifies the held bytes, the finding, and where the bytes are: several project files
+         *     can share one source, and so its scan.
+         */
+        get: operations["iki_server_api_files_list_quarantine"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quarantine/{decision_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a quarantined file
+         * @description For Quarantine Admins: a held decision, or a released one, with every place its
+         *     bytes are.
+         */
+        get: operations["iki_server_api_files_read_quarantine"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quarantine/{decision_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Release an infected file after reviewing its finding
+         * @description For Quarantine Admins. The given reason and the reviewer are recorded with the
+         *     release and in the audit log. Every file covered by this decision becomes usable and
+         *     keeps its original finding. An incomplete inspection can't be released.
+         */
+        post: operations["iki_server_api_files_release_quarantine"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3644,8 +3878,8 @@ export interface paths {
         /**
          * Register a file where it is
          * @description Pins one version of an object in an approved, versioned bucket. Iki reads it to learn
-         *     its SHA-256 (202), then it's ready. An object version registered before is ready at once
-         *     (201).
+         *     its SHA-256 and scan it (202). A version with a completed registration can be reused
+         *     immediately (201). Its file says whether it is usable.
          */
         post: operations["iki_server_api_files_register_file"];
         delete?: never;
@@ -4496,7 +4730,7 @@ export interface paths {
         put?: never;
         /**
          * Apply a starter to a project
-         * @description Apply the plan a preview returned: create the examples and grant the chosen roles.
+         * @description Apply the reviewed flow and role grants to the assay project.
          *     If what applying does changed since the preview, as when another Admin removed a grant or
          *     applied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,
          *     what applying would do now, for review (ADR 0207). Reapplying a setup that's in place
@@ -4521,7 +4755,7 @@ export interface paths {
         put?: never;
         /**
          * Preview a starter choice
-         * @description Check the installed version, projects, roles and flow without changing either project.
+         * @description Preview the version, review flow and role grants for the assay project.
          */
         post: operations["iki_server_api_starters_preview_starter"];
         delete?: never;
@@ -4898,7 +5132,7 @@ export interface paths {
         put?: never;
         /**
          * Start adding a file
-         * @description Answers with the parts to send. An empty file needs none, and is ready at once.
+         * @description Answers with the parts to send. An empty file needs none.
          */
         post: operations["iki_server_api_files_start_upload"];
         delete?: never;
@@ -4940,7 +5174,8 @@ export interface paths {
         /**
          * Finish an upload
          * @description Once every part has arrived. Iki then checks the bytes (202), and the upload becomes
-         *     ready, or fails if they don't match its SHA-256. Finishing it again changes nothing.
+         *     ready after its malware scan, or fails if its bytes don't match the SHA-256.
+         *     Finishing it again returns its current state.
          */
         post: operations["iki_server_api_files_complete_upload"];
         delete?: never;
@@ -6153,11 +6388,6 @@ export interface components {
              * @enum {string}
              */
             flow: "research" | "regulated_qc";
-            /**
-             * Requester Project
-             * @description Original requester for an assay project Admin who may edit that project.
-             */
-            requester_project: string | null;
             /** Version */
             version: string;
         };
@@ -7319,6 +7549,29 @@ export interface components {
              */
             name: string;
         };
+        /** CompoundExportOut */
+        CompoundExportOut: {
+            /**
+             * Data
+             * @description The fields an SDF can carry as data, in order, which it carries unless `fields` names fewer: those of a kind SD holds as text (not files, people or JSON).
+             */
+            data: string[];
+            /**
+             * @description What it writes. `compound`: a compound's structure, as a Molfile, and as an SDF with its fields as data (ADR 0229). (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            export: "compound";
+            /**
+             * Formats
+             * @description The files it's written as.
+             */
+            formats: components["schemas"]["FileFormatOut"][];
+            /**
+             * Structure
+             * @description The text field holding its Molfile.
+             */
+            structure: string;
+        };
         /**
          * Condition
          * @description A condition on a field, or a group of them: exactly one of ``field`` (with ``op`` and
@@ -8055,7 +8308,7 @@ export interface components {
         EnableIn: {
             /**
              * Run As
-             * @description For a scheduled trigger: the service account its runs are launched as, one of its `run_as_choices`.
+             * @description For a trigger whose runs are launched as a service account (on a schedule, or as a request arrives): the account, one of its `run_as_choices`.
              */
             run_as?: string | null;
         };
@@ -8411,7 +8664,7 @@ export interface components {
              * Exports
              * @description The files Iki writes of its records (ADR 0171), from `/entities/{ref}/export`: its own, or its nearest parent's.
              */
-            exports?: (components["schemas"]["FileExportOut"] | components["schemas"]["SignedReportExportOut"])[];
+            exports?: (components["schemas"]["FileExportOut"] | components["schemas"]["ProteinExportOut"] | components["schemas"]["CompoundExportOut"] | components["schemas"]["SignedReportExportOut"])[];
             /** Extends */
             extends: string | null;
             /** Fields */
@@ -8872,11 +9125,16 @@ export interface components {
         /** ExportParams */
         ExportParams: {
             /**
+             * Fields
+             * @description An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`).
+             */
+            fields?: string[] | null;
+            /**
              * Format
              * @description Which file, as its type's `exports` list them.
              * @enum {string}
              */
-            format: "genbank" | "fasta" | "signed-report-html" | "signed-report-json";
+            format: "genbank" | "fasta" | "protein-fasta" | "sdf" | "molfile" | "signed-report-html" | "signed-report-json";
             /**
              * Project
              * @description Whose record of a registry entry, as for reading it (ADR 0115).
@@ -8887,6 +9145,38 @@ export interface components {
              * @description Which revision, as it was then. Its latest if left out.
              */
             revision?: number | null;
+        };
+        /**
+         * ExportSearchIn
+         * @description The records a table shows, as ``POST /entities/search`` finds them.
+         */
+        ExportSearchIn: {
+            /** Archived */
+            archived?: boolean | null;
+            /** Collection */
+            collection?: string | null;
+            /**
+             * Exact Type
+             * @description Only the type itself, not its subtypes.
+             * @default false
+             */
+            exact_type: boolean;
+            /**
+             * Project
+             * @description Entities that belong to this project.
+             */
+            project?: string | null;
+            /** Q */
+            q?: string | null;
+            /** Run */
+            run?: string | null;
+            sort?: components["schemas"]["SortIn"] | null;
+            /**
+             * Type
+             * @description This type and its subtypes.
+             */
+            type?: string | null;
+            where?: components["schemas"]["Condition"] | null;
         };
         /** FacetParams */
         FacetParams: {
@@ -8904,6 +9194,7 @@ export interface components {
             project?: string | null;
             /**
              * Q
+             * @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.
              * @default
              */
             q: string;
@@ -9016,6 +9307,11 @@ export interface components {
             /** @description A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise. */
             row?: components["schemas"]["RowOut"] | null;
             /**
+             * Searchable
+             * @description Text: true when a search finds its words with `matches`, which reads its first 100,000 characters (ADR 0233); false for machine text, such as a Molfile, which a search reads with `contains` only. Null for other kinds of field.
+             */
+            searchable?: boolean | null;
+            /**
              * States
              * @description State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}. A correction can also return it to the current state's `on_edit` destination. Empty otherwise.
              */
@@ -9120,6 +9416,8 @@ export interface components {
              * @description Registered where it already was, rather than uploaded.
              */
             external: boolean;
+            /** @description Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224). */
+            facts: components["schemas"]["FileFactsOut"];
             /**
              * Id
              * Format: uuid
@@ -9133,10 +9431,17 @@ export interface components {
             /** @description Where it was added. Null if you can't see it. */
             project: components["schemas"]["ProjectRef"] | null;
             /**
+             * Read Groups
+             * @description A SAM or BAM file's read groups, each @RG line as it gives it (ADR 0224): every one, or none when any can't be read as the specification defines.
+             */
+            read_groups: components["schemas"]["ReadGroupOut"][];
+            /**
              * Samples
              * @description The samples it belongs to that you can read.
              */
             samples: components["schemas"]["SampleOut"][];
+            /** @description The deployment's malware scan of the file's bytes. */
+            scan: components["schemas"]["FileScanOut"];
             /** Sha256 */
             sha256: string;
             /**
@@ -9168,6 +9473,28 @@ export interface components {
              * @description The field it's written from: a string field with a DNA or RNA format, or a reference to a record of a type that exports a sequence.
              */
             sequence: string;
+        };
+        /**
+         * FileFactsOut
+         * @description What the file says about where its data came from (ADR 0224), read when it was
+         *     added once its scan let it be used: a held file's bytes aren't parsed. Each is null when
+         *     the file doesn't say, or doesn't say clearly.
+         */
+        FileFactsOut: {
+            /** @description The instrument's model, such as Aurora or Orbitrap Eclipse. */
+            instrument: components["schemas"]["StatedOut"] | null;
+            /** @description The name the instrument was given, such as an AB1 trace's MCHN. */
+            instrument_name: components["schemas"]["StatedOut"] | null;
+            /** @description Who made the instrument. */
+            manufacturer: components["schemas"]["StatedOut"] | null;
+            /** @description Who operated the instrument. */
+            operator: components["schemas"]["StatedOut"] | null;
+            /** @description The instrument's protocol, such as a plate reader's test. */
+            protocol: components["schemas"]["StatedOut"] | null;
+            /** @description The instrument's serial number. */
+            serial: components["schemas"]["StatedOut"] | null;
+            /** @description The software that recorded the data, and its version where given. */
+            software: components["schemas"]["StatedOut"] | null;
         };
         /** FileFilters */
         FileFilters: {
@@ -9214,7 +9541,7 @@ export interface components {
             project?: string | null;
             /**
              * Q
-             * @description Part of its name, in any case.
+             * @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.
              * @default
              */
             q: string;
@@ -9253,12 +9580,18 @@ export interface components {
              * @description What `/entities/{ref}/export` takes.
              * @enum {string}
              */
-            format: "genbank" | "fasta" | "signed-report-html" | "signed-report-json";
+            format: "genbank" | "fasta" | "protein-fasta" | "sdf" | "molfile" | "signed-report-html" | "signed-report-json";
             /**
              * Label
              * @description Its name, such as GenBank.
              */
             label: string;
+            /**
+             * Many
+             * @description `file`: many records make one file of it, from `POST /entity-exports` (ADR 0229); `one`: it holds one record.
+             * @enum {string}
+             */
+            many: "file" | "one";
             /**
              * Media Type
              * @description Its media type, such as chemical/seq-na-genbank.
@@ -9303,6 +9636,8 @@ export interface components {
              * @description Registered where it already was, rather than uploaded.
              */
             external: boolean;
+            /** @description Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224). */
+            facts: components["schemas"]["FileFactsOut"];
             /**
              * Id
              * Format: uuid
@@ -9314,6 +9649,8 @@ export interface components {
             name: string;
             /** @description Where it was added. Null if you can't see it. */
             project: components["schemas"]["ProjectRef"] | null;
+            /** @description The deployment's malware scan of the file's bytes. */
+            scan: components["schemas"]["FileScanOut"];
             /** Sha256 */
             sha256: string;
             /**
@@ -9361,6 +9698,8 @@ export interface components {
              * @description Registered where it already was, rather than uploaded.
              */
             external: boolean;
+            /** @description Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224). */
+            facts: components["schemas"]["FileFactsOut"];
             /**
              * Id
              * Format: uuid
@@ -9372,6 +9711,8 @@ export interface components {
             name: string;
             /** @description Where it was added. Null if you can't see it. */
             project: components["schemas"]["ProjectRef"] | null;
+            /** @description The deployment's malware scan of the file's bytes. */
+            scan: components["schemas"]["FileScanOut"];
             /** Sha256 */
             sha256: string;
             /**
@@ -9380,6 +9721,49 @@ export interface components {
              */
             size: number;
             used_by: components["schemas"]["UsedByCountOut"];
+        };
+        /** FileScanOut */
+        FileScanOut: {
+            /**
+             * Decision Id
+             * @description The immutable scan decision, once recorded.
+             */
+            decision_id: string | null;
+            /**
+             * Reason
+             * @description The finding or reason the file could not be scanned.
+             */
+            reason: string;
+            /**
+             * Released
+             * @description A Quarantine Admin released this infected decision.
+             */
+            released: boolean;
+            /**
+             * Scanned At
+             * @description When the decision was recorded.
+             */
+            scanned_at: string | null;
+            /**
+             * Scanner
+             * @description Scanner identity, when known.
+             */
+            scanner: string;
+            /**
+             * Signature Version
+             * @description Signatures used by the scanner, when available.
+             */
+            signature_version: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "clean" | "infected" | "not_scanned";
+            /**
+             * Usable
+             * @description Whether the scan decision allows this file to be used.
+             */
+            usable: boolean;
         };
         /** FileSignatureOut */
         FileSignatureOut: {
@@ -9434,7 +9818,7 @@ export interface components {
              * Event
              * @enum {string}
              */
-            event: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "schedule";
+            event: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "request.received" | "schedule";
             /** Fired At */
             fired_at: string | null;
             /**
@@ -9788,6 +10172,42 @@ export interface components {
              * Format: uuid
              */
             to: string;
+        };
+        /**
+         * HeldCopyOut
+         * @description Where held bytes are: a project's file, or a run's or a bundle's own upload.
+         */
+        HeldCopyOut: {
+            /** @description The agent that added it for them, if one did. */
+            agent: components["schemas"]["AgentOut"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** @description Who added it. */
+            created_by: components["schemas"]["UserOut"] | null;
+            /**
+             * File
+             * @description The project file, for a ``file``, if you can read it: its page opens.
+             */
+            file: string | null;
+            /**
+             * Kind
+             * @description A project's ``file``; or a run's ``artifact`` or ``checkpoint``, or a ``bundle`` to import, each kept apart from the project's files.
+             * @enum {string}
+             */
+            kind: "file" | "artifact" | "checkpoint" | "bundle";
+            /** Media Type */
+            media_type: string;
+            /** Name */
+            name: string;
+            project: components["schemas"]["ProjectRef"];
+            /**
+             * Run
+             * @description The run's ID, for an artifact or a checkpoint.
+             */
+            run: string | null;
         };
         /**
          * HeldOut
@@ -10467,7 +10887,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "uploading" | "planning" | "planned" | "refused" | "applying" | "applied" | "failed" | "discarded";
+            state: "uploading" | "scanning" | "quarantined" | "not_scanned" | "planning" | "planned" | "refused" | "applying" | "applied" | "failed" | "discarded";
             /**
              * Trusted As
              * @description The trusted deployment its signature is from.
@@ -10654,7 +11074,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "uploading" | "planning" | "planned" | "refused" | "applying" | "applied" | "failed" | "discarded";
+            state: "uploading" | "scanning" | "quarantined" | "not_scanned" | "planning" | "planned" | "refused" | "applying" | "applied" | "failed" | "discarded";
             /**
              * Trusted As
              * @description The trusted deployment its signature is from.
@@ -10763,6 +11183,12 @@ export interface components {
             cardinality: "one" | "many";
             /** Description */
             description: string | null;
+            /**
+             * From Project
+             * @description Not chosen: each run is given every record of its type the project owns and hasn't archived (ADR 0232). Launching it with any is refused.
+             * @default false
+             */
+            from_project: boolean;
             /** Label */
             label: string;
             /** Max */
@@ -11282,6 +11708,11 @@ export interface components {
              */
             manage_org: boolean;
             /**
+             * Manage Quarantine
+             * @description Review held file scans and release false positives.
+             */
+            manage_quarantine: boolean;
+            /**
              * Manage Webhooks
              * @description The organization's webhooks.
              */
@@ -11340,7 +11771,7 @@ export interface components {
             /** Name */
             name: string;
             /** Org Roles */
-            org_roles: ("org_admin" | "compute_admin" | "auditor")[];
+            org_roles: ("org_admin" | "compute_admin" | "auditor" | "quarantine_admin")[];
         };
         /** MessageOut */
         MessageOut: {
@@ -11980,12 +12411,12 @@ export interface components {
         /** OrgRolesIn */
         OrgRolesIn: {
             /** Roles */
-            roles: ("org_admin" | "compute_admin" | "auditor")[];
+            roles: ("org_admin" | "compute_admin" | "auditor" | "quarantine_admin")[];
         };
         /** OrgRolesOut */
         OrgRolesOut: {
             /** Roles */
-            roles: ("org_admin" | "compute_admin" | "auditor")[];
+            roles: ("org_admin" | "compute_admin" | "auditor" | "quarantine_admin")[];
         };
         /** OriginFileOut */
         OriginFileOut: {
@@ -12339,6 +12770,26 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[QuarantineOut] */
+        Page_QuarantineOut_: {
+            /** Items */
+            items: components["schemas"]["QuarantineOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[RecordExportOut] */
+        Page_RecordExportOut_: {
+            /** Items */
+            items: components["schemas"]["RecordExportOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page_RegistrationOut_ */
         Page_RegistrationOut_: {
             /** Items */
@@ -12680,6 +13131,11 @@ export interface components {
             role_label: string | null;
             /** @description A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise. */
             row?: components["schemas"]["RowOut"] | null;
+            /**
+             * Searchable
+             * @description Text: true when a search finds its words with `matches`, which reads its first 100,000 characters (ADR 0233); false for machine text, such as a Molfile, which a search reads with `contains` only. Null for other kinds of field.
+             */
+            searchable?: boolean | null;
             /**
              * States
              * @description State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}. A correction can also return it to the current state's `on_edit` destination. Empty otherwise.
@@ -13456,7 +13912,7 @@ export interface components {
             enabled: boolean;
             /** Enabled At */
             enabled_at: string | null;
-            /** @description Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a scheduled one's are. Null if nobody ever has. */
+            /** @description Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a service account's are. Null if nobody ever has. */
             enabled_by: components["schemas"]["PersonRef"] | null;
             /**
              * Field
@@ -13489,10 +13945,10 @@ export interface components {
             next_run_at: string | null;
             /**
              * On
-             * @description What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.
+             * @description What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, a request of its type sent to the project as a service (ADR 0232), or its schedule.
              * @enum {string}
              */
-            on: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "schedule";
+            on: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "request.received" | "schedule";
             /** Params */
             params: {
                 [key: string]: unknown;
@@ -13512,13 +13968,19 @@ export interface components {
             related: {
                 [key: string]: components["schemas"]["RelatedOut"];
             };
-            /** @description On a schedule: the service account its runs are launched as. */
+            /** @description On a schedule or a request's arrival: the service account its runs are launched as. */
             run_as: components["schemas"]["PersonRef"] | null;
             /**
              * Run As Choices
-             * @description On a schedule, for the project's Admins: the service accounts it may run as, members who can run its action here.
+             * @description For one whose runs are launched as a service account, for the project's Admins: the accounts it may run as, members who can run its action here.
              */
             run_as_choices: components["schemas"]["PersonRef"][];
+            /**
+             * Runs As Account
+             * @description Its runs are launched as a service account the Admin who turns it on chooses, on their authority: on a schedule, or as a request arrives, since nobody in the project made it happen (ADR 0081, ADR 0232).
+             * @default false
+             */
+            runs_as_account: boolean;
             /**
              * Schedule
              * @description On a schedule: when it runs, in cron's five fields. Empty otherwise.
@@ -13550,6 +14012,24 @@ export interface components {
              */
             why_not_enable: string | null;
         };
+        /** ProteinExportOut */
+        ProteinExportOut: {
+            /**
+             * @description What it writes. `protein`: a protein's residues, as FASTA (ADR 0229). (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            export: "protein";
+            /**
+             * Formats
+             * @description The files it's written as.
+             */
+            formats: components["schemas"]["FileFormatOut"][];
+            /**
+             * Sequence
+             * @description The protein sequence field it's written from.
+             */
+            sequence: string;
+        };
         /** PutAwayIn */
         PutAwayIn: {
             /**
@@ -13571,6 +14051,105 @@ export interface components {
             to_choice?: string | null;
             to_mode?: components["schemas"]["ScanMode"];
         };
+        /** QuarantineFilters */
+        QuarantineFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Q
+             * @description Part of a file's name, or the start of its SHA-256.
+             * @default
+             */
+            q: string;
+            /**
+             * State
+             * @description Only malware findings, or only inspections that couldn't finish.
+             */
+            state?: ("infected" | "not_scanned") | null;
+            /**
+             * Status
+             * @description Held now, or infected findings released as false positives.
+             * @default held
+             * @enum {string}
+             */
+            status: "held" | "released";
+        };
+        /** QuarantineOut */
+        QuarantineOut: {
+            /**
+             * File Count
+             * @description How many places the bytes are, listed or not.
+             */
+            file_count: number;
+            /**
+             * Files
+             * @description Where the bytes are, oldest first: the first few in a list, every one in a decision's own.
+             */
+            files: components["schemas"]["HeldCopyOut"][];
+            /**
+             * Id
+             * Format: uuid
+             * @description The decision ID for releasing a confirmed false positive.
+             */
+            id: string;
+            /**
+             * Reason
+             * @description What was found (the signature's name), or why an inspection could not finish: ``too_large``, ``unsupported_source``, ``clamd_stream_limit``, or the scanner's own reason, such as ``Heuristics.Encrypted.Zip``.
+             */
+            reason: string;
+            /**
+             * Releasable
+             * @description An infected finding not yet released. An incomplete inspection never is: it found nothing to call false (ADR 0217).
+             */
+            releasable: boolean;
+            /** @description Its release, once released. */
+            release: components["schemas"]["QuarantineReleaseOut"] | null;
+            /**
+             * Scanned At
+             * Format: date-time
+             */
+            scanned_at: string;
+            /** Scanner */
+            scanner: string;
+            /** Sha256 */
+            sha256: string;
+            /** Signature Version */
+            signature_version: string;
+            /**
+             * Size
+             * @description Bytes.
+             */
+            size: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "infected" | "not_scanned";
+        };
+        /** QuarantineReleaseOut */
+        QuarantineReleaseOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** @description The Quarantine Admin who released it. */
+            by: components["schemas"]["UserOut"];
+            /**
+             * Reason
+             * @description Why they found the finding false, as they gave it.
+             */
+            reason: string;
+        };
         /**
          * QueryIn
          * @description A search, as ``POST /entities/search`` takes it, without its project or paging.
@@ -13586,6 +14165,11 @@ export interface components {
             /** Q */
             q?: string | null;
             sort?: components["schemas"]["SortIn"] | null;
+            /**
+             * Then
+             * @description Further sorts, in order, for what `sort` ties (ADR 0232).
+             */
+            then?: components["schemas"]["SortIn"][];
             /** Type */
             type?: string | null;
             where?: components["schemas"]["Condition"] | null;
@@ -13713,6 +14297,41 @@ export interface components {
              * @description A project's team's ID; null for a team.
              */
             team_id: string | null;
+        };
+        /**
+         * ReadGroupOut
+         * @description A SAM or BAM file's @RG line: the SAM specification's tags it gives (section 1.3),
+         *     by their two-letter names, such as ID, SM (sample), LB (library) and PU (platform unit).
+         */
+        ReadGroupOut: {
+            /** Bc */
+            BC?: string;
+            /** Cn */
+            CN?: string;
+            /** Ds */
+            DS?: string;
+            /** Dt */
+            DT?: string;
+            /** Fo */
+            FO?: string;
+            /** Id */
+            ID: string;
+            /** Ks */
+            KS?: string;
+            /** Lb */
+            LB?: string;
+            /** Pg */
+            PG?: string;
+            /** Pi */
+            PI?: string;
+            /** Pl */
+            PL?: string;
+            /** Pm */
+            PM?: string;
+            /** Pu */
+            PU?: string;
+            /** Sm */
+            SM?: string;
         };
         /** ReadIn */
         ReadIn: {
@@ -14019,6 +14638,117 @@ export interface components {
              */
             status: "open" | "completed" | "cancelled";
         };
+        /** RecordExportIn */
+        RecordExportIn: {
+            /**
+             * Entities
+             * @description The records, by UUID or HRID, in the file's order. Or give `search`.
+             */
+            entities?: string[];
+            /**
+             * Fields
+             * @description An SDF's data: the fields it carries, in order. Every one all its records' types can carry, if left out.
+             */
+            fields?: string[] | null;
+            /**
+             * Format
+             * @description A format every record's type exports, as its `exports` list them, of which many records make one file (`many: file`).
+             * @enum {string}
+             */
+            format: "genbank" | "fasta" | "protein-fasta" | "sdf";
+            /**
+             * Project
+             * @description For an HRID naming a registry entry's record in several projects: this project's (ADR 0115).
+             */
+            project?: string | null;
+            /** @description Every record this search finds, in its order, up to 10,000: a table's whole result. */
+            search?: components["schemas"]["ExportSearchIn"] | null;
+        };
+        /** RecordExportOut */
+        RecordExportOut: {
+            /**
+             * Count
+             * @description How many records it holds.
+             */
+            count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Done
+             * @description How many of them are written so far.
+             */
+            done: number;
+            /**
+             * Error
+             * @description Why it failed, if it did.
+             */
+            error: string;
+            /**
+             * Expires At
+             * @description When its file is deleted. Files of records in a project under a legal hold are kept until the hold is released.
+             */
+            expires_at: string | null;
+            /**
+             * Fields
+             * @description The fields an SDF carries as data.
+             */
+            fields: string[];
+            /** File Name */
+            file_name: string;
+            /** Finished At */
+            finished_at: string | null;
+            /** Format */
+            format: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Notes
+             * @description What the file couldn't hold of each record, by HRID, as the file says it where the format has a place: GenBank's COMMENT, an SDF's IKI_NOTES. FASTA has none, so its notes are only here.
+             */
+            notes: {
+                [key: string]: string[];
+            };
+            /**
+             * Refused
+             * @description Records that couldn't be written, by HRID, and why: the export failed, so no file holds fewer records than were asked for.
+             */
+            refused: {
+                [key: string]: string;
+            };
+            /**
+             * Selection
+             * @description What was picked, in words.
+             */
+            selection: string;
+            /**
+             * Sha256
+             * @description The file's SHA-256, once it's ready.
+             */
+            sha256: string;
+            /**
+             * Size
+             * @description The file's size in bytes, once it's ready.
+             */
+            size: number | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "writing" | "ready" | "failed" | "expired";
+            /**
+             * Writer
+             * @description Which code wrote it: `builtin` and `version`.
+             */
+            writer: {
+                [key: string]: string;
+            };
+        };
         /** RefOut */
         RefOut: {
             /** Archived */
@@ -14140,7 +14870,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "checking" | "ready" | "failed";
+            state: "checking" | "scanning" | "ready" | "failed";
             /** Uri */
             uri: string;
             /**
@@ -14175,7 +14905,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "checking" | "ready" | "failed";
+            state: "checking" | "scanning" | "ready" | "failed";
         };
         /** RegistryCan */
         RegistryCan: {
@@ -14365,6 +15095,14 @@ export interface components {
              * @description The kinds of edge it walks; empty for all.
              */
             edges: ("reference" | "run" | "file" | "aliquot" | "transfer" | "used")[];
+        };
+        /** ReleaseQuarantineIn */
+        ReleaseQuarantineIn: {
+            /**
+             * Reason
+             * @description Why the finding is false.
+             */
+            reason: string;
         };
         /** ReproduceIn */
         ReproduceIn: {
@@ -15002,6 +15740,8 @@ export interface components {
              * @description Where the command wrote it, relative to its output directory.
              */
             path: string;
+            /** @description The scan decision for a verified upload. */
+            scan: components["schemas"]["FileScanOut"] | null;
             /**
              * Sha256
              * @description Of its bytes, as hex.
@@ -15014,10 +15754,10 @@ export interface components {
             size: number;
             /**
              * State
-             * @description `kept` while it can be downloaded; `deleted` once its retention is over (its record stays); `failed` if its upload didn't finish.
+             * @description Whether the artifact can be downloaded, is still uploading or scanning, is held, or has expired.
              * @enum {string}
              */
-            state: "uploading" | "kept" | "failed" | "deleted";
+            state: "uploading" | "scanning" | "quarantined" | "not_scanned" | "kept" | "failed" | "deleted";
         };
         /** RunAttemptOut */
         RunAttemptOut: {
@@ -16053,6 +16793,11 @@ export interface components {
              */
             sort?: string | null;
             /**
+             * Then
+             * @description Further sorts, in order, for what `sort` ties: each a field, with `-` first for descending, as `-priority`.
+             */
+            then?: string[];
+            /**
              * Type
              * @description This type and its subtypes.
              */
@@ -16176,6 +16921,11 @@ export interface components {
              */
             run?: string | null;
             sort?: components["schemas"]["SortIn"] | null;
+            /**
+             * Then
+             * @description Further sorts, in order, for what `sort` ties: a core's queue by its ranking, then priority, then when each is needed (ADR 0232). Blanks are last in each.
+             */
+            then?: components["schemas"]["SortIn"][];
             /**
              * Type
              * @description This type and its subtypes.
@@ -16330,7 +17080,7 @@ export interface components {
             /** Name */
             name: string;
             /** Org Roles */
-            org_roles: ("org_admin" | "compute_admin" | "auditor")[];
+            org_roles: ("org_admin" | "compute_admin" | "auditor" | "quarantine_admin")[];
         };
         /** ServiceAccountPatch */
         ServiceAccountPatch: {
@@ -16706,6 +17456,250 @@ export interface components {
             values: {
                 [key: string]: string;
             };
+        };
+        /** SheetEditCheckIn */
+        SheetEditCheckIn: {
+            locale?: components["schemas"]["SheetEditLocaleIn"] | null;
+            /** Rows */
+            rows: components["schemas"]["SheetEditCheckRowIn"][];
+            /**
+             * Type
+             * @description The type of the sheet's records, such as acme/protein.Sample.
+             */
+            type: string;
+        };
+        /** SheetEditCheckOut */
+        SheetEditCheckOut: {
+            /** Rows */
+            rows: components["schemas"]["SheetEditRowOut"][];
+        };
+        /** SheetEditCheckRowIn */
+        SheetEditCheckRowIn: {
+            /**
+             * Amount
+             * @description How much a new record starts with, in its type's amount unit or its own: `500`, `0.5 mL`.
+             */
+            amount?: string | null;
+            /**
+             * Cells
+             * @description Each changed cell's text, by its field: null or empty to empty it.
+             */
+            cells?: {
+                [key: string]: string | null;
+            };
+            /**
+             * Entity
+             * @description The record it is; none for a new one.
+             */
+            entity?: string | null;
+            /**
+             * Key
+             * @description The row, as the caller names it.
+             */
+            key: string;
+            /**
+             * Location
+             * @description A new record's place in storage: a container by its ID, code or name, and its position, such as `BOX-000002 A1`; just the container for its next free one.
+             */
+            location?: string | null;
+            /**
+             * Revision
+             * @description The record's revision the cells were read from.
+             */
+            revision?: number | null;
+        };
+        /**
+         * SheetEditLocaleIn
+         * @description How the sheet's text writes numbers and dates, as the person says (ADR 0178). Until
+         *     it's said, a cell that reads two ways (1,234; 03/04/2026) is a problem, never a guess.
+         */
+        SheetEditLocaleIn: {
+            /**
+             * Dates
+             * @description day_first: 31/12/2026; month_first: 12/31/2026. Null until you know.
+             */
+            dates?: ("day_first" | "month_first") | null;
+            /**
+             * Decimal
+             * @description point: 1,234.5; comma: 1.234,5. Null until you know.
+             */
+            decimal?: ("point" | "comma") | null;
+            /**
+             * Serial Dates
+             * @description Plain numbers in date columns are Excel serial dates (46023).
+             * @default false
+             */
+            serial_dates: boolean;
+            /**
+             * Time Zone
+             * @description The IANA time zone of a date and time that gives none, such as the person's own: Europe/London. Without one, such a cell is a problem.
+             */
+            time_zone?: string | null;
+        };
+        /** SheetEditPlaceIn */
+        SheetEditPlaceIn: {
+            /**
+             * Container
+             * Format: uuid
+             * @description The container it goes in.
+             */
+            container: string;
+            /**
+             * Position
+             * @description Its position, such as A1; none for the next free one.
+             */
+            position?: string | null;
+        };
+        /** SheetEditPlaceOut */
+        SheetEditPlaceOut: {
+            /**
+             * Container
+             * Format: uuid
+             */
+            container: string;
+            /** Hrid */
+            hrid: string;
+            /** Position */
+            position: string | null;
+            /**
+             * Shown
+             * @description As the sheet says it: `BOX-000002 A1`.
+             */
+            shown: string;
+            /** Title */
+            title: string;
+        };
+        /** SheetEditProblemOut */
+        SheetEditProblemOut: {
+            /**
+             * At
+             * @description Where: `values/<field>` for a cell, `location`, `amount`, or `` for the row.
+             */
+            at: string;
+            /** Detail */
+            detail: string;
+            /**
+             * Kind
+             * @description `ambiguous`: the cell reads two ways, by how the sheet writes numbers or dates; `stale`: the record changed since its revision was read.
+             * @enum {string}
+             */
+            kind: "invalid" | "ambiguous" | "stale";
+        };
+        /** SheetEditRowOut */
+        SheetEditRowOut: {
+            amount?: components["schemas"]["AmountIn"] | null;
+            /** Amount Shown */
+            amount_shown?: string | null;
+            /**
+             * Entity
+             * @description The record it changes; none for a new one.
+             */
+            entity: string | null;
+            /**
+             * Held
+             * @description Rules that hold it for review once saved (ADR 0127): saving needs `hold_reason`.
+             */
+            held: string[];
+            /** Hrid */
+            hrid: string | null;
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @description What saving it does: `edited`; `unchanged`; `created`, `registered` (a new registry entry) or `added` (a record of an entry already registered); `blank`, a new row with nothing in it; or `failed`, with its problems.
+             * @enum {string}
+             */
+            kind: "edited" | "unchanged" | "created" | "registered" | "added" | "blank" | "failed";
+            location?: components["schemas"]["SheetEditPlaceOut"] | null;
+            /** Problems */
+            problems: components["schemas"]["SheetEditProblemOut"][];
+            /**
+             * Revision
+             * @description The record's revision the check read.
+             */
+            revision: number | null;
+            /**
+             * Shown
+             * @description Each cell as the record would have it, as the grid and its CSV say it.
+             */
+            shown: {
+                [key: string]: string;
+            };
+            /**
+             * Values
+             * @description Each cell as it reads, as an edit gives it: send these to save.
+             */
+            values: {
+                [key: string]: unknown;
+            };
+        };
+        /** SheetEditSaveIn */
+        SheetEditSaveIn: {
+            /**
+             * Hold Reason
+             * @description Why to save rows that break rules holding records for review (ADR 0127).
+             */
+            hold_reason?: string | null;
+            /** @description How the cells were read, for the audit trail. */
+            locale?: components["schemas"]["SheetEditLocaleIn"] | null;
+            /**
+             * Reason
+             * @description Why, for each revision and the audit trail.
+             */
+            reason: string;
+            /** Rows */
+            rows: components["schemas"]["SheetEditSaveRowIn"][];
+            /** Type */
+            type: string;
+        };
+        /** SheetEditSaveOut */
+        SheetEditSaveOut: {
+            /** Created */
+            created: number;
+            /** Edited */
+            edited: number;
+            /** Rows */
+            rows: components["schemas"]["SheetEditSavedRowOut"][];
+        };
+        /** SheetEditSaveRowIn */
+        SheetEditSaveRowIn: {
+            amount?: components["schemas"]["AmountIn"] | null;
+            /**
+             * Entity
+             * @description The record it changes; none for a new one.
+             */
+            entity?: string | null;
+            /** Key */
+            key: string;
+            location?: components["schemas"]["SheetEditPlaceIn"] | null;
+            /**
+             * Revision
+             * @description The revision of the record that was read and reviewed: required for a record. If it's changed since, nothing is saved.
+             */
+            revision?: number | null;
+            /**
+             * Values
+             * @description Each field's value, as the check read it.
+             */
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        /** SheetEditSavedRowOut */
+        SheetEditSavedRowOut: {
+            /** Entity */
+            entity: string | null;
+            /** Hrid */
+            hrid: string | null;
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "edited" | "unchanged" | "created" | "registered" | "added" | "blank" | "failed";
+            /** Revision */
+            revision: number | null;
         };
         /**
          * SheetLocaleIn
@@ -17412,7 +18406,7 @@ export interface components {
             descending: boolean;
             /**
              * Field
-             * @description A field to sort by: text, numbers, dates or yes/no.
+             * @description A field to sort by: text, numbers, dates or yes/no; or a request's `asked_by` or `sent_to`, by the project's name (ADR 0232).
              */
             field: string;
         };
@@ -17695,7 +18689,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
+            state: "pending" | "checking" | "scanning" | "ready" | "failed" | "cancelled" | "expired";
         };
         /** StarterApplyIn */
         StarterApplyIn: {
@@ -17712,18 +18706,12 @@ export interface components {
             /**
              * Project
              * Format: uuid
-             * @description The assay service project. Requires its Admin role.
+             * @description The assay project. Requires its Admin role.
              */
             project: string;
             /**
-             * Requester Project
-             * Format: uuid
-             * @description A different project in which the caller can create the example request.
-             */
-            requester_project: string;
-            /**
              * Role Assignments
-             * @description Each qualified lab role and the service project membership IDs receiving it.
+             * @description Each qualified lab role and the assay project membership IDs receiving it.
              */
             role_assignments: {
                 [key: string]: string[];
@@ -17750,7 +18738,7 @@ export interface components {
             required_roles: string[];
             /**
              * Result Type
-             * @description Qualified type for a requested result in this flow.
+             * @description Qualified result type for new fits in this flow.
              */
             result_type: string;
         };
@@ -17802,18 +18790,12 @@ export interface components {
             /**
              * Project
              * Format: uuid
-             * @description The assay service project. Requires its Admin role.
+             * @description The assay project. Requires its Admin role.
              */
             project: string;
             /**
-             * Requester Project
-             * Format: uuid
-             * @description A different project in which the caller can create the example request.
-             */
-            requester_project: string;
-            /**
              * Role Assignments
-             * @description Each qualified lab role and the service project membership IDs receiving it.
+             * @description Each qualified lab role and the assay project membership IDs receiving it.
              */
             role_assignments: {
                 [key: string]: string[];
@@ -17831,18 +18813,6 @@ export interface components {
              * @description Whether applying this choice would change anything (preview), or did (apply).
              */
             changed: boolean;
-            /**
-             * Examples
-             * @description IDs of example records already present at preview or available after setup.
-             */
-            examples: {
-                [key: string]: string;
-            };
-            /**
-             * Examples To Create
-             * @description Names of examples missing when the setup was checked.
-             */
-            examples_to_create: string[];
             /**
              * Flow
              * @enum {string}
@@ -17865,11 +18835,6 @@ export interface components {
              * Format: uuid
              */
             project: string;
-            /**
-             * Requester Project
-             * Format: uuid
-             */
-            requester_project: string;
             /** Result Type */
             result_type: string;
             /** Role Assignments */
@@ -17979,6 +18944,19 @@ export interface components {
              * @description The electronic signatures setting it needs (ADR 0126): it's set by the last of them, once they're all given on the same revision, never directly. Empty for a state set directly.
              */
             signatures: components["schemas"]["WantedSignatureOut"][];
+        };
+        /** StatedOut */
+        StatedOut: {
+            /**
+             * Stated In
+             * @description Where in the file it's stated, such as ``FCS keyword $CYT``, to check it by.
+             */
+            stated_in: string;
+            /**
+             * Value
+             * @description As the file gives it.
+             */
+            value: string;
         };
         /** StepBatchOut */
         StepBatchOut: {
@@ -18391,7 +19369,7 @@ export interface components {
              * Event
              * @enum {string}
              */
-            event: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "schedule";
+            event: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "request.received" | "schedule";
             /**
              * Label
              * @description Its label, or its name once it's no longer installed.
@@ -18453,10 +19431,10 @@ export interface components {
             name: string;
             /**
              * On
-             * @description What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.
+             * @description What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, a request of its type sent to the project as a service (ADR 0232), or its schedule.
              * @enum {string}
              */
-            on: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "schedule";
+            on: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "request.received" | "schedule";
             /** Params */
             params: {
                 [key: string]: unknown;
@@ -18476,6 +19454,12 @@ export interface components {
             related: {
                 [key: string]: components["schemas"]["RelatedOut"];
             };
+            /**
+             * Runs As Account
+             * @description Its runs are launched as a service account the Admin who turns it on chooses, on their authority: on a schedule, or as a request arrives, since nobody in the project made it happen (ADR 0081, ADR 0232).
+             * @default false
+             */
+            runs_as_account: boolean;
             /**
              * Schedule
              * @description On a schedule: when it runs, in cron's five fields. Empty otherwise.
@@ -18834,7 +19818,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
+            state: "pending" | "checking" | "scanning" | "ready" | "failed" | "cancelled" | "expired";
         };
         /**
          * UploadStatusOut
@@ -18868,7 +19852,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
+            state: "pending" | "checking" | "scanning" | "ready" | "failed" | "cancelled" | "expired";
         };
         /** UsedByCountOut */
         UsedByCountOut: {
@@ -19763,7 +20747,7 @@ export interface components {
             label: string;
             /**
              * Name
-             * @description Qualified, such as `protein.translate_and_characterize`.
+             * @description Workflow name in `namespace/plugin.workflow` form.
              */
             name: string;
             /** Params */
@@ -21394,6 +22378,8 @@ export interface operations {
                 /** @description A field to sort by. */
                 sort?: string | null;
                 descending?: boolean;
+                /** @description Further sorts, in order, for what `sort` ties: each a field, with `-` first for descending, as `-priority`. */
+                then?: string[];
                 /** @description The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). Defaults to the grid columns. Every row ends with `updated_at`, `revision` and `id`. */
                 columns?: string[];
             };
@@ -21772,7 +22758,9 @@ export interface operations {
         parameters: {
             query: {
                 /** @description Which file, as its type's `exports` list them. */
-                format: "genbank" | "fasta" | "signed-report-html" | "signed-report-json";
+                format: "genbank" | "fasta" | "protein-fasta" | "sdf" | "molfile" | "signed-report-html" | "signed-report-json";
+                /** @description An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`). */
+                fields?: string[] | null;
                 /** @description Which revision, as it was then. Its latest if left out. */
                 revision?: number | null;
                 /** @description Whose record of a registry entry, as for reading it (ADR 0115). */
@@ -21793,8 +22781,11 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                    "chemical/seq-aa-fasta": unknown;
                     "chemical/seq-na-fasta": unknown;
                     "chemical/seq-na-genbank": unknown;
+                    "chemical/x-mdl-molfile": unknown;
+                    "chemical/x-mdl-sdfile": unknown;
                     "text/html": unknown;
                 };
             };
@@ -22496,6 +23487,128 @@ export interface operations {
             };
         };
     };
+    iki_server_api_record_exports_list_record_exports: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RecordExportOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_record_exports_start_record_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordExportIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordExportOut"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordExportOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_record_exports_get_record_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordExportOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_record_exports_download_record_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Found */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    iki_server_api_record_exports_record_export_content_url: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentUrlOut"];
+                };
+            };
+        };
+    };
     iki_server_api_entities_list_types: {
         parameters: {
             query?: never;
@@ -22556,6 +23669,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TypeFlowOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_sheets_import_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description As CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
                 };
             };
         };
@@ -22734,7 +23869,7 @@ export interface operations {
                 limit?: number;
                 /** @description Its files; every one you can read if left out. */
                 project?: string | null;
-                /** @description Part of its name, in any case. */
+                /** @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case. */
                 q?: string;
                 /** @description Format IDs, media types such as application/x-abi, or image/* for any image. */
                 format?: string[];
@@ -22774,6 +23909,7 @@ export interface operations {
         parameters: {
             query?: {
                 project?: string | null;
+                /** @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case. */
                 q?: string;
                 acquired_from?: string | null;
                 acquired_to?: string | null;
@@ -22804,6 +23940,7 @@ export interface operations {
         parameters: {
             query?: {
                 project?: string | null;
+                /** @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case. */
                 q?: string;
                 acquired_from?: string | null;
                 acquired_to?: string | null;
@@ -24259,6 +25396,58 @@ export interface operations {
             };
         };
     };
+    iki_server_api_sheets_save_sheet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SheetEditSaveIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SheetEditSaveOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_sheets_check_sheet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SheetEditCheckIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SheetEditCheckOut"];
+                };
+            };
+        };
+    };
     iki_server_api_spreadsheets_list_imports: {
         parameters: {
             query?: {
@@ -24572,6 +25761,85 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebhookCreated"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_list_quarantine: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description Held now, or infected findings released as false positives. */
+                status?: "held" | "released";
+                /** @description Only malware findings, or only inspections that couldn't finish. */
+                state?: ("infected" | "not_scanned") | null;
+                /** @description Part of a file's name, or the start of its SHA-256. */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_QuarantineOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_read_quarantine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuarantineOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_release_quarantine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReleaseQuarantineIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuarantineOut"];
                 };
             };
         };

@@ -8,6 +8,7 @@ import pytest
 from api_client import problem
 from org_world import World
 from test_api_entities import api_as
+from test_files import run_tasks
 from test_run_results import done, output
 from test_runs import PREDICT, bind_vm, launch, protein, world
 from test_workers import keep_connection, worker
@@ -45,6 +46,7 @@ def stored(world: World, name: str = "kinases.fasta", project: Project | None = 
         size=0,
         sha256=EMPTY_SHA256,
     )
+    run_tasks()
     upload.refresh_from_db()
     return str(upload.file_id)
 
@@ -386,6 +388,7 @@ def test_an_inline_import_matches_a_sample_label_only_once(world: World) -> None
         size=0,
         sha256=EMPTY_SHA256,
     )
+    run_tasks()
     csv.refresh_from_db()
     run = launch(
         api_as(world),

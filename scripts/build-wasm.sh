@@ -29,7 +29,10 @@ if [ "${1:-}" = --package-notices ]; then
 else
   cargo build --locked -p iki-wasm --target wasm32-unknown-unknown --release
 fi
+# The file previews' readers (ADR 0226): the web app alone runs them, in its own worker.
+cargo build --locked -p iki-previews --target wasm32-unknown-unknown --release
 mkdir -p "$root/web/app/wasm" "$root/web/packages/science/wasm"
+cp target/wasm32-unknown-unknown/release/iki_previews.wasm "$root/web/app/wasm/iki_previews.wasm"
 cp target/wasm32-unknown-unknown/release/iki_wasm.wasm "$root/web/packages/science/wasm/iki_wasm.wasm"
 cp target/wasm32-unknown-unknown/release/iki_wasm.wasm "$root/web/app/wasm/iki_wasm.wasm"
 # The server checks apps' expressions (ADR 0090), and iki-spec plugins' rules and guards

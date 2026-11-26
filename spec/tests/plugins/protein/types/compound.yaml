@@ -1,0 +1,24 @@
+# A small molecule as the small_molecule plugin keeps one, cut to what its exports read:
+# its structure as a Molfile, which a worker computes, and fields an SDF carries as data.
+apiVersion: iki/v1
+kind: EntityType
+name: Compound
+schema_version: 1
+hrid: { prefix: CPD, digits: 6 }
+identity: [inchikey]
+fields:
+  smiles: { type: string, max_length: 20000, required: true, immutable: true, registry: derived }
+  inchikey: { type: string, max_length: 27, required: true, immutable: true, indexed: true }
+  name: { type: string, max_length: 255, indexed: true }
+  synonyms: { type: list, items: { type: string, max_length: 255 } }
+  description: { type: text, max_length: 10000 }
+  molecular_weight: { type: quantity, unit: g/mol, registry: derived, computed: true }
+  heavy_atoms: { type: int, registry: derived, computed: true }
+  stereochemistry: { type: enum, values: [achiral, absolute, racemic, unknown] }
+  supplier: { type: ref, to: iki/core.Entity }
+  # Machine text, with no words to search (ADR 0233).
+  molfile: { type: text, max_length: 4000000, registry: derived, computed: true, searchable: false }
+display:
+  title: "{{ name or hrid }}"
+exports:
+  - { export: compound, structure: molfile }

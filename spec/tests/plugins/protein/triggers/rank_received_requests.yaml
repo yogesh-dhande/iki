@@ -1,0 +1,8 @@
+apiVersion: iki/v1
+kind: Trigger
+name: rank_received_requests
+label: Rank requests as they arrive
+on: request.received
+type: RankedAssayRequest
+run: rank_requests
+input: requests

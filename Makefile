@@ -270,7 +270,7 @@ dev-ci dev-product-ci:
 
 .PHONY: dev-sso
 dev-sso: ## Set up sign-in on the dev cluster through the wizard (bob becomes admin)
-	uv run python deploy/dev/sso.py
+	uv run python -m deploy.dev.sso
 
 .PHONY: dev-e2e
 dev-e2e: ## Run the end-to-end checks against a running dev cluster

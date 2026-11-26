@@ -1,0 +1,17 @@
+apiVersion: iki/v1
+kind: Trigger
+name: trace_failed_instrument
+label: Trace uses when an instrument fails calibration
+description: >-
+  When the engineer marks an instrument's calibration as failed, trace its signed
+  service history, instrument uses and prior impact cases in this project.
+on: entity.state_changed
+type: iki/equipment.Instrument
+field: calibration
+states: [failed]
+run: trace_failed_calibrations
+input: instrument
+related:
+  calibrations: { direction: downstream, depth: 1, edges: [reference] }
+  uses: { direction: downstream, depth: 1, edges: [reference] }
+  existing: { direction: downstream, depth: 1, edges: [reference] }

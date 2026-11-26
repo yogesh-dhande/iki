@@ -17,6 +17,7 @@ from api_client import Api, problem
 from django.db import transaction
 from django.db.utils import ProgrammingError
 from org_world import World, build_world
+from scan_fixtures import clean_blob
 
 from iki_server.accounts.models import User
 from iki_server.audit.models import AuditEvent
@@ -25,7 +26,7 @@ from iki_server.bundles.models import BundleImport, ImportEntity
 from iki_server.entities import registry, services
 from iki_server.entities.models import Entity
 from iki_server.files import storage
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
 from iki_server.org.models import (
     OrgRole,
     OrgRoleAssignment,
@@ -397,7 +398,7 @@ def test_applying_makes_its_entities_with_their_history_files_and_authors(
         services.update(admin, kinase, {"name": "ABL1 kinase"}, expected_revision=1, reason="Named")
         key = storage.blob_key(sha)
         storage.client().put_object(Bucket=storage.bucket(), Key=key, Body=PDB)
-        blob = Blob.objects.create(sha256=sha, size=len(PDB), storage_uri=storage.uri(key))
+        blob = clean_blob(sha256=sha, size=len(PDB), storage_uri=storage.uri(key))
         pdb = File.objects.create(
             blob=blob, name="1abc.pdb", media_type="chemical/x-pdb", project=world.project
         )
@@ -509,7 +510,7 @@ def imported_reading(
         made = []
         for n, (pdb, key) in enumerate(zip(data, keys, strict=True)):
             storage.client().put_object(Bucket=storage.bucket(), Key=key, Body=pdb)
-            blob = Blob.objects.create(
+            blob = clean_blob(
                 sha256=key.rsplit("/", 1)[1], size=len(pdb), storage_uri=storage.uri(key)
             )
             file = File.objects.create(

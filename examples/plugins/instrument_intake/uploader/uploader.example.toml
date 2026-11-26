@@ -1,0 +1,52 @@
+# The uploader on the PC beside QuantStudio 7 Flex in bay 3 of the qPCR core.
+# Copy this file next to iki_uploader.py as uploader.toml and fill it in.
+# Relative paths are relative to this file.
+
+[iki]
+url = "https://iki.example.org"
+# The facility's project: its ID or slug. Make the uploader's service account an
+# Editor in this project and nowhere else.
+project = "qpcr-core"
+# The service account's credential (People → Service accounts → the account →
+# Credentials), with the read and write scopes.
+client_id = "REPLACE-WITH-THE-CREDENTIAL-ID"
+# The secret is shown once, when the credential is made. Keep it out of this file:
+# in an environment variable the scheduled task sets,
+client_secret_env = "IKI_UPLOADER_SECRET"
+# or in a file only the uploader's Windows account can read:
+# client_secret_file = "uploader.secret"
+#
+# To act for a person instead, as an agent with their delegation (Account → Apps →
+# Let an agent act for you), give the delegation's grant ID. What the uploader adds
+# then names both the person and the agent.
+# delegation = "REPLACE-WITH-THE-GRANT-ID"
+
+[record]
+type = "acme/instrument_intake.QPCRRun"
+# The field that holds the export, and the unique field that holds its SHA-256.
+file_field = "results_file"
+key_field = "source_sha256"
+
+[record.values]
+instrument = "QuantStudio 7 Flex, bay 3"
+
+[files]
+# The folder QuantStudio Real-Time PCR Software exports results to.
+folder = 'D:\QuantStudio exports'
+patterns = ["*.txt"]
+# An export changed in the last minute may still be being written.
+settle = "60s"
+# upload: send each file to Iki. register: write it to the bucket below and register it
+# there. auto: register files over register_over, upload the rest.
+mode = "upload"
+register_over = "1GiB"
+# How long to wait for Iki to check and scan a file before leaving it for next time.
+scan_timeout = "30m"
+journal = "iki-uploader-journal.json"
+
+# For mode register or auto: the facility's bucket, which must keep object versions,
+# under a location the deployment approved for registering files in place
+# (IKI_FILES_REGISTER_LOCATIONS). The PC writes with its own cloud credentials:
+# an AWS profile for s3://, Application Default Credentials for gs://.
+# [bucket]
+# uri = "s3://acme-qpcr-core/quantstudio-bay-3/"

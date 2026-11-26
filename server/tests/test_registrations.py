@@ -121,6 +121,11 @@ def test_every_registration_checks_the_declared_type_against_its_pinned_bytes(
     done = api.get(f"/registrations/{good['id']}").json()
     assert done["media_type"] == done["file"]["media_type"] == "application/x-abi"
     assert done["file"]["acquired"]["source"] == "abif"
+    # What it states is read from the pinned version, as its date is (ADR 0224).
+    assert done["file"]["facts"]["instrument"] == {
+        "value": "3730",
+        "stated_in": "ABIF tag MODL 1 (model number)",
+    }
 
     # The stored hash can be reused, but a second registration's claimed type is new.
     conflict = register(api, world, uri, version=version, media_type="image/jpeg")
@@ -195,6 +200,8 @@ def test_registration_history_uses_the_tokens_current_projects(
     before = bearer(token, "GET", ready_path).json()
     assert before["uri"] == uri and before["version"] == version
     assert before["file"]["sha256"] == hashlib.sha256(CSV).hexdigest()
+    assert "scan" not in before and before["file"]["scan"]["state"] == "clean"
+    assert before["file"]["scan"]["decision_id"]
     oauth.grant(
         world.users["editor"],
         client,

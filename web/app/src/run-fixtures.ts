@@ -172,6 +172,7 @@ export const ACTION = {
       cardinality: "one",
       max: null,
       optional: false,
+      from_project: false,
     },
   ],
   params: [
@@ -212,10 +213,16 @@ export const ACTION = {
   apis: [],
 } satisfies Schemas["ActionOut"];
 
-/** iki/protein.weigh_twice: no inputs to choose here, only the pH, and an approval. */
+export const WEIGH_ACTION = {
+  ...ACTION,
+  name: "acme/weighing.compute_properties",
+  plugin: "acme/weighing",
+};
+
+/** acme/weighing.weigh_twice: no inputs to choose here, only the pH, and an approval. */
 export const WORKFLOW = {
-  name: "iki/protein.weigh_twice",
-  plugin: "iki/protein",
+  name: "acme/weighing.weigh_twice",
+  plugin: WEIGH_ACTION.plugin,
   label: "Weigh twice",
   description: "Weighs, then weighs again once someone has checked.",
   inputs: [],
@@ -225,7 +232,7 @@ export const WORKFLOW = {
     {
       id: "first",
       label: "First",
-      action: ACTION.name,
+      action: WEIGH_ACTION.name,
       inputs: {},
       params: { ph: "$params.ph" },
       after: [],
@@ -236,7 +243,7 @@ export const WORKFLOW = {
     {
       id: "second",
       label: "Second",
-      action: ACTION.name,
+      action: WEIGH_ACTION.name,
       inputs: {},
       params: {},
       after: ["first"],
@@ -253,14 +260,14 @@ export const WORKFLOW = {
 
 export const WORKFLOW_ID = "00000000-0000-7000-8000-0000000000w1";
 
-/** WF-000001: iki/protein.translate_and_characterize, translated, characterizing. */
+/** WF-000001: acme/protein_translation.translate_and_characterize, translated, characterizing. */
 export function workflowRun(
   overrides: Partial<Schemas["WorkflowRunOut"]> = {},
 ): Schemas["WorkflowRunOut"] {
   return {
     id: WORKFLOW_ID,
     hrid: "WF-000001",
-    workflow: "iki/protein.translate_and_characterize",
+    workflow: "acme/protein_translation.translate_and_characterize",
     label: "Translate and characterize",
     plugin_version: "1.2.0",
     project: KINASE.id,
@@ -283,7 +290,7 @@ export function workflowRun(
       {
         id: "translate",
         label: "Translate",
-        action: "iki/protein.translate",
+        action: "acme/protein_translation.translate",
         after: [],
         each: null,
         when: [],
@@ -303,7 +310,7 @@ export function workflowRun(
       {
         id: "properties",
         label: "Properties",
-        action: "iki/protein.compute_properties",
+        action: "acme/protein_translation.compute_properties",
         after: ["translate"],
         each: null,
         when: [],

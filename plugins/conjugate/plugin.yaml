@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/conjugate
-version: 0.2.0
+version: 0.2.1
 title: Conjugates
 description: >-
   Register antibody–drug conjugates, oligo conjugates and PEGylated proteins

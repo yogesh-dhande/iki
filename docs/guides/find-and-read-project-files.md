@@ -25,8 +25,11 @@ and grant `read` for the project. [Connect an MCP client](../../server/README.md
    still holds it. In `runs.items`, `param` means the file was supplied as
    a parameter, `input` means an input record held it, and `made` means
    the run produced it. Use each page's cursor to read further.
-3. If the question needs the CSV's measurements, call
-   `get_file_download_link` with the same file ID. Fetch the returned
+3. If the question needs the CSV's measurements, check `file.scan`
+   in the `get_file` result. A pending scan can be polled with `get_file`.
+   A quarantined file needs review by a Quarantine Admin. When
+   `file.scan.usable` is true, call `get_file_download_link` with the same ID.
+   Fetch the returned
    `url` without an Authorization header and verify the bytes against
    `sha256` before parsing the CSV. Request a fresh link if it expires.
    Cite the file ID and SHA-256 in the result so a colleague can identify

@@ -98,6 +98,7 @@ def test_lists_installed_actions_and_where_they_run(world: World) -> None:
         "acme/protein.import_samples",
         "acme/protein.measure_purity",
         "acme/protein.predict_hosted",
+        "acme/protein.rank_requests",
         RELAX,
         "acme/protein.schedule_request",
     ]
@@ -114,6 +115,7 @@ def test_lists_installed_actions_and_where_they_run(world: World) -> None:
             "cardinality": "one",
             "max": None,
             "optional": False,
+            "from_project": False,
         }
     ]
     assert compute["updates"] == [{"input": "protein", "fields": ["molecular_weight"]}]

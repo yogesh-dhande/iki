@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: read_new_qpcr_runs
+label: Read each new qPCR run's results
+description: >-
+  Reads a run's results as soon as the instrument's uploader makes its record.
+  The record can only be made once its file is scanned clean, and the worker
+  gets the file only then. The run's own changes fire no trigger.
+on: entity.created
+type: QPCRRun
+run: import_quantstudio_results

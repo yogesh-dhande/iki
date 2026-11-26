@@ -1,130 +1,132 @@
 # Iki plugin template
 
-A starting point for a lab's own Iki plugin: entity types, the fields it adds
-to other plugins' types, and the CI that checks them. Copy this directory
-into a repository of its own (or use it as a GitHub template), then make it
-yours.
+Use this template when your lab needs its first project record and an action that
+updates it. The `Sample` type stores a name and a storage location. The
+`assign_storage` action fills an empty storage field with the location you
+choose. The default is `-80 °C freezer`. The action uses Python's standard
+library and has no plugin dependencies.
 
-What's here:
+## Copy and test the plugin
 
-- `plugin.yaml` declares the plugin, its dependencies and settings, and a tube
-  scanner's export format. Its header lets Iki recognize a scan even when the
-  filename has lost its extension. To accept it in a file field or action file
-  parameter, set `media_types: [acme/example.tube-scan]`. If you rename the
-  plugin, use the new plugin name in that ID.
-- `types/sample.yaml`: an entity type, `acme/example.Sample`, with references to
-  its own type and to `iki/dna.DNASequence`.
-- `types/dna_sequence.yaml`: an extension adding two fields to
-  `iki/dna.DNASequence`. They live in this plugin's tables.
-- `actions/assign_storage.yaml` and `scripts/storage.py`: an action that sets
-  a sample's storage to the plugin's setting, and the command it runs.
-- `actions/tidy_storage.yaml`: another, with the same script, that asks for a
-  persistent machine (`lifecycle: persistent`): a quick action that runs
-  often can go to a pod that's kept warm, rather than wait for one of its own.
-- `environments/tools.yaml`: where that command runs. On the container tier,
-  each run gets a pod with this image, pinned by its digest.
-- `workflows/store_sample.yaml`: a workflow that assigns a sample's storage,
-  then decodes it: two actions run one after the other, as one.
-- `triggers/store_new_samples.yaml`: a trigger that assigns each new sample's
-  storage by itself, in projects whose Admins turn it on.
-- `components/sample_label.yaml` and `components/sample-label.js`: a tab on
-  each sample's page showing its tube label, drawn by the plugin's own code,
-  and a sheet of labels for what the grid of samples finds ("Show as").
-  Iki runs it in a sandboxed frame with no network and no access to the
-  person's session, and gives it the sample, or the samples, with only the
-  fields it reads. A component can also be a section of a project's page or
-  a person's home, or a panel in an app; `@ikisci/component` describes what
-  it's given. Use a component only for what Iki's own pages can't show.
-- `tests/storage.yaml`: tests of the storage actions. `iki plugin test`
-  runs each as a worker would and compares what it writes.
-- `migrations/`: the database migrations for those types, made by
-  `iki plugin makemigrations` and reviewed in pull requests like code.
-- `.github/workflows/ci.yml`: checks every change, the way a deployment's
-  build will.
+From the Iki source checkout, copy the whole directory into a new repository.
+This includes the GitHub Actions workflow and the agent skills.
 
-The manifest format is in Iki's
-[plugin guide](https://ikisci.org/guides/write-a-plugin/) and
-[spec reference](https://ikisci.org/reference/plugin-spec/). Editors that read
-`yaml-language-server` comments (VS Code with the YAML extension, JetBrains)
-complete and check it as you type.
+```sh
+cp -R plugin-template ../sample-intake
+cd ../sample-intake
+git init -b main
+```
 
-## Work with a coding agent
+In `plugin.yaml`, replace `acme/example` with a permanent name under your lab's
+namespace, such as `yourlab/sample_intake`. Update its title, description and
+license. Choose the name before the first deployment because it determines the
+database table names. Edit `types/sample.yaml` for the fields you collect.
+If you change the storage field or the action's location parameter, update
+`actions/assign_storage.yaml`, `scripts/storage.py` and `tests/storage.yaml`
+together.
 
-Copy the whole template, including hidden directories. It includes three
-skills that Codex and Claude Code can discover from the plugin repository.
-With another agent, point it to the relevant `SKILL.md`. Keep the skill
-directory intact so the agent can run its scripts.
+Use the Iki CLI and worker release that matches your deployment. Set
+`IKI_VERSION` in `.github/workflows/ci.yml` to the same version. Put the worker
+binary for your machine on `PATH`. The local worker runs the action with Python 3
+as `python`. If that command is missing, run `uv venv --python 3.13 ../iki-test-env`
+and activate it with `. ../iki-test-env/bin/activate` before testing. [Worker releases](https://github.com/yogesh-dhande/iki/releases)
 
-- [`iki-write-plugin`](.agents/skills/iki-write-plugin/SKILL.md) starts a plugin and generates its migration.
-- [`iki-test-plugin`](.agents/skills/iki-test-plugin/SKILL.md) checks action fixtures, migrations and the lab workflow.
-- [`iki-upgrade-plugin`](.agents/skills/iki-upgrade-plugin/SKILL.md) preflights a versioned change and verifies the upgrade.
+```sh
+export IKI_VERSION=0.1.0  # use your deployment's release
+uv tool install "iki-cli==$IKI_VERSION"
+iki plugin validate .
+rm migrations/0001_initial.py
+iki plugin makemigrations .
+iki plugin makemigrations . --check --no-input
+iki plugin test .
+```
 
-## Make it yours
-
-1. Install the `iki` CLI at the version your deployments run:
-   `uv tool install iki-cli==0.1.0`.
-2. Rename the plugin in `plugin.yaml`: `namespace/name`, where the namespace
-   is your lab's or company's (`acme` is a placeholder) and both are
-   lowercase, with underscores (`acme/assays`). Plugins in different
-   namespaces can share a short name, so pick a namespace that's yours alone.
-   `iki` is Iki's own. The name is in every table it makes, so choose it
-   before the first deployment. Other plugins' types are written with their
-   full names (`iki/dna.DNASequence`); your own need none (`Sample`).
-3. Replace the example types with yours. Keep only the dependencies you use.
-   Besides fields, a type can have an identity (one registry entry per
-   molecule, however it's written), states, lists of rows, references to one
-   of several types and, for what the lab keeps, an `amount`: how much of
-   each record there is, drawn and split into aliquots
-   ([amounts](https://ikisci.org/guides/write-a-plugin/amounts/)).
-4. Delete `migrations/` and make your first migration:
-
-   ```sh
-   iki plugin makemigrations . --with path/to/iki/plugins/dna
-   ```
-
-5. In `.github/workflows/ci.yml`, set `IKI_VERSION` to your deployments' Iki
-   and `IKI_PLUGINS_SHA` to the `yogesh-dhande/iki` commit their lockfile pins.
-
-## Change it
-
-1. Edit the YAML. Increase a type's `schema_version` when its fields change.
-2. Run `iki plugin validate . --with …` to check it.
-3. Run `iki plugin makemigrations . --with …`. It asks whether a field that
-   disappeared was renamed, so renaming keeps its data and history. It
-   refuses to delete a field outright: mark it `removed: true` instead, so
-   its history stays readable.
-4. Run `iki plugin test . --with …` to run your actions' tests in `tests/`,
-   with [`iki-worker`](https://ikisci.org/guides/test-a-plugin-in-ci/#install-the-cli-and-the-worker)
-   installed. Add a test for each change in what an action writes. With
-   `--upgrade-from main --database postgres://…`, it also upgrades the
-   entities of `main`'s tests with your new migrations, and rolls them
-   back, as CI does on each pull request
-   ([Validate and test a plugin in CI on GitHub](https://ikisci.org/guides/test-a-plugin-in-ci/),
-   [Upgrade a plugin without losing history](https://ikisci.org/guides/upgrade-a-plugin/)).
-   For a backfill on existing records, use `MigrateValues` and give the
-   expected fields in `after` on an `upgrade: true` fixture. Each record then
-   carries the migration's reason. See the [backfill example](https://ikisci.org/guides/upgrade-a-plugin/#fill-in-values-for-existing-records).
-5. Commit the manifests, the new migration and the tests together, in one
-   pull request.
+Remove the copied initial migration only in a new, undeployed plugin.
+Review the generated migration and commit it with the manifests, action, tests
+and CI workflow. CI runs the same checks with an attested release worker. On a
+pull request it also migrates records from the base commit's action tests and
+checks that their values and history survive upgrade and rollback.
 
 ## Deploy it
 
-A deployment installs a plugin by pinning a commit in its lockfile
-(`plugins.lock.yaml` in its config repository). For example, this entry
-pins the Small molecule plugin from Iki's repository:
+Push your plugin repository. In the deployment's `plugins.lock.yaml`, add an
+entry like this, replacing the repository URL and `sha` with your URL and the
+full commit ID from `git rev-parse HEAD`.
 
 ```yaml
 plugins:
-  - name: iki/small_molecule
-    git: https://github.com/yogesh-dhande/iki.git
-    path: plugins/small_molecule
-    sha: b9b1632a67fda1d13a26f0a06b9c9edb18ffe19a
+  - name: yourlab/sample_intake
+    git: https://github.com/yourlab/sample-intake.git
+    sha: "<full commit ID>"
     state: active
 ```
 
-For your own plugin, use its name, repository and commit. Production builds
-refuse a pin to the template directory in Iki's repository or a configured
-mirror. The [author examples](https://github.com/yogesh-dhande/iki/tree/main/examples/plugins)
-describe how to adapt a worked recipe and test the copy. CI builds the
-plugins into the deployment's image, checking them
-together. The deployment migrates the database on its next rollout.
+Production builds refuse a pin to the template directory in Iki's repository
+or a configured mirror. For other recipes to copy into your own repository,
+see the [author examples](https://github.com/yogesh-dhande/iki/tree/main/examples/plugins).
+
+Add an environment binding to the deployment's `compute.yaml`. Use the name of
+a container-tier job template your deployment provides and the plugin name you
+chose above. The template must meet the requirements in `environments/tools.yaml`.
+
+```yaml
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: yourlab/sample_intake.tools
+templates: [{ template: container-small }]
+```
+
+The deployment build checks the locked plugins together and packages them in
+the image. Roll out the new configuration to apply the migration and create
+the Sample table.
+
+## Make the first record
+
+Create an empty lab project in Iki and copy its project ID. Open a Python shell
+with `uv run --with "ikisci==$IKI_VERSION" python`. Use your deployment URL and
+the plugin name from your lockfile. Sign in to that project with permission to
+read, write and run actions.
+
+```python
+import iki
+
+iki.login("https://iki.example.org")
+project_id = input("Project ID: ").strip()
+plugin = "yourlab/sample_intake"
+
+sample = iki.entities.create(
+    f"{plugin}.Sample",
+    {"name": "Rack control"},
+    project=project_id,
+    reason="Received at sample intake",
+)
+sample_id = sample["id"]
+run = iki.run(
+    f"{plugin}.assign_storage",
+    project=project_id,
+    inputs={"sample": sample_id},
+    params={"location": "Freezer 2, rack A"},
+    reason="Placed the sample in rack A",
+)
+iki.wait(run)
+saved = iki.entities.get(sample_id, project=project_id)
+assert saved["values"]["storage"] == "Freezer 2, rack A"
+print(saved["hrid"], saved["values"]["storage"])
+```
+
+Omit `params` to use the default location. For a lab that prints storage labels,
+the worked lesson includes the extension, setting, workflow and trigger to copy
+and adapt. [Storage labels](https://github.com/yogesh-dhande/iki/tree/main/examples/plugins/storage_labels)
+
+## Change an installed plugin
+
+Keep the committed migrations. Increase a type's `schema_version` when its
+fields change, generate the next migration with `iki plugin makemigrations .`,
+and add action tests for changed behavior. For a backfill on existing records,
+use `MigrateValues` and give the expected fields in `after` on an `upgrade: true`
+fixture. Each record then carries the migration's reason. [Backfill example](https://ikisci.org/reference/cli/#iki-plugin-test)
+
+The copied agent skills cover
+[writing](.agents/skills/iki-write-plugin/SKILL.md),
+[testing](.agents/skills/iki-test-plugin/SKILL.md) and
+[upgrading](.agents/skills/iki-upgrade-plugin/SKILL.md) a plugin.

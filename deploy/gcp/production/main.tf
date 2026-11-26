@@ -169,6 +169,8 @@ locals {
     # worker built with your plugins can use the repositories above or the config pins.
     "ghcr.io/yogesh-dhande/iki-server*",
     "ghcr.io/yogesh-dhande/iki-worker*",
+    # The chart's isolated malware scanner. Admit the qualified image by digest.
+    "docker.io/clamav/clamav-debian@sha256:cb2b6fa0bf480a3c243117204b751f062c5350569d088dc269ebeef6b4331823",
     # External Secrets' controller, webhook and certificate controller, as its chart
     # installs them (the README's step 3).
     "ghcr.io/external-secrets/external-secrets*",

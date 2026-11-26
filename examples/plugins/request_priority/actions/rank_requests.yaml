@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: rank_requests
+label: Rank requests by project
+description: >-
+  Gives each request the agreed rank of the project that asked, from the core's
+  ranking, or none if the core hasn't agreed one for that project.
+inputs:
+  requests:
+    type: SequencingRequest
+    schema: ">=1"
+    cardinality: many
+    max: 500
+    label: Requests
+    description: Requests sent to this project, which it serves.
+  ranking:
+    type: ServedProject
+    schema: ">=1"
+    cardinality: many
+    optional: true
+    # Not chosen: every run reads the project's whole ranking, as it is (ADR 0232).
+    from_project: true
+    label: Ranking
+    description: The projects this core serves, and their ranks.
+effects:
+  updates: [{ input: requests, fields: [project_rank] }]
+runs_on: { tier: backend, environment: python }
+command: [python, ./scripts/rank.py]
+deterministic: true
+timeout: 2m
