@@ -5,10 +5,10 @@ name: Shelf
 label: Shelf
 label_plural: Shelves
 schema_version: 1
-description: A shelf of a freezer, holding racks and boxes (ADR 0180).
+description: A shelf of a freezer, holding racks, boxes, and containers such as bottles that stand on it (ADR 0180).
 hrid: { prefix: SHF }
 storage:
-  holds: [Rack, Box]
+  holds: [Rack, Box, Container]
 fields:
   name:
     type: string

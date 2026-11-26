@@ -4,7 +4,7 @@ kind: EntityType
 name: Box
 label: Box
 label_plural: Boxes
-schema_version: 2
+schema_version: 1
 description: >-
   A cryobox of tubes, vials or other containers (ADR 0180): 9 × 9 for 2 mL
   cryovials, 10 × 10 for 1.5 mL tubes, its positions A1 to I9 or A1 to J10,

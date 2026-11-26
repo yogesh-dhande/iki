@@ -17,7 +17,7 @@ kind: Plugin
 name: acme/compound_store
 version: 1.0.0
 dependencies:
-  iki/inventory: { types: { Container: ">=1", Box: ">=2" } }
+  iki/inventory: { types: { Container: ">=1", Box: ">=1" } }
 """
 
 POWDER_VIAL = """\
@@ -109,6 +109,9 @@ def test_racks_freezers_and_boxes_take_the_labs_layout(tmp_path: Path, database:
         result["vial_at"] = put(vial, loose, "A2").position
         shelf_in_box = refused(shelf, loose)
         result["box_refuses_shelf"] = "doesn't hold" in shelf_in_box
+        bottle = make("iki/inventory.Tube", {"name": "Buffer 50 mL", "contents": str(compound.pk)})
+        standing = put(bottle, shelf)
+        result["on_shelf"] = [standing.container_id == shelf.pk, standing.position]
 
         weighed = amounts.Given(Decimal(5), "mg")
         amounts.draw(user, vial, weighed)
@@ -168,6 +171,7 @@ def test_racks_freezers_and_boxes_take_the_labs_layout(tmp_path: Path, database:
         "tube_at": "A1",
         "vial_at": "A2",
         "box_refuses_shelf": True,
+        "on_shelf": [True, None],
         "vial_left": "20",
         "vial_after_hold": "15",
         "derived": [

@@ -23,8 +23,10 @@ layout or the measure.
 
 ## Decision
 
-**A freezer holds shelves, racks or boxes.** A lab with shelves keeps them; a
-dewar or chest freezer takes its racks and boxes directly.
+**A freezer holds shelves, racks, boxes or containers, and a shelf holds racks,
+boxes or containers.** A lab with shelves keeps them; a dewar or chest freezer
+takes its racks and boxes directly, and a bottle can stand on a refrigerator
+shelf without a box. Only a box has positions for containers.
 
 **A rack's format is set as it's made.** `Rack` has required, immutable `rows`
 (boxes high, 1 to 16) and `columns` (boxes deep, 1 to 8), defaulting to five

@@ -7,8 +7,9 @@ described in [ADR 0211](../../docs/adr/0211-lots-inventory-samples-and-requests.
 ## Describe your storage
 
 A **Freezer** is any cold store: a freezer, a refrigerator, a cold room or a
-liquid nitrogen dewar. It holds shelves, or racks and boxes directly, as a
-chest freezer or a dewar does. A **Shelf** holds racks and boxes.
+liquid nitrogen dewar. It holds shelves, or racks, boxes and containers
+directly, as a chest freezer or a dewar does. A **Shelf** holds racks, boxes,
+and containers that stand on it, such as a bottle in a refrigerator.
 
 Choose a **Rack**'s format when you create it: how many boxes high and how many
 deep. A rack made without a format is five high and four deep, slots 1 to 20.
