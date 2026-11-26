@@ -47,6 +47,7 @@ def test_join_retains_source_well_controls_and_concentration():
         "replicate": 1,
         "value": 0.933769,
         "unit": "AU",
+        "readout": "absorbance",
         "channel": "Absorbance 484 nm",
         "source_row": 10,
     }
@@ -59,9 +60,7 @@ def test_reader_enforces_the_assay_plate_file_limit():
     # At the limit the reader checks the encoding. One extra byte hits the size check.
     content = bytes(limit)
     layout = series_layout()
-    assert preview(content, 96, layout)["issues"] == [
-        "Choose a UTF-8 or Windows-1252 MARS CSV export."
-    ]
+    assert preview(content, 96, layout)["issues"] == ["Choose a UTF-8 or Windows-1252 CSV export."]
     assert preview(content + b"x", 96, layout)["issues"] == ["The endpoint CSV exceeds 1 MiB."]
 
 
@@ -81,6 +80,20 @@ def test_public_pherastar_384_export():
     ]
     result = preview(content, 384, layout)
     assert result["issues"] == []
+    assert result["format"] == {
+        "id": "bmg_mars_absorbance",
+        "version": 1,
+        "label": "BMG LABTECH MARS absorbance endpoint (OD)",
+    }
+    # The run header MARS wrote, verbatim; the instrument PC's path isn't kept.
+    assert result["acquisition"] == {
+        "user": "USER",
+        "test_run": "3",
+        "test_name": "472 ABS 384 QC",
+        "date": "03/03/2016",
+        "time": "16:54:03",
+        "id1": "472-0016",
+    }
     by_well = {r["well"]: r for r in result["readings"]}
     assert len(by_well) == 99
     assert by_well["C1"]["value"] == 2.368
@@ -149,3 +162,43 @@ def test_zero_is_a_reading_and_empty_cells_have_no_reading():
     result = preview(out.getvalue().encode(), 96, series_layout())
     assert result["readings"][0]["value"] == 0
     assert result["issues"] == ["Assigned wells missing a reading: A2."]
+
+
+TOX21 = (DATA / "aid-1224835-activity.csv").read_bytes()
+
+
+def tox21_layout():
+    return [
+        {"well": f"{row}{column}", "control": "Tox21 well", "replicate": 1}
+        for row in "ABCDEF"
+        for column in range(1, 13)
+    ]
+
+
+def test_the_iki_plate_matrix_keeps_signed_percent_activity():
+    """The Tox21 AID 1224835 values as deposited, rearranged onto a 96-well matrix."""
+    result = preview(TOX21, 96, tox21_layout(), "iki_plate_matrix")
+    assert result["issues"] == []
+    assert result["format"]["id"] == "iki_plate_matrix" and result["format"]["version"] == 1
+    assert result["acquisition"] == {}
+    by_well = {r["well"]: r for r in result["readings"]}
+    assert len(by_well) == 72
+    assert (by_well["A1"]["value"], by_well["A1"]["unit"]) == (1.5711, "%")
+    assert by_well["A1"]["readout"] == "normalized_activity"
+    assert by_well["A1"]["channel"] == "Normalized activity"
+    assert by_well["C12"]["value"] == -89.6916
+
+
+@pytest.mark.parametrize(
+    ("content", "chosen", "message"),
+    [
+        (TOX21, "bmg_mars_absorbance", "Iki plate matrix"),
+        (SERIES, "iki_plate_matrix", "BMG MARS export"),
+        (b"well,signal\nA1,1", "iki_plate_matrix", "starts with `Normalized activity (%)`"),
+        (SERIES, "spectramax", "supported reader file format"),
+    ],
+)
+def test_a_file_in_another_format_says_which_to_choose(content, chosen, message):
+    layout = tox21_layout() if content is TOX21 else series_layout()
+    issues = preview(content, 96, layout, chosen)["issues"]
+    assert any(message in issue for issue in issues), issues

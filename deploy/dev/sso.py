@@ -4209,6 +4209,7 @@ def plate_assay(alice: requests.Session, project: dict[str, Any]) -> None:
                 "size": "plate_96",
                 "assignments": public_plate.assignments(compounds),
                 "reader_file": source,
+                "reader_format": "iki_plate_matrix",
                 "procedure": public_plate.ASSAY,
                 "procedure_revision": public_plate.SOURCE["procedure_revision"],
             },
@@ -4258,6 +4259,7 @@ def fit_assay_plate(
         or set(read["values"]["measurements"]) != {m["id"] for m in measurements}
         or any(
             m["values"]["reader_file"] != plate["values"]["reader_file"]
+            or m["values"]["readout"] != "normalized_activity"
             or m["values"]["activity_percent"] is None
             or m["values"]["signal"] is not None
             for m in measurements

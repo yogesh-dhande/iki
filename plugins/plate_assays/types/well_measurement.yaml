@@ -2,9 +2,9 @@ apiVersion: iki/v1
 kind: EntityType
 name: WellMeasurement
 label: Well measurement
-schema_version: 2
+schema_version: 3
 hrid: { prefix: WME }
-description: One absorbance or normalized activity reading, joined to the recorded assignment of its well.
+description: One reading of its readout, joined to the recorded assignment of its well.
 fields:
   plate: { type: ref, to: AssayPlate, required: true, immutable: true }
   plate_revision: { type: int, min: 1, computed: true }
@@ -15,6 +15,11 @@ fields:
   concentration_unit: { type: enum, values: [nM, uM, mM, M], computed: true }
   replicate: { type: int, computed: true, min: 1 }
   channel: { type: string, computed: true, max_length: 100 }
+  readout:
+    type: enum
+    computed: true
+    values: [absorbance, normalized_activity]
+    description: What the reading measures, which names the field that holds it.
   signal:
     type: quantity
     unit: "1"
@@ -29,4 +34,13 @@ fields:
     description: The signed percent activity reported by the source, including values outside the reference range.
   reader_file: { type: file, computed: true }
   source_row: { type: int, min: 1, computed: true }
+rules:
+  one_readout:
+    label: A reading is held in its readout's field
+    check: >-
+      record.readout == "absorbance" ? (record.signal != null && record.activity_percent == null) :
+      record.readout == "normalized_activity" ? (record.activity_percent != null && record.signal == null) :
+      record.signal == null && record.activity_percent == null
+    fields: [readout]
+    message: An absorbance reading is held as absorbance and a normalized activity as a percentage, never both.
 display: { title: "{{ well }} · {{ channel }}" }
