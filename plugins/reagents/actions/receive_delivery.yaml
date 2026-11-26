@@ -5,7 +5,7 @@ label: Receive delivery
 description: Receive a supplier delivery line as a lot at the selected storage location and update the order's outstanding pack count.
 inputs:
   order: { type: ReorderLine, schema: ">=1", include: [item] }
-  storage: { type: StockLocation, schema: ">=1" }
+  storage: { type: StockStore, schema: ">=1" }
 params:
   packs: { type: int, min: 1, max: 1000000000, required: true, label: Packs delivered }
   delivery_note: { type: string, required: true, max_length: 160, label: Supplier delivery note }
@@ -17,7 +17,7 @@ params:
     {
       type: string,
       max_length: 16,
-      description: The location's slot label. Leave empty for the first free slot.,
+      description: "The location's slot label. Leave it empty for the first free slot, or for a stock area.",
     }
   certificate:
     {

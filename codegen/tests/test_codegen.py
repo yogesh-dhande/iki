@@ -269,14 +269,14 @@ def test_a_plugins_writers_are_staged_for_the_image_to_build(tmp_path: Path) -> 
     lock = {"plugins": [{"name": name, "sha": "a" * 40}]}
     build([loaded.plugin], tmp_path, sources={name: example}, lock=lock)
     writers = tmp_path / "iki_installed_plugins" / "writers"
-    crate = "examples__liquid_handling/tecan-worklist"
+    crate = "acme__liquid_handling/tecan-worklist"
     assert (writers / "writers.txt").read_text() == f"{crate}\n"
     described = json.loads((writers / "writers.json").read_text())
-    entry = described["writers"]["examples/liquid_handling.tecan-worklist"]
+    entry = described["writers"]["acme/liquid_handling.tecan-worklist"]
     tracked = (example / "writers" / "tecan-worklist.wasm.sha256").read_text().split()[0]
     assert (entry["crate"], entry["sha256"]) == (crate, tracked)
     assert (writers / crate / "Cargo.lock").is_file()
     assert not (writers / crate / "target").exists()
     assert (writers / "sdk" / "iki-writer" / "build-writer.sh").is_file()
     locked = json.loads((tmp_path / "iki_installed_plugins" / "lock.json").read_text())
-    assert locked["plugins"][0]["writers"] == {"examples/liquid_handling.tecan-worklist": tracked}
+    assert locked["plugins"][0]["writers"] == {"acme/liquid_handling.tecan-worklist": tracked}

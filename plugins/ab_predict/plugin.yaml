@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: iki/ab_predict
+version: 0.1.0
+title: Antibody structure prediction
+description: Predict antibodies' variable-domain structures with ImmuneBuilder's ABodyBuilder2 and NanoBodyBuilder2, and how far each model's ensemble disagrees.
+license: Apache-2.0
+iki: ">=0.1"
+homepage: https://ikisci.org/plugins/ab_predict
+dependencies:
+  iki/antibody:
+    types:
+      Antibody: ">=2"
+  iki/protein:
+    types:
+      ProteinStructure: ">=2"

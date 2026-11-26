@@ -5,7 +5,7 @@ nanobody's (PDB 3K1K) with NanoBodyBuilder2, refining both with OpenMM.
 An image without the weights fails this (ImmuneBuilder would try to download them), as
 does one whose OpenMM or PDBFixer can't refine, or whose ANARCI can't number the chains.
 
-    docker run --rm --network none -v "$PWD/plugins/antibody/images/structure-tools:/check:ro" \
+    docker run --rm --network none -v "$PWD/plugins/ab_predict/images/structure-tools:/check:ro" \
         IMAGE python -I /check/check.py
 """
 

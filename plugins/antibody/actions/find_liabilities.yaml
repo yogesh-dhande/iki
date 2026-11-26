@@ -11,13 +11,26 @@ description: >-
   glutamate. Each is given with where it is, whether it falls in a CDR or in
   framework, and how severe published screens call it. The chain must have been
   numbered first (number_chains), since the motifs are read off its numbering;
-  one that hasn't been is left as it was, and the run says so.
+  one that hasn't been is left as it was, and the run says so. Each is a
+  potential site, predicted from sequence by the rule set chosen, which the
+  chain records with the numbering it read; measuring it is another record.
 inputs:
   protein: { type: iki/protein.Protein, schema: ">=2", label: Chain }
+params:
+  rule_set:
+    type: enum
+    values: [developability_v1]
+    default: developability_v1
+    description: >-
+      The rules and severities the screen applies. developability_v1 is the
+      plugin's first: the motifs and severities of the Liability Antibody
+      Profiler (Satława et al. 2024), with deamidation and isomerisation ranked
+      as Lu et al. (2019) measured them, and an N-terminal Q or E (Liu et al.
+      2011).
 effects:
   updates:
     - input: protein
-      fields: [liabilities, liability_counts, liability_count]
+      fields: [liability_screen, liabilities, liability_counts, liability_count]
 runs_on: { tier: backend, environment: antibody-tools }
 command: [python, ./scripts/liabilities.py]
 deterministic: true

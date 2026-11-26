@@ -21,8 +21,9 @@ slots:
     search:
       where: { field: use, op: eq, value: "{{ entity }}" }
       sort: measurement_at
+  # Any measured record's page, once a failed calibration's impact names it (ADR 0237).
   - slot: entity.tab
-    type: iki/requests.QCDeliverable
+    type: iki/core.Entity
     search:
       where: { field: result, op: eq, value: "{{ entity }}" }
       sort: measurement_at

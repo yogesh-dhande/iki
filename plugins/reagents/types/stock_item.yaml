@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: StockItem
 label: Stock item
-schema_version: 1
+schema_version: 2
 hrid: { prefix: SCI }
 description: A supplier catalogue pack of a reagent or consumable. Choose a new catalogue record when its unit or pack size changes.
 stock_catalogue:
@@ -47,9 +47,10 @@ fields:
   low_stock_at:
     type: float
     label: Low-stock threshold
-    required: true
     min: 0
-    description: Alert when the available stock in the project reaches or falls below this amount in stock units.
+    description: >-
+      Alert the project's stock managers when the available stock reaches or falls below this
+      amount in stock units. Leave it empty for an item the lab doesn't reorder by level.
 rules:
   positive_pack:
     check: record.pack_size > 0

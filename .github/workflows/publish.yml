@@ -100,8 +100,8 @@ jobs:
             file: plugins/antibody/images/numbering-tools/Dockerfile
             context: plugins/antibody
           - image: iki-antibody-structure-tools
-            file: plugins/antibody/images/structure-tools/Dockerfile
-            context: plugins/antibody
+            file: plugins/ab_predict/images/structure-tools/Dockerfile
+            context: plugins/ab_predict
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:

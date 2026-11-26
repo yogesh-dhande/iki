@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: MSResult
 label: Biologics MS result
-schema_version: 2
+schema_version: 3
 hrid: { prefix: BMS }
 description: A comparison of reported LC-MS observations with a pinned antibody or conjugate and its component sequences.
 fields:
@@ -12,9 +12,35 @@ fields:
   report: { type: file, max_size: 50MiB, computed: true, immutable: true }
   report_sha256: { type: string, max_length: 64, computed: true, immutable: true }
   analysis: { type: enum, values: [mass, peptide_map], computed: true, immutable: true }
+  report_format:
+    type: enum
+    label: Report profile
+    values: [iki_mass_table_1, iki_peptide_map_1]
+    computed: true
+    immutable: true
+    description: The versioned Iki interchange table the report follows, as the plugin README defines it.
+  source_reports:
+    type: list
+    label: Source exports
+    max_items: 8
+    items: { type: file }
+    description: >-
+      The processing software's own exports that the interchange table was made from, registered in
+      place. Attach them before review.
+  source_software:
+    type: string
+    label: Processing software
+    max_length: 200
+    description: The deconvolution or peptide-mapping software and version that made the source exports.
   comparison: { type: json, computed: true, immutable: true }
   input_revisions: { type: json, computed: true, immutable: true }
-  review_flow: { type: enum, values: [research, regulated_qc], computed: true, immutable: true }
+  review_flow:
+    type: enum
+    label: Review procedure
+    values: [research, regulated_qc, record_only]
+    computed: true
+    immutable: true
+    description: The deployment's procedure when the result was recorded. Record only has no sign-off.
   raw_files:
     type: list
     max_items: 20
@@ -35,6 +61,9 @@ fields:
         locks: true
         signatures: [{ meaning: review }]
         guards:
+          reviewed_procedure:
+            check: record.review_flow != "record_only"
+            message: This result was recorded under Record only, which has no sign-off.
           research:
             check: record.review_flow == "research" && state.from == "recorded"
             message: Sign off a recorded research result.
@@ -44,6 +73,9 @@ fields:
         locks: true
         signatures: [{ meaning: authorship }]
         guards:
+          reviewed_procedure:
+            check: record.review_flow != "record_only"
+            message: This result was recorded under Record only, which has no sign-off.
           qc:
             check: record.review_flow == "regulated_qc" && state.from == "recorded"
             message: Submit a recorded result in the regulated QC flow.
@@ -53,6 +85,9 @@ fields:
         locks: true
         signatures: [{ meaning: review }]
         guards:
+          reviewed_procedure:
+            check: record.review_flow != "record_only"
+            message: This result was recorded under Record only, which has no sign-off.
           submitted:
             check: record.review_flow == "regulated_qc" && state.from == "submitted"
             message: Review the analyst's signed submission.
@@ -67,6 +102,9 @@ fields:
         locks: true
         signatures: [{ meaning: approval, label: QA release }]
         guards:
+          reviewed_procedure:
+            check: record.review_flow != "record_only"
+            message: This result was recorded under Record only, which has no sign-off.
           reviewed:
             check: state.from == "reviewed" && last.review.reviewed.from == "submitted"
             message: Release a result after its independent review.
