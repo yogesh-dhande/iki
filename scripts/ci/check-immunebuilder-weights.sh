@@ -3,7 +3,7 @@
 set -euo pipefail
 cd -- "$(dirname -- "$0")/../.."
 image=ghcr.io/yogesh-dhande/iki-immunebuilder-weights
-dockerfile=plugins/antibody/images/structure-tools/Dockerfile
+dockerfile=plugins/ab_predict/images/structure-tools/Dockerfile
 pinned=$(awk -v prefix="--from=$image@" '
   $1 == "COPY" && index($2, prefix) == 1 { print substr($2, length(prefix) + 1) }
 ' "$dockerfile")

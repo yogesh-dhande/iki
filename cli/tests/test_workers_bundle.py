@@ -32,16 +32,20 @@ def _protein(tmp_path: Path, requirements: str) -> workers.WorkerPlugin:
 
 def test_iki_keeps_runtime_provenance_and_compiled_components(tmp_path: Path) -> None:
     products = Path(__file__).parents[2] / "plugins"
-    antibody = tmp_path / "antibody"
-    workers.stage_runtime("iki/antibody", products / "antibody", antibody)
+    predictor = tmp_path / "ab_predict"
+    workers.stage_runtime("iki/ab_predict", products / "ab_predict", predictor)
     weights = Path("images/structure-tools")
     for filename in ("WEIGHTS-NOTICE.txt", "SHA256SUMS"):
         weight_file = weights / filename
-        assert (antibody / weight_file).read_bytes() == (
-            products / "antibody" / weight_file
+        assert (predictor / weight_file).read_bytes() == (
+            products / "ab_predict" / weight_file
         ).read_bytes()
-    assert not (antibody / weights / "Dockerfile").exists()
-    assert not (antibody / weights / "prepare-weights.sh").exists()
+    assert not (predictor / weights / "Dockerfile").exists()
+    assert not (predictor / weights / "prepare-weights.sh").exists()
+    # The antibody plugin itself carries no model image or weights.
+    antibody = tmp_path / "antibody"
+    workers.stage_runtime("iki/antibody", products / "antibody", antibody)
+    assert not (antibody / weights).exists()
 
     oligo = tmp_path / "oligo"
     workers.stage_runtime("iki/oligo", products / "oligo", oligo)

@@ -86,7 +86,11 @@ def check_seed(atlas: Project) -> None:
     # that followed the fake hosted prediction. Several produce a shared core type, so
     # check their successful runs rather than count generic alignments and structures.
     expected_actions = {
+        # The antibody plugin's own methods, and the optional structure provider apart.
+        "iki/ab_predict.predict_structure_with_immunebuilder",
         "iki/antibody.assemble",
+        "iki/antibody.find_liabilities",
+        "iki/antibody.number_chains",
         "iki/conjugate.compute_composition",
         "iki/dna.align_reads",
         "iki/dna.compute_composition",
