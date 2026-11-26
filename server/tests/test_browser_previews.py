@@ -241,7 +241,9 @@ def test_a_file_still_being_scanned_is_shown_once_its_scan_finds_it_clean(
     expect(preview.get_by_text("Scanning…", exact=False)).to_be_visible()
     clean(page)
     assert links_issued(file) == 0
-    scan_state.record_result(file.blob, state="clean", scanner="ClamAV 1.4.3")
+    scan_state.record_result(
+        file.blob, state="clean", scanner="ClamAV 1.4.3", signature_version="27453"
+    )
     # The page asks again while the file is scanned, and reads it once it may.
     expect(preview.get_by_role("table", name="plate-07-inhibition.csv")).to_be_visible()
     assert links_issued(file) == 1

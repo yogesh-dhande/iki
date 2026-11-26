@@ -298,7 +298,7 @@ def test_a_sheet_cant_set_a_file_the_scan_holds(world: World) -> None:
     assert [e["pointer"] for e in body["errors"]] == ["#/rows/0/values/report"], body
     assert "quarantine" in " ".join(e["detail"] for e in body["errors"]).lower(), body
     assert Revision.objects.count() == revisions
-    assert "report" not in values_of(lot)
+    assert values_of(lot)["report"] is None
 
 
 def test_saving_writes_every_change_as_a_revision_with_its_reason(world: World) -> None:
