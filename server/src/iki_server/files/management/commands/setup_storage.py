@@ -1,9 +1,11 @@
 """``iki-server setup_storage``: checks the file bucket, and gives it the rules Iki needs.
 
 - **CORS:** browsers send upload parts straight to the bucket, and some pages
-  (the structure viewer) read files from it, from Iki's public URL (and the web
-  app's dev server, in development). The rule allows ``PUT`` and ``GET`` from
-  those origins only, with links Iki signed.
+  (the structure viewer, file previews) read files from it, from Iki's public URL
+  (and the web app's dev server, in development). The rule allows ``PUT`` and
+  ``GET`` from those origins only, with links Iki signed. A preview of a large file
+  reads it in ranges (ADR 0227), so the rule allows the ``Range`` header, and lets
+  pages read ``Content-Range``, which says which bytes came back.
 - **Lifecycle:** multipart uploads abandoned for 2 days are aborted, and
   staging objects older than 2 days are deleted, in case maintenance never ran.
 - **Versioning** is checked, not changed: turning it on is the bucket
@@ -43,8 +45,10 @@ def cors_rule() -> dict[str, Any]:
         "ID": CORS_ID,
         "AllowedOrigins": origins(),
         "AllowedMethods": ["GET", "PUT"],
-        # Iki lists the parts itself, so pages needn't read any response header.
-        "AllowedHeaders": ["content-type"],
+        # Iki lists upload parts itself. Previews read large files in ranges, and check
+        # the range that came back is the one asked for, of a file of the size Iki recorded.
+        "AllowedHeaders": ["content-type", "range"],
+        "ExposeHeaders": ["content-range"],
         "MaxAgeSeconds": 3600,
     }
 
@@ -144,7 +148,7 @@ class Command(BaseCommand):
         cors = [dict(rule) for rule in bucket.cors]
         if not any(_same(rule, gcs_cors_rule()) for rule in cors):
             missing.append("CORS for browsers' uploads and reads")
-            bucket.cors = [*cors, gcs_cors_rule()]
+            bucket.cors = [*(r for r in cors if not _iki_gcs_rule(r)), gcs_cors_rule()]
             changed = True
         rules = [dict(rule) for rule in bucket.lifecycle_rules]
         absent = [want for want in gcs_lifecycle_rules() if not any(_same(r, want) for r in rules)]
@@ -175,13 +179,22 @@ class Command(BaseCommand):
 
 
 def gcs_cors_rule() -> dict[str, Any]:
-    """The CORS rule, as Cloud Storage's JSON API writes it."""
+    """The CORS rule, as Cloud Storage's JSON API writes it. Its response headers are both
+    the request headers it allows and the response headers pages may read."""
     return {
         "origin": origins(),
         "method": ["GET", "PUT"],
-        "responseHeader": ["content-type"],
+        "responseHeader": ["content-type", "range", "content-range"],
         "maxAgeSeconds": 3600,
     }
+
+
+def _iki_gcs_rule(rule: dict[str, Any]) -> bool:
+    """A rule Iki wrote before, for its own origins: Cloud Storage's rules have no IDs, and
+    it applies the first that matches a request, so an older one would shadow the new."""
+    return sorted(rule.get("origin") or []) == sorted(origins()) and set(
+        rule.get("method") or []
+    ) <= {"GET", "PUT"}
 
 
 def gcs_lifecycle_rules() -> list[dict[str, Any]]:
