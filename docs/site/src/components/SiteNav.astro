@@ -1,0 +1,91 @@
+---
+// The site's one navigation, the same on every page: Use cases, Concepts, Guides and
+// Reference, as the top navigation names and orders them, with the page being read marked.
+// Each group is open while one of its pages is. On a phone it's behind the Menu button.
+import { apiTags } from "../lib/api.ts";
+import { sitePages } from "../lib/pages.ts";
+import { pluginHref, plugins } from "../lib/plugins.ts";
+import { currentIn, isGroup, siteNav, type NavLink } from "../lib/site.ts";
+import { spec } from "../lib/spec.ts";
+
+interface Props {
+  /** For a page the navigation doesn't list, such as an API call, the link it's under. */
+  under?: string | undefined;
+}
+const nav = siteNav(await sitePages(), {
+  api: apiTags().map((tag) => ({ label: tag.label, slug: tag.slug })),
+  spec: spec(),
+  plugins: plugins().map((plugin) => ({ title: plugin.title, href: pluginHref(plugin) })),
+});
+const current = currentIn(nav, Astro.url.pathname, Astro.props.under);
+const mark = (link: NavLink) =>
+  link.href === current ? (link.href === Astro.url.pathname ? "page" : "true") : undefined;
+---
+
+<nav id="site-nav" class="section-nav site-nav" aria-label="Documentation">
+  {nav.map((section) => (
+    <section>
+      <h2>
+        <a href={section.href} aria-current={mark({ label: section.section, href: section.href })}>
+          {section.section}
+        </a>
+      </h2>
+      <ul>
+        {section.entries.map((entry) =>
+          isGroup(entry) ? (
+            <li>
+              <details open={entry.links.some((link) => link.href === current)}>
+                <summary>{entry.label}</summary>
+                <ul>
+                  {entry.links.map((link) => (
+                    <li>
+                      <a href={link.href} aria-current={mark(link)}>
+                        {link.label}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </li>
+          ) : (
+            <li>
+              <a href={entry.href} aria-current={mark(entry)}>
+                {entry.label}
+              </a>
+            </li>
+          ),
+        )}
+      </ul>
+    </section>
+  ))}
+</nav>
+
+<style>
+  .site-nav h2 a {
+    padding: 4px 10px;
+    font-weight: 600;
+  }
+  .site-nav section ul ul {
+    margin: 2px 0 6px 10px;
+    padding-left: 6px;
+    border-left: 1px solid var(--border);
+  }
+  summary {
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  summary:hover {
+    background: var(--surface-2);
+  }
+  details[open] > summary {
+    color: var(--text);
+  }
+  .site-nav a[aria-current="true"] {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    font-weight: 600;
+  }
+</style>

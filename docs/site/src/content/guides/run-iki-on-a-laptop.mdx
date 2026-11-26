@@ -1,0 +1,162 @@
+---
+title: Run Iki on a laptop with kind
+description: Run the whole of Iki on one machine, in a kind cluster that Tilt builds and deploys with the production Helm chart, with sign-in, email, storage and example plugins.
+audience: run
+order: 10
+reference:
+  - { label: Lockfile, href: /reference/plugin-spec/plugin-lock/ }
+  - { label: Compute template, href: /reference/plugin-spec/compute-template/ }
+  - { label: Environment binding, href: /reference/plugin-spec/environment-binding/ }
+---
+
+Iki runs on Kubernetes everywhere, a laptop included. Locally that's a
+[kind](https://kind.sigs.k8s.io/) cluster driven by [Tilt](https://tilt.dev/), deployed with the
+same Helm chart as production, `deploy/helm/iki`, from a checkout of Iki's repository.
+
+## What it needs
+
+- Docker, with about 10 GB of memory available to it.
+- `kind`, `kubectl`, `helm` (v4) and `tilt`. On macOS:
+  `brew install kind kubernetes-cli helm tilt-dev/tap/tilt`.
+- `jq`, `curl` and [uv](https://docs.astral.sh/uv/) for the end-to-end checks.
+
+## Start, check and stop it
+
+From the repository's root:
+
+```console
+make dev-up          # start the product cluster and Tilt; its UI is at http://localhost:10350
+make dev-creds       # print the generated passwords and keys
+make dev-sso         # set up sign-in through Keycloak (bob becomes the admin)
+make dev-e2e         # seed and check the running product cluster
+make dev-product-ci  # headless product cluster, science seed and restore check
+make dev-ci          # headless fixture cluster, science and integration checks, then restore
+make dev-down        # delete the cluster
+```
+
+## Which cluster to run
+
+For ordinary development, `make dev-up` builds the product plugins in
+`deploy/dev/plugins.lock.yaml`. `make dev-e2e` fills it with the four worked cases and checks them:
+a [dose-response plate](/use-cases/dose-response-plate-assay/), a
+[verified plasmid prep](/use-cases/verify-a-plasmid-prep/), a
+[lot release certificate](/use-cases/release-a-lot-with-a-certificate-of-analysis/) and a
+[core facility request](/use-cases/core-facility-requests/).
+
+CI runs `make dev-product-ci` and `make dev-ci`, each on a fresh cluster of its own. `make dev-ci`
+adds the fixture overlay in `deploy/dev/fixtures/`: more plugin pins (`plugins.lock.yaml`),
+compute bindings (`compute.yaml`) and Helm values (`values.yaml`). Its server and worker builds
+both pass `--test-only`, since the overlay pins Iki's fixture and example plugins. It adds the
+execution fixture's container and storage checks (`deploy/dev/fixtures/plugins/worker_execution`),
+the LIMS import and write-back, and the hosted-model example (`examples/plugins/hosted_models`). The
+fake FoldCloud accepts a cancelled job and sends a signed callback for a completed one, and the
+seed checks the resumed run's structure, provenance and billed usage. Both clusters read the same source datasets. Each run backs up the seeded
+database, restores it, and checks the restored records and files.
+
+To work on those integrations interactively, run `IKI_DEV_FIXTURES=1 make dev-up`, then
+`IKI_DEV_FIXTURES=1 make dev-e2e`. Go back to the product profile on a fresh cluster:
+`make dev-down` deletes the current dev cluster and its data.
+
+## How Tilt builds it
+
+Tilt rebuilds the server image and redeploys whenever code under `server/` changes. It builds the
+image as a deployment does: the server image, then the plugins in `deploy/dev/plugins.lock.yaml`,
+built with `iki deploy build --allow-local` and added by `deploy/plugins.Dockerfile`. To try a
+plugin you're writing, add it to that lockfile with `local:`:
+
+```yaml
+plugins:
+  - { name: acme/assays, local: ../../../acme-assays, state: active }
+```
+
+`iki deploy build` checks the plugins' rules and guards with iki-wasm, which
+`deploy/dev/build-wasm.sh` builds beforehand, in Docker as the server image does, so the builds
+need no Rust on your machine.
+
+It builds the worker image the same way: Iki's worker image, then the same plugins with their
+environments built in (`iki deploy build --workers`, `deploy/worker.Dockerfile`). Once the web pod
+is up, `deploy/dev/worker-registration.sh` makes the workers' registration token with
+`iki-server create_registration_token` and stores it in the `iki-worker-registration` Secret.
+Delete that Secret to make a new one. `deploy/dev/compute.yaml` binds the plugins' environments to
+the worker pod, so their backend actions run there: see
+[Configure a deployment's plugins and compute](/guides/configure-plugins-and-compute/).
+
+## What runs
+
+| Component                        | Local URL                            | Notes                                                                                     |
+| -------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| Iki web (`iki-web`)              | `http://localhost:8000`              | The Helm chart with `values-dev.yaml`                                                     |
+| Task runner (`iki-tasks`)        | none                                 | `iki-server tasks`: sends email and does other background work                            |
+| Migrations (`iki-migrate`)       | none                                 | A Job; web pods are ready only once it has finished                                       |
+| Backend worker (`iki-worker`)    | none                                 | Runs backend actions; reaches the web Service over plain HTTP, which only dev allows      |
+| Postgres 18 (`iki-db`)           | none                                 | CloudNativePG, with TLS verified against its own CA                                       |
+| SeaweedFS (S3)                   | `http://localhost:8333`              | Bucket `iki`; signed requests only                                                        |
+| Keycloak                         | `http://keycloak.iki.localhost:8080` | Realm `iki` with `alice`, `bob` and `carol`, the OIDC client `iki-web` and a SAML client  |
+| Mailpit (email)                  | `http://localhost:8025`              | Catches every email Iki and Keycloak send; nothing leaves the cluster                     |
+| Webhook receiver                 | `http://localhost:8090/requests`     | Lists what Iki sent to `http://webhook-receiver.iki.svc:8080/…` webhooks                  |
+| Grafana, Tempo, Loki, Prometheus | `http://localhost:3300`              | `grafana/otel-lgtm`; Iki sends it OTLP traces and metrics. Its dashboard is Dashboards → Iki → Iki |
+| ClamAV (`iki-clamd`)             | none                                 | Scans files with the chart's pinned signatures and FreshClam's updates                    |
+
+The fixture cluster also runs a fake LIMS and a fake FoldCloud, which list the requests they
+received at `http://localhost:8091/requests` and `http://localhost:8092/requests`. The LIMS
+connector example (`examples/plugins/lims_connector`) imports from the fake LIMS
+(`deploy/dev/fixtures/fake-lims.yaml`) as it would from a lab's: over HTTPS, through the egress
+proxy, to the host its `lims_host` setting gives (`deploy/dev/fixtures/settings/lims_connector.yaml`).
+The fake LIMS's certificate comes from a dev CA that `deploy/dev/up.sh` makes. The backend worker
+trusts it, with the public CAs, through the chart's `backendWorkers.caSecret`, as a deployment
+would trust its internal CA. Its actions get `LIMS_TOKEN` from the
+`acme__lims_connector.LIMS_TOKEN` key of the `iki-run-secrets` Secret (`runSecrets`), and the fake
+LIMS mounts the same key to check it.
+
+The dna plugin's `ncbi_email` setting is set (`deploy/dev/settings/dna.yaml`), so the cluster can
+fetch sequences from NCBI, through the egress proxy. A deployment that leaves it unset doesn't
+offer the fetch.
+
+## Sign in
+
+A new cluster isn't set up yet. Either run `make dev-sso`, which goes through the setup wizard
+and Keycloak's sign-in page for you, or set it up by hand:
+
+1. Print the setup link:
+   `kubectl --context kind-iki -n iki exec deploy/iki-web -c web -- iki-server setup_link`
+2. Open it and follow the wizard. The issuer is `http://keycloak.iki.localhost:8080/realms/iki`,
+   the client ID `iki-web`, and the client secret is in `make dev-creds`.
+3. Sign in as `alice`, `bob` or `carol` with the dev user password from `make dev-creds`.
+
+Keycloak is at `keycloak.iki.localhost` so that your browser and Iki's pods use the same issuer
+URL. Browsers resolve every `*.localhost` name to your own machine, where Tilt forwards port 8080.
+Inside the cluster, `up.sh` adds a CoreDNS rewrite that points the name at the Keycloak Service.
+Chrome and Firefox resolve `*.localhost` on their own. If your browser doesn't, as some Safari
+versions don't, add `127.0.0.1 keycloak.iki.localhost` to `/etc/hosts`.
+
+## Work on the web app
+
+`make web-dev` serves the React app with instant reloads at `http://localhost:5173`, and passes
+pages, the API and sign-in through to the cluster. Sign in at `http://localhost:8000` before you
+open it.
+
+## A Slurm cluster in a container
+
+`deploy/dev/slurm/` is a whole Slurm cluster in one container: slurmctld, a slurmd node, slurmdbd
+with MariaDB, munge and Apptainer. `make check-slurm` builds it and a static Linux iki-worker, then
+runs `server/tests/test_slurm_e2e.py`, in which the worker serves the cluster from its login node
+against a server on your machine, as in
+[Run actions on a Slurm cluster](/guides/run-actions-on-slurm/). It doesn't need the kind cluster.
+The image is linux/amd64, because Apptainer ships no Arm packages, so on an Arm Mac it runs
+emulated, and more slowly. It runs privileged, for Apptainer's mounts. CI runs it on every change
+to code.
+
+## How it's secured
+
+The dev cluster is set up as production is:
+
+- The `iki` namespace enforces Pod Security **restricted**. Every pod runs as non-root, drops all
+  capabilities and uses the RuntimeDefault seccomp profile.
+- The chart's NetworkPolicies are enforced (kindnet), so Iki's pods reach only DNS, Postgres, the
+  OTLP collector and, for web pods, Keycloak. Workers and run pods reach only the server, object
+  storage and the egress proxy.
+- Every credential is random, made for each cluster by `up.sh`, and never written to the
+  repository.
+- Every image, and the CloudNativePG chart, is pinned by digest.
+
+Only Keycloak has a writable root file system, because its dev mode builds itself as it starts.

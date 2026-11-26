@@ -7,16 +7,35 @@
   "required": ["apiVersion", "kind", "run", "job", "command", "environment", "params", "inputs"],
   "additionalProperties": false,
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "RunInput" },
+    "apiVersion": {
+      "const": "iki/v1",
+      "description": "The spec version this document follows."
+    },
+    "kind": {
+      "const": "RunInput",
+      "description": "What this document is: `RunInput`."
+    },
     "run": {
       "type": "object",
+      "description": "The run: which, which attempt at it, its action and plugin, and the project it runs in.",
       "required": ["id", "hrid", "attempt", "action", "plugin", "project"],
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "format": "uuid" },
-        "hrid": { "type": "string", "pattern": "^RUN-[0-9]{6,}$" },
-        "attempt": { "type": "integer", "minimum": 1 },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The run's ID."
+        },
+        "hrid": {
+          "type": "string",
+          "pattern": "^RUN-[0-9]{6,}$",
+          "description": "Its human-readable ID, such as RUN-000123."
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Which attempt at the run this is: 1, then one more each time it's retried."
+        },
         "requested_by": {
           "type": "string",
           "format": "uuid",
@@ -34,18 +53,29 @@
         },
         "plugin": {
           "type": "object",
+          "description": "The plugin the action is from, at the version the run was launched with.",
           "required": ["name", "version", "sha"],
           "additionalProperties": false,
           "properties": {
-            "name": { "type": "string" },
-            "version": { "type": "string" },
+            "name": {
+              "type": "string",
+              "description": "Its qualified name, such as `iki/protein`."
+            },
+            "version": {
+              "type": "string",
+              "description": "Its version."
+            },
             "sha": {
               "type": ["string", "null"],
               "description": "The plugin's commit, when the deployment was built from a lockfile."
             }
           }
         },
-        "project": { "type": "string", "format": "uuid" },
+        "project": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The project it runs in, by ID."
+        },
         "trigger": {
           "type": "object",
           "description": "For a run a scheduled trigger launched (ADR 0080): which, the time it was for, and the time the last run of it that succeeded was for, to carry on from. An import fetches what changed since `since`; null on its first run.",
@@ -56,31 +86,50 @@
               "type": "string",
               "description": "The trigger's qualified name, such as `acme/lims.sync_samples`."
             },
-            "scheduled_for": { "type": "string", "format": "date-time" },
-            "since": { "type": ["string", "null"], "format": "date-time" }
+            "scheduled_for": {
+              "type": "string",
+              "format": "date-time",
+              "description": "The time this firing was for, in UTC."
+            },
+            "since": {
+              "type": ["string", "null"],
+              "format": "date-time",
+              "description": "The time the trigger's last successful run was for, in UTC. Null on its first run."
+            }
           }
         }
       }
     },
     "job": {
       "oneOf": [
-        { "$ref": "#/$defs/job" },
+        {
+          "$ref": "#/$defs/job"
+        },
         {
           "type": "object",
           "description": "The job metadata staged for a command.",
           "required": ["id", "timeout", "resources"],
           "additionalProperties": false,
           "properties": {
-            "id": { "$ref": "#/$defs/job/properties/id" },
-            "timeout": { "$ref": "#/$defs/job/properties/timeout" },
-            "resources": { "$ref": "#/$defs/job/properties/resources" }
+            "id": {
+              "$ref": "#/$defs/job/properties/id"
+            },
+            "timeout": {
+              "$ref": "#/$defs/job/properties/timeout"
+            },
+            "resources": {
+              "$ref": "#/$defs/job/properties/resources"
+            }
           }
         }
-      ]
+      ],
+      "description": "The job: the lease iki-worker holds and its limits, or, as staged for the command, only its ID, timeout and resources."
     },
     "command": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "minItems": 1,
       "description": "The action's command, run in its environment from the plugin's directory."
     },
@@ -101,7 +150,9 @@
       "description": "Every input, by name: a list of entities (one item for inputs that take one; none for an optional input left out).",
       "additionalProperties": {
         "type": "array",
-        "items": { "$ref": "#/$defs/entity" }
+        "items": {
+          "$ref": "#/$defs/entity"
+        }
       }
     },
     "resume": {
@@ -110,14 +161,31 @@
       "required": ["api", "job", "state", "status", "answer", "parked_at"],
       "additionalProperties": false,
       "properties": {
-        "api": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
-        "job": { "type": "string", "description": "The API's ID for the job." },
-        "state": { "type": "object", "description": "What the command gave under `park.state`." },
-        "status": { "type": "string", "description": "The job's state, as the API said it." },
+        "api": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,62}$",
+          "description": "The API's name in its plugin, as the command gave it under `park.api`."
+        },
+        "job": {
+          "type": "string",
+          "description": "The API's ID for the job."
+        },
+        "state": {
+          "type": "object",
+          "description": "What the command gave under `park.state`."
+        },
+        "status": {
+          "type": "string",
+          "description": "The job's state, as the API said it."
+        },
         "answer": {
           "description": "The last poll's answer: its JSON, or null when it wasn't JSON or was over 1 MiB."
         },
-        "parked_at": { "type": "string", "format": "date-time" }
+        "parked_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the run parked, in UTC."
+        }
       }
     },
     "volumes": {
@@ -128,10 +196,25 @@
         "required": ["build", "hrid", "version", "data_version"],
         "additionalProperties": false,
         "properties": {
-          "build": { "type": "string", "format": "uuid" },
-          "hrid": { "type": "string", "pattern": "^SETUP-[0-9]{6,}$" },
-          "version": { "type": "integer", "minimum": 1 },
-          "data_version": { "type": "string" }
+          "build": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The setup build that made the version, by ID."
+          },
+          "hrid": {
+            "type": "string",
+            "pattern": "^SETUP-[0-9]{6,}$",
+            "description": "That build's human-readable ID, such as SETUP-000012."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The version of the environment's volumes that build made."
+          },
+          "data_version": {
+            "type": "string",
+            "description": "What its setup said the data is, such as `PDB 2026-10-01`. Empty when it said nothing."
+          }
         }
       }
     },
@@ -144,27 +227,41 @@
         "required": ["run", "hrid", "entity"],
         "additionalProperties": false,
         "properties": {
-          "run": { "type": "string", "format": "uuid" },
-          "hrid": { "type": "string", "description": "Such as RUN-000123." },
-          "entity": { "type": "string", "format": "uuid" }
+          "run": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The run's ID."
+          },
+          "hrid": {
+            "type": "string",
+            "description": "Such as RUN-000123."
+          },
+          "entity": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The entity its input holds, by ID."
+          }
         }
       }
     },
     "files": {
       "type": "object",
       "description": "Every file the inputs' values and the file params hold, by ID. iki-worker downloads each before the command starts, checks its size and SHA-256, and adds where it put it.",
-      "additionalProperties": { "$ref": "#/$defs/file" }
+      "additionalProperties": {
+        "$ref": "#/$defs/file"
+      }
     }
   },
   "$defs": {
     "project": {
+      "description": "A project, as the other side's people see it.",
       "type": "object",
       "required": ["id", "slug", "name"],
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "format": "uuid" },
-        "slug": { "type": "string" },
-        "name": { "type": "string" }
+        "id": { "description": "Its ID.", "type": "string", "format": "uuid" },
+        "slug": { "description": "Its slug, which never changes.", "type": "string" },
+        "name": { "description": "Its name.", "type": "string" }
       }
     },
     "job": {
@@ -180,10 +277,26 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "format": "uuid" },
-        "lease_token": { "type": "string", "format": "uuid" },
-        "lease_expires_at": { "type": "string", "format": "date-time" },
-        "heartbeat_every": { "type": "integer", "minimum": 1, "description": "Seconds." },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The job's ID: this attempt at the run, as the worker API names it."
+        },
+        "lease_token": {
+          "type": "string",
+          "format": "uuid",
+          "description": "What the worker gives with every report on the job, to show it holds the lease. Each lease has a new one."
+        },
+        "lease_expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the lease ends unless the worker renews it, in UTC."
+        },
+        "heartbeat_every": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Seconds."
+        },
         "timeout": {
           "type": "integer",
           "minimum": 1,
@@ -194,11 +307,26 @@
           "description": "What the job needs. Memory and disk are in bytes.",
           "additionalProperties": false,
           "properties": {
-            "cpu": { "type": ["number", "null"] },
-            "memory": { "type": ["integer", "null"] },
-            "gpu_count": { "type": ["integer", "null"] },
-            "gpu_memory": { "type": ["integer", "null"] },
-            "scratch_disk": { "type": ["integer", "null"] }
+            "cpu": {
+              "type": ["number", "null"],
+              "description": "CPU cores, such as 0.5. Null for no minimum."
+            },
+            "memory": {
+              "type": ["integer", "null"],
+              "description": "Memory. Null for no minimum."
+            },
+            "gpu_count": {
+              "type": ["integer", "null"],
+              "description": "GPUs. Null for none."
+            },
+            "gpu_memory": {
+              "type": ["integer", "null"],
+              "description": "Memory on each GPU, in bytes. Null for no minimum."
+            },
+            "scratch_disk": {
+              "type": ["integer", "null"],
+              "description": "Scratch disk. Null for no minimum."
+            }
           }
         },
         "proxy": {
@@ -212,9 +340,14 @@
           "additionalProperties": false,
           "description": "For an action that calls outside APIs (ADR 0130): the certificate authority made for this attempt alone, which the worker adds to the command's trusted roots so it trusts the egress proxy for those hosts, and each API's address. The proxy adds the API's key to each call; the command never gets it.",
           "properties": {
-            "ca": { "type": "string", "pattern": "^-----BEGIN CERTIFICATE-----" },
+            "ca": {
+              "type": "string",
+              "pattern": "^-----BEGIN CERTIFICATE-----",
+              "description": "The certificate authority's certificate, in PEM."
+            },
             "calls": {
               "type": "array",
+              "description": "Each outside API the action calls: its name, address and callback.",
               "items": {
                 "type": "object",
                 "required": ["name", "url"],
@@ -225,7 +358,11 @@
                     "pattern": "^[a-z][a-z0-9_]{0,62}$",
                     "description": "The API's name in its plugin: the command gets its address as IKI_API_<NAME>_URL."
                   },
-                  "url": { "type": "string", "pattern": "^https://" },
+                  "url": {
+                    "type": "string",
+                    "pattern": "^https://",
+                    "description": "Its address: `https://` and the host its plugin declares. The command gets it as IKI_API_<NAME>_URL."
+                  },
                   "callback": {
                     "type": "string",
                     "pattern": "^https?://",
@@ -239,8 +376,12 @@
         "secrets": {
           "type": "object",
           "description": "The secrets the action declares that the deployment has set, by name. The worker gives them to the command as environment variables, leaves them out of input.json, and masks them in the log.",
-          "additionalProperties": { "type": "string" },
-          "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]{0,62}$" }
+          "additionalProperties": {
+            "type": "string"
+          },
+          "propertyNames": {
+            "pattern": "^[A-Z][A-Z0-9_]{0,62}$"
+          }
         },
         "slurm": {
           "type": "object",
@@ -248,15 +389,30 @@
           "additionalProperties": false,
           "required": ["cluster", "template", "partition", "account", "cpus", "walltime", "image"],
           "properties": {
-            "cluster": { "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$" },
-            "template": { "type": "string", "description": "The compute template that placed it." },
-            "partition": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$" },
+            "cluster": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+              "description": "The cluster, as the deployment's Slurm templates name it."
+            },
+            "template": {
+              "type": "string",
+              "description": "The compute template that placed it."
+            },
+            "partition": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+              "description": "The partition to submit it to (`--partition`)."
+            },
             "account": {
               "type": "string",
               "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
               "description": "The Slurm account it's charged to."
             },
-            "qos": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$" },
+            "qos": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+              "description": "The quality of service to ask for (`--qos`)."
+            },
             "constraint": {
               "type": "string",
               "maxLength": 200,
@@ -267,11 +423,31 @@
               "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
               "description": "The GPU type to ask for (`--gpus=type:n`)."
             },
-            "cpus": { "type": "integer", "minimum": 1, "description": "`--cpus-per-task`." },
-            "memory": { "type": "integer", "minimum": 1, "description": "Bytes: `--mem`." },
-            "gpus": { "type": "integer", "minimum": 0 },
-            "scratch_disk": { "type": "integer", "minimum": 1, "description": "Bytes: `--tmp`." },
-            "walltime": { "type": "integer", "minimum": 1, "description": "Seconds: `--time`." },
+            "cpus": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "`--cpus-per-task`."
+            },
+            "memory": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Bytes: `--mem`."
+            },
+            "gpus": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "How many GPUs to ask for (`--gpus`)."
+            },
+            "scratch_disk": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Bytes: `--tmp`."
+            },
+            "walltime": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Seconds: `--time`."
+            },
             "image": {
               "type": "string",
               "pattern": "@sha256:[0-9a-f]{64}$",
@@ -284,24 +460,52 @@
               "properties": {
                 "iki": {
                   "type": "object",
+                  "description": "Iki's release workflow, which signs Iki's own images.",
                   "additionalProperties": false,
                   "required": ["issuer"],
                   "properties": {
-                    "issuer": { "type": "string", "pattern": "^https://" },
-                    "subject": { "type": "string" },
-                    "subject_regexp": { "type": "string" },
-                    "repository": { "type": "string" }
+                    "issuer": {
+                      "type": "string",
+                      "pattern": "^https://",
+                      "description": "The OIDC issuer of the signing certificate (`--certificate-oidc-issuer`), such as `https://token.actions.githubusercontent.com`."
+                    },
+                    "subject": {
+                      "type": "string",
+                      "description": "The signer's identity in the certificate, exactly (`--certificate-identity`). Used over `subject_regexp` when both are given."
+                    },
+                    "subject_regexp": {
+                      "type": "string",
+                      "description": "A regular expression the signer's identity must match (`--certificate-identity-regexp`), when there's no `subject`."
+                    },
+                    "repository": {
+                      "type": "string",
+                      "description": "Where the signatures are kept, when not beside the image (`COSIGN_REPOSITORY`)."
+                    }
                   }
                 },
                 "approvals": {
                   "type": "object",
+                  "description": "The deployment's own build, which signs the images it approved.",
                   "additionalProperties": false,
                   "required": ["issuer"],
                   "properties": {
-                    "issuer": { "type": "string", "pattern": "^https://" },
-                    "subject": { "type": "string" },
-                    "subject_regexp": { "type": "string" },
-                    "repository": { "type": "string" }
+                    "issuer": {
+                      "type": "string",
+                      "pattern": "^https://",
+                      "description": "The OIDC issuer of the signing certificate (`--certificate-oidc-issuer`), such as `https://token.actions.githubusercontent.com`."
+                    },
+                    "subject": {
+                      "type": "string",
+                      "description": "The signer's identity in the certificate, exactly (`--certificate-identity`). Used over `subject_regexp` when both are given."
+                    },
+                    "subject_regexp": {
+                      "type": "string",
+                      "description": "A regular expression the signer's identity must match (`--certificate-identity-regexp`), when there's no `subject`."
+                    },
+                    "repository": {
+                      "type": "string",
+                      "description": "Where the signatures are kept, when not beside the image (`COSIGN_REPOSITORY`)."
+                    }
                   }
                 }
               }
@@ -310,7 +514,9 @@
         },
         "artifacts": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "minItems": 1,
           "description": "For an action that keeps artifacts: its `artifacts.keep` patterns. Once the command ends, the worker uploads each file in the output directory one matches, as an artifact."
         },
@@ -327,27 +533,47 @@
             },
             "save_on": {
               "type": "array",
-              "items": { "enum": ["failed", "timed_out", "interrupted"] },
+              "items": {
+                "enum": ["failed", "timed_out", "interrupted"]
+              },
               "description": "How the attempt may end that the run is retried for: when it ends so, the worker saves the directory once more, if it changed."
             },
             "saved": {
               "description": "The checkpoint an earlier attempt saved, to restore into the directory before the command starts. Null if there's none.",
               "oneOf": [
-                { "type": "null" },
+                {
+                  "type": "null"
+                },
                 {
                   "type": "object",
                   "additionalProperties": false,
                   "required": ["id", "attempt", "saved_at", "size", "sha256"],
                   "properties": {
-                    "id": { "type": "string", "format": "uuid" },
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "description": "The checkpoint's ID, for the worker to download it by."
+                    },
                     "attempt": {
                       "type": "integer",
                       "minimum": 1,
                       "description": "The attempt that saved it."
                     },
-                    "saved_at": { "type": "string", "format": "date-time" },
-                    "size": { "type": "integer", "minimum": 0, "description": "Bytes." },
-                    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+                    "saved_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "When it was saved, in UTC."
+                    },
+                    "size": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Bytes."
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$",
+                      "description": "Its SHA-256, in hex."
+                    }
                   }
                 }
               ]
@@ -361,10 +587,24 @@
       "required": ["name", "media_type", "size", "sha256"],
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string", "description": "Its file name, such as model_1.pdb." },
-        "media_type": { "type": "string" },
-        "size": { "type": "integer", "minimum": 0, "description": "Bytes." },
-        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "name": {
+          "type": "string",
+          "description": "Its file name, such as model_1.pdb."
+        },
+        "media_type": {
+          "type": "string",
+          "description": "Its media type, such as `text/plain`."
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bytes."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Its SHA-256, in hex."
+        },
         "path": {
           "type": "string",
           "description": "Where iki-worker put it, for the command to read. The server leaves it out."
@@ -376,8 +616,15 @@
       "required": ["id", "hrid", "type", "schema_version", "revision", "values"],
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "format": "uuid" },
-        "hrid": { "type": "string" },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Its ID."
+        },
+        "hrid": {
+          "type": "string",
+          "description": "Its human-readable ID, such as PRT-000123."
+        },
         "material_field": {
           "type": "string",
           "description": "The type’s declared or inherited amount.material. For id, read this record’s top-level id. For a reference field, read that field from values."
@@ -396,7 +643,11 @@
           "type": "string",
           "description": "The qualified type, such as `iki/protein.Protein`."
         },
-        "schema_version": { "type": "integer", "minimum": 1 },
+        "schema_version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The version of its type's schema that its values follow."
+        },
         "revision": {
           "type": "integer",
           "minimum": 1,
@@ -412,20 +663,34 @@
           "required": ["asking_project", "service"],
           "additionalProperties": false,
           "properties": {
-            "asking_project": { "$ref": "#/$defs/project" },
-            "service": { "oneOf": [{ "$ref": "#/$defs/project" }, { "type": "null" }] }
+            "asking_project": {
+              "description": "The project that asked, which owns the request.",
+              "$ref": "#/$defs/project"
+            },
+            "service": {
+              "description": "The service it was sent to, or null until it's sent.",
+              "oneOf": [{ "$ref": "#/$defs/project" }, { "type": "null" }]
+            }
           }
         },
         "covered_materials": {
           "description": "Direct input records covered by this included service request at launch.",
           "type": "array",
           "uniqueItems": true,
-          "items": { "type": "string", "format": "uuid" }
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
         },
         "included": {
           "type": "object",
           "description": "The entities its references name, when the action's input includes them: for each reference, a list (one entity for a reference, a list's in order, none when it's empty), at the revisions the run was launched on.",
-          "additionalProperties": { "type": "array", "items": { "$ref": "#/$defs/entity" } }
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/entity"
+            }
+          }
         }
       }
     }

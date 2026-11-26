@@ -1,0 +1,302 @@
+---
+// A use case's user journey: each step one person takes, in order, in the lane of the side
+// they're on (the people asking, or the people doing the work), with the records the step
+// makes or changes as one-line chips. Two lanes side by side on a wide screen; one column,
+// each step naming its lane, on a narrow one. An ordered list, so it reads in order without
+// the layout.
+
+export interface JourneyRecord {
+  /** Its ID, such as REQ-000031, or a range: "TUB-000412 to TUB-000417". */
+  id: string;
+  /** Its type's label, or what it is: "Plain request", "6 tubes". */
+  type: string;
+  /** Where it is now, such as a state: "Accepted". */
+  state?: string;
+  /** Seen only by the side that does the work. */
+  private?: boolean;
+}
+
+export interface JourneyStep {
+  lane: "asking" | "service";
+  /** Who takes the step: a role, and a person. */
+  who: string;
+  /** What they do, as a short phrase: "Accepts it". */
+  title: string;
+  /** How, in a sentence or two. Markdown-free text; `code` isn't rendered. */
+  text: string;
+  records?: JourneyRecord[];
+}
+
+interface Props {
+  /** What the journey is, for its caption: "Clones 3 to 8 insert check, from ask to results". */
+  caption: string;
+  lanes: { asking: string; service: string };
+  steps: JourneyStep[];
+  /** A note under it, such as what the asking side can do at any time. */
+  note?: string;
+}
+
+const { caption, lanes, steps, note } = Astro.props;
+const hasPrivate = steps.some((step) => step.records?.some((record) => record.private));
+---
+
+<figure class="journey">
+  <figcaption>{caption}</figcaption>
+  <div class="lanes" aria-hidden="true">
+    <span class="lane-head asking">{lanes.asking}</span>
+    <span class="lane-head service">{lanes.service}</span>
+  </div>
+  <ol>
+    {steps.map((step, index) => (
+      <li class:list={["step", step.lane]}>
+        <span class="n" aria-hidden="true">
+          {index + 1}
+        </span>
+        <div class="body">
+          <p class="who">
+            <span class="lane-name">
+              {step.lane === "asking" ? lanes.asking : lanes.service}
+              <span class="sr-only">:</span>
+            </span>{" "}
+            {step.who}
+          </p>
+          <p class="title">{step.title}</p>
+          <p class="text">{step.text}</p>
+          {step.records && step.records.length > 0 && (
+            <ul class="records" aria-label="Records">
+              {step.records.map((record) => (
+                <li class:list={["chip", { private: record.private }]}>
+                  <code>{record.id}</code>
+                  <span class="sep" aria-hidden="true">
+                    ·
+                  </span>
+                  <span class="sr-only">, </span>
+                  {record.type}
+                  {record.state && (
+                    <>
+                      <span class="sep" aria-hidden="true">
+                        ·
+                      </span>
+                      <span class="sr-only">, </span>
+                      <strong>{record.state}</strong>
+                    </>
+                  )}
+                  {record.private && <span class="only">core only</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </li>
+    ))}
+  </ol>
+  {(hasPrivate || note) && (
+    <div class="foot">
+      {hasPrivate && (
+        <p>
+          <span class="chip private key" aria-hidden="true">
+            <span class="only">core only</span>
+          </span>{" "}
+          A record only the core's project sees. The requesting project never reads it.
+        </p>
+      )}
+      {note && <p>{note}</p>}
+    </div>
+  )}
+</figure>
+
+<style>
+  .journey {
+    margin: 28px 0;
+    padding: 0;
+  }
+  figcaption {
+    margin: 0 0 12px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .lanes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 24px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .lane-head {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 24px;
+    position: relative;
+  }
+  /* The line between the lanes. */
+  ol::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    border-left: 1px dashed var(--border-strong);
+  }
+  .step {
+    display: flex;
+    gap: 10px;
+    margin: 0;
+    padding: 12px 0;
+    min-width: 0;
+  }
+  .step.asking {
+    grid-column: 1;
+  }
+  .step.service {
+    grid-column: 2;
+  }
+  .n {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 13px;
+    font-weight: 700;
+    border: 1.5px solid var(--border-strong);
+    color: var(--text);
+    background: var(--surface);
+  }
+  .service .n {
+    border-color: var(--aud);
+    background: var(--aud-soft);
+  }
+  .body {
+    min-width: 0;
+    flex: 1;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+  .body p {
+    margin: 0;
+  }
+  .who {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  /* Said, not shown, beside the lanes' headings; shown once the lanes stack. */
+  .lane-name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    font-weight: 700;
+  }
+  .title {
+    margin-top: 2px !important;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  .text {
+    margin-top: 4px !important;
+    font-size: 14.5px;
+    line-height: 1.5;
+  }
+  .records {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .chip {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 5px;
+    max-width: 100%;
+    padding: 2px 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--surface-2);
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+  .chip code {
+    font-size: 12.5px;
+    background: none;
+    padding: 0;
+  }
+  .chip strong {
+    font-weight: 600;
+  }
+  .sep {
+    color: var(--muted);
+  }
+  .chip.private {
+    border-style: dashed;
+    background: transparent;
+  }
+  .only {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .chip.key {
+    vertical-align: baseline;
+  }
+  .foot {
+    margin-top: 6px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .foot p {
+    margin: 4px 0 0;
+  }
+
+  /* One column: each step says whose it is. */
+  @media (max-width: 720px) {
+    .lanes {
+      display: none;
+    }
+    ol {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    ol::before {
+      left: 13px;
+    }
+    .step.asking,
+    .step.service {
+      grid-column: 1;
+    }
+    .lane-name {
+      position: static;
+      width: auto;
+      height: auto;
+      overflow: visible;
+      clip: auto;
+      white-space: normal;
+    }
+    .service .body {
+      border-left: 3px solid var(--aud);
+    }
+  }
+</style>

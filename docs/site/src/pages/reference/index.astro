@@ -1,0 +1,69 @@
+---
+// Reference: what's generated from the source, and what's still in the repository.
+import ItemLink from "../../components/ItemLink.astro";
+import Doc from "../../layouts/Doc.astro";
+import { api } from "../../lib/api.ts";
+import { REFERENCES } from "../../lib/site.ts";
+
+const { all, doc } = api();
+---
+
+<Doc
+  title="Reference"
+  description="Iki's REST API, plugin spec, CLI and Python SDK."
+  section="Reference"
+  audience="build"
+>
+  <h1 class="doc-title">Reference</h1>
+  <p class="lede-text">
+    Every REST call and schema, the plugin spec, the CLI and the SDK, as the current release has
+    them.
+  </p>
+  <ul class="refs">
+    <li>
+      <a href="/reference/api/">REST API</a>
+      <span>
+        {all.length} calls and {Object.keys(doc.components.schemas).length} schemas
+      </span>
+    </li>
+    {REFERENCES.filter((item) => item.href !== "/reference/api/").map((item) => (
+      <li>
+        <ItemLink item={item} />
+        {item.note && <span>{item.note}</span>}
+      </li>
+    ))}
+  </ul>
+</Doc>
+
+<style>
+  .lede-text {
+    margin: 14px 0 28px;
+    max-width: 680px;
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+  .refs {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--border);
+  }
+  .refs li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    align-items: baseline;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 16px;
+  }
+  .refs li > :first-child {
+    font-weight: 600;
+    min-width: 200px;
+  }
+  .refs span:not(.sr-only) {
+    font-size: 14px;
+    color: var(--muted);
+  }
+</style>

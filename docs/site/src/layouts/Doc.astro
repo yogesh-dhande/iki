@@ -1,0 +1,120 @@
+---
+// Every page but the home page: up to three columns, which stack on a phone: the site's
+// navigation, the page, and what's related to it. On a phone the navigation is behind the
+// Menu button, or after the page without scripts.
+import SiteNav from "../components/SiteNav.astro";
+import type { Audience, Section } from "../lib/site.ts";
+import Base from "./Base.astro";
+
+interface Props {
+  title: string;
+  description: string;
+  section: Section;
+  /** Whose page it is: its colour. A page for everyone has none. */
+  audience?: Audience | undefined;
+  /** The main column's widest, in px: 780 for concepts, 900 for use cases. */
+  measure?: number;
+  /** For a page the navigation doesn't list, such as an API call, the link it's under. */
+  navUnder?: string | undefined;
+}
+const { title, description, section, audience, measure = 780, navUnder } = Astro.props;
+---
+
+<Base title={title} description={description} section={section} audience={audience}>
+  <div class="wrap wrap--doc menu-bar needs-script">
+    <button type="button" class="menu-button" aria-expanded="false" aria-controls="site-nav">
+      Menu
+    </button>
+  </div>
+  <div class="wrap wrap--doc columns">
+    <SiteNav under={navUnder} />
+    <main
+      id="content"
+      class:list={["main", measure === 900 ? "measure-wide" : "measure"]}
+      data-pagefind-body
+    >
+      <slot />
+    </main>
+    <slot name="aside" />
+  </div>
+</Base>
+
+<style>
+  .columns {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 40px;
+    padding-top: 40px;
+    padding-bottom: 80px;
+  }
+  .main {
+    flex: 999 1 560px;
+    min-width: 0;
+  }
+  .measure {
+    max-width: 780px;
+  }
+  .measure-wide {
+    flex-basis: 640px;
+    max-width: 900px;
+  }
+  .columns > :global(nav),
+  .columns > :global(aside) {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+  .columns > :global(nav) {
+    max-width: 260px;
+  }
+  .columns > :global(aside) {
+    max-width: 300px;
+  }
+  .menu-bar {
+    display: none;
+  }
+  .menu-button {
+    padding: 8px 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .menu-button[aria-expanded="true"] {
+    background: var(--surface-2);
+  }
+  /* On a phone the page comes first, then what's related. The navigation opens above the page
+     from the Menu button, and without scripts it follows the page. */
+  @media (max-width: 1000px) {
+    :root[data-scripted] .menu-bar {
+      display: block;
+      padding-top: 16px;
+    }
+    .columns {
+      padding-top: 24px;
+    }
+    .columns > :global(nav) {
+      order: 3;
+      max-width: none;
+    }
+    :root[data-scripted] .columns > :global(nav) {
+      display: none;
+      order: -1;
+    }
+    :root[data-scripted] .columns > :global(nav.is-open) {
+      display: block;
+    }
+    .columns > :global(aside) {
+      max-width: none;
+    }
+  }
+</style>
+
+<script>
+  import { startMenu } from "../scripts/menu.ts";
+
+  startMenu(document);
+</script>

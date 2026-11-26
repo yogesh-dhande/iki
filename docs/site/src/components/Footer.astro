@@ -1,0 +1,82 @@
+---
+import { FOOTER } from "../lib/site.ts";
+import ItemLink from "./ItemLink.astro";
+---
+
+<footer class="site-footer">
+  <div class="wrap wrap--wide row">
+    <span>Iki is Apache-2.0.</span>
+    {FOOTER.map((item) => (
+      <ItemLink item={item} />
+    ))}
+    <div class="theme needs-script" role="group" aria-label="Colour theme" data-theme-switch>
+      <span class="theme-label" aria-hidden="true">
+        Theme
+      </span>
+      <button type="button" data-choice="system" aria-pressed="true">
+        System
+      </button>
+      <button type="button" data-choice="light" aria-pressed="false">
+        Light
+      </button>
+      <button type="button" data-choice="dark" aria-pressed="false">
+        Dark
+      </button>
+    </div>
+  </div>
+</footer>
+
+<script>
+  import { startThemeSwitch } from "../scripts/theme.ts";
+
+  startThemeSwitch(document);
+</script>
+
+<style>
+  .site-footer {
+    margin-top: auto;
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 32px;
+    padding-top: 28px;
+    padding-bottom: 28px;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .theme {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .theme-label {
+    margin-right: 6px;
+  }
+  .theme button {
+    min-height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .theme button[aria-pressed="true"] {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    font-weight: 600;
+  }
+  @media (max-width: 720px) {
+    .theme {
+      margin-left: 0;
+    }
+  }
+</style>

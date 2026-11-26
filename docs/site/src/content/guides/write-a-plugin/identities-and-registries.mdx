@@ -1,0 +1,156 @@
+---
+title: Register records by their identity
+description: Give a type an identity so each thing it records is registered once, decide which fields are the registry entry's and which each project's, and how an identity reads its values.
+audience: build
+order: 30
+reference:
+  - { label: "Entity type: identity", href: /reference/plugin-spec/entity-type/#identity }
+  - { label: "Field: registry", href: /reference/plugin-spec/field/#registry }
+---
+
+A type with an [`identity`](/reference/plugin-spec/entity-type/#identity) is registered: each thing
+it records, such as one organism or one molecule, is one registry entry, however many projects
+keep a record of it. [Registries and project records](/concepts/registries-and-project-records/)
+explains what that means for the people using it. The core plugin's organism is a taxon by its
+NCBI Taxonomy ID:
+
+```yaml
+apiVersion: iki/v1
+kind: EntityType
+name: Organism
+schema_version: 2
+hrid: { prefix: TAX }
+identity: [taxon_id]
+fields:
+  taxon_id:
+    { type: int, label: NCBI Taxonomy ID, required: true, immutable: true, min: 1, indexed: true }
+  scientific_name: { type: string, registry: fact, max_length: 255, indexed: true }
+  rank: { type: string, registry: fact, max_length: 64 }
+  parent: { type: ref, to: Organism, registry: fact }
+display:
+  title: "{{ scientific_name or hrid }}"
+```
+
+## Entries and records
+
+Each identity is one **registry entry**: its identity fields, the fields marked `registry`, and its
+citable ID, such as `TAX-000017`. The entry belongs to no project. Each project that has it keeps
+its own **record** of the entry, with the type's other fields, which it revises and archives on its
+own, and the record shares the entry's ID.
+
+- Creating a record whose identity is registered already gives the project a record of that
+  entry. The creator is told only that it exists and its ID: never who registered it, when, or
+  which projects have it. A project has one record of each entry.
+- The registry is the deployment's boundary of identity. Every project is in one, and an
+  organization that keeps some programs apart, such as a contract lab's clients, has more than one.
+- A reference to a type with an identity holds its entry, and a project refers only to entries it
+  has a record of.
+- A type without an identity has no entries: its records are its project's alone.
+
+## Identity fields
+
+The identity names the fields that make two records the same thing:
+
+- Each identity field is [`immutable`](/reference/plugin-spec/field/#immutable)
+  (`identity-not-fixed`), and at least one is [`required`](/reference/plugin-spec/field/#required)
+  (`identity-not-required`).
+- Identities compare values exactly, so an identity field is a string, text, an enum, an int, a
+  bool, a date, a datetime, a reference or a file, or a list of those other than files, or of rows
+  whose identity fields are. Never a float, a quantity, JSON, a person or a state
+  (`identity-type`). Identity fields can't be removed (`identity-removed`), and aren't marked
+  `registry`, since they're the entry's already (`registry-on-identity`).
+- An identity names the type's own fields (`identity-inherited`). Subtypes share the identity of
+  the type that declares it, and its entries, and don't declare one of their own
+  (`identity-redeclared`). A type with an identity can't extend a concrete type without one
+  (`identity-under-concrete`).
+
+## Fields of the entry
+
+A field marked [`registry`](/reference/plugin-spec/field/#registry) is the entry's, the same for
+every project:
+
+- **`registry: derived`** comes from the identity alone, such as a formula or a molecular weight,
+  and is usually [`computed`](/reference/plugin-spec/field/#computed). It's set once, by whoever
+  registers the entity or the action that computes it, and then never changes: registering the
+  identity again with another value keeps the entry's. Compute it from a trigger on
+  `entity.registered`, so the entry keeps it for every project: see
+  [Run actions when records change](/guides/write-a-plugin/triggers/).
+- **`registry: fact`** is curated, such as a registered name or a classification: an enum, a
+  number, a date, a reference to another entry, or a string or list of strings with a `pattern`,
+  never free text (`registry-fact-free-text`). Whoever registers the entry may set it while it's
+  empty; after that only the registry's registrars change it, with a reason, audited, and every
+  project with a record of it is told.
+- **A fixed fact** is `registry: fact` with `immutable: true`: given once, then changed by no one,
+  not even a registrar, and it may be `required`. It's for what other entries are registered
+  against, such as a building block's structure: a wrong one is superseded by a new entry.
+
+Only the type that declares the identity, its subtypes or an extension of them has registry fields
+(`registry-without-identity`), and they refer
+only to other entries (`registry-refers-to-record`). Each subtype has its own entry table, which
+extends its parent's. Everything else, such as a project's notes, a LIMS ID or the database
+accession a record came from, is each project's own. People, notifications and the due date are
+always each project's (`person-in-registry`, `notification-in-registry`, `due-in-registry`).
+
+## How an identity is stored
+
+Iki stores a hash of each entry's identity values, to find it again. The hash is the SHA-256, in
+lower-case hex, of UTF-8 JSON with sorted keys, no spaces and no escaped non-ASCII characters. For
+the organism with NCBI Taxonomy ID 9606:
+
+```json
+{"type":"iki/core.Organism","v":2,"values":{"taxon_id":9606}}
+```
+
+`type` is the type that declares the identity, and `v` is the encoding's version, 2. Each value is
+encoded by its field's type:
+
+| Type                     | Encoded as                                |
+| ------------------------ | ----------------------------------------- |
+| `string`, `text`, `enum` | The text, in Unicode NFC                  |
+| `int`                    | A JSON integer                            |
+| `bool`                   | `true` or `false`                         |
+| `date`                   | `"YYYY-MM-DD"`                            |
+| `datetime`               | UTC: `"YYYY-MM-DDTHH:MM:SS.ffffffZ"`      |
+| `ref`                    | The entity's UUID, lower case             |
+| `file`                   | The SHA-256 of the file's content, in hex |
+| `list`                   | Its items, each encoded, sorted           |
+
+An optional field without a value is `null`. `iki_spec.identity`
+implements it, and another implementation must reproduce it byte for byte.
+
+## How an identity reads its values
+
+An identity reads a value as what it is, not as it's written:
+
+- **Sequences.** A string with a sequence format is upper case: lower case marks masked regions,
+  not other residues. A protein's terminal stops go, so `MKWV`, `mkwv` and `MKWV*` are one
+  protein; a stop inside it stays, so `MK*WV` is another. DNA keeps T and RNA keeps U.
+- **Topology and strands.** A sequence field's [`topology`](/reference/plugin-spec/field/#topology)
+  names an enum field beside it with a `circular` value, and
+  [`strands`](/reference/plugin-spec/field/#strands), for DNA and RNA, one with `double` and
+  `single` values; each must be part of the identity too. A circular sequence is its least
+  rotation, so the same sequence entered from another origin is the same entry. A double-stranded
+  one is the lesser of its two strands, each read 5′ to 3′ (the least rotation of each, if
+  circular), so a duplex entered as its other strand is the same duplex. A single strand is only
+  itself: its complement is another molecule.
+
+  ```yaml
+  identity: [bases, topology, strandedness]
+  fields:
+    bases: { type: string, format: dna_sequence, topology: topology, strands: strandedness, … }
+  ```
+
+- **HELM.** A `helm` field is read in its canonical form: monomer IDs in brackets only when
+  they're longer than one character, repeats of a fixed count written out, the members of a list
+  in order, without annotations, the polymers in order and numbered from 1, and the connections in
+  order, each from its lesser end.
+- **Sets of parts.** A list of references, values or rows is a multiset: its items sorted,
+  duplicates kept, so an assembly is its parts whatever their order. A row is an object of the
+  fields its list's [`items.identity`](/reference/plugin-spec/field/#items.identity) names (all of
+  them, by default), each one an identity can hold, but not a file.
+
+An entry keeps its values as first registered. A record of it made from values written another way
+(from another origin, on the other strand, in another order) keeps them as given on its first
+revision, as `submitted`, and the features a sequence viewer shows along that sequence are placed
+along the entry's, each of their parts too, written as INSDC's feature table writes them
+(`iki_spec.features`).

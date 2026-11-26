@@ -11,6 +11,7 @@
       "const": "iki/v1"
     },
     "kind": {
+      "description": "What this manifest is, which picks the schema it's checked against.",
       "enum": [
         "Plugin",
         "EntityType",

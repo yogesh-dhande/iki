@@ -12,7 +12,10 @@
       "type": "object",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typed",
       "properties": {
-        "type": { "enum": ["string", "text", "int", "float", "bool", "enum", "list"] },
+        "type": {
+          "description": "The kind of value: a setting takes `string`, `text`, `int`, `float`, `bool`, `enum` or `list`.",
+          "enum": ["string", "text", "int", "float", "bool", "enum", "list"]
+        },
         "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
         "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
         "required": {
@@ -21,7 +24,13 @@
         },
         "default": { "description": "The value when a deployment doesn't set one." },
         "items": {
-          "properties": { "type": { "enum": ["string", "int", "float", "bool", "enum"] } }
+          "description": "For a `list`: what each item is.",
+          "properties": {
+            "type": {
+              "description": "The kind of value each item is: `string`, `int`, `float`, `bool` or `enum`.",
+              "enum": ["string", "int", "float", "bool", "enum"]
+            }
+          }
         }
       },
       "unevaluatedProperties": false

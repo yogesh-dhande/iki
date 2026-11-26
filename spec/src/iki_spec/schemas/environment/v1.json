@@ -6,8 +6,8 @@
   "type": "object",
   "required": ["apiVersion", "kind", "name", "tiers"],
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "Environment" },
+    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
+    "kind": { "description": "What this manifest is: `Environment`.", "const": "Environment" },
     "name": { "$ref": "#/$defs/name" },
     "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
     "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
@@ -82,7 +82,10 @@
       "required": ["script"],
       "properties": {
         "script": { "$ref": "#/$defs/file" },
-        "timeout": { "$ref": "https://ikisci.org/schemas/action/v1#/$defs/duration" },
+        "timeout": {
+          "description": "The longest the setup may take before it's stopped. Defaults to 6h.",
+          "$ref": "https://ikisci.org/schemas/action/v1#/$defs/duration"
+        },
         "requires_approval": {
           "description": "A compute admin approves each build before it starts, for setups that cost a lot.",
           "type": "boolean"
@@ -143,10 +146,16 @@
         },
         "memory": { "$ref": "#/$defs/quantity" },
         "gpu": {
+          "description": "The GPUs it needs.",
           "type": "object",
           "required": ["count"],
           "properties": {
-            "count": { "type": "integer", "minimum": 1, "maximum": 16 },
+            "count": {
+              "description": "How many GPUs.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16
+            },
             "min_memory": {
               "description": "The memory each GPU must have.",
               "$ref": "#/$defs/quantity"

@@ -17,7 +17,7 @@ iki plugin makemigrations "$PLUGIN"
 iki plugin test "$PLUGIN" --upgrade-from "$BASE"
 ```
 
-Use `MigrateValues` for a backfill, with a reason, plugin version and migration name. The callback returns the columns to set on each historical model instance. Add `after` to a current `upgrade: true` fixture to check the exact values on each sample, for example `after: { sample: [{ notes: S1 }] }`. A newly added field taking its manifest default needs no `after`. [Backfill example](https://github.com/yogesh-dhande/iki/blob/main/cli/README.md#iki-plugin-test)
+Use `MigrateValues` for a backfill, with a reason, plugin version and migration name. The callback returns the columns to set on each historical model instance. Add `after` to a current `upgrade: true` fixture to check the exact values on each sample, for example `after: { sample: [{ notes: S1 }] }`. A newly added field taking its manifest default needs no `after`. [Backfill example](https://ikisci.org/reference/cli/#iki-plugin-test)
 
 Read the upgrade output and confirm that it created representative samples, moved them forward with history intact and rolled them back with their previous values. Add an explicit migration test when the base action fixtures don't cover important existing values or a signed revision. [Upgrade test contract](https://github.com/yogesh-dhande/iki/blob/main/docs/adr/0094-a-plugins-upgrade-is-tested-from-an-earlier-commit.md)
 
@@ -29,7 +29,7 @@ Select the deployment to check with the Iki SDK sign-in or `IKI_URL` and an all-
 sh "$SKILL_DIR/scripts/build-and-preflight.sh" "$PLUGIN_NAME" "$PLUGIN"
 ```
 
-Record the candidate and configuration revisions from the report. Exit 0 is clear, exit 1 calls for review of findings or incomplete sample coverage, and exit 2 is an input, connection or access error. Resolve incompatible existing records through a reviewed migration or remediation plan and rerun the check. For a promotion, run preflight using the manifest built with the deployment's actual settings and pinned dependencies. [Preflight and promotion](https://github.com/yogesh-dhande/iki/blob/main/deploy/config-template/README.md#how-a-change-reaches-a-deployment)
+Record the candidate and configuration revisions from the report. Exit 0 is clear, exit 1 calls for review of findings or incomplete sample coverage, and exit 2 is an input, connection or access error. Resolve incompatible existing records through a reviewed migration or remediation plan and rerun the check. For a promotion, run preflight using the manifest built with the deployment's actual settings and pinned dependencies. [Preflight and promotion](https://ikisci.org/guides/keep-configuration-in-a-repository/#promote-a-change-to-production)
 
 Commit the version, schema, new migration, tests and upgrade notes together. Keep previous releases and their commit pins available. Document any intentional one-way migration and the recovery path before release. Once the change is approved, release the tested commit and update the deployment's lockfile through its normal promotion process. For a first-party plugin, include the updated tree list from `make first-party`.
 

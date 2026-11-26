@@ -6,8 +6,9 @@
   "type": "object",
   "required": ["apiVersion", "kind"],
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
+    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
     "kind": {
+      "description": "What this manifest is, which picks the schema it's checked against.",
       "enum": ["ComputeTemplate", "EnvironmentBinding", "EnvironmentImageBinding", "ApiPrice"]
     }
   },

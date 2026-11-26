@@ -27,7 +27,7 @@ class HelmIn(Schema):
         min_length=1,
         max_length=MAX_READ,
         description="HELM strings, HELM 2 (ending V2.0) or HELM 1, such as "
-        "RNA1{[dR](A)[sP].[dR](C)}$$$$V2.0.",
+        "`RNA1{[dR](A)[sP].[dR](C)}$$$$V2.0`.",
     )
 
 

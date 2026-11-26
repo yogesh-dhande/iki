@@ -1,0 +1,144 @@
+/* What guides' and concepts' pages share: their titles, figures and callouts. */
+
+.doc-title {
+  margin: 0;
+  font-size: 44px;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+@media (max-width: 720px) {
+  .doc-title {
+    font-size: 34px;
+  }
+}
+
+.figure {
+  margin: 20px 0 0;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  min-width: 0;
+}
+.figure figcaption {
+  margin-top: 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.figure figcaption strong {
+  color: var(--text);
+}
+.viewer-figure {
+  padding: 0;
+  overflow: hidden;
+}
+.viewer-figure figcaption {
+  margin: 0;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 720px) {
+  .figure {
+    padding: 16px;
+  }
+}
+
+/* A side column's boxes. */
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-size: 14px;
+}
+.side-box {
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.side-box h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.side-box p {
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+.side-box p:last-child {
+  margin: 0;
+}
+.side-box ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.side-box .note {
+  color: var(--muted);
+}
+
+/* A section's map, on the left. */
+.section-nav {
+  font-size: 14px;
+}
+.section-nav h2 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.section-nav ul {
+  list-style: none;
+  margin: 0 0 24px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.section-nav a,
+.section-nav .planned {
+  display: block;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--text);
+  text-decoration: none;
+}
+.section-nav a:hover {
+  background: var(--surface-2);
+  text-decoration: underline;
+}
+.section-nav a[aria-current="page"] {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+/* On this page. */
+.toc ol {
+  list-style: none;
+  margin: 0 0 28px;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+.toc a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.toc a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.toc a[aria-current="location"] {
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.toc h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}

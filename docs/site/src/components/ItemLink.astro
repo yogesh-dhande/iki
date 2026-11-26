@@ -1,0 +1,40 @@
+---
+// One item of the site's map: a link to its page, to the repository's document that
+// covers it for now (marked as leaving the site), or its name alone while it's planned.
+import { hrefOf, type Item } from "../lib/site.ts";
+
+interface Props {
+  item: Item;
+  class?: string;
+}
+const { item, class: className } = Astro.props;
+const href = hrefOf(item);
+const out = !item.href && Boolean(item.source);
+const current = Astro.url.pathname === item.href;
+---
+
+{href ? (
+  <a href={href} class:list={[className, { out }]} aria-current={current ? "page" : undefined}>
+    {item.label}
+    {out && <span class="sr-only"> (on GitHub)</span>}
+  </a>
+) : (
+  <span class:list={[className, "planned"]}>
+    {item.label}
+    <span class="soon">Planned</span>
+  </span>
+)}
+
+<style>
+  .soon {
+    margin-left: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    padding: 1px 7px;
+    white-space: nowrap;
+  }
+</style>

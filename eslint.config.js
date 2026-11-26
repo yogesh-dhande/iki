@@ -37,6 +37,8 @@ export default tseslint.config(
       "worker/target/**",
       ".venv/**",
       ".venv-py312/**",
+      // The docs site's types, which Astro generates (astro sync).
+      "docs/site/.astro/**",
       // Claude Code's git worktrees: other checkouts, each checked on its own.
       ".claude/**",
       // The dev deployment's build (Tilt): copies of the plugins, linted where they live.

@@ -1,0 +1,64 @@
+---
+// The differences a whole-plasmid alignment names, as the plugin recorded them.
+import type { Difference } from "../../lib/examples.ts";
+import { featureName, kindOf, shortHgvs } from "../../lib/hgvs.ts";
+
+interface Props {
+  differences: Difference[];
+  caption: string;
+  /** From how long a run of one base a deletion looks like a nanopore error. */
+  homopolymer?: number;
+}
+const { differences, caption, homopolymer = 6 } = Astro.props;
+---
+
+<div class="table" tabindex="0" role="region" aria-label={caption}>
+  <table>
+    <caption class="sr-only">{caption}</caption>
+    <thead>
+      <tr>
+        <th scope="col">Difference (HGVS)</th>
+        <th scope="col">Kind</th>
+        <th scope="col">In</th>
+        <th scope="col">Run of one base</th>
+        <th scope="col">Reads agreeing</th>
+      </tr>
+    </thead>
+    <tbody>
+      {differences.map((d) => {
+        const name = shortHgvs(d.hgvs);
+        return (
+          <tr>
+            <td class="mono hgvs">
+              {name.text}
+              {name.bases && <span class="sr-only"> ({name.bases} bases)</span>}
+            </td>
+            <td>{kindOf(d.kind, d.length_change)}</td>
+            <td class:list={{ muted: d.features.length === 0 }}>
+              {d.features.length ? d.features.map(featureName).join(", ") : "no feature"}
+            </td>
+            <td class:list={["num", { long: d.homopolymer >= homopolymer }]}>{d.homopolymer}</td>
+            <td class="num">
+              {d.support} of {d.depth}
+            </td>
+          </tr>
+        );
+      })}
+    </tbody>
+  </table>
+</div>
+
+<style>
+  table {
+    min-width: 620px;
+  }
+  .hgvs {
+    white-space: nowrap;
+  }
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+  .long {
+    font-weight: 600;
+  }
+</style>

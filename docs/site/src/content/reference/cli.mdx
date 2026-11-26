@@ -1,0 +1,535 @@
+---
+title: The iki CLI
+description: Every command and option of the iki command-line tool, what each prints and its exit codes, for plugin authors, deployments, bundles and starters.
+order: 30
+---
+
+The `iki` command checks, migrates, tests and builds plugins, builds the plugins a deployment
+installs, checks a bundle and its signatures offline, and sets up an assay from a starter.
+
+The examples run in a directory holding a lab's plugin, `iki-plugin-example` (a copy of the
+plugin template, `acme/example`), beside a checkout of Iki, `iki`, for the plugins a deployment
+installs with it.
+
+## Install it
+
+Install the CLI at the Iki version your deployments run, with [uv](https://docs.astral.sh/uv/):
+
+```console
+$ uv tool install iki-cli==0.1.0
+$ iki --version
+iki 0.1.0
+```
+
+`iki --help`, and `--help` after any command, lists its commands and options. Colors in its output
+follow `NO_COLOR` and `FORCE_COLOR`.
+
+## Sign in to a deployment
+
+`iki plugin preflight` and the `iki starter` commands call a deployment's API. They use the Python
+SDK's sign-in: sign in once with
+[`iki.login()`](/reference/python-sdk/#sign-in-as-yourself), or set `IKI_URL` and `IKI_TOKEN`,
+such as a service account's token, for a script. `--url` picks a deployment other than the one
+you signed in to. The other commands need no deployment, no database and no network, except
+`iki deploy build`, which fetches plugins over git, and `iki plugin test --upgrade-from`, which
+needs a PostgreSQL server.
+
+## Exit codes
+
+| Code | What it means                                                                                     |
+| ---- | ------------------------------------------------------------------------------------------------- |
+| `0`  | It did what it was asked, and found nothing wrong.                                                |
+| `1`  | It found problems: an invalid manifest, a failed test, a missing migration, a blocking finding.  |
+| `2`  | It couldn't check: a mistake in the command, a file it couldn't read, a deployment it can't reach. |
+
+Each command below says what its codes mean when they differ.
+
+## `iki plugin`
+
+Commands for plugin authors. Each takes the plugin's directory, the one holding `plugin.yaml`, or
+the current directory if it's left out. `--with DIRECTORY` gives a plugin this one depends on,
+directly or not, so references to its types can be checked: repeat it for each. In Iki's own
+repository, a first-party plugin's dependencies are found under `plugins/` without it.
+
+### `iki plugin validate`
+
+Checks every manifest in a plugin against the `iki/v1` spec: the
+[JSON Schemas](/reference/plugin-spec/), UCUM units, references between types and plugins, the
+rules for tables, indexes, identities and settings, and what its actions read, write and run in.
+
+```console
+$ iki plugin validate iki-plugin-example
+iki-plugin-example/types/sample.yaml:18:53: error: `mcL` isn't a UCUM unit. [unknown-unit]
+ 18 |   volume: { type: quantity, unit: mL, display_unit: mcL, min: 0 }
+    |                                                     ^
+  hint: Did you mean `mL` or `cL`?
+
+1 error in iki-plugin-example.
+```
+
+Fixed, it says what the plugin declares:
+
+```console
+$ iki plugin validate iki-plugin-example
+✓ acme/example 0.1.0 is valid: 1 entity type, 0 extensions, 0 settings, 1 action, 1 environment, 0 workflows, 0 triggers, 0 components.
+```
+
+| Option             | What it does                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| `DIRECTORY`        | The plugin's directory. Defaults to the current one.                                 |
+| `--with DIRECTORY` | A plugin this one depends on. Repeat for each.                                       |
+| `--settings FILE`  | Also check a deployment's values for the plugin's settings, a YAML mapping.          |
+| `--format text`    | For people: file, line and column, the source line, and a hint. The default.         |
+| `--format json`    | For tools: every problem with its stable `code`, severity, location and path.        |
+| `--format github`  | GitHub Actions annotations, so each problem shows on the pull request's changed line. |
+| `--strict`         | Fail on warnings too.                                                                |
+
+The same problem, `--format json`:
+
+```json
+{
+  "apiVersion": "iki/v1",
+  "directory": "iki-plugin-example",
+  "valid": false,
+  "plugin": null,
+  "errors": 1,
+  "warnings": 0,
+  "problems": [
+    {
+      "code": "unknown-unit",
+      "severity": "error",
+      "message": "`mcL` isn't a UCUM unit.",
+      "hint": "Did you mean `mL` or `cL`?",
+      "file": "types/sample.yaml",
+      "line": 18,
+      "column": 53,
+      "path": ["fields", "volume", "display_unit"]
+    }
+  ]
+}
+```
+
+and `--format github`:
+
+```console
+::error file=iki-plugin-example/types/sample.yaml,line=18,col=53,title=unknown-unit::`mcL` isn't a UCUM unit.%0ADid you mean `mL` or `cL`?
+1 error in iki-plugin-example.
+```
+
+Every code is listed in [Write a plugin](/guides/write-a-plugin/#problem-codes). It exits with 0
+when the plugin is valid, and 1 when there are errors, or warnings with `--strict`.
+
+### `iki plugin makemigrations`
+
+Makes the migration that changes the database to match the plugin's manifests, in its
+`migrations/` directory, to commit with the change. It compiles the plugin and those it depends
+on, then runs Django's makemigrations on it. It needs no database.
+
+Adding a `concentration` field to `Sample`:
+
+```console
+$ iki plugin makemigrations iki-plugin-example --name concentration
+Migrations for 'acme__example':
+  iki-plugin-example/migrations/0002_concentration.py
+    + Add field concentration to sample
+    + Add field concentration to sample_history
+    + Create constraint acme__example_sample__concentration__finite on model sample
+    + Create constraint acme__example_sample__concentration__min on model sample
+```
+
+A field that's gone and another that's new may be a rename. It asks, so a renamed field keeps its
+values and history:
+
+```console
+$ iki plugin makemigrations iki-plugin-example
+Was sample.concentration renamed to sample.stock_concentration (a QuantityField)? [y/N] y
+Migrations for 'acme__example':
+  iki-plugin-example/migrations/0003_rename_concentration_sample_stock_concentration_and_more.py
+    - Remove constraint acme__example_sample__concentration__finite from model sample
+    - Remove constraint acme__example_sample__concentration__min from model sample
+    ~ Rename field concentration on sample to stock_concentration
+    ~ Rename field concentration on sample_history to stock_concentration
+    ? Record that sample_history.concentration is now stock_concentration
+    + Create constraint acme__example_sample__stock_concentration__finite on model sample
+    + Create constraint acme__example_sample__stock_concentration__min on model sample
+```
+
+A field that simply disappears is refused:
+
+```console
+$ iki plugin makemigrations iki-plugin-example --no-input
+error: `concentration` is gone from acme/example.Sample. Iki keeps every field's history, so a field can't be deleted.
+  If you renamed it, run this again and answer yes when asked whether it was renamed.
+  If you no longer want it, put it back and mark it `removed: true`: its column goes, its history stays.
+```
+
+What it allows:
+
+- A field marked `removed: true` loses its column and keeps its history.
+- Types and extensions can't be deleted.
+- A field's type changes only where its history can follow: text stays text, and an `integer`
+  may become a `float`.
+- A quantity's unit can change, and the migration converts its stored values, current and past.
+- Renaming a type renames its records' type too.
+
+| Option             | What it does                                                                 |
+| ------------------ | ---------------------------------------------------------------------------- |
+| `DIRECTORY`        | The plugin's directory. Defaults to the current one.                         |
+| `--with DIRECTORY` | A plugin this one depends on, with its migrations. Repeat for each.          |
+| `--name NAME`      | A name for the migration.                                                    |
+| `--check`          | Write nothing, and fail if the manifests have changes no migration has.      |
+| `--dry-run`        | Show what the migration would do, and write nothing.                         |
+| `--no-input`       | Ask nothing: no renames are detected, and a question Django needs answered fails. |
+| `--merge`          | Merge migrations that branched, as after two pull requests.                  |
+| `--empty`          | Write an empty migration, to fill in by hand for a change of data.           |
+
+With `--check` it prints the migration it would make and exits with 1, or prints
+`No changes detected in app 'acme__example'` and exits with 0.
+
+### `iki plugin test`
+
+Runs the plugin's action tests: each `kind: ActionTest` fixture in its `tests/` directory. For
+each, it makes the run input the server would, runs the action with `iki-worker run --local`, and
+checks what it writes against `run-output/v1`, against what the action declares it changes, and
+against the test's `expect`. [Test actions with fixtures](/guides/write-a-plugin/action-tests/)
+says how to write them.
+
+```console
+$ iki plugin test iki-plugin-example
+Running 3 test(s) of acme/example 0.1.0:
+  ok      default_storage  (0.3s)
+  ok      chosen_storage  (0.2s)
+  ok      existing_storage  (0.2s)
+3 passed in 0.7s.
+```
+
+A test that fails says what differed, with the end of the run's log:
+
+```console
+$ iki plugin test iki-plugin-example
+Running 3 test(s) of acme/example 0.1.0:
+  ok      default_storage  (0.3s)
+  FAILED  chosen_storage  (0.3s)
+          tests/storage.yaml
+          updates.sample[0].values.storage: expected "Cold room 4 °C", got "Cold room"
+          Its log ended:
+          | level=info msg="Running the command locally." action=acme/example.assign_storage plugin_dir=iki-plugin-example job_dir=/tmp/iki-test-yzqh8met/jobs/local-1795675944862-76605
+          | level=info msg="The command succeeded." job_dir=/tmp/iki-test-yzqh8met/jobs/local-1795675944862-76605
+          | level=info msg="Kept the job directory." job_dir=/tmp/iki-test-yzqh8met/jobs/local-1795675944862-76605
+  ok      existing_storage  (0.2s)
+2 passed, 1 failed in 0.7s.
+```
+
+The actions' commands run on this machine, so install what their environments need first, and
+`iki-worker`. It exits with 1 if a test fails, or if a fixture doesn't match the plugin, in which
+case nothing runs.
+
+| Option               | What it does                                                                           |
+| -------------------- | -------------------------------------------------------------------------------------- |
+| `DIRECTORY`          | The plugin's directory. Defaults to the current one.                                   |
+| `--with DIRECTORY`   | A dependency, or a plugin whose types a fixture uses. Repeat for each.                 |
+| `-k TEXT`            | Run only the tests whose name contains this.                                           |
+| `--worker PATH`      | The `iki-worker` binary. Defaults to `$IKI_WORKER`, or `iki-worker` on the `PATH`.     |
+| `--upgrade-from REF` | Also test the upgrade from the plugin at this git commit.                              |
+| `--database URL`     | The PostgreSQL server for the upgrade test. Defaults to `$IKI_TEST_DATABASE_URL`.      |
+| `--no-rollback`      | Don't roll the upgrade back, for an upgrade meant to go one way.                       |
+
+#### Test the upgrade from an earlier commit
+
+With `--upgrade-from`, it also tests the plugin's upgrade from an earlier commit of its
+repository, such as a pull request's base. On a scratch database it makes on the `--database`
+server, whose user needs `CREATEDB`, it:
+
+1. compares each type then and now: if what its records may hold changed, such as a field added
+   or a rule tightened, its `schema_version` must be higher. A new label, description, display
+   unit, link or index doesn't count;
+2. deploys the plugin as it was then, and makes that commit's action-test records as samples;
+3. deploys the plugin as it is now, and checks every sample is still there with its history;
+4. deploys the earlier commit again, as a rollback, and checks the samples have their values.
+
+The scratch database is dropped at the end. A migration that fills in values with
+`MigrateValues` is checked against a marked test's `after`: see
+[Fill in values for existing records](/guides/upgrade-a-plugin/#fill-in-values-for-existing-records).
+
+```console
+$ iki plugin test iki-plugin-example --upgrade-from origin/main \
+    --database postgres://postgres@localhost:5432/postgres
+Running 3 test(s) of acme/example 0.1.0:
+  ok      default_storage  (0.3s)
+  ok      chosen_storage  (0.2s)
+  ok      existing_storage  (0.2s)
+3 passed in 0.7s.
+Upgrading acme/example from ef8aa922b77c (0.1.0) to 0.1.0 on the scratch database iki_upgrade_00f135ca, with 3 sample(s):
+  ok      each type whose fields changed has a higher schema_version
+          Note: the migrations changed, and acme/example's version is still 0.1.0. Increase it when you release this, so a deployment's history tells the two apart.
+  ok      migrated to the earlier commit and made the samples  (26.1s)
+  ok      upgraded: the samples and their history are intact  (1.6s)
+  ok      rolled back: the samples have their values  (1.8s)
+```
+
+A type whose fields changed without a higher `schema_version` fails before anything migrates:
+
+```console
+Upgrading acme/example from ef8aa922b77c (0.1.0) to 0.1.0 on the scratch database iki_upgrade_5b635c4b, with 3 sample(s):
+  FAILED  each type whose fields changed has a higher schema_version
+          acme/example.Sample changed (added concentration), and its schema_version is still 1. Increase it to 2: plugins that depend on acme/example pin its types' schema versions.
+```
+
+### `iki plugin build`
+
+Checks plugins, then compiles them into Django apps for the server: a package
+`iki_plugin_<namespace>__<name>` for each, with its models and migrations, and
+`iki_installed_plugins`, which the server installs. Give every plugin the deployment installs:
+each one's dependencies must be among them.
+
+```console
+$ iki plugin build iki-plugin-example iki/plugins/dna --output build/plugins
+Built build/plugins/iki_plugin_iki__dna
+Built build/plugins/iki_plugin_acme__example
+```
+
+| Option                  | What it does                                                        |
+| ----------------------- | ------------------------------------------------------------------- |
+| `DIRECTORY`             | A plugin's directory. Give one for each plugin.                     |
+| `--output`, `-o` `DIRECTORY` | Where to write the packages: put it on the server's `PYTHONPATH`. Required. |
+
+A deployment builds its plugins with [`iki deploy build`](#iki-deploy-build), from its lockfile.
+
+### `iki plugin preflight`
+
+Sends a built plugin's `manifest.json` to a deployment, which checks it against the records there
+before it's promoted, and changes nothing. It's for an Org Admin who can read every project,
+archived ones included: a token needs the `read` and `admin` scopes and access to every project.
+
+```console
+$ iki plugin preflight build/plugins/iki_plugin_acme__example/manifest.json --url https://iki.example.org
+acme/example 0.2.0
+Checked configuration  3f6a0c2e9b1d4785a6c3e0f9b2d7a1c4e8f5b3a9d0c6e2f7a4b1c8d5e9f0a3b6
+Candidate manifest     9c2e7b4a1f0d3c6e8b5a2f9d4c7e1b0a6f3d8c5e2b9a7f4d1c0e6b3a8f5d2c9e
+
+acme/example.Sample (312 records)
+  Blocking  kind (enum)  Values must be one of tissue, cells, blood, dna, rna, protein.
+    Exactly 4 affected. Examples: SMP-000041, SMP-000118, SMP-000203, SMP-000276
+
+Blocking findings.
+```
+
+Findings are grouped by type, each with how many records it affects and up to five of their IDs.
+Checks the database can count give exact counts. Checks that read records one by one may read a
+sample of them: the report then names the checks it sampled and how many records it read, its
+counts are lower bounds, and it ends with "Sample coverage is incomplete. Deployment requires
+review."
+
+| Option      | What it does                                                         |
+| ----------- | -------------------------------------------------------------------- |
+| `MANIFEST`  | The built plugin's `manifest.json`.                                  |
+| `--url URL` | The deployment. Defaults to `IKI_URL`, or the one you signed in to.  |
+| `--json`    | Print the whole report as JSON.                                      |
+
+It exits with 0 for a clear report, 1 when the deployment needs the findings acknowledged before
+it promotes the plugin, and 2 when the check couldn't run: a bad manifest, no connection, or no
+access. The API takes the same manifest as the body of
+[`POST /plugins/{name}/preflight`](/reference/api/post-plugins-name-preflight/).
+
+## `iki deploy`
+
+### `iki deploy build`
+
+In a deployment's config repository, builds the plugins its `plugins.lock.yaml` pins, for its
+server image. It fetches each plugin at its commit and checks them together: their manifests, the
+deployment's settings for each, and that their migrations are complete. If the deployment has a
+`compute.yaml`, it checks its templates and bindings against the plugins' environments and
+actions, and writes them as `compute.json` for the server. The same lockfile always gives the same
+bytes. [Configure a deployment's plugins and compute](/guides/configure-plugins-and-compute/) says
+what the lockfile and `compute.yaml` hold.
+
+```console
+$ iki deploy build deployments/prod --output build/plugins
+Fetched iki/dna at 94ff68cf384c from https://github.com/yogesh-dhande/iki.git
+Fetched iki/protein at 94ff68cf384c from https://github.com/yogesh-dhande/iki.git
+Built build/plugins: iki/dna 0.12.0, iki/protein 0.15.0.
+$ docker build -f plugins.Dockerfile \
+    --build-arg IKI_SERVER_IMAGE=ghcr.io/yogesh-dhande/iki-server:0.1.0@sha256:… build
+```
+
+Git may use only https and ssh, and never prompts: credentials come from git's credential helpers,
+as CI sets them up. Use the server image of the same Iki version: the server refuses plugins
+another version built.
+
+| Option                         | What it does                                                                                 |
+| ------------------------------ | -------------------------------------------------------------------------------------------- |
+| `DEPLOYMENT`                   | The deployment's directory, holding `plugins.lock.yaml`, or the lockfile itself.             |
+| `--output`, `-o` `DIRECTORY`   | Where to write the plugins, for the image's `/opt/iki/plugins`. Replaces an earlier build there, and nothing else. Required. |
+| `--workers DIRECTORY`          | Also write what the deployment's workers need (below).                                       |
+| `--images FILE`                | Also write the images its container-tier runs use, one per line, pinned by digest, for its build to sign so the cluster admits them. |
+| `--environments-dir DIRECTORY` | Where the worker image builds environments. Defaults to `/opt/iki/envs`.                      |
+| `--allow-local`                | Accept `local:` plugins, from directories, for development. Servers refuse them unless told to. |
+| `--test-only`                  | Accept Iki's example, template and fixture plugins, for CI and live tests.                    |
+| `--mirror URL`                 | Fetch Iki's own plugins from this mirror of Iki's repository. Repeat for several, tried in order. |
+| `--cache DIRECTORY`            | Where to keep fetched repositories. Defaults to `~/.cache/iki/git`.                          |
+
+By default, it refuses an active or detached plugin pinned to one of the example, template,
+fixture or live-check directories of Iki's repository or its mirrors (`test-only-source`). To
+deploy one of those, copy it to your lab's repository, give it your plugin name, and pin the
+reviewed commit. CI and live tests can build Iki's own with `--test-only`, and one from a local
+checkout with both `--test-only` and `--allow-local`.
+
+With `--workers build/worker`, it also writes what the deployment's backend workers need, from the
+same commits as the server, so both agree on each run's code:
+
+- `plugins/<label>/`: each plugin's code at its commit, by its label, such as `iki__dna`;
+- `plugins/plugins.json`: what the worker tells the server it has;
+- `build-environments.sh`: builds each Python or conda environment the plugins declare for the
+  backend or self-hosted tier, installing only the packages its requirements file or lockfile pins,
+  by hash.
+
+```console
+$ iki deploy build deployments/prod --output build/plugins --workers build/worker --images build/images.txt
+Fetched iki/dna at 94ff68cf384c from https://github.com/yogesh-dhande/iki.git
+Fetched iki/protein at 94ff68cf384c from https://github.com/yogesh-dhande/iki.git
+Wrote what workers need to build/worker.
+Wrote the 0 image(s) runs use to build/images.txt.
+Built build/plugins: iki/dna 0.12.0, iki/protein 0.15.0.
+```
+
+The worker image's Dockerfile copies `plugins/` to `/opt/iki/plugins` and runs the script.
+`--images` lists, for each container template whose environment asks for an image the deployment
+supplies, that image's digest: the deployment pulls it from its own registry when a run starts.
+
+The staged plugin files are the files a self-hosted worker downloads in the server's plugin
+archive, environment setup, runtime data and redistribution notices included. Both leave out a
+plugin's root `tests/` and `examples/` directories, so keep action fixtures and worked examples
+there and run them from the source checkout.
+
+With `--mirror`, Iki's own plugins (`iki/...`) come only from the mirrors given, in order: the
+deployment's `plugins.mirrors`, for a site that can't reach github.com. Each must be at the commit
+the lockfile pins, with a tree Iki's repository has had, so a mirror can't serve a commit of its
+own. The build records where each plugin came from, and the server refuses plugins from a mirror
+its deployment doesn't name.
+
+## `iki bundle`
+
+### `iki bundle verify`
+
+Checks a bundle exported from Iki, and the electronic signatures it carries, with no deployment,
+database or network: for an auditor, a partner, or an archive years later. It checks the bundle's
+own signature and each member's SHA-256 against its manifest. Then, for each signature, it checks
+that its key signed it, that it names its record, revision and change, that the content it signed
+hashes to what it names, and that the bundle's history of the record still holds that content,
+read through what was done to it since: plugins' migrations, and imports naming people and
+registry entries as they are where the bundle landed. A key you trust must vouch for those too.
+
+```console
+$ iki bundle verify sam-000231.tar.gz --trust prod=ed25519:riAtz4…
+The bundle checks out, signed by prod's key.
+ok   SAM-000231: Authored by Priya Natarajan on 2026-11-18 at 14:03:22 UTC. Meaning: Authorship. (carried)
+ok   SAM-000231: Reviewed by Tomás Herrera on 2026-11-18 at 15:10:04 UTC. Meaning: Review. (carried)
+2 signatures, all valid.
+```
+
+A signature that's `carried` set its state; one that's `pending` waits for others, and one that's
+`withdrawn` was withdrawn by its signer. A check that fails is printed beneath its signature, with
+what it found.
+
+| Option                   | What it does                                                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `BUNDLE`                 | The bundle: a `.tar.gz` exported from Iki.                                                                    |
+| `--trust DEPLOYMENT=KEY` | Trust `KEY` (`ed25519:…`) as `DEPLOYMENT`'s bundle key. The keys that signed its signatures, which the bundle lists, are then trusted too. Repeat for more. |
+| `--key KEY[=DEPLOYMENT]` | Trust `KEY` for signatures, and for what was done to their records since, whatever the bundle lists: a deployment's signing key, from [`GET /signing-keys`](/reference/api/get-signing-keys/) there. Repeat for more. |
+| `--json`                 | Print the result as JSON, with every check.                                                                   |
+
+It exits with 0 only when everything checks out: the bundle is signed by a key given with
+`--trust`, and each signature is valid. With `--key` and no `--trust`, only its signatures are
+checked, so it exits with 0 only if it carries some and each is valid. It exits with 1 when
+anything doesn't check out, an untrusted key included, and 2 for a mistake in the command.
+
+## `iki starter`
+
+Sets up an assay from a starter a deployment has installed. The dose-response starter chooses the
+review flow for new results in a service project and grants the lab roles needed to run it. Each
+command signs in as [above](#sign-in-to-a-deployment), and takes `--url` for another deployment
+and `--json` to print the API's whole answer.
+
+### `iki starter list`
+
+Lists the installed starters, each with its review flows and the lab roles it needs. With
+`--project`, it also shows the version and flow that service project has applied.
+
+```console
+$ iki starter list --project "$SERVICE"
+dose-response 2.0.0  Dose-response plate assay
+  Choose the review flow for new dose-response fits and assign the assay roles.
+  research  Research  iki/plate_assays.ResearchAssayResult
+  regulated_qc  Regulated QC  iki/plate_assays.QCAssayResult
+  iki/plate_assays.analyst  Assay analyst
+  iki/plate_assays.reviewer  Assay reviewer
+  iki/plate_assays.qa  Assay QA
+  Applied  2.0.0  research
+```
+
+| Option              | What it does                                                       |
+| ------------------- | ------------------------------------------------------------------ |
+| `--project PROJECT` | The service project's UUID, to show what it has applied.           |
+| `--url URL`         | The deployment. Defaults to `IKI_URL`, or the one you signed in to. |
+| `--json`            | Print the API's answer as JSON.                                    |
+
+### `iki starter preview`
+
+Shows what applying a starter version and review flow to a service project would change, and
+changes nothing. It ends with its plan: a code that stands for what you reviewed, which
+`iki starter apply` takes. Give the service project's UUID, and a membership UUID from that
+project for each lab role the flow needs. Repeat `--role` to give a role to more than one member.
+
+```console
+$ iki starter preview dose-response --version 2.0.0 --flow regulated_qc \
+    --project "$SERVICE" \
+    --role "iki/plate_assays.analyst=$ANALYST" \
+    --role "iki/plate_assays.reviewer=$REVIEWER" \
+    --role "iki/plate_assays.qa=$QA"
+Would apply  dose-response 2.0.0
+  Service project   5b0e9a3c-2f41-4d8e-9a6b-1c7e0d3f8a25
+  Review flow       regulated_qc  iki/plate_assays.QCAssayResult
+  iki/plate_assays.analyst  7e3b9c45-1d26-4f8a-b0e7-5a4c2d9f1e36
+  iki/plate_assays.qa  c81f4e27-6a90-4b3d-8e15-2d9a7c0b4f63
+  iki/plate_assays.reviewer  a92c6e18-4b7d-43f0-9e25-6f1d8b3a7c04
+  Grant iki/plate_assays.qa to c81f4e27-6a90-4b3d-8e15-2d9a7c0b4f63
+  Grant iki/plate_assays.reviewer to a92c6e18-4b7d-43f0-9e25-6f1d8b3a7c04
+  Plan              3f9c2a71d04e8b65c1a7f3e9d2b0c4a68e5f17d3b9a2c0e4f6d81b3a5c7e9f02  (apply it with --plan)
+```
+
+When the preview lists changes, review the result type and the grants it proposes. If it prints
+`Already applied`, the project has that version and flow, and each member holds their role.
+
+| Option                                | What it does                                                                |
+| ------------------------------------- | --------------------------------------------------------------------------- |
+| `STARTER`                             | The starter's ID, from `iki starter list`.                                  |
+| `--version VERSION`                   | The starter version to apply. Required.                                     |
+| `--flow research`, `--flow regulated_qc` | The review flow. Required.                                               |
+| `--project PROJECT`                   | The service project's UUID. Required.                                       |
+| `--role ROLE=MEMBERSHIP`              | Give a lab role, such as `iki/plate_assays.reviewer`, to a member of the service project, by their membership's UUID. Repeat for more. |
+| `--url URL`                           | The deployment. Defaults to `IKI_URL`, or the one you signed in to.          |
+| `--json`                              | Print the API's answer as JSON.                                             |
+
+Research needs an analyst and a reviewer. Regulated QC also needs QA, with a different person in
+each of the three roles. An analyst needs at least Editor access to the project, and a reviewer or
+QA at least Viewer: the deployment refuses the setup and says why.
+
+### `iki starter apply`
+
+Applies the setup, with the same arguments as `iki starter preview` and `--plan` set to the plan
+the preview printed. It prints `Applied`, or `Already applied` when the project has that version
+and flow already and each member holds their role.
+
+If what applying does has changed since the preview, because another Admin changed a grant or
+applied the starter first, nothing is applied. The command prints what applying does now, and its
+new plan, to review and apply.
+
+| Option        | What it does                                                                 |
+| ------------- | ---------------------------------------------------------------------------- |
+| `--plan PLAN` | The plan `iki starter preview` printed for the same arguments. Required.      |
+
+The [dose-response plate assay](/use-cases/dose-response-plate-assay/) runs the assay after
+setup, from a reader file to a released result.
+
+`iki starter` exits with 0 when the deployment answers, and 2 when it refuses or can't be reached,
+with its reason.

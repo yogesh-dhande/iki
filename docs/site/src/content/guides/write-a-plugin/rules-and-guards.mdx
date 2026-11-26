@@ -1,0 +1,204 @@
+---
+title: Check records with rules and guards
+description: Write the rules a type's records keep at every save, hold a result that's out of specification for review, keep values unique or ranges apart, and say with guards when a state may be set.
+audience: build
+order: 50
+reference:
+  - { label: "Rules and guards", href: /reference/plugin-spec/rule/ }
+  - { label: "Entity type: rules", href: /reference/plugin-spec/entity-type/#rules }
+  - { label: "Field: guards", href: /reference/plugin-spec/field/#states.guards }
+---
+
+A type's [`rules`](/reference/plugin-spec/entity-type/#rules) are what its records keep at every
+save, on every path that writes: forms, as values are typed, the API, agents, runs' results, bulk
+imports and bundles. A state's guards say when it may be set. Both are written in
+[CEL](https://cel.dev), Google's Common Expression Language, which is pure, typed and bounded: it
+can't loop, call out or change anything, and an expression that runs too long is stopped.
+
+## Rules
+
+A rule is one of three kinds: a `check`, a set of fields that's `unique`, or a range that mustn't
+overlap another. The Samples plugin's samples have checks:
+
+```yaml
+rules:
+  identified_work:
+    check: (record.purpose != null) != (record.run != null)
+    message: Identify the work with either a record or a run.
+    fields: [purpose, run]
+  independent_assignment:
+    when: record.reviewer != null && record.analyst != null
+    check: record.reviewer != record.analyst
+    message: Assign a different reviewer and analyst.
+    fields: [reviewer]
+```
+
+The Lots plugin's oligonucleotide lots keep a lot whose mass is out of its tolerance, and hold it
+for QA's review:
+
+```yaml
+rules:
+  mass_within_tolerance:
+    label: Its mass is its oligonucleotide's
+    check: >-
+      record.measured_mass <= (record.mass_basis == "average" ?
+      record.oligonucleotide.molecular_weight :
+      record.oligonucleotide.monoisotopic_mass) + record.mass_tolerance &&
+      record.measured_mass >= (record.mass_basis == "average" ?
+      record.oligonucleotide.molecular_weight :
+      record.oligonucleotide.monoisotopic_mass) - record.mass_tolerance
+    message: >-
+      Its measured mass, {{ record.measured_mass }} Da, is outside its tolerance of
+      ±{{ record.mass_tolerance }} Da of its oligonucleotide's {{ record.mass_basis }}
+      mass, {{ record.mass_basis == "average" ? record.oligonucleotide.molecular_weight :
+      record.oligonucleotide.monoisotopic_mass }} Da.
+    fields: [measured_mass]
+    hold: { reviewed_by: [qa] }
+```
+
+The Equipment plugin's bookings have a check and a range:
+
+```yaml
+rules:
+  one_at_a_time:
+    label: One booking at a time
+    no_overlap: { from: starts_at, to: ends_at, per: [instrument] }
+    while: { cancelled: [false] }
+    message: "{{ record.instrument.name }} is booked then already."
+  instrument_in_service:
+    label: Its instrument is in service
+    check: record.instrument.service == "in_service"
+    when: "!record.cancelled"
+    message: >-
+      {{ record.instrument.name }} isn't in service: book another, or ask an
+      Engineer.
+    fields: [instrument]
+```
+
+### Checks
+
+- A [`check`](/reference/plugin-spec/rule/#rule.check) is true of a record that keeps the rule. It
+  reads `record` (its fields, with `id` and `hrid`, and one step into what each reference refers
+  to: `record.instrument.service`), `now` and `today` (midnight UTC). Dates are timestamps at
+  midnight UTC, and quantities are numbers in their field's unit.
+  [`when`](/reference/plugin-spec/rule/#rule.when) limits it to the records it's true of.
+- Expressions are type-checked against the type's fields when the plugin is validated, saying
+  where and what to write instead, such as `x != null` for `has(x)` (`invalid-expression`).
+  Without iki-wasm, the validator can't check them, and says so (`expressions-unchecked`).
+- A check that can't be worked out because a value it reads is empty passes, as a database's
+  CHECK does: make the field `required` to require it. One that fails for any other reason
+  refuses the save.
+- [`message`](/reference/plugin-spec/rule/#rule.message) is what whoever saves is told, as text,
+  never HTML, with CEL between `{{` and `}}`. A record reads as its HRID, and a date as the day.
+  [`fields`](/reference/plugin-spec/rule/#rule.fields) are what it points at, in forms and in the
+  API's errors (`#/values/<field>`); without it, the fields its check reads.
+
+### Holding a result out of specification
+
+A rule with [`hold`](/reference/plugin-spec/rule/#rule.hold) keeps a save that breaks it, rather than
+refuse it, as a result out of its specification must be kept as measured:
+
+- Whoever saves says why (`hold_reason`; without one the API answers `hold_reason_required`).
+- The record is held until someone with one of its
+  [`reviewed_by`](/reference/plugin-spec/rule/#rule.hold.reviewed_by) lab roles, other than
+  whoever saved it, reviews it, with a reason of their own.
+- A run's results and a bulk import hold with the run as their reason.
+- A held record can't be set to a state that locks it.
+- Only a `check` holds (`rule-kind`).
+
+### Unique values and ranges that don't overlap
+
+- [`unique`](/reference/plugin-spec/rule/#rule.unique) names fields no two of a project's records
+  have the same values of, all of them together.
+- [`no_overlap`](/reference/plugin-spec/rule/#rule.no_overlap) keeps records' ranges apart, from
+  one field ([`from`](/reference/plugin-spec/rule/#rule.no_overlap.from))
+  [`to`](/reference/plugin-spec/rule/#rule.no_overlap.to) another (dates, datetimes, ints, floats
+  or quantities), [`per`](/reference/plugin-spec/rule/#rule.no_overlap.per) the values of other
+  fields. A range includes where it starts but not where it ends, so a booking can end as the next
+  starts; a date range includes both.
+- The database keeps these two, whatever writes, so two saves at once can't both win.
+- [`while`](/reference/plugin-spec/rule/#rule.while) counts only records whose enum, state or bool
+  fields have one of its values (`rule-while`). A record with any of the rule's fields empty
+  doesn't count.
+
+### When rules are checked
+
+- An edit is checked only against the rules that read a field it changes, so a record saved
+  before a rule was added can still change elsewhere.
+- When a plugin is deployed with new or changed rules, its records are checked again. Those that
+  break one are listed as breaking it, and org admins are told; a rule that holds holds them, by
+  Iki.
+- A bundle's records are checked as they're brought in, as they were.
+- A rule names fields of its type (`rule-field`, `unknown-field`), and a subtype's can't share a
+  name with its parent's (`rule-shadows-parent`). An extension's rules read the type's fields with
+  its own, and are named `plugin:name`. A type has at most 50.
+
+## Guards
+
+A state's [`guards`](/reference/plugin-spec/field/#states.guards) say when it may be set, besides
+[`set_by`](/reference/plugin-spec/field/#states.set_by): each must be true, or the change is
+refused with its message. Which state may follow which, four eyes, and what a record must have
+before it moves on are guards. The Samples plugin's review:
+
+```yaml
+reviewed:
+  label: Reviewed
+  set_by: [iki/lab_roles.reviewer]
+  locks: true
+  signatures: [{ meaning: review }]
+  guards:
+    submitted:
+      check: state.from == "in_review"
+      message: Review the signed submission.
+    independent:
+      check: >-
+        last.status.in_review.by != actor.person &&
+        (last.status.retesting == null ?
+         edits.status.pending + edits.status.received + edits.status.in_testing :
+         edits.status.retesting).all(e, e.by != actor.person || !e.fields.exists(f, f in ["measurements", "notes"]))
+      message: Someone other than the submitter and measurement editors must review this testing cycle.
+```
+
+A guard's [`check`](/reference/plugin-spec/rule/#guard.check) reads what a rule's does, with every
+state field in `record`, and:
+
+- `actor`: `person`, the person acting, or an empty string for a service account; `agent`, the app
+  or agent acting for them, with `name` and `client_id`, or null; `roles`, their lab roles in the
+  record's project; and `service_account`.
+- `state`: the `field`, and the state it's set `from` and `to`.
+- `history`: each state field's changes, oldest first, each with `from`, `to`, `by` (the person),
+  `agent`, `at` and `reason`.
+- `last`: each state field's latest change into each of its states, or null:
+  `last.status.in_review.by`.
+- `holds`: the names of the rules holding the record.
+- `signatures`, for a state set by signing for it: those given for the change so far, each with
+  its `index`, `meaning`, `by` (the signer) and `at`, so a plugin says whether one person may give
+  two: `signatures.all(s, s.by != actor.person)`.
+- `edits.<state field>.<state>`: the record's value edits since its latest entry into that state,
+  oldest first, each with `by` (the editing account's ID, empty for a system change) and `fields`
+  (the names it changed). The entry at creation includes the values set then. Later edits count
+  even after another person changes the value back, re-entering the state starts a fresh list, and
+  a state the record has never entered has an empty one. `by` identifies a service account when
+  one made the edit. Changes to the record's shared registry entry have their own history.
+
+```yaml
+independent_measurement:
+  check: edits.status.in_testing.all(e, !("purity" in e.fields) || e.by != actor.person)
+  message: Someone else must review the purity you recorded.
+a_person:
+  check: actor.agent == null
+  message: Approve it yourself, in Iki, not through an app or agent.
+```
+
+- Signed approvals always need a person. An unsigned approval that needs one too can check
+  `!actor.service_account` beside the editor check.
+- A guard that can't be worked out refuses the change, whatever's empty.
+  [`when`](/reference/plugin-spec/rule/#guard.when) limits it to the changes it's true of.
+- The record's page offers only the states its reader may set, saying why not of the others in the
+  guards' words. A refused change is answered `guard_refused`, with the guard's name.
+- A state has at most 20 guards.
+
+The construct review example (`examples/plugins/construct_review`) adds a state field to an
+Assembly subtype. Its guards check the current product comparison, who recorded the build and who
+edited it afterward. Its notifications tell the creator and watchers when a comparison fails or a
+reviewer verifies the record.

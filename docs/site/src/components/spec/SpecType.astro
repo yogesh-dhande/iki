@@ -1,0 +1,21 @@
+---
+// A key's type, each page or key it names linking there.
+import type { TypePart } from "../../lib/spec.ts";
+
+interface Props {
+  type: TypePart[];
+}
+const { type } = Astro.props;
+---
+
+<span class="mono type">
+  {type.map((part) => (typeof part === "string" ? part : <a href={part.href}>{part.text}</a>))}
+</span>
+
+<style>
+  .type {
+    font-size: 12px;
+    color: var(--muted);
+    overflow-wrap: break-word;
+  }
+</style>

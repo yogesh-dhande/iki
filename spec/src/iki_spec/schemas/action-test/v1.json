@@ -7,8 +7,8 @@
   "required": ["apiVersion", "kind", "action"],
   "additionalProperties": false,
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "ActionTest" },
+    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
+    "kind": { "description": "What this manifest is: `ActionTest`.", "const": "ActionTest" },
     "name": {
       "description": "What the test is called in its report. Unique in the plugin. The file's name, and the document's number if it holds several, unless given.",
       "type": "string",
@@ -16,6 +16,7 @@
       "maxLength": 100
     },
     "description": {
+      "description": "What the test checks, for whoever reads its report.",
       "type": "string",
       "maxLength": 2000
     },
@@ -58,15 +59,21 @@
               "description": "Its type, if it's a subtype of the input's: `namespace/plugin.Type`.",
               "type": "string"
             },
-            "values": { "type": "object" },
+            "values": { "description": "Its fields' values, by name.", "type": "object" },
             "request": {
               "description": "For a request (ADR 0132): the project that asked, and the service it was sent to, as the server gives them (ADR 0232). The service is the test's project, `service`, unless given; null for a request not sent yet.",
               "type": "object",
               "required": ["asking_project"],
               "additionalProperties": false,
               "properties": {
-                "asking_project": { "$ref": "#/$defs/project" },
-                "service": { "oneOf": [{ "$ref": "#/$defs/project" }, { "type": "null" }] }
+                "asking_project": {
+                  "description": "The project that asked, which owns the request.",
+                  "$ref": "#/$defs/project"
+                },
+                "service": {
+                  "description": "The service it was sent to, or null until it's sent.",
+                  "oneOf": [{ "$ref": "#/$defs/project" }, { "type": "null" }]
+                }
               }
             },
             "included": {
@@ -84,7 +91,7 @@
                       "description": "Its type, if it's a subtype of the one the reference names.",
                       "type": "string"
                     },
-                    "values": { "type": "object" }
+                    "values": { "description": "Its fields' values, by name.", "type": "object" }
                   }
                 }
               }
@@ -126,13 +133,19 @@
   "then": { "required": ["upgrade"], "properties": { "upgrade": { "const": true } } },
   "$defs": {
     "project": {
+      "description": "A project, as the other side's people see it.",
       "type": "object",
       "required": ["slug", "name"],
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "format": "uuid" },
-        "slug": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "name": { "type": "string", "minLength": 1, "maxLength": 200 }
+        "id": { "description": "Its ID.", "type": "string", "format": "uuid" },
+        "slug": {
+          "description": "Its slug, which never changes.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "name": { "description": "Its name.", "type": "string", "minLength": 1, "maxLength": 200 }
       }
     },
     "hrid": {

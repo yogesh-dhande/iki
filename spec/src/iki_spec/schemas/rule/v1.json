@@ -66,6 +66,7 @@
           "required": ["reviewed_by"],
           "properties": {
             "reviewed_by": {
+              "description": "The lab roles that may review a held record: someone with one of them, other than whoever held it.",
               "type": "array",
               "minItems": 1,
               "maxItems": 10,
@@ -93,9 +94,11 @@
           "required": ["from", "to"],
           "properties": {
             "from": {
+              "description": "The field where a range starts.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "to": {
+              "description": "The field where it ends, of the same kind as `from`.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "per": {

@@ -1,0 +1,163 @@
+---
+title: Show records in viewers and components
+description: Configure Iki's own viewers on a type's pages by naming fields, and add a component of your own for what they can't show.
+audience: build
+order: 160
+reference:
+  - { label: A type's viewers, href: /reference/plugin-spec/entity-type/#display.viewers }
+  - { label: Component manifest, href: /reference/plugin-spec/component/ }
+---
+
+## Iki's viewers
+
+A type shows its records in Iki's own viewers by naming the fields they show, under
+[`display.viewers`](/reference/plugin-spec/entity-type/#display.viewers). Each viewer is a tab on
+its records' pages, and on its subtypes' pages too unless they declare their own. No code of
+yours runs: you configure what Iki has. The DNA plugin's sequences show their bases with their
+features along them:
+
+```yaml
+# plugins/dna/types/dna_sequence.yaml
+display:
+  title: "{{ name or accession or hrid }}"
+  viewers:
+    - { viewer: sequence, sequence: bases, features: features }
+```
+
+Each viewer is given once, and [`label`](/reference/plugin-spec/entity-type/#display.viewers.label)
+names its tab. The validator checks that each field exists and is what its viewer shows.
+
+| Viewer      | What it shows, from which fields                                                                                                                                                                                                                                                                                                                                                         |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sequence`  | The residues of a [`sequence`](/reference/plugin-spec/entity-type/#display.viewers.sequence) field, in rows of 60 in groups of 10, with its [`features`](/reference/plugin-spec/entity-type/#display.viewers.features) as bars under the residues they cover and in a table, and [`tracks`](/reference/plugin-spec/entity-type/#display.viewers.tracks) of one number per residue under them |
+| `structure` | The file in a [`structure`](/reference/plugin-spec/entity-type/#display.viewers.structure) field, whose formats use the `structure-pdb` or `structure-mmcif` viewer, in Mol\*, in a sandboxed frame with no network |
+| `alignment` | The aligned file in an [`alignment`](/reference/plugin-spec/entity-type/#display.viewers.alignment) field, whose formats use the `alignment` viewer, FASTA and plain text among them, read in a Web Worker, with the [`rows`](/reference/plugin-spec/entity-type/#display.viewers.rows) linked to the records they are and the [`reference`](/reference/plugin-spec/entity-type/#display.viewers.reference) pinned at the top                                      |
+
+- A sequence is shown as it's stored, so an RNA's U stays U, with its length in bp for DNA, nt for
+  RNA and residues for a protein. A feature whose end comes before its start wraps the origin of
+  a circular sequence. A track is drawn on a scale from its field's schema's `minimum` and
+  `maximum`, if it gives them.
+- The alignment viewer draws what's in view, with a consensus and how much each column agrees,
+  and its rows can be picked to run an action on.
+- Which file formats each viewer reads is in [File formats](/reference/file-formats/).
+- A viewer's tab lists the views it's in, and saves what it shows as an `iki/core.View`, on the
+  revision it shows, with other records beside it if wanted.
+
+## Components
+
+A component is a piece of UI your plugin adds to Iki's pages, for what Iki's own pages can't show,
+such as a sheet of tube labels or a calendar of bookings. It's a Web Component, in one JavaScript
+module with everything it needs bundled in, and Iki runs it in a sandboxed frame: no network, and
+no access to the person's session or to Iki's pages. Iki gives it the data it shows, as the person
+viewing it may read it, and does what it asks for itself.
+
+The storage labels example's `sample_label` (`examples/plugins/storage_labels`) shows a sample's
+tube label on its page, and a sheet of labels for the samples a grid finds:
+
+```yaml
+# components/sample_label.yaml
+apiVersion: iki/v1
+kind: Component
+name: sample_label
+label: Label
+description: The sample's label, as it's printed for its tube.
+module: ./components/sample-label.js
+element: storage-sample-label
+entities: { type: Sample, fields: [name, kind, storage], limit: 200 }
+slots:
+  - { slot: entity.tab, type: Sample }
+  - { slot: search.results, label: Labels }
+```
+
+- [`module`](/reference/plugin-spec/component/#module) is the JavaScript file, up to 10 MiB, which
+  defines the custom element [`element`](/reference/plugin-spec/component/#element) names with
+  `customElements.define`. The element's name is lower case, with a hyphen.
+- On an [`entity.tab`](/reference/plugin-spec/component/#slots.slot), a tab on the pages of
+  records of [`type`](/reference/plugin-spec/component/#slots.type) and its subtypes, called its
+  `label` or the component's, Iki sets the element's `entity` property to the record whose page
+  it's on, as the person may read it: its `hrid`, `title` and `values`.
+- A component that lets people pick records declares
+  [`events.select`](/reference/plugin-spec/component/#events.select) with their type, and sends
+  `iki-select` events whose `detail.entities` lists the picked records' HRIDs. The page shows what
+  was picked, among what the person may read, and offers to run an action on them.
+- One that offers to run its plugin's actions on the record whose tab it is lists them under
+  [`events.run`](/reference/plugin-spec/component/#events.run.actions), and sends `iki-run` with
+  the action's name; Iki opens the run page with the action and the record chosen, where the
+  person checks and starts it.
+
+The `@ikisci/component` package has the types of everything Iki gives a component and takes from
+it, and helpers for writing one.
+
+### Components that show many records
+
+A component can show many records at once, such as a box map, a bookings calendar or a sheet of
+labels, by declaring which it reads in [`entities`](/reference/plugin-spec/component/#entities):
+a type, the fields it reads of each, and how many it may hold, at most 1,000. It can then fill
+more places than a tab, each with a search of its own or one it's given. The Equipment plugin's
+calendar of instrument bookings fills all four:
+
+```yaml
+# plugins/equipment/components/booking_calendar.yaml
+entities:
+  type: Booking
+  fields: [purpose, instrument, starts_at, ends_at, booked_by, work, cancelled]
+  limit: 1000
+slots:
+  - slot: entity.tab
+    type: Instrument
+    label: Bookings
+    search: { where: { field: instrument, op: eq, value: "{{ entity }}" }, sort: starts_at }
+  - { slot: search.results, label: Calendar }
+  - { slot: project.page, label: Instrument bookings, search: { sort: starts_at } }
+  - slot: person.home # the time booked for them, by them or by someone else
+    label: Your bookings
+    search:
+      where:
+        any:
+          - { field: booked_by, op: eq, value: "{{ me }}" }
+          - all:
+              - { field: created_by, op: eq, value: "{{ me }}" }
+              - { field: booked_by, op: is_set, value: false }
+      sort: starts_at
+```
+
+A booking can be made for someone else, in its `booked_by` field, and name the record it's for,
+such as a request, in `work`. It's on the home of the person it's for, or of whoever booked it
+when nobody else is named. The plugin's `bookings_made` component shows each person the time they
+booked for others, and both calendars leave cancelled bookings out unless the person viewing them
+chooses **Show cancelled**.
+
+| Slot             | What it's given                                                                                |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| `entity.tab`     | The record whose page it is; with a `search`, what that finds in the record's project          |
+| `search.results` | What the grid's search finds, as the person set it, offered under "Show as"; it has no search |
+| `project.page`   | What its `search` finds in the project; the section shows once it finds something              |
+| `person.home`    | What its `search` finds in every project the person reads; it names `{{ me }}`                 |
+
+- A [`search`](/reference/plugin-spec/component/#slots.search) is the REST API's, of
+  `entities.type`: [`where`](/reference/plugin-spec/component/#slots.search.where) conditions on
+  its fields and `hrid`, `created_by`, `created_at` and `updated_at`, at most 20 and 4 levels deep,
+  and a field to [`sort`](/reference/plugin-spec/component/#slots.search.sort) by. `{{ entity }}`
+  is the record whose page it is, for a reference to its type; `{{ me }}` is whoever reads it, for
+  `created_by`, `assigned` or a field naming people; `{{ now }}` is now, for a date or datetime
+  field.
+- Iki's server runs the search as the person may read, and the element gets the results as its
+  `entities` property: `items`, each with `id`, `hrid`, `title`, `type`, `revision`, `project`,
+  the declared fields in `values` and the records those fields name in `refs`, a page at a time.
+  Its `place` property says which slot it's in.
+- It may send `iki-more` for the next page, `iki-refine` to narrow what it shows, with conditions
+  on only the fields it reads, and `iki-open` with an HRID it was given, which Iki opens.
+- An `iki-open` event with `{entity: recordUuid, revision: number}` opens that historical revision
+  as JSON. Iki requires an exact `record_id` and positive `record_revision` pair in a row of the
+  given record, with a readable reference to the record or its `entry_id`, and a registry pin can
+  open the matching `entry_id` and `entry_revision`. The server checks access to each revision.
+- It can't widen what its place shows, and it writes nothing: picking records offers Iki's run
+  page, as on a tab.
+
+### What the validator and the build check
+
+The validator checks that the module is a text file in your plugin, not a symbolic link, and at
+most 10 MiB, that the types named exist, and that no two components define the same element. It
+checks each search's fields, operators, sort and context, and that each slot is declared once. The
+build copies each module with the digest it had then, and the server checks the digest before
+serving it.

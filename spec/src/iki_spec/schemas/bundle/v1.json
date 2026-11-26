@@ -20,9 +20,11 @@
   ],
   "properties": {
     "apiVersion": {
+      "description": "The spec version this document follows.",
       "const": "iki/v1"
     },
     "kind": {
+      "description": "What this document is: `Bundle`.",
       "const": "Bundle"
     },
     "id": {
@@ -76,17 +78,21 @@
       "required": ["id", "team", "name", "slug"],
       "properties": {
         "id": {
+          "description": "The project's ID on the source deployment.",
           "$ref": "#/$defs/uuid"
         },
         "team": {
+          "description": "The name of the team it belongs to.",
           "type": "string",
           "maxLength": 200
         },
         "name": {
+          "description": "Its name.",
           "type": "string",
           "maxLength": 200
         },
         "slug": {
+          "description": "Its slug, as its addresses use it.",
           "type": "string",
           "maxLength": 200
         }
@@ -106,10 +112,12 @@
       }
     },
     "counts": {
+      "description": "How many of each the bundle holds.",
       "type": "object",
       "required": ["entities", "revisions", "files", "outside"],
       "properties": {
         "entities": {
+          "description": "Its entities: the lines of `entities.ndjson`.",
           "$ref": "#/$defs/count"
         },
         "entries": {
@@ -117,15 +125,19 @@
           "$ref": "#/$defs/count"
         },
         "revisions": {
+          "description": "Its entities' revisions, all told.",
           "$ref": "#/$defs/count"
         },
         "files": {
+          "description": "Its files: the lines of `files.ndjson`.",
           "$ref": "#/$defs/count"
         },
         "outside": {
+          "description": "The entities it refers to that aren't in it: the lines of `outside.ndjson`.",
           "$ref": "#/$defs/count"
         },
         "runs": {
+          "description": "Its runs: the lines of `runs.ndjson`.",
           "$ref": "#/$defs/count"
         },
         "signatures": {
@@ -152,9 +164,11 @@
         "additionalProperties": false,
         "properties": {
           "key": {
+            "description": "A public key, as `ed25519:` and the key's 32 bytes in unpadded base64url.",
             "$ref": "#/$defs/publicKey"
           },
           "deployment": {
+            "description": "The deployment the source trusts it as, such as `prod`.",
             "type": "string",
             "minLength": 1,
             "maxLength": 100
@@ -191,14 +205,16 @@
       "required": ["path", "sha256", "size"],
       "properties": {
         "path": {
-          "description": "`people.ndjson`, `agents.ndjson`, `files.ndjson`, `entries.ndjson`, `entities.ndjson`, `outside.ndjson`, `runs.ndjson`, or `blobs/sha256/` and a file's SHA-256 for its bytes.",
+          "description": "`people.ndjson`, `agents.ndjson`, `files.ndjson`, `entries.ndjson`, `entities.ndjson`, `outside.ndjson`, `runs.ndjson`, `signatures.ndjson`, or `blobs/sha256/` and a file's SHA-256 for its bytes.",
           "type": "string",
           "pattern": "^([a-z]+\\.ndjson|blobs/sha256/[0-9a-f]{64})$"
         },
         "sha256": {
+          "description": "The SHA-256 of its bytes, in hex.",
           "$ref": "#/$defs/sha256"
         },
         "size": {
+          "description": "Its size, in bytes.",
           "$ref": "#/$defs/count"
         }
       },
@@ -213,6 +229,7 @@
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginName"
         },
         "version": {
+          "description": "Its release, such as `1.2.0`, as installed.",
           "type": "string",
           "maxLength": 100
         },
@@ -229,6 +246,7 @@
             "required": ["units"],
             "properties": {
               "units": {
+                "description": "Each quantity field's unit, by field name, which its values (in history too) are in.",
                 "type": "object",
                 "additionalProperties": {
                   "type": "string"
@@ -246,6 +264,7 @@
             "required": ["schema_version", "units"],
             "properties": {
               "schema_version": {
+                "description": "The type's schema version, which an import needs the type to have where it lands.",
                 "type": "integer",
                 "minimum": 1
               },
@@ -269,16 +288,20 @@
       "required": ["id", "kind", "email", "name"],
       "properties": {
         "id": {
+          "description": "The person's ID on the source deployment, which the bundle's other lines name them by.",
           "$ref": "#/$defs/uuid"
         },
         "kind": {
+          "description": "`person` for someone who signs in, `service` for a service account.",
           "enum": ["person", "service"]
         },
         "email": {
+          "description": "The person's email address, which matches them to a person where the bundle is imported.",
           "type": "string",
           "maxLength": 320
         },
         "name": {
+          "description": "Their name, which the placeholder an import makes for them takes if nobody matches.",
           "type": "string",
           "maxLength": 200
         }
@@ -301,20 +324,25 @@
       ],
       "properties": {
         "id": {
+          "description": "The agent's ID on the source deployment, which revisions, files and runs name it by.",
           "$ref": "#/$defs/uuid"
         },
         "key": {
+          "description": "A SHA-256 digest of the rest, in hex, which finds the agent again: an import uses the agent with the same key if there is one.",
           "$ref": "#/$defs/sha256"
         },
         "client_id": {
+          "description": "The ID of the OAuth client it acted through.",
           "type": "string",
           "maxLength": 255
         },
         "client_name": {
+          "description": "The client's name when the agent first acted.",
           "type": "string",
           "maxLength": 255
         },
         "grant": {
+          "description": "The person's grant the client acted under, or null for a service account's own credential.",
           "anyOf": [
             {
               "$ref": "#/$defs/uuid"
@@ -325,14 +353,17 @@
           ]
         },
         "session": {
+          "description": "The MCP session it acted in, or empty for MCP 2026-07-28 and later, which have none.",
           "type": "string",
           "maxLength": 64
         },
         "software": {
+          "description": "The software it says it is, from MCP's `clientInfo`. Iki can't check it.",
           "type": "string",
           "maxLength": 255
         },
         "model": {
+          "description": "The model it says it is, from the `Iki-Agent-Model` header. Iki can't check it.",
           "type": "string",
           "maxLength": 255
         },
@@ -358,14 +389,17 @@
       ],
       "properties": {
         "id": {
+          "description": "The file's ID, which it keeps where it's imported.",
           "$ref": "#/$defs/uuid"
         },
         "name": {
+          "description": "The file's name, as it was added.",
           "type": "string",
           "minLength": 1,
           "maxLength": 255
         },
         "media_type": {
+          "description": "Its media type, such as `chemical/x-pdb`.",
           "type": "string",
           "maxLength": 255
         },
@@ -373,6 +407,7 @@
           "$ref": "#/$defs/time"
         },
         "created_by": {
+          "description": "Who added it, from `people.ndjson`, or null.",
           "anyOf": [
             {
               "$ref": "#/$defs/uuid"
@@ -383,6 +418,7 @@
           ]
         },
         "agent": {
+          "description": "The agent that added it for them, from `agents.ndjson`, or null.",
           "anyOf": [
             {
               "$ref": "#/$defs/uuid"
@@ -393,9 +429,11 @@
           ]
         },
         "sha256": {
+          "description": "The SHA-256 of its bytes, in hex.",
           "$ref": "#/$defs/sha256"
         },
         "size": {
+          "description": "Its size, in bytes.",
           "$ref": "#/$defs/count"
         },
         "registered": {
@@ -406,10 +444,12 @@
               "required": ["uri", "version"],
               "properties": {
                 "uri": {
+                  "description": "Where its bytes are, such as `s3://bucket/key`.",
                   "type": "string",
                   "maxLength": 2000
                 },
                 "version": {
+                  "description": "The object's version there, as its store names it, or empty if it has none.",
                   "type": "string",
                   "maxLength": 1024
                 }
@@ -429,14 +469,17 @@
               "required": ["on", "at", "source"],
               "properties": {
                 "on": {
+                  "description": "The day its data was acquired, for finding it by date.",
                   "type": "string",
                   "format": "date"
                 },
                 "at": {
+                  "description": "The moment, as precisely as its source gave it: a date, or a date and time with or without an offset.",
                   "type": "string",
                   "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\\.[0-9]{1,9})?)?(Z|[+-][0-9]{2}:[0-9]{2})?)?$"
                 },
                 "source": {
+                  "description": "How that's known: `given`, or the format that records it, such as `abif`.",
                   "type": "string",
                   "pattern": "^[a-z][a-z0-9-]{0,15}$"
                 }
@@ -470,20 +513,90 @@
             "type": "object",
             "required": ["ID"],
             "properties": {
-              "ID": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "BC": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "CN": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "DS": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "DT": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "FO": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "KS": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "LB": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "PG": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "PI": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "PL": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "PM": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "PU": { "type": "string", "minLength": 1, "maxLength": 1024 },
-              "SM": { "type": "string", "minLength": 1, "maxLength": 1024 }
+              "ID": {
+                "description": "The read group's identifier, unique in the file.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "BC": {
+                "description": "The barcode sequence that identifies the sample or library.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "CN": {
+                "description": "The sequencing center that produced the reads.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "DS": {
+                "description": "A description of the read group.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "DT": {
+                "description": "When the run was produced, as an ISO 8601 date or date-time.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "FO": {
+                "description": "The flow order, for flow-based platforms.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "KS": {
+                "description": "The key sequence of each read, for flow-based platforms.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "LB": {
+                "description": "The library the reads came from.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "PG": {
+                "description": "The programs that processed the read group.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "PI": {
+                "description": "The predicted median insert size, in bases.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "PL": {
+                "description": "The sequencing platform, such as `ILLUMINA`, `ONT` or `PACBIO`.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "PM": {
+                "description": "The platform model, such as the instrument's name.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "PU": {
+                "description": "The platform unit: the flow cell and lane, or the cell, the reads came from.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "SM": {
+                "description": "The sample the reads came from: a pool's name, if pooled.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              }
             },
             "additionalProperties": false
           }
@@ -496,8 +609,18 @@
       "type": "object",
       "required": ["value", "stated_in"],
       "properties": {
-        "value": { "type": "string", "minLength": 1, "maxLength": 255 },
-        "stated_in": { "type": "string", "minLength": 1, "maxLength": 200 }
+        "value": {
+          "description": "The value, as the file states it.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "stated_in": {
+          "description": "Where in the file it's stated, such as `FCS keyword $CYT`.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
       },
       "additionalProperties": false
     },
@@ -516,6 +639,7 @@
       ],
       "properties": {
         "id": {
+          "description": "The entity's ID, which it keeps where it's imported.",
           "$ref": "#/$defs/uuid"
         },
         "type": {
@@ -532,6 +656,7 @@
           "$ref": "#/$defs/time"
         },
         "created_by": {
+          "description": "Who created it, from `people.ndjson`, or null.",
           "anyOf": [
             {
               "$ref": "#/$defs/uuid"
@@ -541,8 +666,12 @@
             }
           ]
         },
-        "has_been_locked": { "type": "boolean" },
+        "has_been_locked": {
+          "type": "boolean",
+          "description": "Whether a state has ever locked it, even if none does now. Iki keeps this once it's true."
+        },
         "archived_at": {
+          "description": "When it was archived, or null if it isn't.",
           "anyOf": [
             {
               "$ref": "#/$defs/time"
@@ -590,13 +719,16 @@
       ],
       "properties": {
         "id": {
+          "description": "The revision's ID, which it keeps where it's imported.",
           "$ref": "#/$defs/uuid"
         },
         "number": {
+          "description": "1 for the entity's creation, then 2, 3, and so on.",
           "type": "integer",
           "minimum": 1
         },
         "kind": {
+          "description": "What it did: created, edited, archived or restored the entity, set values through a plugin upgrade's migration, moved it from a superseded registry entry to the one that replaced it, or set one of its state fields.",
           "enum": [
             "created",
             "edited",
@@ -608,6 +740,7 @@
           ]
         },
         "changed_fields": {
+          "description": "The fields whose values it set.",
           "type": "array",
           "items": {
             "type": "string",
@@ -615,6 +748,7 @@
           }
         },
         "user": {
+          "description": "Who made it, from `people.ndjson`, or null.",
           "anyOf": [
             {
               "$ref": "#/$defs/uuid"
@@ -625,14 +759,17 @@
           ]
         },
         "via": {
+          "description": "How it was made: `web`, `api`, `mcp`, `cli` or `system`, or `run` for a run's results.",
           "type": "string",
           "maxLength": 16
         },
         "client": {
+          "description": "The OAuth app it came through, if any, as the audit log names it.",
           "type": "string",
           "maxLength": 255
         },
         "agent": {
+          "description": "The agent that made it for `user`, from `agents.ndjson`, or null.",
           "anyOf": [
             {
               "$ref": "#/$defs/uuid"
@@ -643,6 +780,7 @@
           ]
         },
         "reason": {
+          "description": "Why, if the person said; empty otherwise.",
           "type": "string"
         },
         "created_at": {
@@ -655,14 +793,17 @@
           "additionalProperties": false,
           "properties": {
             "field": {
+              "description": "The state field set.",
               "type": "string",
               "maxLength": 50
             },
             "from": {
+              "description": "The state it went from.",
               "type": "string",
               "maxLength": 50
             },
             "to": {
+              "description": "The state it went to.",
               "type": "string",
               "maxLength": 50
             }
@@ -690,6 +831,7 @@
           "pattern": "^([a-z][a-z0-9_]*/[a-z][a-z0-9_]*:)?[a-z][a-z0-9_]*/[a-z][a-z0-9_]*\\.[A-Z][A-Za-z0-9]*$"
         },
         "revision": {
+          "description": "The entity's revision at which the table had these values.",
           "type": "integer",
           "minimum": 1
         },
@@ -706,6 +848,7 @@
       "required": ["id", "type", "hrid", "values"],
       "properties": {
         "id": {
+          "description": "The entry's ID on the source deployment, which its records' `entry` names.",
           "$ref": "#/$defs/uuid"
         },
         "type": {
@@ -731,13 +874,16 @@
       "required": ["id", "hrid", "type", "why"],
       "properties": {
         "id": {
+          "description": "The entity's ID.",
           "$ref": "#/$defs/uuid"
         },
         "hrid": {
+          "description": "Its HRID on the source deployment, or null.",
           "type": ["string", "null"],
           "maxLength": 32
         },
         "type": {
+          "description": "Its type, such as `iki/dna.Plasmid`, or null.",
           "type": ["string", "null"],
           "maxLength": 81
         },
@@ -787,6 +933,7 @@
       ],
       "properties": {
         "id": {
+          "description": "The run's ID, which it keeps where it's imported.",
           "$ref": "#/$defs/uuid"
         },
         "hrid": {
@@ -800,6 +947,7 @@
           "maxLength": 200
         },
         "plugin_version": {
+          "description": "The release of its action's plugin it ran with.",
           "type": "string",
           "maxLength": 100
         },
@@ -815,10 +963,13 @@
         "reference_mask": {
           "description": "Typed positions shown as unreadable in its pinned worker input.",
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "uniqueItems": true
         },
         "requested_by": {
+          "description": "Who asked for it, from `people.ndjson`, or null.",
           "anyOf": [
             {
               "$ref": "#/$defs/uuid"
@@ -829,14 +980,17 @@
           ]
         },
         "via": {
+          "description": "How it was asked for: `web`, `api`, `mcp`, `cli`, `trigger` or `system`.",
           "type": "string",
           "maxLength": 16
         },
         "client": {
+          "description": "The OAuth app it was asked for through, if any, as the audit log names it.",
           "type": "string",
           "maxLength": 255
         },
         "agent": {
+          "description": "The agent that asked for the person, from `agents.ndjson`, or null.",
           "anyOf": [
             {
               "$ref": "#/$defs/uuid"
@@ -847,17 +1001,21 @@
           ]
         },
         "reason": {
+          "description": "Why, if the person said; empty otherwise.",
           "type": "string"
         },
         "tier": {
+          "description": "Where it ran: `self_hosted`, `backend`, `container` or `vm`, or `server` for Iki's own.",
           "type": "string",
           "maxLength": 16
         },
         "environment": {
+          "description": "The environment, as its action names it, that it ran in.",
           "type": "string",
           "maxLength": 63
         },
         "params": {
+          "description": "Every param's value, by name, with defaults filled in.",
           "type": "object"
         },
         "plugin_settings": {
@@ -865,6 +1023,7 @@
           "type": "object"
         },
         "seed": {
+          "description": "The seed for its command's random numbers, given as `IKI_SEED`, or null for a run from before seeds.",
           "anyOf": [
             {
               "type": "integer",
@@ -883,6 +1042,7 @@
           "$ref": "#/$defs/time"
         },
         "started_at": {
+          "description": "When it started, or null if it never did.",
           "anyOf": [
             {
               "$ref": "#/$defs/time"
@@ -893,6 +1053,7 @@
           ]
         },
         "finished_at": {
+          "description": "When it ended, or null.",
           "anyOf": [
             {
               "$ref": "#/$defs/time"
@@ -906,13 +1067,16 @@
           "description": "Why it failed, if it did."
         },
         "timeout": {
+          "description": "The seconds each attempt may run.",
           "$ref": "#/$defs/count"
         },
         "max_attempts": {
+          "description": "The attempts it may take: its first, and its retries.",
           "type": "integer",
           "minimum": 1
         },
         "retry_on": {
+          "description": "The failures it's retried after, such as `worker_lost` and `interrupted`.",
           "type": "array"
         },
         "reproduction": {
@@ -924,15 +1088,18 @@
           "required": ["batch", "reproduces", "reused_from", "workflow"],
           "properties": {
             "batch": {
+              "description": "The batch it was launched in, or null.",
               "anyOf": [
                 {
                   "type": "object",
                   "required": ["hrid", "id"],
                   "properties": {
                     "id": {
+                      "description": "The batch's ID on the source deployment.",
                       "$ref": "#/$defs/uuid"
                     },
                     "hrid": {
+                      "description": "Its HRID there, such as `BAT-000123`.",
                       "type": "string",
                       "maxLength": 32
                     }
@@ -945,19 +1112,23 @@
               ]
             },
             "workflow": {
+              "description": "The workflow run it's a step of, or null.",
               "anyOf": [
                 {
                   "type": "object",
                   "required": ["hrid", "id", "step"],
                   "properties": {
                     "id": {
+                      "description": "The workflow run's ID on the source deployment.",
                       "$ref": "#/$defs/uuid"
                     },
                     "hrid": {
+                      "description": "Its HRID there, such as `WF-000123`.",
                       "type": "string",
                       "maxLength": 32
                     },
                     "step": {
+                      "description": "The step's ID in the workflow.",
                       "type": "string",
                       "maxLength": 63
                     }
@@ -970,15 +1141,18 @@
               ]
             },
             "reused_from": {
+              "description": "The identical run whose results it reused instead of running, or null.",
               "anyOf": [
                 {
                   "type": "object",
                   "required": ["hrid", "id"],
                   "properties": {
                     "id": {
+                      "description": "That run's ID on the source deployment.",
                       "$ref": "#/$defs/uuid"
                     },
                     "hrid": {
+                      "description": "Its HRID there, such as `RUN-000123`.",
                       "type": "string",
                       "maxLength": 32
                     }
@@ -991,15 +1165,18 @@
               ]
             },
             "reproduces": {
+              "description": "The run it reproduced, comparing its results with that run's, or null.",
               "anyOf": [
                 {
                   "type": "object",
                   "required": ["hrid", "id"],
                   "properties": {
                     "id": {
+                      "description": "That run's ID on the source deployment.",
                       "$ref": "#/$defs/uuid"
                     },
                     "hrid": {
+                      "description": "Its HRID there, such as `RUN-000123`.",
                       "type": "string",
                       "maxLength": 32
                     }
@@ -1015,6 +1192,7 @@
           "additionalProperties": false
         },
         "approval": {
+          "description": "Who decided on it, when an agent asked for it; null when none did.",
           "anyOf": [
             {
               "description": "Who approved it, when an agent asked for it (ADR 0072).",
@@ -1031,10 +1209,12 @@
               ],
               "properties": {
                 "state": {
+                  "description": "`pending`, `approved`, `declined`, or `expired` when nobody decided in time.",
                   "type": "string",
                   "maxLength": 16
                 },
                 "requested_by": {
+                  "description": "The person the agent asked for, who alone could decide, from `people.ndjson`.",
                   "anyOf": [
                     {
                       "$ref": "#/$defs/uuid"
@@ -1045,6 +1225,7 @@
                   ]
                 },
                 "agent": {
+                  "description": "The agent that asked, from `agents.ndjson`, or null.",
                   "anyOf": [
                     {
                       "$ref": "#/$defs/uuid"
@@ -1055,6 +1236,7 @@
                   ]
                 },
                 "client": {
+                  "description": "The OAuth app that asked, as the audit log names it.",
                   "type": "string",
                   "maxLength": 255
                 },
@@ -1062,6 +1244,7 @@
                   "$ref": "#/$defs/time"
                 },
                 "decided_by": {
+                  "description": "Who decided, from `people.ndjson`, or null if nobody did.",
                   "anyOf": [
                     {
                       "$ref": "#/$defs/uuid"
@@ -1072,6 +1255,7 @@
                   ]
                 },
                 "decided_at": {
+                  "description": "When they decided, or null.",
                   "anyOf": [
                     {
                       "$ref": "#/$defs/time"
@@ -1082,6 +1266,7 @@
                   ]
                 },
                 "note": {
+                  "description": "Why it was declined, if the person said.",
                   "type": "string"
                 }
               },
@@ -1093,22 +1278,27 @@
           ]
         },
         "inputs": {
+          "description": "Each entity it was given, at the revision it read.",
           "type": "array",
           "items": {
             "type": "object",
             "required": ["entity", "name", "position", "revision"],
             "properties": {
               "name": {
+                "description": "The action's input it was given for.",
                 "type": "string",
                 "maxLength": 63
               },
               "position": {
+                "description": "Its place among that input's entities, from 0.",
                 "$ref": "#/$defs/count"
               },
               "entity": {
+                "description": "The entity's ID: a line of `entities.ndjson`, or of `outside.ndjson` if it didn't go.",
                 "$ref": "#/$defs/uuid"
               },
               "revision": {
+                "description": "The entity's revision it read.",
                 "type": "integer",
                 "minimum": 1
               }
@@ -1122,12 +1312,42 @@
           "required": ["given_by", "via", "client", "agent", "statements", "given_at"],
           "additionalProperties": false,
           "properties": {
-            "given_by": { "$ref": "#/$defs/uuid" },
-            "via": { "type": "string", "maxLength": 16 },
-            "client": { "type": "string", "maxLength": 255 },
-            "agent": { "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] },
-            "statements": { "type": "array", "maxItems": 100, "items": { "type": "object" } },
-            "given_at": { "$ref": "#/$defs/time" }
+            "given_by": {
+              "description": "Who agreed, from `people.ndjson`.",
+              "$ref": "#/$defs/uuid"
+            },
+            "via": {
+              "description": "How: in the web app, through the API, or by approving an agent's request.",
+              "type": "string",
+              "maxLength": 16
+            },
+            "client": {
+              "description": "The OAuth app they agreed through, if any, as the audit log names it.",
+              "type": "string",
+              "maxLength": 255
+            },
+            "agent": {
+              "description": "The agent whose request they approved, from `agents.ndjson`, or null.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "statements": {
+              "description": "Each API, with what's sent and the statement shown: `api`, `label`, `host`, `purpose`, `inputs`, `params` and `statement`.",
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object"
+              }
+            },
+            "given_at": {
+              "$ref": "#/$defs/time"
+            }
           }
         },
         "api_calls": {
@@ -1157,32 +1377,112 @@
             ],
             "additionalProperties": false,
             "properties": {
-              "job": { "$ref": "#/$defs/uuid" },
-              "kind": { "enum": ["call", "poll", "cancel"] },
-              "api": { "type": "string", "maxLength": 200 },
-              "host": { "type": "string", "maxLength": 253 },
-              "method": { "type": "string", "maxLength": 16 },
-              "path": { "type": "string", "maxLength": 2000 },
-              "status": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
-              "error": { "type": "string", "maxLength": 500 },
-              "started_at": { "$ref": "#/$defs/time" },
-              "duration_ms": { "type": "integer", "minimum": 0 },
-              "request_bytes": { "type": "integer", "minimum": 0 },
-              "response_bytes": { "type": "integer", "minimum": 0 },
-              "request_sha256": { "type": "string", "pattern": "^([0-9a-f]{64})?$" },
-              "response_sha256": { "type": "string", "pattern": "^([0-9a-f]{64})?$" },
-              "model": { "type": "string", "maxLength": 200 },
-              "version": { "type": "string", "maxLength": 200 },
-              "parameters": { "type": "object" },
-              "usage": { "type": "object" },
+              "job": {
+                "description": "The ID of the attempt it was made for.",
+                "$ref": "#/$defs/uuid"
+              },
+              "kind": {
+                "description": "`call`: a request the run's command made. `poll`: asking after a parked run's job. `cancel`: asking the API to cancel it.",
+                "enum": ["call", "poll", "cancel"]
+              },
+              "api": {
+                "description": "The API, as `plugin.api`.",
+                "type": "string",
+                "maxLength": 200
+              },
+              "host": {
+                "description": "The host it went to.",
+                "type": "string",
+                "maxLength": 253
+              },
+              "method": {
+                "description": "The HTTP method.",
+                "type": "string",
+                "maxLength": 16
+              },
+              "path": {
+                "description": "The path, without the query, which may hold data.",
+                "type": "string",
+                "maxLength": 2000
+              },
+              "status": {
+                "description": "The HTTP status the API answered, or null if it didn't answer.",
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "description": "Why the call failed, or empty.",
+                "type": "string",
+                "maxLength": 500
+              },
+              "started_at": {
+                "$ref": "#/$defs/time"
+              },
+              "duration_ms": {
+                "description": "How long it took, in milliseconds.",
+                "type": "integer",
+                "minimum": 0
+              },
+              "request_bytes": {
+                "description": "The bytes sent.",
+                "type": "integer",
+                "minimum": 0
+              },
+              "response_bytes": {
+                "description": "The bytes received.",
+                "type": "integer",
+                "minimum": 0
+              },
+              "request_sha256": {
+                "description": "The SHA-256 of the request body, in hex, or empty.",
+                "type": "string",
+                "pattern": "^([0-9a-f]{64})?$"
+              },
+              "response_sha256": {
+                "description": "The SHA-256 of the response body as the API sent it, in hex, or empty.",
+                "type": "string",
+                "pattern": "^([0-9a-f]{64})?$"
+              },
+              "model": {
+                "description": "The model the answer said answered, where the plugin says to find it, or empty.",
+                "type": "string",
+                "maxLength": 200
+              },
+              "version": {
+                "description": "The model's version the answer gave, where the plugin says to find it, or empty.",
+                "type": "string",
+                "maxLength": 200
+              },
+              "parameters": {
+                "description": "The request's parameters the plugin declares, by JSON pointer, as sent.",
+                "type": "object"
+              },
+              "usage": {
+                "description": "The usage the answer reported, by the names the plugin declares, such as `gpu_seconds`.",
+                "type": "object"
+              },
               "cost": {
                 "description": "The price recorded for the call at its source deployment, as provenance.",
                 "type": "object",
                 "required": ["amount", "currency"],
                 "additionalProperties": false,
                 "properties": {
-                  "amount": { "type": "string", "pattern": "^-?[0-9]{1,8}(\\.[0-9]{1,6})?$" },
-                  "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }
+                  "amount": {
+                    "description": "The price, as a decimal string.",
+                    "type": "string",
+                    "pattern": "^-?[0-9]{1,8}(\\.[0-9]{1,6})?$"
+                  },
+                  "currency": {
+                    "description": "Its ISO 4217 currency code, such as `USD`.",
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  }
                 }
               }
             }
@@ -1197,14 +1497,17 @@
             "additionalProperties": false,
             "properties": {
               "entity": {
+                "description": "The entity it made: a line of `entities.ndjson`.",
                 "$ref": "#/$defs/uuid"
               },
               "software": {
+                "description": "The software, such as `ESMFold`.",
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 100
               },
               "version": {
+                "description": "Its version, or empty if it isn't known.",
                 "type": "string",
                 "maxLength": 100
               },
@@ -1225,26 +1528,35 @@
                 "description": "Direct input records covered by this included service request at launch.",
                 "type": "array",
                 "uniqueItems": true,
-                "items": { "type": "string", "format": "uuid" }
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
               },
               "input": {
+                "description": "The input whose entity's reference named it.",
                 "type": "string",
                 "maxLength": 63
               },
               "position": {
+                "description": "That entity's place among the input's, from 0.",
                 "$ref": "#/$defs/count"
               },
               "field": {
+                "description": "The reference field that named it.",
                 "type": "string",
                 "maxLength": 63
               },
               "index": {
+                "description": "Its place in that field: 0 for a single reference, its index in a list.",
                 "$ref": "#/$defs/count"
               },
               "entity": {
+                "description": "The entity it read: a line of `entities.ndjson` or `outside.ndjson`.",
                 "$ref": "#/$defs/uuid"
               },
               "revision": {
+                "description": "The entity's revision it read.",
                 "type": "integer",
                 "minimum": 1
               }
@@ -1260,13 +1572,16 @@
             "required": ["entity", "kind", "revision"],
             "properties": {
               "entity": {
+                "description": "The entity: a line of `entities.ndjson`.",
                 "$ref": "#/$defs/uuid"
               },
               "kind": {
+                "description": "`created`, `updated`, or `reused` when it made an entity that existed already.",
                 "type": "string",
                 "maxLength": 16
               },
               "revision": {
+                "description": "The revision it made, or null when it reused the entity or changed nothing.",
                 "anyOf": [
                   {
                     "type": "integer",
@@ -1282,22 +1597,27 @@
           }
         },
         "lineage": {
+          "description": "Which of the bundle's entities it made from which of its inputs, at which revisions.",
           "type": "array",
           "items": {
             "type": "object",
             "required": ["entity", "input", "parent", "parent_revision"],
             "properties": {
               "entity": {
+                "description": "The entity it made: a line of `entities.ndjson`.",
                 "$ref": "#/$defs/uuid"
               },
               "parent": {
+                "description": "The entity it made it from: a line of `entities.ndjson` or `outside.ndjson`.",
                 "$ref": "#/$defs/uuid"
               },
               "parent_revision": {
+                "description": "The parent's revision it read.",
                 "type": "integer",
                 "minimum": 1
               },
               "input": {
+                "description": "The run's input the parent was given as.",
                 "type": "string",
                 "maxLength": 63
               }
@@ -1324,9 +1644,11 @@
             ],
             "properties": {
               "entity": {
+                "description": "The entity it made from the record: a line of `entities.ndjson`.",
                 "$ref": "#/$defs/uuid"
               },
               "revision": {
+                "description": "The revision it made, or null when it found the entity already there.",
                 "anyOf": [
                   {
                     "type": "integer",
@@ -1338,22 +1660,27 @@
                 ]
               },
               "source": {
+                "description": "The source, such as `NCBI Nucleotide`.",
                 "type": "string",
                 "maxLength": 100
               },
               "identifier": {
+                "description": "The record's accession, or its name.",
                 "type": "string",
                 "maxLength": 255
               },
               "version": {
+                "description": "The record's version at the source, or empty.",
                 "type": "string",
                 "maxLength": 100
               },
               "url": {
+                "description": "The record's address, or empty.",
                 "type": "string",
                 "maxLength": 2000
               },
               "retrieved_at": {
+                "description": "When it was retrieved, or null if that isn't known.",
                 "anyOf": [
                   {
                     "$ref": "#/$defs/time"
@@ -1364,10 +1691,12 @@
                 ]
               },
               "sha256": {
+                "description": "The SHA-256 of the record as read, in hex, or empty.",
                 "type": "string",
                 "maxLength": 64
               },
               "file": {
+                "description": "The file it was read from, one of the run's file params, from `files.ndjson`; null if it wasn't read from one.",
                 "anyOf": [
                   {
                     "$ref": "#/$defs/uuid"
@@ -1396,6 +1725,7 @@
           }
         },
         "attempts": {
+          "description": "Every attempt, 1 first.",
           "type": "array",
           "items": {
             "type": "object",
@@ -1419,13 +1749,16 @@
             ],
             "properties": {
               "id": {
+                "description": "The attempt's ID, which `api_calls` name it by.",
                 "$ref": "#/$defs/uuid"
               },
               "attempt": {
+                "description": "1 for the first attempt, then 2, 3, and so on.",
                 "type": "integer",
                 "minimum": 1
               },
               "state": {
+                "description": "How it ended. `interrupted`: its worker went away or was stopped. `parked`: it submitted an outside API's job, and a new attempt resumed once that was done.",
                 "enum": [
                   "cancelled",
                   "failed",
@@ -1437,18 +1770,22 @@
                 ]
               },
               "tier": {
+                "description": "The tier it ran on.",
                 "type": "string",
                 "maxLength": 16
               },
               "environment": {
+                "description": "Its environment, as `plugin.environment`.",
                 "type": "string",
                 "maxLength": 200
               },
               "environment_build": {
+                "description": "The digest of the environment build its worker ran it with, or empty when the worker used its host's own software.",
                 "type": "string",
                 "maxLength": 100
               },
               "resources": {
+                "description": "What it needed: its environment's minimum resources, raised by its action's own.",
                 "type": "object"
               },
               "worker": {
@@ -1460,6 +1797,7 @@
                 "$ref": "#/$defs/time"
               },
               "started_at": {
+                "description": "When it started, or null if it never did.",
                 "anyOf": [
                   {
                     "$ref": "#/$defs/time"
@@ -1470,6 +1808,7 @@
                 ]
               },
               "finished_at": {
+                "description": "When it ended, or null.",
                 "anyOf": [
                   {
                     "$ref": "#/$defs/time"
@@ -1479,7 +1818,9 @@
                   }
                 ]
               },
-              "error": {},
+              "error": {
+                "description": "Why it ended badly, as `code` and `message`, or null."
+              },
               "log": {
                 "description": "Everything it printed.",
                 "type": "string"
@@ -1507,6 +1848,7 @@
                     "required": ["document", "received_at"],
                     "properties": {
                       "document": {
+                        "description": "The output document, as received.",
                         "type": "object"
                       },
                       "received_at": {
@@ -1550,16 +1892,20 @@
       ],
       "properties": {
         "id": {
+          "description": "The signature's ID, which it keeps where it's imported.",
           "$ref": "#/$defs/uuid"
         },
         "record": {
+          "description": "The record it signs: a line of `entities.ndjson`.",
           "$ref": "#/$defs/uuid"
         },
         "revision": {
+          "description": "The record's revision it signs: what the signer read.",
           "type": "integer",
           "minimum": 1
         },
         "entry_revision": {
+          "description": "For a record of a registry entry, the entry's revision then; null otherwise.",
           "anyOf": [
             {
               "type": "integer",
@@ -1581,11 +1927,13 @@
           "maxLength": 50
         },
         "index": {
+          "description": "Which of the signatures setting that state needs it is, from 0.",
           "type": "integer",
           "minimum": 0,
           "maximum": 4
         },
         "meaning": {
+          "description": "What the signer signed as (21 CFR 11.50(a)(3)).",
           "enum": ["authorship", "review", "approval", "verification", "responsibility", "witness"]
         },
         "signer": {
@@ -1596,37 +1944,55 @@
           "$ref": "#/$defs/time"
         },
         "deployment": {
+          "description": "The name of the deployment it was signed on.",
           "type": "string",
           "minLength": 1,
           "maxLength": 100
         },
         "key": {
+          "description": "The public key that signed it, as `ed25519:` and the key's 32 bytes in unpadded base64url.",
           "$ref": "#/$defs/publicKey"
         },
         "document": {
+          "description": "What was signed: canonical JSON (RFC 8785) that names the SHA-256 of `content`.",
           "type": "string",
           "maxLength": 1048576
         },
         "signature": {
+          "description": "The Ed25519 signature of `document`'s bytes, in unpadded base64url.",
           "type": "string",
           "pattern": "^[A-Za-z0-9_-]{86}$"
         },
         "content": {
+          "description": "The record's content at the revision signed, as canonical JSON.",
           "type": "string",
           "maxLength": 67108864
         },
         "since": {
           "description": "What was done to its record's history after it was signed, in order, vouched for by the exporting deployment's signing key (ADR 0148): its `document`, `iki/read-through/v1` canonical JSON naming the signature, its record and revision, and the changes (a field renamed, a quantity converted to another unit as `new = old * scale + offset`, the type renamed, and an import naming people and registry entries by their IDs where it was imported, ADR 0096), the `key` that signed it, and its Ed25519 `signature`. `iki bundle verify` and an import check it with the keys they trust, then do each change to `content` before checking it against the bundle's history. Null if nothing was done.",
           "anyOf": [
-            { "type": "null" },
+            {
+              "type": "null"
+            },
             {
               "type": "object",
               "required": ["document", "key", "signature"],
               "additionalProperties": false,
               "properties": {
-                "document": { "type": "string", "maxLength": 16777216 },
-                "key": { "$ref": "#/$defs/publicKey" },
-                "signature": { "type": "string", "pattern": "^[A-Za-z0-9_-]{86}$" }
+                "document": {
+                  "description": "`iki/read-through/v1` canonical JSON naming the signature, its record and revision, and the changes, in order.",
+                  "type": "string",
+                  "maxLength": 16777216
+                },
+                "key": {
+                  "description": "The exporting deployment's signing key that vouches for it, as `ed25519:` and the key's 32 bytes in unpadded base64url.",
+                  "$ref": "#/$defs/publicKey"
+                },
+                "signature": {
+                  "description": "That key's Ed25519 signature of `document`'s bytes, in unpadded base64url.",
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{86}$"
+                }
               }
             }
           ]
@@ -1643,9 +2009,11 @@
               "additionalProperties": false,
               "properties": {
                 "by": {
+                  "description": "Who took it back, from `people.ndjson`.",
                   "$ref": "#/$defs/uuid"
                 },
                 "reason": {
+                  "description": "Why, as they said.",
                   "type": "string",
                   "maxLength": 2000
                 },

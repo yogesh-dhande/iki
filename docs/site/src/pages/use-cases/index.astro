@@ -1,0 +1,36 @@
+---
+// Every use case, one line each, in the navigation's order.
+import Listing from "../../components/listing/Listing.astro";
+import Doc from "../../layouts/Doc.astro";
+import { sitePages } from "../../lib/pages.ts";
+import { useCasesInOrder } from "../../lib/site.ts";
+
+const items = useCasesInOrder(await sitePages()).map((page) => ({
+  label: page.label,
+  href: page.href,
+  ...(page.text === undefined ? {} : { text: page.text }),
+}));
+---
+
+<Doc
+  title="Use cases"
+  description="Example setups that show how Iki works in a lab."
+  section="Use cases"
+>
+  <h1 class="doc-title">Use cases</h1>
+  <p class="intro">
+    Example setups that show how Iki works in a lab: what each team sees, what it records, and how
+    another lab could set it up differently.
+  </p>
+  <Listing items={items} />
+</Doc>
+
+<style>
+  .intro {
+    margin: 14px 0 28px;
+    max-width: 680px;
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+</style>

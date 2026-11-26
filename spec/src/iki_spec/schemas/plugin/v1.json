@@ -6,8 +6,14 @@
   "type": "object",
   "required": ["apiVersion", "kind", "name", "version"],
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "Plugin" },
+    "apiVersion": {
+      "description": "The spec version this manifest follows.",
+      "const": "iki/v1"
+    },
+    "kind": {
+      "description": "What this manifest is: `Plugin`.",
+      "const": "Plugin"
+    },
     "name": {
       "description": "The plugin's name, as `namespace/name`: your lab's or company's namespace, such as `acme/assays`. Its types are `acme/assays.Type`, and its tables start with `acme__assays_`. The `iki` namespace is Iki's own.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginRef"
@@ -17,8 +23,12 @@
       "type": "string",
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?(\\+[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
     },
-    "title": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
-    "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
+    "title": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+    },
+    "description": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
+    },
     "license": {
       "description": "The plugin's license, as an SPDX expression such as `Apache-2.0` or `LicenseRef-Acme-Internal`.",
       "type": "string",
@@ -40,40 +50,61 @@
     "dependencies": {
       "description": "Other plugins this one uses, by name (such as `iki/protein`), with the schema versions of their types it works with.",
       "type": "object",
-      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginRef" },
+      "propertyNames": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginRef"
+      },
       "additionalProperties": {
         "type": "object",
         "properties": {
           "types": {
             "description": "Schema-version constraints, such as `DNASequence: \">=2,<4\"`.",
             "type": "object",
-            "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeName" },
-            "additionalProperties": { "$ref": "#/$defs/versionConstraint" }
+            "propertyNames": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeName"
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/versionConstraint"
+            }
           }
         },
         "additionalProperties": false
       }
     },
-    "settings": { "$ref": "https://ikisci.org/schemas/settings/v1" },
+    "settings": {
+      "$ref": "https://ikisci.org/schemas/settings/v1"
+    },
     "formats": {
       "description": "File formats owned by this plugin under stable local names, such as mars-csv. A field can name the format as acme/lab.mars-csv.",
       "type": "object",
       "maxProperties": 256,
-      "propertyNames": { "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$", "maxLength": 63 },
-      "additionalProperties": { "$ref": "#/$defs/fileFormat" }
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+        "maxLength": 63
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/fileFormat"
+      }
     },
     "starters": {
       "description": "Project setup recipes shipped with this plugin, by starter ID and exact recipe version. The server offers installed recipes it supports (ADR 0198).",
       "type": "object",
-      "propertyNames": { "pattern": "^[a-z][a-z0-9-]{0,62}$" },
-      "additionalProperties": { "$ref": "#/properties/version" }
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]{0,62}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/properties/version"
+      }
     },
     "roles": {
       "description": "The lab roles this plugin declares, such as `analyst`, `reviewer` and `qa`, by name (ADR 0116). A project's Admins give them to its members, people or teams, beside their project role, and a state field's states (ADR 0125) and a workflow step's approval can require one. Elsewhere a role is `namespace/plugin.role`, such as `acme/assays.qa`.",
       "type": "object",
       "maxProperties": 50,
-      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleName" },
-      "additionalProperties": { "$ref": "#/$defs/role" }
+      "propertyNames": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/role"
+      }
     },
     "apis": {
       "description": "The outside APIs its actions call, such as a hosted model, by name (ADR 0130). Org Admins approve each one per project, people see what's sent before they launch, and runs call it through Iki's egress proxy, which adds the organization's key and records each call.",
@@ -93,7 +124,9 @@
       "type": "object",
       "required": ["label", "media_types", "extensions"],
       "properties": {
-        "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+        "label": {
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+        },
         "media_types": {
           "description": "The canonical media type first, followed by equivalent spellings accepted for this format.",
           "type": "array",
@@ -104,7 +137,9 @@
             "type": "string",
             "maxLength": 255,
             "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$",
-            "not": { "pattern": "\\s" }
+            "not": {
+              "pattern": "\\s"
+            }
           }
         },
         "extensions": {
@@ -112,7 +147,11 @@
           "type": "array",
           "maxItems": 64,
           "uniqueItems": true,
-          "items": { "type": "string", "maxLength": 100, "pattern": "^([.][a-z0-9][a-z0-9_+-]*)+$" }
+          "items": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^([.][a-z0-9][a-z0-9_+-]*)+$"
+          }
         },
         "signatures": {
           "description": "Alternative exact byte sequences. Each must fit within the first 4096 bytes.",
@@ -124,13 +163,27 @@
             "type": "object",
             "required": ["hex"],
             "properties": {
-              "hex": { "type": "string", "pattern": "^([0-9a-fA-F]{2})+$", "maxLength": 512 },
-              "offset": { "type": "integer", "minimum": 0, "maximum": 4095, "default": 0 }
+              "hex": {
+                "type": "string",
+                "pattern": "^([0-9a-fA-F]{2})+$",
+                "maxLength": 512,
+                "description": "The bytes, in hex, such as `41424946` for `ABIF`."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4095,
+                "default": 0,
+                "description": "Where in the file the bytes start, counting from 0."
+              }
             },
             "additionalProperties": false
           }
         },
-        "reader": { "enum": ["abif", "fcs", "mzml", "jcamp-dx", "image", "sam", "czi", "csv"] },
+        "reader": {
+          "enum": ["abif", "fcs", "mzml", "jcamp-dx", "image", "sam", "czi", "csv"],
+          "description": "Which of Iki's own readers takes the file's metadata, such as when it was acquired: `abif` for Sanger traces, `fcs` for flow cytometry, `mzml` for mass spectra, `czi` for Zeiss microscope images, `csv` for tables. A manifest can't supply its own."
+        },
         "viewer": {
           "description": "The Iki viewer that shows this format's contents: on a file's page and from the records and runs that hold it (ADR 0226), and, for structure and alignment, in a type's display.viewers.",
           "enum": [

@@ -1,0 +1,146 @@
+---
+title: Test actions with fixtures
+description: Write a fixture for each action, with the records it reads and what it should write, and run them as a worker would with iki plugin test.
+audience: build
+order: 130
+reference:
+  - { label: Action test manifest, href: /reference/plugin-spec/action-test/ }
+  - { label: Run output, href: /reference/plugin-spec/run-output/ }
+  - { label: "Validate and test a plugin in CI on GitHub", href: /guides/test-a-plugin-in-ci/ }
+---
+
+## What an action test is
+
+An action test is a fixture in your plugin's `tests/` directory: an action, the records and
+params a run of it is given, and what it should write or the error it should fail with.
+`iki plugin test` makes the run input the server would, runs the action's command with
+`iki-worker run --local`, and compares what it writes. Every output is also checked against the
+[run output](/reference/plugin-spec/run-output/) schema, and against the fields and types its
+action declares it changes.
+
+The reagents plugin tests a delivery of one rack of fifty 15 mL tubes against an order of three:
+
+```yaml
+# plugins/reagents/tests/replenishment.yaml
+apiVersion: iki/v1
+kind: ActionTest
+name: receive_one_rack_without_closing_the_three_rack_order
+action: receive_delivery
+inputs:
+  order:
+    - values: { order_reference: SYNTH-REQ-10, ordered_packs: 3 }
+      included:
+        item:
+          - values:
+              {
+                name: Corning 15 mL centrifuge tubes,
+                supplier: Corning,
+                catalogue_number: "430790",
+                pack_size: 50,
+                stock_unit: "1",
+                low_stock_at: 50,
+              }
+  storage: [{ values: { name: Synthetic shelf } }]
+params:
+  {
+    delivery_note: SYNTH-DEL-01,
+    delivery_line: "1",
+    received_on: "2026-11-01",
+    lot_number: SYNTH-LOT-01,
+    packs: 1,
+    position: A2,
+  }
+expect:
+  output:
+    updates:
+      order: [{ values: { received_packs: 1 }, require_unchanged: true }]
+    creates:
+      - type: iki/reagents.CountStockLot
+        values:
+          {
+            packs: 1,
+            source: bought,
+            supplier: Corning,
+            catalogue_number: "430790",
+            lot_number: SYNTH-LOT-01,
+            delivery_line: "1",
+            received_on: "2026-11-01",
+          }
+        receipt: { amount: { value: "50", unit: "1" }, position: A2 }
+```
+
+A file holds as many tests as you like, each its own YAML document after `---`.
+
+## What a test gives the run
+
+- [`params`](/reference/plugin-spec/action-test/#params) and
+  [`settings`](/reference/plugin-spec/action-test/#settings) are given as a person and a deployment
+  would give them. Settings left out take their defaults.
+- Each [input](/reference/plugin-spec/action-test/#inputs) is a list of records, each by its
+  [`values`](/reference/plugin-spec/action-test/#inputs.values), and optionally its
+  [`hrid`](/reference/plugin-spec/action-test/#inputs.hrid) and
+  [`type`](/reference/plugin-spec/action-test/#inputs.type), a subtype of the input's. An input
+  that takes one record can take several for a batchable action: they're packed as the server
+  packs runs ([Batches and packing](/guides/write-a-plugin/run-input-and-output/#batches-and-packing)).
+- For an input that includes references, a record's
+  [`included`](/reference/plugin-spec/action-test/#inputs.included) gives the records each names,
+  in the same form, as the order's stock item above. Each gets an ID, which the reference holds;
+  for a list of rows' references, such as `components.part`, each row's, in order.
+- For a request, a record's [`request`](/reference/plugin-spec/action-test/#inputs.request) gives
+  its sides, as the server does:
+  `request: { asking_project: { slug: oncology-discovery, name: Oncology discovery } }`. Its
+  `service` is the test's project unless given, or null for a request not sent yet. A record of a
+  type that isn't a request can't have one (`not-a-request`).
+- An input [`from_project`](/guides/write-a-plugin/actions/#inputs-the-project-gives) is given
+  as any other.
+- [`files`](/reference/plugin-spec/action-test/#files) names files in your plugin. A value or a
+  param uses one as `{"$file": "name"}`.
+- [`upgrade: true`](/reference/plugin-spec/action-test/#upgrade) marks a test whose records are
+  complete enough to seed `iki plugin test --upgrade-from`: its inputs and included records are
+  created in the earlier build. The upgrade test prefers the marked tests of the earlier commit,
+  and a plugin can mark tests of its own for earlier commits whose tests give only part of a
+  record ([Upgrade a plugin without losing history](/guides/upgrade-a-plugin/)).
+- On a marked test, [`after`](/reference/plugin-spec/action-test/#after) gives the values each of
+  its records must hold once the upgrade has migrated them. `after: { sample: [{ storage: Cold room 4 °C }] }`
+  checks the first and only record of the `sample` input. Give one map of fields for each record
+  of each input it names. Values are compared exactly
+  ([Fill in values for existing records](/guides/upgrade-a-plugin/#fill-in-values-for-existing-records)).
+
+The run input has fixed IDs and a fixed seed, so a deterministic action writes the same every
+time. The fixture's run input builder, `iki_spec.action_tests`,
+shows the IDs it gives, for a test that has to name one.
+
+## What a test expects
+
+- [`expect.output`](/reference/plugin-spec/action-test/#expect.output) is compared by what it
+  gives: every key in a mapping, every item of a list in order, and numbers within
+  [`tolerance`](/reference/plugin-spec/action-test/#expect.tolerance), relative, 1e-9 unless
+  given. Name only the values that matter: the test above leaves out the lot's receipt key and
+  the receipt's reason.
+- With [`expect.error`](/reference/plugin-spec/action-test/#expect.error), the run must fail, and
+  its last `::error` line must contain that text. The reagents plugin checks that a delivery
+  larger than what's still on order is refused:
+
+  ```yaml
+  expect: { error: up to the 1 outstanding }
+  ```
+
+## Run them
+
+```sh
+iki plugin test . --with ../dna
+```
+
+`--with` names each plugin yours depends on, directly or not; in Iki's own repository, the
+command finds first-party plugins' dependencies under `plugins/` itself. The commands run on your
+machine, so install what their environments need first. It exits 1 if any test fails, or if a
+fixture doesn't match the plugin, in which case nothing runs. `-k` runs only the tests whose name
+contains its text, and `--upgrade-from` also tests your plugin's upgrade from an earlier commit.
+
+Before any test runs, `iki plugin test` checks every fixture against your plugin: that its
+action, params, inputs, fields, files and settings exist, that each input has as many records as
+it takes, and that each record is of the input's type (`unknown-action`, `missing-input`,
+`input-count`, `wrong-type` and the rest).
+
+An action test checks what a command proposes to write. Whether the server commits it, with
+permissions, states and signatures, is for your plugin's server tests.

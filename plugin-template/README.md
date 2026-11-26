@@ -124,7 +124,7 @@ Keep the committed migrations. Increase a type's `schema_version` when its
 fields change, generate the next migration with `iki plugin makemigrations .`,
 and add action tests for changed behavior. For a backfill on existing records,
 use `MigrateValues` and give the expected fields in `after` on an `upgrade: true`
-fixture. Each record then carries the migration's reason. [Backfill example](https://github.com/yogesh-dhande/iki/blob/main/cli/README.md#iki-plugin-test)
+fixture. Each record then carries the migration's reason. [Backfill example](https://ikisci.org/reference/cli/#iki-plugin-test)
 
 The copied agent skills cover
 [writing](.agents/skills/iki-write-plugin/SKILL.md),

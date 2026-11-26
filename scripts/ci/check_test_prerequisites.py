@@ -203,6 +203,19 @@ def app_assets(static: Path) -> None:
             raise SystemExit(f"Invalid {path} ({exc}). Run make web.") from exc
 
 
+def docs() -> None:
+    """The docs site, built and indexed, with each page's policy (make docs)."""
+    site = Path("docs/site/dist")
+    for path in (
+        "index.html",
+        "pagefind/pagefind.js",
+        "use-cases/verify-a-plasmid-prep/index.html",
+    ):
+        populated(site / path, "make docs")
+    if 'http-equiv="Content-Security-Policy"' not in (site / "index.html").read_text():
+        raise SystemExit(f"{site} has no Content Security Policy. Run make docs.")
+
+
 def web() -> None:
     populated(Path("node_modules/axe-core/axe.min.js"), "pnpm install --frozen-lockfile")
     app_assets(Path("server/src/iki_server/web/static"))
@@ -211,8 +224,11 @@ def web() -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("group", choices=("wasm", "web"))
-    if parser.parse_args().group == "wasm":
+    parser.add_argument("group", choices=("wasm", "web", "docs"))
+    group = parser.parse_args().group
+    if group == "wasm":
         wasm()
+    elif group == "docs":
+        docs()
     else:
         web()

@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "allowImportingTsExtensions": true,
+    "customConditions": ["@ikisci/source"],
+    "types": ["node", "astro/client"],
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true
+  },
+  "include": ["astro.config.ts", "vitest.config.ts", "scripts", "src/**/*.ts", ".astro/types.d.ts"]
+}

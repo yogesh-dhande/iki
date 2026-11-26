@@ -1,0 +1,31 @@
+---
+// A field's type, each named schema in it linking to its page.
+import { schemaPath } from "../../lib/api.ts";
+import type { TypeLabel } from "../../lib/openapi.ts";
+
+interface Props {
+  type: TypeLabel;
+}
+const { type } = Astro.props;
+const parts = type.schemas.length
+  ? type.text.split(
+      new RegExp(
+        `\\b(${type.schemas.map((s) => s.replace(/[.*+?^$()|[\]\\]/g, "\\$&")).join("|")})\\b`,
+      ),
+    )
+  : [type.text];
+---
+
+<span class="mono type">
+  {parts.map((part) =>
+    type.schemas.includes(part) ? <a href={schemaPath(part)}>{part}</a> : part,
+  )}
+</span>
+
+<style>
+  .type {
+    font-size: 12px;
+    color: var(--muted);
+    overflow-wrap: break-word;
+  }
+</style>

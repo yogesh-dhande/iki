@@ -10,11 +10,14 @@
 set -euo pipefail
 
 # Documentation: Markdown, and anything under docs/. Not a plugin's or the template's
-# files (their trees are checked, README included), and not a package's own source
-# (the units' licence ships inside iki_spec).
+# files (their trees are checked, README included), not a package's own source (the
+# units' licence ships inside iki_spec), and not the docs site's code: its build, its
+# generators and their tooling are tested in the code jobs, in browsers. The docs job
+# still builds and checks the site, which the ADRs are pages of.
 is_docs() {
   case "$1" in
     plugins/* | examples/plugins/* | plugin-template/* | */src/*) return 1 ;;
+    docs/site/* | docs/sitegen/* | docs/tooling/*) return 1 ;;
     docs/* | *.md) return 0 ;;
     *) return 1 ;;
   esac

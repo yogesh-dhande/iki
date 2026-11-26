@@ -7,9 +7,11 @@
   "required": ["apiVersion", "kind", "name", "on", "run"],
   "properties": {
     "apiVersion": {
+      "description": "The spec version this manifest follows.",
       "const": "iki/v1"
     },
     "kind": {
+      "description": "What this manifest is: `Trigger`.",
       "const": "Trigger"
     },
     "name": {
@@ -90,7 +92,7 @@
       }
     },
     "related": {
-      "description": "Other inputs of the action, given the entities related to the one that fired it (ADR 0123): of the input's type, in the project, derived from it (`downstream`) or what it was derived from (`upstream`), through references, runs and the files runs read. Such as `aliquots: { direction: downstream }`, for everything a donor's withdrawn consent touches. Each input takes many; one left with none, when it isn't optional, skips the run.",
+      "description": "Other inputs of the action, given the entities related to the one that fired it (ADR 0123): of the input's type, in the project, derived from it (`downstream`) or what it was derived from (`upstream`), through references, runs and the files runs read. Such as `tubes: { direction: downstream, edges: [aliquot, transfer] }`, for every tube drawn from one put on hold. Each input takes many; one left with none, when it isn't optional, skips the run.",
       "type": "object",
       "minProperties": 1,
       "maxProperties": 10,

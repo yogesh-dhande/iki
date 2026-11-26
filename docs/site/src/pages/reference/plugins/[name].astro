@@ -1,0 +1,411 @@
+---
+// One first-party plugin: its lab roles, record types with their fields, the fields it adds
+// to other plugins' types, and its actions, read from its manifests.
+import Fields from "../../../components/plugins/Fields.astro";
+import Toc from "../../../components/Toc.astro";
+import Doc from "../../../layouts/Doc.astro";
+import { renderText } from "../../../lib/markdown.ts";
+import {
+  PLUGINS,
+  extensionId,
+  plugins,
+  typeHref,
+  type Named,
+  type Plugin,
+} from "../../../lib/plugins.ts";
+import { github } from "../../../lib/repo.ts";
+import { PAGES } from "../../../lib/site.ts";
+
+export function getStaticPaths() {
+  return plugins().map((plugin) => ({ params: { name: plugin.slug }, props: { plugin } }));
+}
+
+interface Props {
+  plugin: Plugin;
+}
+const { plugin } = Astro.props;
+const all = plugins();
+const linked = (qualified: string) => typeHref(all, qualified);
+const toc = [
+  ...(plugin.roles.length ? [{ id: "roles", label: "Lab roles" }] : []),
+  ...plugin.types.map((type) => ({ id: type.name, label: type.label })),
+  ...plugin.extensions.map((extension) => ({
+    id: extensionId(extension),
+    label: `Added to ${extension.extends}`,
+  })),
+  ...plugin.actions.map((action) => ({ id: action.name, label: action.label })),
+];
+const takes = (named: Named) =>
+  [named.many ? "many" : "", named.optional ? "optional" : "", named.required ? "required" : ""]
+    .filter(Boolean)
+    .join(", ");
+---
+
+<Doc
+  title={`${plugin.title} · Plugins`}
+  description={`The record types and actions of ${plugin.name}, Iki's ${plugin.title} plugin, from its manifests.`}
+  section="Reference"
+  audience="build"
+  measure={900}
+>
+  <nav class="breadcrumbs" aria-label="Breadcrumbs">
+    <a href="/reference/">Reference</a> / <a href={PLUGINS}>Plugins</a> / {plugin.title}
+  </nav>
+  <h1 class="title">{plugin.title}</h1>
+  <div class="prose desc">
+    <Fragment set:html={renderText(plugin.description)} />
+    <p class="muted source">
+      <code>{plugin.name}</code>, version {plugin.version}. Its manifest is{" "}
+      <a href={github(plugin.path)}>{plugin.path}</a>.
+      {plugin.dependencies.length > 0 && (
+        <>
+          {" "}
+          It uses the types of{" "}
+          {plugin.dependencies.map((dependency, index) => {
+            const other = all.find((candidate) => candidate.name === dependency);
+            return (
+              <>
+                {index > 0 && (index === plugin.dependencies.length - 1 ? " and " : ", ")}
+                {other ? (
+                  <a href={`${PLUGINS}${other.slug}/`}>
+                    <code>{dependency}</code>
+                  </a>
+                ) : (
+                  <code>{dependency}</code>
+                )}
+              </>
+            );
+          })}
+          .
+        </>
+      )}
+    </p>
+  </div>
+
+  {plugin.roles.length > 0 && (
+    <section id="roles" aria-labelledby="roles-h" class="part">
+      <h2 id="roles-h">Lab roles</h2>
+      <dl class="roles">
+        {plugin.roles.map((role) => (
+          <div id={`role.${role.name}`}>
+            <dt>
+              {role.label} <code>{role.name}</code>
+            </dt>
+            <dd set:html={renderText(role.description, { inline: true })} />
+          </div>
+        ))}
+      </dl>
+    </section>
+  )}
+
+  {plugin.types.map((type) => (
+    <section id={type.name} aria-labelledby={`${type.name}-h`} class="part">
+      <h2 id={`${type.name}-h`}>
+        {type.label} <code class="qualified">{`${plugin.name}.${type.name}`}</code>
+      </h2>
+      {type.description && <div class="prose" set:html={renderText(type.description)} />}
+      <p class="facts muted">
+        {type.abstract ? "Abstract: records are of its subtypes." : null}
+        {type.hrid && (
+          <>
+            {" "}
+            IDs start <code>{type.hrid}-</code>.
+          </>
+        )}
+        {type.extends.length > 0 && (
+          <>
+            {" "}
+            A kind of{" "}
+            {type.extends.map((parent, index) => {
+              const href = linked(parent);
+              return (
+                <>
+                  {index > 0 && ", "}
+                  {href ? (
+                    <a href={href}>
+                      <code>{parent}</code>
+                    </a>
+                  ) : (
+                    <code>{parent}</code>
+                  )}
+                </>
+              );
+            })}
+            .
+          </>
+        )}
+        {type.identity && (
+          <>
+            {" "}
+            Registered by{" "}
+            {type.identity.map((key, index) => (
+              <>
+                {index > 0 && ", "}
+                <a href={`#${type.name}.${key}`}>
+                  <code>{key}</code>
+                </a>
+              </>
+            ))}
+            .
+          </>
+        )}
+        {type.amount && (
+          <>
+            {" "}
+            Keeps an amount in <code>{type.amount}</code>.
+          </>
+        )}{" "}
+        Declared in <a href={github(type.path)}>{type.path}</a>.
+      </p>
+      {type.fields.length > 0 ? (
+        <Fields
+          owner={type.name}
+          fields={type.fields}
+          caption={`${type.label}: its fields`}
+          all={all}
+        />
+      ) : (
+        <p class="muted">It adds no fields of its own.</p>
+      )}
+    </section>
+  ))}
+
+  {plugin.extensions.map((extension) => {
+    const id = extensionId(extension);
+    const href = linked(extension.extends);
+    return (
+      <section id={id} aria-labelledby={`${id}-h`} class="part">
+        <h2 id={`${id}-h`}>
+          Added to{" "}
+          {href ? (
+            <a href={href}>
+              <code>{extension.extends}</code>
+            </a>
+          ) : (
+            <code>{extension.extends}</code>
+          )}
+        </h2>
+        <p class="facts muted">
+          The fields this plugin adds to another plugin's type. Declared in{" "}
+          <a href={github(extension.path)}>{extension.path}</a>.
+        </p>
+        <Fields
+          owner={id}
+          fields={extension.fields}
+          caption={`The fields added to ${extension.extends}`}
+          all={all}
+        />
+      </section>
+    );
+  })}
+
+  {plugin.actions.map((action) => (
+    <section id={action.name} aria-labelledby={`${action.name}-h`} class="part">
+      <h2 id={`${action.name}-h`}>
+        {action.label} <code class="qualified">{`${plugin.name}.${action.name}`}</code>
+      </h2>
+      {action.description && <div class="prose" set:html={renderText(action.description)} />}
+      <p class="facts muted">
+        {action.creates.length > 0 && (
+          <>
+            It makes{" "}
+            {action.creates.map((created, index) => {
+              const href = linked(created);
+              return (
+                <>
+                  {index > 0 && ", "}
+                  {href ? (
+                    <a href={href}>
+                      <code>{created}</code>
+                    </a>
+                  ) : (
+                    <code>{created}</code>
+                  )}
+                </>
+              );
+            })}
+            .{" "}
+          </>
+        )}
+        {action.updates.map((update) => (
+          <>
+            It changes <code>{update.input}</code>'s{" "}
+            {update.fields.map((field, index) => (
+              <>
+                {index > 0 && ", "}
+                <code>{field}</code>
+              </>
+            ))}
+            .{" "}
+          </>
+        ))}
+        Declared in <a href={github(action.path)}>{action.path}</a>.
+      </p>
+      {[
+        { title: "Inputs", entries: action.inputs },
+        { title: "Parameters", entries: action.params },
+      ]
+        .filter((part) => part.entries.length > 0)
+        .map((part) => (
+          <div
+            class="table"
+            tabindex="0"
+            role="region"
+            aria-label={`${action.label}: ${part.title.toLowerCase()}`}
+          >
+            <table>
+              <caption class="sr-only">{`${action.label}: ${part.title.toLowerCase()}`}</caption>
+              <thead>
+                <tr>
+                  <th scope="col">{part.title === "Inputs" ? "Input" : "Parameter"}</th>
+                  <th scope="col">Type</th>
+                  <th scope="col">Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {part.entries.map((entry) => {
+                  const href =
+                    part.title === "Inputs" ? linked(entry.type) : `${PAGES.spec}field/#by-type`;
+                  return (
+                    <tr>
+                      <td class="name">
+                        <code>{entry.name}</code>
+                        <span class="label">{entry.label}</span>
+                      </td>
+                      <td class="type">
+                        {href ? (
+                          <a href={href}>
+                            <code>{entry.type}</code>
+                          </a>
+                        ) : (
+                          <code>{entry.type}</code>
+                        )}
+                        {takes(entry) && <span class="detail">{takes(entry)}</span>}
+                      </td>
+                      <td class="description">
+                        {entry.description && <Fragment set:html={renderText(entry.description)} />}
+                        {entry.values && (
+                          <p class="notes">
+                            One of{" "}
+                            {entry.values.map((value, index) => (
+                              <>
+                                {index > 0 && ", "}
+                                <code>{value}</code>
+                              </>
+                            ))}
+                          </p>
+                        )}
+                        {entry.default !== undefined && (
+                          <p class="notes">
+                            Default <code>{entry.default}</code>
+                          </p>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ))}
+    </section>
+  ))}
+
+  <aside slot="aside" class="side" aria-label="On this page">
+    <Toc items={toc} />
+  </aside>
+</Doc>
+
+<style>
+  .title {
+    margin: 0;
+    font-size: 30px;
+  }
+  .desc {
+    margin-top: 14px;
+  }
+  .source,
+  .facts {
+    font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+  .part {
+    margin-top: 36px;
+  }
+  .part h2 {
+    margin: 0 0 10px;
+    font-size: 22px;
+    overflow-wrap: anywhere;
+  }
+  .qualified {
+    display: block;
+    margin-top: 2px;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--muted);
+  }
+  .roles {
+    margin: 0;
+  }
+  .roles div {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .roles dt {
+    font-weight: 600;
+  }
+  .roles dt code {
+    font-size: 12px;
+    font-weight: 400;
+  }
+  .roles dd {
+    margin: 2px 0 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .table {
+    margin-top: 12px;
+  }
+  table {
+    min-width: 620px;
+  }
+  td {
+    vertical-align: top;
+  }
+  .name {
+    white-space: nowrap;
+  }
+  .name code {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: normal;
+  }
+  .type {
+    min-width: 130px;
+    max-width: 240px;
+    overflow-wrap: anywhere;
+  }
+  .type code,
+  .notes code {
+    font-size: 12px;
+  }
+  .detail {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .description :global(p) {
+    margin: 0 0 6px;
+  }
+  .description :global(p:last-child) {
+    margin: 0;
+  }
+  .notes {
+    font-size: 13px;
+  }
+</style>

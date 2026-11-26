@@ -1,0 +1,41 @@
+---
+import Base from "../layouts/Base.astro";
+import { TOP_NAV } from "../lib/site.ts";
+---
+
+<Base title="Page not found" description="This page isn't on ikisci.org.">
+  <main id="content" class="wrap missing">
+    <h1>Nothing is at this address</h1>
+    <p>The page may have moved. Search for it, or go to one of the sections:</p>
+    <ul>
+      {TOP_NAV.map((entry) => (
+        <li>
+          <a href={entry.href}>{entry.label}</a>
+        </li>
+      ))}
+    </ul>
+  </main>
+</Base>
+
+<style>
+  .missing {
+    padding-top: 72px;
+    padding-bottom: 96px;
+  }
+  h1 {
+    margin: 0 0 12px;
+    font-size: 40px;
+    letter-spacing: -0.03em;
+  }
+  p {
+    color: var(--muted);
+    font-size: 17px;
+  }
+  ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    padding: 0;
+    list-style: none;
+  }
+</style>

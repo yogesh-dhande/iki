@@ -1,0 +1,344 @@
+---
+title: Keep a deployment's configuration in a repository
+description: Keep what each Iki deployment runs in a git repository, change it through reviewed pull requests that build and sign its images, promote changes from staging to production, and roll them back.
+audience: run
+order: 50
+reference:
+  - { label: Lockfile, href: /reference/plugin-spec/plugin-lock/ }
+  - { label: Compute template, href: /reference/plugin-spec/compute-template/ }
+  - { label: Environment binding, href: /reference/plugin-spec/environment-binding/ }
+---
+
+A deployment's configuration repository says what each of your Iki deployments runs: its plugins,
+their settings, its Helm values and its image. Everything that changes a deployment goes through a
+pull request, so the repository's history is the history of what ran where, and each change has a
+reviewer, a commit and a signed image. Iki's repository has a starting point for it in
+`deploy/config-template/`: copy that directory into a new repository of your own.
+
+## What the repository holds
+
+```text
+deployments/
+  staging/
+    iki.yaml            # the Iki release: version, server and worker images, chart
+    plugins.lock.yaml   # the plugins, each pinned to a commit
+    compute.yaml        # the machines actions run on, once a plugin has such actions
+    settings/dna.yaml   # this deployment's values for each plugin's settings
+    values.yaml         # Helm values
+    image.yaml          # the images CI built (CI writes it)
+  production/           # the same, for production
+plugins.Dockerfile      # Iki's server image plus the built plugins
+worker.Dockerfile       # Iki's worker image plus the plugins and their environments
+.github/workflows/build.yml
+```
+
+`iki.yaml` names the release a deployment runs:
+
+```yaml
+version: 0.1.0
+serverImage: ghcr.io/yogesh-dhande/iki-server:0.1.0@sha256:…
+workerImage: ghcr.io/yogesh-dhande/iki-worker:0.1.0@sha256:…
+chart: 0.1.0
+```
+
+`plugins.lock.yaml` pins each plugin it installs to a commit, with its settings file. Iki's own
+plugins (`iki/...`) come from Iki's repository; your lab's are in your namespace (`acme/...`), from
+your repositories. `git ls-remote <repository> <tag>` prints a tag's commit.
+
+```yaml
+apiVersion: iki/v1
+kind: PluginLock
+plugins:
+  - name: iki/dna
+    git: https://github.com/yogesh-dhande/iki.git
+    path: plugins/dna
+    sha: 4f1c2b9e0d6a7c3b8e5f1a2d9c0b7e6f5a4d3c2b
+    state: active
+    settings: settings/dna.yaml
+```
+
+The lockfile's and `compute.yaml`'s full format is in
+[Configure a deployment's plugins and compute](/guides/configure-plugins-and-compute/).
+
+### Choose each plugin's source
+
+Pin each of Iki's own plugins to its directory in Iki's repository, `plugins/<name>`. Pin a lab's
+own plugin to the reviewed commit in your lab's repository, by the name in its manifest. To adapt
+one of Iki's worked examples, in `examples/plugins/` of Iki's repository, copy it to your lab's
+repository, give it a name in your namespace, and pin your copy: the README there says how to copy
+and test it.
+
+By default, `iki deploy build` refuses an active or detached plugin pinned to one of Iki's
+example, template, fixture or live-check directories, in Iki's repository or a mirror named under
+`plugins.mirrors` (`test-only-source`). The template's staging and production builds use that
+default. A separate deployment for CI or live checks can pass `--test-only` to build an official
+example in place. A plugin pinned with `local:` also needs `--allow-local`.
+
+## How a change reaches a deployment
+
+1. **Change it in a pull request.** For example, pin a plugin's new commit in
+   `deployments/staging/plugins.lock.yaml`. CI runs `iki deploy build`, which fetches every plugin
+   at its commit and checks them together: their manifests, this deployment's settings for them,
+   and that their migrations are complete. A failure is reported on the pull request.
+2. **Merge it.** CI checks Iki's signatures on the images the deployment's start from, then builds
+   its two images: the server image with the plugins, and the worker image with the plugins and
+   the environments their actions run in, built from the packages their lockfiles pin. It signs
+   both and attests their provenance. Then it opens a pull request that points `image.yaml` at the
+   new images, by digest.
+3. **Merge that pull request to deploy.** Argo CD or Flux applies the Iki chart with `values.yaml`
+   and `image.yaml`. The chart's migrate Job runs the plugins' migrations before any new pod
+   starts. Workers lease only runs launched with the plugin code they have, so old and new workers
+   never run each other's runs during a rollout.
+
+## Promote a change to production
+
+Promote a change from staging to production by copying its lockfile lines, or its `iki.yaml`
+change for an Iki upgrade, in a pull request.
+
+Check the target's records before promoting a plugin. From the proposed configuration, build the
+pinned plugins. Then, signed in to the target deployment as an Org Admin with access to every
+project, run the check against it. To review `iki/dna` for production:
+
+```sh
+iki deploy build deployments/production --output build/plugins
+iki plugin preflight build/plugins/iki_plugin_iki__dna/manifest.json --url https://iki.example.org
+```
+
+Under **Admin → Plugins**, you can also upload that `manifest.json` on the plugin's page, or on
+the Plugins list for a new installation. Both let you download the report. Compare its
+configuration revision with the deployed lockfile's digest.
+
+- Each finding gives an affected count and example record IDs.
+- SQL checks give exact counts for the whole type.
+- A check that examined a sample says how many records it checked, and its findings are lower
+  bounds.
+- `--json` saves the report for the review.
+
+The migrate Job repeats the check before it writes. Fix blocking findings, or, if the review
+accepts them or the sample's incomplete coverage, put the report's `candidate_revision` in the
+target's `values.yaml` in the promotion's pull request:
+
+```yaml
+migrate:
+  acknowledgePreflight:
+    - "<candidate_revision>"
+```
+
+An acknowledgement applies to that candidate manifest only. Database constraints and the checks on
+reversing migrations still apply. Remove it after the rollout.
+
+## Roll a change back
+
+Revert the pull request that changed `image.yaml`. The migrate Job reverses the plugin migrations
+the older image doesn't have. If reversing could lose data entered since, it refuses and changes
+nothing, and you restore the database from its backup instead: see
+[Restore a deployment from a backup](/guides/restore-from-a-backup/).
+
+## The machines actions run on
+
+Plugins' actions say what they need, and `compute.yaml` says what this deployment has. Each
+compute template is a kind of machine: Iki's backend worker pods, Kubernetes Jobs or pools, or
+cloud machines, with their size, placement and price. Each binding says which templates a plugin's
+environment runs on, in order:
+
+```yaml
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: backend-small
+provisioner: backend_pool
+capacity: { cpu: 1, memory: 2Gi }
+kubernetes: { runtime_class: gvisor }
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: iki/protein.protein-tools
+templates: [{ template: backend-small }]
+```
+
+`iki deploy build` checks every binding against the plugins the lockfile pins: each template is
+big enough for the environment, each action fits one of them, and each data volume has a way to
+reach the machines. It warns of actions this deployment can't run. Without `compute.yaml`, only
+self-hosted actions run.
+
+A binding of a self-hosted environment names the labels this deployment's machines need for it
+instead, such as the lab whose instruments its runs drive. A run goes only to a registered machine
+with every label its environment and its binding name:
+
+```yaml
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: acme/chromatography.chromeleon
+labels: [lab-3]
+```
+
+Ask the plugin's owners and your compute admins to review changes, with `CODEOWNERS` if you use
+it.
+
+## Set it up
+
+### CI's access and branch protection
+
+- Give CI read access to your plugin repositories as the `PLUGIN_REPOS_TOKEN` secret: a GitHub
+  App's token, or a fine-grained, read-only token. Plugins are fetched over https or ssh only.
+  Only the step that fetches them has the token, and git gives it only to this GitHub, never to
+  another host a lockfile names, so put no credentials in a lockfile's URLs: the build refuses
+  them.
+- Protect `main`, and require the build to pass and a review, from the plugin's owners for its
+  settings files if you use `CODEOWNERS`.
+
+### Signed images only
+
+In each cluster, admit only images signed by this repository's workflow and Iki's, with Sigstore's
+policy-controller or Kyverno, for example. For the plugins' images that container-tier runs use,
+the build approves each by signing it into `ghcr.io/<owner>/iki-<deployment>-approvals`, and the
+chart's `containerTier.imagePolicy` admits only those in the runs' namespace, with
+policy-controller.
+
+On the reference Google Cloud deployment, put the reviewed `image.yaml` in OpenTofu's
+`config_image_files` before deploying. The build signs the GHCR images and pins both digests in
+that file. For a rolling update, admit both the current and incoming pins until the rollout
+finishes: see [Install the cluster's controllers](/guides/deploy-on-google-cloud/#install-the-clusters-controllers).
+
+### Argo CD or Flux
+
+Point Argo CD or Flux at each deployment: the Iki chart at the version in `iki.yaml`, with
+`values.yaml` and `image.yaml` as value files.
+
+### Backend workers
+
+Once Iki is up, a Compute admin makes a backend-tier registration token in Compute settings, or an
+operator runs this in a web pod:
+
+```sh
+iki-server create_registration_token --tier backend --label "Backend pool"
+```
+
+Store it in the `iki-worker-registration` Secret, under the key `token`, ideally through your
+secrets manager, and turn on `backendWorkers` in `values.yaml`. The worker pods hold only that
+token: no database credentials, no cloud role, and a network policy that lets them reach only the
+server and object storage. Say where those are:
+
+- your load balancer's own addresses, or your ingress controller's pods, in
+  `networkPolicy.egress.server.to`;
+- your object storage's in `networkPolicy.egress.objectStorage.to`.
+
+The chart won't render workers or container-tier runs without them, or with any address block
+wider than a /8 (a /32 for IPv6). Allow more destinations that actions need in
+`networkPolicy.egress.workers`.
+
+### File scanning
+
+Setting `files.bucket` starts the chart's ClamAV Deployment, `iki-clamd`. The web pods and task
+runners reach it on a cluster-internal service. It starts with the signatures in its pinned image;
+FreshClam checks for new ones every hour, and clamd reloads them. The upstream project publishes
+the image and documents its memory needs in
+[ClamAV in Docker](https://docs.clamav.net/manual/Installing/Docker.html).
+
+When scans are waiting, check both containers' logs:
+
+```sh
+kubectl logs deploy/iki-clamd -c clamd
+kubectl logs deploy/iki-clamd -c freshclam
+```
+
+- **An air-gapped cluster:** mirror the chart's pinned `files.scanner.clamd.image` into the local
+  registry, and point `files.scanner.clamd.privateMirror` at the internal FreshClam mirror. Set
+  `networkPolicy.egress.signatureUpdates.to` and `.ports` to that mirror's network peers and port.
+- **A scanner of your own:** install its Python module in the server image, set
+  `files.scanner.adapter` to the callable, and set `files.scanner.clamd.enabled: false`. Declare
+  the network peers it needs in `networkPolicy.egress.externalScanner`.
+- **Large files:** `files.scanner.maxBytes` defaults to 100 MiB. With bundled clamd, keep it below
+  2 GiB. Larger files stay held unless `files.scanner.oversizePolicy` is `allow`. Either way, the
+  file keeps the recorded size exception.
+
+### Bundles between deployments
+
+Bundles move validated records, with their history, from staging to production. In each
+deployment, run `iki-server bundle_key` in a web pod, store what it prints in the `iki-bundle-key`
+Secret under the key `key`, and keep the public key it reports (`iki-server bundle_key --public`
+prints it again). Production imports only bundles signed by a key it trusts: put staging's under
+`bundles.trusted` in production's `values.yaml`, where it gets a review.
+
+```yaml
+bundles:
+  signingKey:
+    existingSecret: iki-bundle-key
+  trusted:
+    staging: ["ed25519:…"]
+```
+
+`iki-server verify_bundle FILE` checks a bundle's bytes and signature, and says whether this
+deployment trusts it.
+
+### Secrets that actions need
+
+Plugins' actions declare the secrets they need, such as an API key or a LIMS token. Keep them in
+your secret manager, and sync them into one Kubernetes Secret (with External Secrets, or the Vault
+or AWS Secrets Manager CSI driver) with a key per secret named for its plugin's label:
+`iki__dna.NCBI_API_KEY` for `iki/dna`'s `NCBI_API_KEY`. Set `runSecrets.existingSecret` to it.
+Only web pods mount it, and each run gets only the secrets its action declares. Rotate them in the
+secret manager: the next run gets the new value.
+
+### Hosts actions reach
+
+Actions that fetch from the internet (NCBI, UniProt, the PDB) need the egress proxy: turn on
+`egressProxy` in `values.yaml`. Runs then reach the hosts their action declares, and only those,
+through it. Each plugin's `network` lists them, so review it when you add a plugin. If all traffic
+must pass your corporate proxy, set `egressProxy.upstreamProxy`, and point
+`networkPolicy.egress.egressProxy` at that proxy.
+
+### Machines of their own for large runs
+
+Runs that need machines the cluster doesn't have, such as eight GPUs or a terabyte of memory, can
+get cloud machines of their own, started for each run and ended after it. Turn on `vmTier` in
+`values.yaml`, and add `aws_ec2` or `gcp_gce` templates to `compute.yaml`.
+
+- Set `vmTier.cloud` (`aws` or `gcp`) and `vmTier.owner`, the name the deployment's machines are
+  tagged with, and on Compute Engine also start with. Give the provisioner a cloud identity that
+  may start and end only machines that carry it. The reference infrastructure makes that identity:
+  see [Deploy on AWS](/guides/deploy-on-aws/) and
+  [Deploy on Google Cloud](/guides/deploy-on-google-cloud/).
+- The machines' subnets need a way to the server (`vmTier.serverUrl`), object storage and the
+  egress proxy (`vmTier.egressProxyUrl`), and nothing else.
+- If the server's certificate there is your own CA's, put the CA's certificates in a Secret and
+  name it in `vmTier.caSecret`.
+
+### Reference data in volumes
+
+Environments with reference data, such as a structure predictor's databases, fill it with a setup
+build, which a Compute admin asks for under **Compute → Volumes**, and another approves if the
+environment asks for that. On Kubernetes, the cluster needs a CSI driver with snapshots (on EKS,
+the EBS CSI driver and the snapshot controller), and each template the environment is bound to
+names a `storage_class` and `snapshot_class` for its volumes in `compute.yaml`.
+
+### A package mirror
+
+If your package index is a mirror, pass it to the worker image's build as a secret, as
+`worker.Dockerfile` says.
+
+### A mirror of Iki's repository
+
+If CI can't reach github.com, mirror Iki's repository inside your network and name the mirror
+under `plugins.mirrors` in each deployment's `values.yaml`:
+
+```yaml
+plugins:
+  mirrors: ["https://git.acme.example/mirrors/iki.git"]
+```
+
+Only those who can approve `values.yaml` should be able to change it, with `CODEOWNERS` and branch
+protection. The lockfile still names Iki's repository, so the same lockfile works anywhere.
+
+- The build fetches Iki's plugins from the mirrors alone, in order, and takes one only at the
+  commit the lockfile pins and with a tree Iki's repository has had, as the `iki` CLI it runs knows
+  them: a mirror can't serve a commit of its own.
+- The build records the mirror each plugin came from, the Plugins page shows it, and the deploy
+  audits it. The server refuses plugins from a mirror its `values.yaml` doesn't name.
+- Don't send Iki's repository elsewhere with git's `insteadOf`: the build refuses that, since it
+  couldn't say where a plugin came from.
+
+## Upgrade Iki
+
+Change `version`, `serverImage` and `workerImage` (by digest) and `chart` in `iki.yaml` together,
+in staging before production. The plugins are rebuilt by that version's `iki`, and the server
+refuses plugins any other version built.

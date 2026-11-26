@@ -1,0 +1,471 @@
+---
+// The worked plate, live: its plate map, and the fit the plugin recorded with every sample
+// well and with the guide's exclusion. Choosing a well shows its reading; the toggle switches
+// between the two recorded fits. The browser fits nothing.
+import { exampleHref, type DoseResponse, type Fit } from "../../lib/examples.ts";
+import { curve, FRAME, level, nM, ticks, x, y } from "../../lib/dose.ts";
+
+interface Props {
+  data: DoseResponse;
+}
+const { data } = Astro.props;
+const { exclusion } = data;
+const rows = ["A", "B", "C", "D", "E", "F", "G", "H"];
+const columns = Array.from({ length: 12 }, (_, i) => i + 1);
+const byWell = new Map(data.readings.map((r) => [r.well, r]));
+const samples = data.readings.filter((r) => r.role === "sample");
+const maxReading = Math.max(...samples.map((r) => r.value));
+const unit = data.data.unit;
+const fits: { key: "all" | "excluded"; fit: Fit }[] = [
+  { key: "all", fit: data.fits.all },
+  { key: "excluded", fit: data.fits.excluded },
+];
+const roleOf = (role: string) =>
+  role === "sample" ? "Sample" : role.charAt(0).toUpperCase() + role.slice(1);
+const detailOf = (well: string) => {
+  const r = byWell.get(well);
+  if (!r) return "";
+  return r.role === "sample"
+    ? `${r.concentration} ${r.concentration_unit}, replicate 1, file row ${r.source_row}`
+    : `Control well, kept for inspection and not fitted; file row ${r.source_row}`;
+};
+const dot = (cx: number, cy: number, r: number) =>
+  `M ${(cx - r).toFixed(1)} ${cy.toFixed(1)} a ${r} ${r} 0 1 0 ${2 * r} 0 a ${r} ${r} 0 1 0 ${-2 * r} 0`;
+const dotsOf = (excluded: string[]) =>
+  samples
+    .filter((r) => !excluded.includes(r.well))
+    .map((r) => dot(x(r.concentration ?? 1), y(r.value), 5))
+    .join(" ");
+const out = samples.find((r) => r.well === exclusion.well);
+const labelOf = (fit: Fit) =>
+  fit.excluded.length
+    ? `Dose-response curve: IC50 ${nM(fit.endpoint_value)} nM with ${fit.excluded.join(", ")} excluded`
+    : `Dose-response curve: IC50 ${nM(fit.endpoint_value)} nM from all ${fit.point_count} sample wells`;
+const initial = exclusion.well;
+---
+
+<figure class="assay" data-plate-assay>
+  <div class="bar">
+    <span class="title">Example MARS dose-response plate (synthetic)</span>
+    <button type="button" class="toggle needs-script" aria-pressed="false" data-toggle>
+      <span data-fit="all">
+        Exclude {exclusion.well}: {exclusion.reason}
+      </span>
+      <span data-fit="excluded">Include {exclusion.well} again</span>
+    </button>
+  </div>
+  <div class="panes">
+    <div class="plate-pane">
+      <p class="hint">
+        Plate map, 96 wells. <span class="needs-script">Choose a well to see its reading.</span>
+      </p>
+      <div class="plate-scroll" tabindex="0" role="region" aria-label="Plate map">
+        <table class="plate">
+          <caption class="sr-only">
+            Plate map: the sample in A1 to A8, the blank in A9, the reference in A10
+          </caption>
+          <thead>
+            <tr>
+              <td></td>
+              {columns.map((c) => (
+                <th scope="col">{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr>
+                <th scope="row">{row}</th>
+                {columns.map((column) => {
+                  const well = `${row}${column}`;
+                  const r = byWell.get(well);
+                  if (!r) {
+                    return (
+                      <td>
+                        <span class="well empty" />
+                      </td>
+                    );
+                  }
+                  const sample = r.role === "sample";
+                  return (
+                    <td>
+                      <button
+                        type="button"
+                        class:list={[
+                          "well",
+                          sample ? `level-${level(r.value, maxReading)}` : "control",
+                        ]}
+                        aria-pressed={well === initial ? "true" : "false"}
+                        aria-label={`${well}, ${roleOf(r.role)}, ${r.value} ${unit}`}
+                        data-well={well}
+                        data-role={roleOf(r.role)}
+                        data-detail={detailOf(well)}
+                        data-reading={`${r.value} ${unit}`}
+                        data-excludable={well === exclusion.well ? "" : undefined}
+                      >
+                        <span aria-hidden="true">
+                          {sample ? "" : r.role.charAt(0).toUpperCase()}
+                        </span>
+                      </button>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div class="well-detail" aria-live="polite" data-detail-box>
+        <p class="detail-head">
+          <span class="mono" data-show="well">
+            {initial}
+          </span>{" "}
+          · <span data-show="role">{roleOf(byWell.get(initial)?.role ?? "")}</span>
+        </p>
+        <p class="muted" data-show="detail">
+          {detailOf(initial)}
+        </p>
+        <p class="mono" data-show="reading">
+          {byWell.get(initial)?.value} {unit}
+        </p>
+        <p class="excluded-note" data-fit="excluded">
+          Excluded from the fit: “{exclusion.reason}”, shown with its reason and who excluded it.
+        </p>
+      </div>
+    </div>
+    <div class="chart-pane">
+      {fits.map(({ key, fit }) => (
+        <svg
+          role="img"
+          aria-label={labelOf(fit)}
+          viewBox="0 0 560 330"
+          class="chart"
+          data-fit={key}
+        >
+          <g aria-hidden="true" class="axes">
+            <line
+              x1={FRAME.left}
+              y1={FRAME.bottom}
+              x2={FRAME.right}
+              y2={FRAME.bottom}
+              class="axis"
+            />
+            <line x1={FRAME.left} y1={FRAME.top} x2={FRAME.left} y2={FRAME.bottom} class="axis" />
+            {[0.5, 1].map((v) => (
+              <line x1={FRAME.left} y1={y(v)} x2={FRAME.right} y2={y(v)} class="grid" />
+            ))}
+            {[0, 0.5, 1].map((v) => (
+              <text x={FRAME.left - 8} y={y(v) + 4} text-anchor="end">
+                {v === 1 ? "1.0" : String(v)}
+              </text>
+            ))}
+            {ticks().map((c) => (
+              <text x={x(c)} y={FRAME.bottom + 18} text-anchor="middle">
+                {c}
+              </text>
+            ))}
+            <text x={(FRAME.left + FRAME.right) / 2} y="322" text-anchor="middle">
+              Concentration (nM, log scale)
+            </text>
+            <text x="14" y="150" transform="rotate(-90 14 150)" text-anchor="middle">
+              {data.data.channel} ({unit})
+            </text>
+          </g>
+          <path d={curve(fit)} class="curve" />
+          <line
+            x1={x(fit.endpoint_value)}
+            y1={FRAME.bottom}
+            x2={x(fit.endpoint_value)}
+            y2={y((fit.top + fit.bottom) / 2)}
+            class="midline"
+          />
+          <path d={dotsOf(fit.excluded)} class="dots" />
+          {fit.excluded.length > 0 && out && (
+            <path d={dot(x(out.concentration ?? 1), y(out.value), 6)} class="out" />
+          )}
+        </svg>
+      ))}
+      <div class="results" aria-live="polite">
+        {fits.map(({ key, fit }) => (
+          <dl data-fit={key}>
+            <div>
+              <dt>{fit.endpoint_kind}</dt>
+              <dd>{nM(fit.endpoint_value)} nM</dd>
+            </div>
+            <div>
+              <dt>Approx. 95% interval</dt>
+              <dd>
+                {nM(fit.ci_low)}–{nM(fit.ci_high)} nM
+              </dd>
+            </div>
+            <div>
+              <dt>Wells in the fit</dt>
+              <dd>
+                {fit.point_count} of {samples.length},{" "}
+                {fit.qualifier === "within_range"
+                  ? "within range"
+                  : fit.qualifier.replace("_", " ")}
+              </dd>
+            </div>
+          </dl>
+        ))}
+      </div>
+    </div>
+  </div>
+  <figcaption>
+    Both fits are the plate assays plugin's results for this plate's{" "}
+    <a href={exampleHref(data.data.file)} download>
+      MARS export
+    </a>
+    : once with all {samples.length} sample wells, and once without {exclusion.well}. Each curve is
+    drawn from its fit's plateaus, Hill slope and midpoint.
+  </figcaption>
+</figure>
+
+<script>
+  import { startPlateAssay } from "../../scripts/plate-assay.ts";
+
+  for (const figure of document.querySelectorAll<HTMLElement>("[data-plate-assay]")) {
+    startPlateAssay(figure);
+  }
+</script>
+
+<style>
+  .assay {
+    margin: 20px 0 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 20px;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .title {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .toggle {
+    min-height: 40px;
+    padding: 0 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .toggle[aria-pressed="true"] {
+    border-color: var(--build);
+    background: var(--build-soft);
+    color: var(--build);
+  }
+  .assay:not([data-excluded]) [data-fit="excluded"],
+  .assay[data-excluded] [data-fit="all"] {
+    display: none;
+  }
+  .panes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    padding: 20px;
+  }
+  .plate-pane {
+    flex: 1 1 340px;
+    min-width: 0;
+  }
+  .chart-pane {
+    flex: 1 1 380px;
+    min-width: 0;
+  }
+  .hint {
+    margin: 0 0 10px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .plate-scroll {
+    overflow-x: auto;
+  }
+  .plate {
+    border-collapse: separate;
+    border-spacing: 4px;
+    margin: -4px;
+  }
+  .plate th {
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--muted);
+    padding: 0;
+  }
+  .plate th[scope="row"] {
+    width: 14px;
+    text-align: left;
+  }
+  .plate td {
+    padding: 0;
+  }
+  .well {
+    display: block;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--surface-3);
+    cursor: pointer;
+  }
+  .well.empty {
+    border: 1px solid var(--border-strong);
+    background: none;
+    cursor: default;
+  }
+  .well[aria-pressed="true"] {
+    border-color: var(--text);
+  }
+  .level-1 {
+    background: color-mix(in oklab, var(--accent) 20%, var(--surface));
+  }
+  .level-2 {
+    background: color-mix(in oklab, var(--accent) 28%, var(--surface));
+  }
+  .level-3 {
+    background: color-mix(in oklab, var(--accent) 36%, var(--surface));
+  }
+  .level-4 {
+    background: color-mix(in oklab, var(--accent) 45%, var(--surface));
+  }
+  .level-5 {
+    background: color-mix(in oklab, var(--accent) 54%, var(--surface));
+  }
+  .level-6 {
+    background: color-mix(in oklab, var(--accent) 63%, var(--surface));
+  }
+  .level-7 {
+    background: color-mix(in oklab, var(--accent) 72%, var(--surface));
+  }
+  .level-8 {
+    background: color-mix(in oklab, var(--accent) 82%, var(--surface));
+  }
+  .assay[data-excluded] .well[data-excludable] {
+    background: var(--surface);
+    border-color: var(--build);
+  }
+  .assay[data-excluded] .well[data-excludable] span::before {
+    content: "×";
+    color: var(--build);
+    font-size: 14px;
+    line-height: 1;
+  }
+  .well-detail {
+    margin-top: 16px;
+    padding: 14px;
+    border-radius: 6px;
+    background: var(--surface-2);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .well-detail p {
+    margin: 0;
+  }
+  .detail-head {
+    font-weight: 600;
+  }
+  .excluded-note {
+    margin-top: 6px !important;
+    color: var(--build);
+  }
+  .assay[data-excluded]:not([data-selected="excludable"]) .excluded-note {
+    display: none;
+  }
+  .chart {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .axes {
+    font-family: var(--font);
+    font-size: 11px;
+    fill: var(--muted);
+  }
+  /* The chart scales down on a phone; its labels are set larger so they stay readable. */
+  @media (max-width: 720px) {
+    .axes {
+      font-size: 17px;
+    }
+  }
+  .axis {
+    stroke: var(--border-strong);
+  }
+  .grid {
+    stroke: var(--border);
+    stroke-dasharray: 3 4;
+  }
+  .curve {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2.5;
+  }
+  .midline {
+    stroke: var(--accent);
+    stroke-dasharray: 4 4;
+  }
+  .dots {
+    fill: var(--text);
+  }
+  .out {
+    fill: var(--bg);
+    stroke: var(--build);
+    stroke-width: 2;
+  }
+  .results dl {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
+    gap: 12px;
+    margin: 12px 0 0;
+    font-size: 14px;
+  }
+  .results dt {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .results dd {
+    margin: 2px 0 0;
+    font-size: 16px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  figcaption {
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  figcaption strong {
+    color: var(--text);
+  }
+  @media (max-width: 720px) {
+    .panes {
+      padding: 16px;
+    }
+    .well {
+      width: 22px;
+      height: 22px;
+    }
+    .plate {
+      border-spacing: 3px;
+    }
+  }
+</style>

@@ -54,3 +54,6 @@ plugins/plasmid_sequencing/components/whole-plasmid-map.js
 plugins/plasmid_sequencing/conda/long-read-tools-lock.yml
 # Translated from the checked Rust binary by pnpm generate:temperature.
 web/packages/science/generated/oligo-temperature.js
+# The docs site's MDX: Prettier formats MDX as MDX 1 did, reflowing text inside JSX onto
+# lines of its own, which MDX 3 reads as paragraphs (and splits links and sentences).
+docs/site/src/content/**/*.mdx

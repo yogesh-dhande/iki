@@ -47,7 +47,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'false'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -75,6 +75,11 @@ jobs:
           pytest_version=$(sed -n '/^name = "pytest"$/{n;p;}' uv.lock | cut -d'"' -f2)
           uv run --no-project --with "pytest==$pytest_version" \
             pytest -q -p no:cacheprovider -p pytest_gate_skips -c /dev/null --rootdir . docs/tests
+      # The docs site links to the repository's documents: build it, and check its links and policies.
+      - name: Install (locked)
+        run: uv sync --locked
+      - name: Build and check the docs site
+        run: make check-docs
 
   workflows:
     name: Lint GitHub workflows
@@ -234,13 +239,15 @@ jobs:
         env:
           IKI_WORKER: ${{ github.workspace }}/worker/target/debug/iki-worker
         run: uv run --no-sync python scripts/ci/check_plugin_examples.py
-      - name: Build and check the web app, package stories and accessibility assets
+      - name: Build and check the web app, package stories, docs site and accessibility assets
         if: matrix.kind == 'browser'
         run: |
           pnpm install --frozen-lockfile
           pnpm --filter @ikisci/app build:web
           pnpm --filter @ikisci/science --filter @ikisci/ui build
+          make docs
           uv run --locked python scripts/ci/check_test_prerequisites.py web
+          uv run --locked python scripts/ci/check_test_prerequisites.py docs
       # The browsers' system packages, kept between runs: Ubuntu's mirrors are
       # sometimes too slow from the runners to download them in time.
       # A stalled cache service once held this step for the job's whole timeout: give

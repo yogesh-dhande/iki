@@ -22,7 +22,7 @@ with published apigenin and daidzein activity measurements, load the
 Projects without a starter use
 the plugin's deployment setting `review_flow`, which defaults to `research`.
 Each result keeps the flow selected when it was created.
-[Run a first dose-response plate assay](../../docs/guides/first-dose-response-assay.md)
+[Run a dose-response plate assay](https://ikisci.org/use-cases/dose-response-plate-assay/)
 
 ## Run an assay
 

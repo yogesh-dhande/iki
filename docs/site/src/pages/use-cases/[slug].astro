@@ -1,0 +1,94 @@
+---
+// A use case: one task done end to end, its steps by who does them, on real (or plainly
+// synthetic) data, with what explains it and what it calls on the side.
+import { getCollection, render } from "astro:content";
+
+import ItemLink from "../../components/ItemLink.astro";
+import SeriesNav from "../../components/usecase/SeriesNav.astro";
+import Doc from "../../layouts/Doc.astro";
+import { itemOf } from "../../lib/site.ts";
+
+export async function getStaticPaths() {
+  return (await getCollection("useCases")).map((entry) => ({
+    params: { slug: entry.id },
+    props: { entry },
+  }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+const { data } = entry;
+// The other parts of its series, if it's in one.
+const series = data.series
+  ? (await getCollection("useCases"))
+      .filter((other) => other.data.series?.name === data.series?.name)
+      .map((other) => ({
+        title: other.data.title,
+        href: `/use-cases/${other.id}/`,
+        part: other.data.series?.part ?? 0,
+      }))
+      .sort((a, b) => a.part - b.part)
+  : [];
+---
+
+<Doc
+  title={data.title}
+  description={data.description}
+  section="Use cases"
+  audience={data.audience}
+  measure={900}
+>
+  <nav class="breadcrumbs" aria-label="Breadcrumbs">
+    <a href="/use-cases/">Use cases</a> / {data.topic}
+  </nav>
+  <h1 class="doc-title">{data.title}</h1>
+  <p class="lede">{data.description}</p>
+  <Content />
+  {data.series && <SeriesNav name={data.series.name} parts={series} current={data.series.part} />}
+  <aside slot="aside" class="side" aria-label="Related">
+    {data.concepts.length > 0 && (
+      <div class="side-box">
+        <h2>Concepts</h2>
+        <ul>
+          {data.concepts.map((link) => (
+            <li>
+              <ItemLink item={itemOf(link)} />
+              {link.note && <span class="note"> {link.note}</span>}
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
+    <div class="side-box">
+      <h2>Reference</h2>
+      <ul class="mono-list">
+        {data.reference.map((link) => (
+          <li>
+            <ItemLink item={itemOf(link)} class="mono" />
+          </li>
+        ))}
+      </ul>
+    </div>
+    {data.aside && (
+      <div class="side-box quiet">
+        <h2>{data.aside.title}</h2>
+        <p>{data.aside.text}</p>
+        <ItemLink item={itemOf({ label: "The worked fit", href: data.aside.href })} />
+      </div>
+    )}
+  </aside>
+</Doc>
+
+<style>
+  .lede {
+    margin: 14px 0 0;
+    max-width: 720px;
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  .mono-list :global(a) {
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+</style>

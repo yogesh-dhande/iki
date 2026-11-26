@@ -1,0 +1,68 @@
+---
+// A section's index: a list of its pages, each with what it's about.
+import ItemLink from "../ItemLink.astro";
+import type { Item } from "../../lib/site.ts";
+
+interface Props {
+  items: (Item & { text?: string | undefined })[];
+}
+const { items } = Astro.props;
+---
+
+<ul class="listing">
+  {items.map((item) => (
+    <li>
+      <ItemLink item={item} class="listing-link" />
+      {item.text && <p>{item.text}</p>}
+      {item.note && <p class="note">{item.note}</p>}
+      {item.children && (
+        <ul class="pages" aria-label={`${item.label}: its pages`}>
+          {item.children.map((child) => (
+            <li>
+              <ItemLink item={child} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  ))}
+</ul>
+
+<style>
+  .listing {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--border);
+  }
+  .listing li {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .listing :global(.listing-link) {
+    font-size: 17px;
+    font-weight: 600;
+  }
+  .listing p {
+    margin: 4px 0 0;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  .listing .note {
+    font-size: 13px;
+  }
+  .listing .pages {
+    margin: 10px 0 0;
+    padding: 0 0 0 16px;
+    border-left: 2px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 15px;
+  }
+  .listing .pages li {
+    padding: 0;
+    border: 0;
+  }
+</style>

@@ -73,7 +73,9 @@ class Shard:
 def kind_of(markers: Iterable[str], fixtures: Iterable[str] = ()) -> str:
     """The setup a test needs, including through an indirect or aliased fixture."""
     names = set(markers)
-    if names & {"built_web_app", "browser"} or {"browser", "playwright"}.intersection(fixtures):
+    if names & {"built_web_app", "built_docs", "browser"} or {"browser", "playwright"}.intersection(
+        fixtures
+    ):
         return "browser"
     if "worker_e2e" in names:
         return "worker"

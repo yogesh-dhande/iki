@@ -1,6 +1,6 @@
 # iki-codegen
 
-Compiles Iki plugin manifests (see [`spec/`](../spec/README.md)) into Django
+Compiles Iki plugin manifests (see the [plugin spec](https://ikisci.org/reference/plugin-spec/)) into Django
 apps. `iki plugin build` and `iki plugin makemigrations` use it; the design
 is in [ADR 0033](../docs/adr/0033-plugin-codegen-and-migrations.md).
 

@@ -7,13 +7,21 @@
   "required": ["apiVersion", "kind"],
   "allOf": [
     {
-      "if": { "required": ["park"] },
+      "if": {
+        "required": ["park"]
+      },
       "then": {
         "not": {
           "anyOf": [
-            { "required": ["creates"] },
-            { "required": ["creates_file"] },
-            { "required": ["updates"] }
+            {
+              "required": ["creates"]
+            },
+            {
+              "required": ["creates_file"]
+            },
+            {
+              "required": ["updates"]
+            }
           ]
         }
       }
@@ -65,7 +73,9 @@
           "format": "uuid",
           "description": "The file it was read from: one of the run's file params."
         },
-        "made": { "$ref": "#/$defs/made" }
+        "made": {
+          "$ref": "#/$defs/made"
+        }
       }
     },
     "made": {
@@ -97,13 +107,15 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 100,
-                "pattern": "^[^\\s](.*[^\\s])?$"
+                "pattern": "^[^\\s](.*[^\\s])?$",
+                "description": "The tool's name, such as `AlphaFold`."
               },
               "version": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 100,
-                "pattern": "^[^\\s](.*[^\\s])?$"
+                "pattern": "^[^\\s](.*[^\\s])?$",
+                "description": "Its version, such as `2.3.2`."
               }
             }
           }
@@ -112,12 +124,21 @@
           "type": "object",
           "maxProperties": 20,
           "description": "What else it states about the making, by name, such as a model's mean pLDDT.",
-          "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,62}$" },
+          "propertyNames": {
+            "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,62}$"
+          },
           "additionalProperties": {
             "anyOf": [
-              { "type": "string", "maxLength": 200 },
-              { "type": "number" },
-              { "type": "boolean" }
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
             ]
           }
         }
@@ -151,13 +172,17 @@
           "properties": {
             "amount": {
               "type": "object",
+              "description": "How much it starts with.",
               "additionalProperties": false,
               "required": ["value", "unit"],
               "properties": {
                 "value": {
                   "description": "A positive decimal amount. Use a string to preserve its exact precision.",
                   "anyOf": [
-                    { "type": "number", "exclusiveMinimum": 0 },
+                    {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
                     {
                       "type": "string",
                       "minLength": 1,
@@ -166,10 +191,20 @@
                     }
                   ]
                 },
-                "unit": { "type": "string", "minLength": 1, "maxLength": 50 }
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 50,
+                  "description": "Its unit, in UCUM, such as `uL` or `mg`."
+                }
               }
             },
-            "reason": { "type": "string", "minLength": 1, "maxLength": 1000 },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000,
+              "description": "Why, as kept with its starting amount and its move into the container."
+            },
             "position": {
               "type": "string",
               "minLength": 1,
@@ -188,16 +223,24 @@
           "type": "array",
           "uniqueItems": true,
           "maxItems": 100,
-          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
           "description": "Fields of `values`, its registry entry's, that only fill an entry registered already where it has none: one it has is kept and the create goes ahead, where a fact that differs is otherwise refused. For what sources spell otherwise, such as an organism's scientific name from an old file (ADR 0140). Not in a `creates_file`'s lines."
         },
         "derived_from": {
           "type": "array",
-          "items": { "type": "string", "format": "uuid" },
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
           "uniqueItems": true,
           "description": "The input entities it was made from. Leave it out when the declared inputs it's derived from hold one entity (never in a job that runs several runs at once: see `pack` in input.json)."
         },
-        "origin": { "$ref": "#/$defs/origin" },
+        "origin": {
+          "$ref": "#/$defs/origin"
+        },
         "made_with": {
           "type": "array",
           "minItems": 1,
@@ -215,12 +258,20 @@
     }
   },
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "RunOutput" },
+    "apiVersion": {
+      "const": "iki/v1",
+      "description": "The spec version this document follows."
+    },
+    "kind": {
+      "const": "RunOutput",
+      "description": "What this document is: `RunOutput`."
+    },
     "updates": {
       "type": "object",
       "description": "By input name (one the action declares it updates): the entities it was given there, and the new values of fields the action declares.",
-      "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,62}$"
+      },
       "additionalProperties": {
         "type": "array",
         "items": {
@@ -233,7 +284,11 @@
               "format": "uuid",
               "description": "The input entity's ID, from input.json."
             },
-            "values": { "type": "object", "minProperties": 1 },
+            "values": {
+              "type": "object",
+              "minProperties": 1,
+              "description": "The fields' new values, by name: only fields the action declares it updates."
+            },
             "reason": {
               "type": "string",
               "minLength": 1,
@@ -252,7 +307,9 @@
       "type": "array",
       "description": "New entities, of types the action declares it creates.",
       "maxItems": 10000,
-      "items": { "$ref": "#/$defs/create" }
+      "items": {
+        "$ref": "#/$defs/create"
+      }
     },
     "creates_file": {
       "description": "Creates too many for output.json (over 10,000, or large ones): a file in IKI_OUT_DIR with one create per line, each as an item of `creates` is (JSON Lines). Iki checks every line, then writes them all or none, as it does `creates`. Their values can't attach files. A line's ref fields can name a keyed create in `creates`, written first, as `{\"$create\": \"<key>\"}`, but not another line or, in its identity, any create.",
@@ -282,7 +339,11 @@
       "required": ["api", "job"],
       "additionalProperties": false,
       "properties": {
-        "api": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+        "api": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,62}$",
+          "description": "The API's name in its plugin: one of the action's, with `jobs`."
+        },
         "job": {
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]{0,199}$",
@@ -298,8 +359,12 @@
       "type": "object",
       "description": "Numbers about the run, such as a score or a count, kept on the run.",
       "maxProperties": 100,
-      "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
-      "additionalProperties": { "type": "number" }
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,62}$"
+      },
+      "additionalProperties": {
+        "type": "number"
+      }
     },
     "messages": {
       "type": "array",
@@ -310,8 +375,15 @@
         "required": ["level", "text"],
         "additionalProperties": false,
         "properties": {
-          "level": { "enum": ["info", "warning", "error"] },
-          "text": { "type": "string", "maxLength": 2000 },
+          "level": {
+            "enum": ["info", "warning", "error"],
+            "description": "How serious it is."
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "What it says."
+          },
           "entity": {
             "type": "string",
             "format": "uuid",

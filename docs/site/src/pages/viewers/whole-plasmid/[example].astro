@@ -1,0 +1,42 @@
+---
+// The whole-plasmid map of the worked example, drawn by iki/plasmid_sequencing's own Map
+// tab (plugins/plasmid_sequencing/web/src/whole-plasmid-map.js) on the values its check
+// recorded for this build.
+import Frame from "../../../layouts/Frame.astro";
+import { puc19 } from "../../../lib/examples.ts";
+
+export function getStaticPaths() {
+  return [{ params: { example: "puc19-srr17915342" } }];
+}
+
+// What the app hands the tab: the result, as its viewer may read it.
+const entity = JSON.stringify({ hrid: "pUC19", values: puc19.values }).replace(/</g, "\\u003c");
+---
+
+<Frame title={`pUC19 checked against ${puc19.data.accession}: the whole-plasmid map`}>
+  <whole-plasmid-map></whole-plasmid-map>
+  <script type="application/json" id="entity" set:html={entity} />
+</Frame>
+
+<script>
+  import "../../../../../../plugins/plasmid_sequencing/web/src/whole-plasmid-map.js";
+
+  import { followTheme } from "../../../scripts/viewer.ts";
+
+  followTheme(window);
+  const map = document.querySelector("whole-plasmid-map") as
+    (HTMLElement & { entity: unknown }) | null;
+  const data = document.getElementById("entity")?.textContent;
+  if (map && data) {
+    map.entity = JSON.parse(data);
+  }
+</script>
+
+<style>
+  whole-plasmid-map {
+    background: var(--surface);
+    color: var(--text);
+    padding: 16px;
+    border-radius: 0;
+  }
+</style>

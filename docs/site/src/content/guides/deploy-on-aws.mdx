@@ -1,0 +1,313 @@
+---
+title: Deploy on AWS
+description: Run Iki in your own AWS account with Iki's reference OpenTofu modules, from an empty account to Iki serving, and what the infrastructure they make promises.
+audience: run
+order: 40
+reference:
+  - { label: Compute template, href: /reference/plugin-spec/compute-template/ }
+  - { label: "Compute template: aws", href: /reference/plugin-spec/compute-template/#aws }
+---
+
+Iki's repository has reference OpenTofu modules for running Iki in your own AWS account, in
+`deploy/aws/`. They use the AWS provider alone, with no third-party modules, so your platform team
+can read and qualify every resource they make. `deploy/aws/production` puts them together into one
+deployment, with the chart's production values beside it. Copy `deploy/aws/production` and
+`deploy/aws/modules` into your own repository and change what you need: it's a starting point,
+not a module to call.
+
+## What the modules make
+
+| Module     | What it makes                                                                                                              |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `network`  | A VPC over two to four zones: public, private and database subnets, NAT gateways, flow logs and endpoints                  |
+| `cluster`  | EKS with private Bottlerocket nodes: a system pool, and dedicated pools for runs and GPUs                                  |
+| `database` | RDS PostgreSQL, Multi-AZ, encrypted, TLS only, pgaudit, 35 days of point-in-time recovery, backups copied to the DR region |
+| `storage`  | The files bucket: versioned, encrypted, private, TLS only, access logged, every version replicated to the DR region        |
+| `access`   | An IAM role for each pod that calls AWS, bound by EKS Pod Identity, each allowed only what it uses                         |
+| `secrets`  | Secrets Manager entries for Iki's secrets, encrypted and replicated to the DR region, with no values in OpenTofu's state   |
+| `vm-tier`  | The VM tier's machine role and instance profile, their disks' key, and a security group that lets nothing in               |
+| `fsx`      | Optional: FSx for Lustre for shared reference data, encrypted, root squashed, with a bucket linked read-only               |
+
+The database, storage and secrets modules take two AWS providers: the default one, and `aws.dr`
+for the disaster-recovery region their copies go to. After losing a region, `production` stands
+Iki up again in the DR region from those copies: see
+[Restore a deployment from a backup](/guides/restore-from-a-backup/).
+
+## What it needs
+
+OpenTofu 1.11 or later, the AWS CLI, kubectl, Helm, jq and curl; credentials for the account; and
+an ACM certificate for Iki's host name.
+
+## Make the state's bucket and key
+
+Once per deployment, make the bucket and key its OpenTofu state is kept in:
+
+```console
+cd deploy/aws/bootstrap
+tofu init
+tofu apply -var region=eu-west-1
+tofu output -raw backend_hcl > ../production/backend.hcl
+tofu output state_kms_key_arn
+```
+
+The bootstrap's own state holds no secrets. Keep it beside the deployment's:
+`aws s3 cp terraform.tfstate s3://<bucket>/bootstrap/terraform.tfstate`.
+
+## Make the infrastructure
+
+```console
+cd deploy/aws/production
+cp terraform.tfvars.example terraform.tfvars   # and fill it in
+tofu init -backend-config=backend.hcl
+tofu apply
+```
+
+`terraform.tfvars` holds nothing secret:
+
+```hcl
+region    = "eu-west-1"
+dr_region = "eu-central-1"
+zones     = ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
+
+kubernetes_version   = "1.35"
+admin_principal_arns = ["arn:aws:iam::123456789012:role/platform-admins"]
+
+# From deploy/aws/bootstrap: tofu output state_kms_key_arn.
+state_kms_key_arn = "arn:aws:kms:eu-west-1:123456789012:key/..."
+
+public_host     = "iki.example.com"
+certificate_arn = "arn:aws:acm:eu-west-1:123456789012:certificate/..."
+
+# Reachable only from your network, through a VPN or Direct Connect:
+# internal = true
+# Or from the internet, but only your company's ranges:
+# ingress_cidrs = ["203.0.113.0/24"]
+
+# The VM tier, pulling from your ECR repositories:
+# vm_tier = {
+#   ecr_repository_arns = ["arn:aws:ecr:eu-west-1:123456789012:repository/iki/worker"]
+# }
+
+# Shared reference data on FSx for Lustre:
+# fsx = {
+#   reference_bucket        = { arn = "arn:aws:s3:::acme-reference-data" }
+#   root_squash_except_nids = ["10.40.1.5@tcp"]
+# }
+
+tags = {
+  "cost-centre" = "research-it"
+}
+```
+
+OpenTofu encrypts the state with the bootstrap's key before writing it, and locks it while anyone
+applies. An apply that makes everything takes about 40 minutes, most of it the cluster and the
+database.
+
+The key that encrypts the nodes' volumes lets EC2 Auto Scaling's service-linked role use it, so
+the account needs that role before the apply. AWS makes it once the account uses Auto
+Scaling. In a new account, make it with
+`aws iam create-service-linked-role --aws-service-name autoscaling.amazonaws.com`.
+
+## Install the cluster's controllers
+
+From here on, run commands from the repository's root, with:
+
+```console
+out() { tofu -chdir=deploy/aws/production output -raw "$1"; }
+```
+
+```console
+aws eks update-kubeconfig --name "$(out cluster_name)"
+helm repo add eks https://aws.github.io/eks-charts
+helm repo add external-secrets https://charts.external-secrets.io
+helm repo add autoscaler https://kubernetes.github.io/autoscaler
+helm repo add external-dns https://kubernetes-sigs.github.io/external-dns
+
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  --namespace kube-system --set clusterName="$(out cluster_name)" \
+  --set region="$(out region)" --set vpcId="$(out vpc_id)" \
+  --set serviceAccount.name=aws-load-balancer-controller
+helm install external-secrets external-secrets/external-secrets \
+  --namespace external-secrets --create-namespace
+helm install cluster-autoscaler autoscaler/cluster-autoscaler \
+  --namespace kube-system --set autoDiscovery.clusterName="$(out cluster_name)" \
+  --set awsRegion="$(out region)" --set rbac.serviceAccount.name=cluster-autoscaler
+```
+
+With `internal = true`, install ExternalDNS too. It names the internal ALB `public_host` in a
+private zone of this VPC alone, so backend workers, run pods and the VM tier's machines reach Iki
+at its URL from inside (`internal_dns`; turn that off if your own DNS already does):
+
+```console
+out external_dns_values | helm install external-dns external-dns/external-dns \
+  --namespace kube-system -f -
+```
+
+Pin each chart with `--version`, to the release you qualified. They need no annotations: the
+`access` module bound each one's service account to its role through EKS Pod Identity
+(`tofu output controller_roles`).
+
+Backend workers and container-tier run pods reach only the server, S3 at its gateway endpoint's
+ranges, and the egress proxy. With an internal ALB, the server is in the private subnets. An
+internet-facing ALB's addresses change, so OpenTofu can't name them: with one, set
+`networkPolicy.egress.server.to` in `values-production.yaml` to addresses that reach the server,
+such as an ingress controller's in the cluster, or the chart won't render workers.
+
+## Store the secrets and make the database's roles
+
+Once per deployment:
+
+```console
+eval "$(out put_secrets)"
+deploy/aws/scripts/create-database-roles.sh iki-production "$(out database_master_secret_arn)"
+out external_secrets | kubectl apply -f -
+```
+
+- `put_secrets` generates Iki's secrets straight into Secrets Manager. OpenTofu makes the entries,
+  never their values.
+- `create-database-roles.sh` creates the database's two roles with their passwords, and stores
+  RDS's CA as the `iki-database-ca` Secret.
+- `external_secrets` has External Secrets copy each secret into the namespace `iki`, refreshing
+  hourly, with the role the `access` module gives it.
+
+None of them overwrites what exists, so each is safe to run again.
+
+## Install Iki
+
+```console
+out helm_values > deploy/aws/production/values-aws.yaml
+helm upgrade --install iki deploy/helm/iki --namespace iki \
+  -f deploy/aws/production/values-production.yaml -f deploy/aws/production/values-aws.yaml
+```
+
+`values-aws.yaml` is what the infrastructure decided: the bucket, the Secrets' names, the ALB and
+the networks pods may reach. Change those in OpenTofu and write it again.
+`values-production.yaml` holds the choices that are yours, such as replicas and the egress proxy.
+Pin the image by digest there.
+
+Then let Iki set the bucket's CORS rule, since browsers send files to it directly, and its
+lifecycle rule for abandoned uploads, which OpenTofu leaves to it:
+
+```console
+kubectl -n iki exec deploy/iki-web -- iki-server setup_storage
+```
+
+Run it again if `publicUrl` changes. With `--check` it reports what's missing and changes nothing.
+
+Point your DNS name at the ALB (`kubectl -n iki get ingress iki-web`), then open the one-time
+setup link that `kubectl -n iki exec deploy/iki-web -- iki-server setup_link` prints.
+
+## Metrics, dashboards and alerts
+
+Iki sends traces and metrics over OTLP to your collector: set `otel.endpoint` in
+`values-production.yaml`, to an OpenTelemetry Collector, or to Amazon Managed Service for
+Prometheus through one. With kube-prometheus-stack in the cluster, also set:
+
+```yaml
+monitoring:
+  dashboards: { enabled: true } # for Grafana's dashboard sidecar
+  alerts: { enabled: true, labels: { release: kube-prometheus-stack } }
+```
+
+Otherwise import `deploy/helm/iki/files/dashboards/iki.json` into Grafana and load
+`deploy/helm/iki/files/alerts.yaml` as a rules file. Each alert's annotations say what it means.
+
+## How it's secured
+
+- Nothing has a public address but load balancers and NAT gateways. The Kubernetes API is private
+  unless you list networks that may reach it.
+- Each purpose has its own customer-managed KMS key, rotated yearly.
+- VPC flow logs and every EKS control-plane log are kept, encrypted.
+- Pods can't take a node's role (IMDSv2, one hop), and a node's role can only join the cluster and
+  pull images.
+- NetworkPolicies are enforced, by the VPC CNI's network policy agent.
+- The database reaches back 35 days to any minute, and its backups are copied to the DR region as
+  they're made. Its master password lives in Secrets Manager, never in OpenTofu's state.
+- Every version of every file is replicated to the DR region.
+- Each pod that calls AWS has its own role. Web pods, task runners and the maintenance job reach
+  only the files bucket under Iki's prefix, and read registered locations. The provisioner starts,
+  tags and ends only machines, disks and snapshots carrying its deployment's tag. External Secrets
+  reads only this deployment's secrets. Backend workers and runs get no role.
+- The VM tier's machines can only pull their images, and their security group lets nothing in.
+- Plugins' code runs on its own nodes. Pools other than `system` are tainted
+  `iki.ikisci.org/pool=<pool>:NoSchedule`. Give backend workers and compute templates the pool's
+  node selector and toleration, which the cluster module's `node_pools` output lists.
+
+## Check the modules
+
+```console
+make check-infra
+```
+
+It runs `tofu fmt`, `tofu validate` and `tofu test` for each module and root, then Checkov's AWS
+checks. The tests run against a mocked AWS provider, so they need no account or credentials: they
+check what would be applied, such as that a database subnet has no route out, and the API isn't
+open to the internet, not that AWS accepts it. Each check Checkov skips says why, in the code. It
+also plans `production` and checks the chart's values it writes, which the chart's own tests then
+render with `values-production.yaml`. The AWS provider is pinned in each module's
+`.terraform.lock.hcl`, with checksums for Linux and macOS.
+
+That AWS accepts it is what the live test checks, on request only:
+
+```console
+IKI_AWS_ROLE_ARN=<role> IKI_AWS_TOKEN_COMMAND=<command> make check-aws-live
+```
+
+- It acts as the role, assumed with a web identity token the command prints: no AWS keys, and
+  none of your AWS configuration.
+- It follows this page's steps in the role's account, small: two `m7i-flex.large` system nodes, a
+  runs pool from none to one, a Multi-AZ `db.t4g.small` and one NAT gateway, served only by an
+  internal ALB named in the VPC's private zone.
+- It checks Iki's readiness, the setup link, a project and a record, a file through presigned
+  URLs, a backend worker's run through the ALB, the bucket, the ALB and the database's private
+  TLS.
+- It then always tears everything down with `deploy/aws/scripts/teardown.sh`, and fails if
+  anything of its own is left but what AWS keeps: KMS keys pending deletion, and the
+  service-linked roles AWS makes for its services.
+- It bills the account a few US dollars, stops at two hours whatever it's doing, and never runs on
+  CI. At the end it reports what the run cost at list prices. `make aws-live-cost` does again, and
+  `ESTIMATE=1 make aws-live-cost` prices a run before it.
+
+Its settings are in `deploy/aws/tests/test_aws_live.py`. Run it when `make live-due` says AWS is
+due: something it tests (`deploy/aws/`, the chart, the images, the server's AWS code, the harness)
+changed since its last passing run. A run that passes whole, of a clean tree, appends to
+`deploy/live-runs.json`: commit it. A release tag needs one, of a commit it descends from with
+nothing it tests changed since.
+
+## What to know before you rely on it
+
+- **Expired files stay in the DR copy.** Iki deletes an expired artifact or bundle by deleting
+  every version of it. S3 doesn't replicate deleting a version, so the copy in the DR region keeps
+  it. Where an expiry must reach every copy, delete it there too.
+- **S3 access logs use S3-managed keys.** S3 delivers access logs only to buckets encrypted that
+  way; everything else has a key of its own.
+- **The VM tier's machines reach only the VPC, S3 and DNS.** Give them an address for Iki's server
+  inside the VPC (`vmTier.serverUrl`), or list more networks in `extra_https_cidrs`. A public
+  registry's images need its networks there too, through the NAT gateways.
+- **Spot machines need EC2's spot service-linked role**, which an account makes once:
+  `aws iam create-service-linked-role --aws-service-name spot.amazonaws.com`.
+- **FSx squashes root.** Make `/iki` for runs' user (UID 10001) from a machine listed in
+  `root_squash_except_nids`, then take it off the list. A linked bucket encrypted with a KMS key
+  must let FSx use that key.
+
+## Tear it down
+
+For a test deployment, or one decommissioned once its records are kept elsewhere, run this from
+the repository's root, with `deploy/aws/production` initialized and its `terraform.tfvars` in
+place, as someone who administers the account:
+
+```console
+deploy/aws/scripts/teardown.sh iki-production --bootstrap
+```
+
+It uninstalls Iki and the cluster's controllers, so the load balancer and anything else they made
+goes, then the VM tier's machines, volumes and images, and destroys `deploy/aws/production` with
+deletion protection turned off. `--bootstrap` also destroys the bootstrap and its state bucket: do
+that last, once nothing else keeps its state there. What it deletes can't be restored.
+
+- Without `--purge`, what the deployment could still be recovered from is kept: the database's
+  final snapshot and its automated backups, in both regions until their retention ends, and its
+  secrets, for their recovery window. `--purge` deletes those too.
+- KMS keys always wait out their 30-day deletion window, and AWS deletes them then.
+- It asks before it starts, unless `IKI_TEARDOWN_YES=1` is set, and is safe to run again after a
+  failure: each step skips what's already gone.

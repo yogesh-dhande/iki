@@ -1,0 +1,113 @@
+---
+// A guide: one task for an admin or a plugin author, in order, with its reference. A page
+// of a guide in several pages links to the pages before and after it.
+import { getCollection, render } from "astro:content";
+
+import ItemLink from "../../components/ItemLink.astro";
+import Toc from "../../components/Toc.astro";
+import Doc from "../../layouts/Doc.astro";
+import { sitePages } from "../../lib/pages.ts";
+import { AUDIENCES, itemOf, pager } from "../../lib/site.ts";
+
+export async function getStaticPaths() {
+  return (await getCollection("guides")).map((entry) => ({
+    params: { slug: entry.id },
+    props: { entry },
+  }));
+}
+
+const { entry } = Astro.props;
+const { Content, headings } = await render(entry);
+const { data } = entry;
+const sections = headings
+  .filter((heading) => heading.depth === 2)
+  .map((heading) => ({ id: heading.slug, label: heading.text }));
+const pages = await sitePages();
+const here = pages.find((page) => page.href === `/guides/${entry.id}/`);
+const guide = here?.parent ? pages.find((page) => page.href === here.parent) : undefined;
+const { previous, next } = pager(pages, `/guides/${entry.id}/`);
+---
+
+<Doc title={data.title} description={data.description} section="Guides" audience={data.audience}>
+  <nav class="breadcrumbs" aria-label="Breadcrumbs">
+    <a href={AUDIENCES[data.audience].all}>Guides</a> / {AUDIENCES[data.audience].label}
+    {guide && (
+      <>
+        {" "}
+        / <a href={guide.href}>{guide.label}</a>
+      </>
+    )}
+  </nav>
+  <h1 class="doc-title">{data.title}</h1>
+  <p class="lede">{data.description}</p>
+  <div class="prose guide">
+    <Content />
+  </div>
+  {(previous || next) && (
+    <nav class="pager" aria-label="This guide's pages">
+      {previous && (
+        <a href={previous.href} rel="prev">
+          <span class="muted">Previous</span>
+          {previous.label}
+        </a>
+      )}
+      {next && (
+        <a href={next.href} rel="next" class="next">
+          <span class="muted">Next</span>
+          {next.label}
+        </a>
+      )}
+    </nav>
+  )}
+  <aside slot="aside" class="side" aria-label="On this page">
+    <Toc items={sections} />
+    {data.reference.length > 0 && (
+      <div class="side-box">
+        <h2>Reference</h2>
+        <ul>
+          {data.reference.map((link) => (
+            <li>
+              <ItemLink item={itemOf(link)} />
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
+  </aside>
+</Doc>
+
+<style>
+  .lede {
+    margin: 14px 0 0;
+    max-width: 720px;
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  .guide {
+    margin-top: 8px;
+  }
+  .pager {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+  .pager a {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-weight: 600;
+  }
+  .pager .next {
+    margin-left: auto;
+    text-align: right;
+  }
+  .pager .muted {
+    font-size: 13px;
+    font-weight: 400;
+  }
+</style>

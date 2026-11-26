@@ -1,0 +1,182 @@
+---
+title: Run actions when records change or on a schedule
+description: Run one of your plugin's actions by itself when a record is created, registered, changed or set to a state, with what's related to it, or at set times.
+audience: build
+order: 150
+reference:
+  - { label: Trigger manifest, href: /reference/plugin-spec/trigger/ }
+  - { label: Run input, href: /reference/plugin-spec/run-input/#run.trigger }
+---
+
+## What a trigger is
+
+A trigger runs one of your plugin's actions by itself: on a record when it changes, or at set
+times. Installing your plugin doesn't turn a trigger on. A project's Admins do, project by
+project, and its runs are theirs: launched as the Admin who turned it on, and recorded as started
+by the trigger. A run on the container or vm tier waits for that Admin's approval first.
+
+The storage labels example (`examples/plugins/storage_labels`) has a trigger, `store_new_samples`,
+that gives each new sample the default storage:
+
+```yaml
+# triggers/store_new_samples.yaml
+apiVersion: iki/v1
+kind: Trigger
+name: store_new_samples
+label: Assign storage to new samples
+description: Gives each new sample the default storage, unless someone already said where it is.
+on: entity.created
+type: Sample
+run: assign_storage
+```
+
+[`run`](/reference/plugin-spec/trigger/#run) names your plugin's action, and
+[`input`](/reference/plugin-spec/trigger/#input) the input that takes the record, which you leave
+out when only one can. [`params`](/reference/plugin-spec/trigger/#params) give the action's
+params values; a string starting with `$` is written `$$`.
+
+## What a trigger runs on
+
+[`on`](/reference/plugin-spec/trigger/#on) says when it fires, for records of its
+[`type`](/reference/plugin-spec/trigger/#type) or a subtype:
+
+| `on`                   | When                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------- |
+| `entity.created`       | A project's new record is made                                                                          |
+| `entity.registered`    | A new registry entry of a type with an identity is registered, once, by the record that registered it |
+| `entity.updated`       | A record's values change                                                                                |
+| `entity.state_changed` | One of a record's state fields is set                                                                   |
+| `request.received`     | A request of its type is sent to the project as a service, once                                        |
+| `schedule`             | At the times its schedule gives                                                                         |
+
+Computing what's derived from an identity belongs on `entity.registered`: the registry entry keeps
+it for every project ([Registries and project records](/concepts/registries-and-project-records/)).
+
+An `entity.created` trigger can import a file into the record that holds it, as an instrument's
+uploader makes one record for each export. Iki refuses a record whose file field holds a file that's
+still being scanned or is held, and gives a run's worker a file only once it's usable, so the import
+reads only clean files. A `unique` field for the file's SHA-256 keeps a re-sent export from making
+a second record: see [Import records from a file](/guides/write-a-plugin/import-from-a-file/).
+
+### Changes to some fields
+
+On `entity.updated`, [`fields`](/reference/plugin-spec/trigger/#fields) narrows it to changes of
+those fields. The example LIMS connector writes a protein's new name to the LIMS when someone
+renames it in Iki:
+
+```yaml
+on: entity.updated
+type: iki/protein.Protein
+fields: [name]
+run: send_to_lims
+```
+
+`entity.updated` doesn't watch state fields (`trigger-field-is-state`): use `entity.state_changed`.
+
+### A record set to a state
+
+On `entity.state_changed`, [`field`](/reference/plugin-spec/trigger/#field) names which state field
+(`trigger-state-field-missing`, `trigger-not-a-state-field`), and
+[`states`](/reference/plugin-spec/trigger/#states) narrows it to records set to one of those
+states ([Track a record's state](/guides/write-a-plugin/states/)).
+
+### A request sent to a service
+
+On `request.received`, the trigger runs in the service's project as a request of its
+[`type`](/reference/plugin-spec/trigger/#type), a request type, is sent there
+(`trigger-received-not-a-request`). It's the service's: the project that asked has none of it. Its
+action reads the request with both its sides, and writes the service's fields, as any run in the
+service's project does. Nobody in the service's project sent the request, so its runs are launched
+as a service account the Admin who turns it on chooses, as a schedule's are. The request priority
+example (`examples/plugins/request_priority`) gives each request sent to a sequencing core the rank
+of the project that asked:
+
+```yaml
+on: request.received
+type: SequencingRequest
+run: rank_requests
+input: requests
+```
+
+See [Requests between projects](/guides/write-a-plugin/requests/) for request types and their
+service fields.
+
+### Changes runs make
+
+A change a triggered run makes never fires a trigger, so a trigger can't fire itself, or another
+that fires it back. The example LIMS connector's nightly import is a triggered run, so the proteins
+it renames don't fire `send_renamed`. A run someone launches by hand is a person's change, and does.
+To run one action after another, chain them in a [workflow](/guides/write-a-plugin/workflows/).
+
+## Give the action what's related to the record
+
+A trigger can give the action's other inputs what's related to the record that fired it, across
+the graph of what depends on what. When a tube is put on hold, the Inventory plugin holds every
+tube split from it or filled from it:
+
+```yaml
+# plugins/inventory/triggers/hold_derived_tubes.yaml
+on: entity.updated
+type: Tube
+fields: [on_hold]
+run: hold_withdrawn
+input: source
+related:
+  tubes: { direction: downstream, edges: [aliquot, transfer] }
+```
+
+- Each input named under [`related`](/reference/plugin-spec/trigger/#related) gets every record of
+  its type in the project that's [`downstream`](/reference/plugin-spec/trigger/#related.direction)
+  of the record (derived from it) or `upstream` (what it was derived from), up to
+  [`depth`](/reference/plugin-spec/trigger/#related.depth) edges away (10 if left out, at most 30),
+  through [`edges`](/reference/plugin-spec/trigger/#related.edges) of those kinds (`reference`,
+  `run`, `file`, `aliquot`, `transfer`, `used`; all if left out).
+- The walk is the Admin's who turned the trigger on, reads only the project's records, and leaves
+  out archived ones.
+- It's all of them or none: past the most an input takes (its `max`, and never more than 1,000),
+  or past search's time limit, the firing fails and says why. An input that isn't optional, with
+  nothing related, skips the run.
+- Each such input takes many (`trigger-related-one`), and isn't the one the record goes to
+  (`trigger-related-is-input`).
+- An input [`from_project`](/guides/write-a-plugin/actions/#inputs-the-project-gives) needs
+  nothing from a trigger, and takes neither the record nor related ones
+  (`trigger-input-from-project`).
+
+The calibration tracing example (`examples/plugins/calibration_tracing`) uses three downstream
+reference searches to collect an instrument's service history, its uses and existing assessments
+when its calibration fails. The equipment types come from its dependency, `iki/equipment`.
+
+## Run actions on a schedule
+
+A trigger can run on a [`schedule`](/reference/plugin-spec/trigger/#schedule) instead, in cron's
+five fields (minute, hour, day of the month, month, day of the week) and a
+[`timezone`](/reference/plugin-spec/trigger/#timezone), UTC if left out. The example LIMS
+connector imports what the LIMS added or changed every night:
+
+```yaml
+# examples/plugins/lims_connector/triggers/import_nightly.yaml
+apiVersion: iki/v1
+kind: Trigger
+name: import_nightly
+label: Import from the LIMS nightly
+on: schedule
+schedule: 0 2 * * *
+run: import_from_lims
+```
+
+- Its action needs no input; `params` give it what it takes. A scheduled trigger has no
+  `related`.
+- It runs at most every 5 minutes, and never while its last run is still going.
+- An Admin turning it on picks the service account it runs as.
+- Each run's input has [`run.trigger`](/reference/plugin-spec/run-input/#run.trigger), with
+  [`scheduled_for`](/reference/plugin-spec/run-input/#run.trigger.scheduled_for), the time it was
+  for, and [`since`](/reference/plugin-spec/run-input/#run.trigger.since), the time the last run
+  that succeeded was for (null the first time), so an import can fetch only what's new. The
+  example LIMS connector's import asks the LIMS for what changed since then.
+
+## What the build checks
+
+The build checks that the type exists and has the fields, that the action takes a record of the
+type in one input and needs no other, besides those given related records, and that its params
+fit. A schedule must be valid cron that can fire (`trigger-schedule-invalid`,
+`trigger-schedule-never`), in a time zone that exists (`trigger-timezone-unknown`).

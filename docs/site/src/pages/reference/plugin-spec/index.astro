@@ -1,0 +1,123 @@
+---
+// The plugin spec reference's overview: every kind of manifest and document, by group, and
+// the schemas editors check files against.
+import Doc from "../../../layouts/Doc.astro";
+import { render } from "../../../lib/markdown.ts";
+import { BASE, CHOOSERS, GROUPS, chooserKinds, loadSchemas, spec } from "../../../lib/spec.ts";
+
+const pages = spec();
+const schemas = loadSchemas();
+const keys = pages.reduce(
+  (count, page) => count + page.sections.reduce((n, section) => n + section.keys.length, 0),
+  0,
+);
+const choosers = CHOOSERS.map((name) => ({
+  url: `${BASE}${name}/v1`,
+  kinds: chooserKinds(schemas, name),
+}));
+const firstLine = (text: string) => text.split(/(?<=\.)\s/)[0] ?? text;
+---
+
+<Doc
+  title="Plugin spec"
+  description="Every manifest and document of Iki's plugin spec, iki/v1, and every key each one takes."
+  section="Reference"
+  audience="build"
+  measure={900}
+>
+  <nav class="breadcrumbs" aria-label="Breadcrumbs">
+    <a href="/reference/">Reference</a> / Plugin spec
+  </nav>
+  <h1 class="doc-title">Plugin spec</h1>
+  <div class="prose intro">
+    <p>
+      Every manifest a plugin is made of, the files a deployment configures it with, and the
+      documents its runs read and write, in version <code>iki/v1</code>: {pages.length} kinds and{" "}
+      {keys} keys, each with its type, allowed values, default and meaning.
+    </p>
+    <p>
+      Every manifest starts with <code>apiVersion: iki/v1</code> and its <code>kind</code>. Editors
+      check a file against its schema by URL:
+    </p>
+    <ul>
+      {choosers.map((chooser) => (
+        <li>
+          <a href={chooser.url.replace("https://ikisci.org", "")}>
+            <code>{chooser.url}</code>
+          </a>
+          , for{" "}
+          {chooser.kinds.map((kind, index) => (
+            <>
+              {index > 0 && (index === chooser.kinds.length - 1 ? " and " : ", ")}
+              <code>{kind}</code>
+            </>
+          ))}
+        </li>
+      ))}
+    </ul>
+    <p>
+      How to write a plugin with them is in the guide{" "}
+      <a href="/guides/write-a-plugin/">Write a plugin</a>.
+    </p>
+  </div>
+  {GROUPS.map((group) => (
+    <section id={group.id} aria-labelledby={`${group.id}-h`} class="group">
+      <h2 id={`${group.id}-h`}>{group.title}</h2>
+      <p class="muted" set:html={render(group.text, { inline: true })} />
+      <ul class="kinds">
+        {pages
+          .filter((page) => page.group === group.id)
+          .map((page) => (
+            <li>
+              <a href={page.href} class="mono">
+                {page.title}
+              </a>
+              <span set:html={render(firstLine(page.description), { inline: true })} />
+            </li>
+          ))}
+      </ul>
+    </section>
+  ))}
+</Doc>
+
+<style>
+  .intro {
+    margin-top: 16px;
+    max-width: 720px;
+  }
+  .intro li {
+    overflow-wrap: anywhere;
+  }
+  .group {
+    margin-top: 36px;
+  }
+  .group h2 {
+    margin: 0 0 4px;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+  }
+  .group > p {
+    margin: 0 0 12px;
+  }
+  .kinds {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--border);
+  }
+  .kinds li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    align-items: baseline;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .kinds a {
+    min-width: 220px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+</style>

@@ -1,0 +1,54 @@
+---
+// Every guide, by who it's for: the admins who run Iki, and the people who build on it.
+import Listing from "../../components/listing/Listing.astro";
+import Doc from "../../layouts/Doc.astro";
+import { inSection, sitePages } from "../../lib/pages.ts";
+import { AUDIENCES, nested } from "../../lib/site.ts";
+
+const guides = inSection(await sitePages(), "Guides");
+const doors = (["run", "build"] as const).map((id) => ({
+  ...AUDIENCES[id],
+  items: nested(guides.filter((page) => page.audience === id)),
+}));
+---
+
+<Doc
+  title="Guides"
+  description="How to deploy and run Iki, and how to build plugins for it."
+  section="Guides"
+>
+  <h1 class="doc-title">Guides</h1>
+  <p class="intro">
+    How to deploy and run Iki, and how to build plugins for it. The lab's own workflows are under
+    <a href="/use-cases/">Use cases</a>.
+  </p>
+  {doors.map((door) => (
+    <section id={door.id} data-audience={door.id} aria-labelledby={`${door.id}-h`} class="door">
+      <h2 id={`${door.id}-h`}>{door.label}</h2>
+      <p class="who">{door.who}</p>
+      <Listing items={door.items} />
+    </section>
+  ))}
+</Doc>
+
+<style>
+  .intro {
+    margin: 14px 0 0;
+    max-width: 680px;
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+  .door {
+    margin-top: 40px;
+  }
+  h2 {
+    margin: 0 0 4px;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+  }
+  .who {
+    margin: 0 0 12px;
+    color: var(--muted);
+  }
+</style>

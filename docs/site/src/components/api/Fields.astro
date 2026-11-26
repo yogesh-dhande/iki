@@ -1,0 +1,121 @@
+---
+// A table of fields: parameters, a body's or a response's, each nested field indented
+// beneath the one it's inside.
+import type { Field } from "../../lib/openapi.ts";
+import { render } from "../../lib/markdown.ts";
+import TypeText from "./TypeText.astro";
+
+interface Props {
+  fields: (Field & { in?: string })[];
+  caption: string;
+  /** Show where each parameter goes (path, query). */
+  where?: boolean;
+}
+const { fields, caption, where = false } = Astro.props;
+---
+
+<div class="table" tabindex="0" role="region" aria-label={caption}>
+  <table>
+    <caption class="sr-only">{caption}</caption>
+    <thead>
+      <tr>
+        <th scope="col">Name</th>
+        <th scope="col">Type</th>
+        <th scope="col">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      {fields.map((field) => (
+        <tr class:list={[`depth-${Math.min(field.depth, 3)}`]}>
+          <td class="name">
+            <code>{field.name}</code>
+            <span class="flags">
+              {field.required ? (
+                <span class="required">required</span>
+              ) : (
+                <span class="muted">optional</span>
+              )}
+              {where && field.in && <span class="muted"> · {field.in}</span>}
+            </span>
+          </td>
+          <td>
+            <TypeText type={field.type} />
+          </td>
+          <td class="description">
+            {field.description ? (
+              <Fragment set:html={render(field.description)} />
+            ) : (
+              <span class="muted">—</span>
+            )}
+            {field.values.length > 0 && (
+              <p class="values">
+                One of{" "}
+                {field.values.map((value, index) => (
+                  <>
+                    {index > 0 && ", "}
+                    <code>{value}</code>
+                  </>
+                ))}
+              </p>
+            )}
+            {field.notes.length > 0 && <p class="muted notes">{field.notes.join("; ")}</p>}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+<style>
+  table {
+    min-width: 600px;
+  }
+  .name {
+    white-space: nowrap;
+  }
+  td:nth-child(2) {
+    min-width: 140px;
+  }
+  .name code {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .flags {
+    display: block;
+    font-size: 12px;
+  }
+  .required {
+    color: var(--build);
+    font-weight: 600;
+  }
+  .depth-1 .name {
+    padding-left: 34px;
+  }
+  .depth-2 .name {
+    padding-left: 54px;
+  }
+  .depth-3 .name {
+    padding-left: 74px;
+  }
+  .depth-1 .name code::before,
+  .depth-2 .name code::before,
+  .depth-3 .name code::before {
+    /* Drawn, not read out: a screen reader says the key's name alone. */
+    content: "└ " / "";
+    color: var(--muted);
+    font-weight: 400;
+  }
+  .description :global(p) {
+    margin: 0 0 6px;
+  }
+  .description :global(p:last-child) {
+    margin: 0;
+  }
+  .values,
+  .notes {
+    font-size: 13px;
+  }
+  .values code {
+    font-size: 12px;
+  }
+</style>

@@ -1,0 +1,171 @@
+---
+// "This example uses": a use case's prerequisites, from its frontmatter: the plugins and
+// their versions, a starter, the roles, where its actions run, its data and the outside
+// services it calls. Each part shows if the page gives it. What the page puts inside, such
+// as its record cards, follows them; a page that gives neither shows nothing.
+import { pluginHref, plugins } from "../lib/plugins.ts";
+import { COMPUTE, prerequisites as schema } from "../lib/prerequisites.ts";
+
+interface Props {
+  /** The page's `frontmatter.prerequisites`, if it has one. */
+  prerequisites?: unknown;
+  /** A sentence before them, such as what a lab installs and sets up. */
+  intro?: string;
+}
+const given =
+  Astro.props.prerequisites === undefined ? undefined : schema.parse(Astro.props.prerequisites);
+const inside = Astro.slots.has("default");
+const known = plugins();
+const href = (name: string) => {
+  const plugin = known.find((candidate) => candidate.name === name);
+  return plugin ? pluginHref(plugin) : undefined;
+};
+---
+
+{(given || inside) && (
+  <section class="uses" aria-labelledby="this-example-uses">
+    <h2 id="this-example-uses">This example uses</h2>
+    {Astro.props.intro && <p>{Astro.props.intro}</p>}
+    {given && (
+      <dl>
+        {given.plugins && given.plugins.length > 0 && (
+          <>
+            <dt>Plugins</dt>
+            <dd>
+              <ul>
+                {given.plugins.map((plugin) => (
+                  <li>
+                    <a href={href(plugin.name)}>
+                      <code>{plugin.name}</code>
+                    </a>
+                    {plugin.version && (
+                      <>
+                        {" "}
+                        <code>{plugin.version}</code>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </>
+        )}
+        {given.starter && (
+          <>
+            <dt>Starter</dt>
+            <dd>
+              <code>{given.starter}</code>
+            </dd>
+          </>
+        )}
+        {given.roles && given.roles.length > 0 && (
+          <>
+            <dt>Roles</dt>
+            <dd>
+              <ul>
+                {given.roles.map((role) => (
+                  <li>
+                    <strong>{role.role}</strong>: {role.needs}
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </>
+        )}
+        {given.compute && (
+          <>
+            <dt>Compute</dt>
+            <dd>{COMPUTE[given.compute]}</dd>
+          </>
+        )}
+        {given.data && (
+          <>
+            <dt>Data</dt>
+            <dd>
+              {given.data.length === 0 ? (
+                "None"
+              ) : (
+                <ul>
+                  {given.data.map((item) => (
+                    <li>
+                      {item.name}
+                      <span class="detail">
+                        Source: {item.source}. Licence: {item.licence}.
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </dd>
+          </>
+        )}
+        {given.services && (
+          <>
+            <dt>Outside services</dt>
+            <dd>
+              {given.services.length === 0 ? (
+                "None"
+              ) : (
+                <ul>
+                  {given.services.map((service) => (
+                    <li>
+                      <strong>{service.name}</strong>: {service.use}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </dd>
+          </>
+        )}
+      </dl>
+    )}
+    <slot />
+  </section>
+)}
+
+<style>
+  .uses {
+    margin: 28px 0 8px;
+  }
+  dl {
+    display: grid;
+    grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
+    gap: 10px 20px;
+    margin: 12px 0 0;
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    font-size: 15px;
+  }
+  dt {
+    font-weight: 600;
+    color: var(--muted);
+  }
+  dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .detail {
+    display: block;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  @media (max-width: 480px) {
+    dl {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 4px;
+    }
+    dd + dt {
+      margin-top: 8px;
+    }
+  }
+</style>

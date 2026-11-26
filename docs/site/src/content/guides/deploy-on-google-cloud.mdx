@@ -1,0 +1,361 @@
+---
+title: Deploy on Google Cloud
+description: Run Iki in your own Google Cloud project with Iki's reference OpenTofu modules, from an empty project to Iki serving, and what the infrastructure they make promises.
+audience: run
+order: 30
+reference:
+  - { label: Compute template, href: /reference/plugin-spec/compute-template/ }
+  - { label: "Compute template: gcp", href: /reference/plugin-spec/compute-template/#gcp }
+---
+
+Iki's repository has reference OpenTofu modules for running Iki in your own Google Cloud project,
+in `deploy/gcp/`. They use Google's providers alone (google, and google-beta in the bootstrap),
+with no third-party modules, so your platform team can read and qualify every resource they make.
+`deploy/gcp/production` puts them together into one deployment, with the chart's production values
+beside it. Copy `deploy/gcp/production` and `deploy/gcp/modules` into your own repository and
+change what you need: it's a starting point, not a module to call.
+
+## What the modules make
+
+| Module                 | What it makes                                                                                                                             |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `kms`                  | A key for each purpose, in the region, the DR region and the files bucket's multi-region, rotated every 90 days, in software or HSM       |
+| `network`              | A VPC with private subnets, Cloud NAT at fixed addresses, Google's APIs reached privately, and firewalls denying all but what's listed    |
+| `logs`                 | A log bucket of the deployment's own, encrypted, kept a year: audit, control-plane, flow, firewall and database logs                      |
+| `cluster`              | Regional GKE with private nodes, Dataplane V2, Workload Identity and shielded COS nodes: a system pool, and tainted pools for runs and GPUs |
+| `database`             | Cloud SQL for PostgreSQL, regional, private IP only, TLS only, pgaudit, 35 days of point-in-time recovery, a replica in the DR region     |
+| `storage`              | The files bucket: in two regions at once, versioned, customer-managed keys only, private, deletions recoverable for 30 days               |
+| `secrets`              | Secret Manager entries for Iki's secrets, each replica encrypted with its region's key, with no values in OpenTofu's state                |
+| `access`               | Google service accounts for the pods that call Google, bound by Workload Identity, each allowed only what it uses                         |
+| `artifact-registry`    | Docker repositories for the server, worker and plugins' images: tags immutable, scanned for vulnerabilities, encrypted                    |
+| `vm-tier`              | The VM tier's service account, a shielded instance template with an encrypted disk and no public address, and its egress firewalls        |
+| `filestore`            | Optional: Filestore for shared reference data, regional, encrypted, root squashed                                                         |
+| `binary-authorization` | The project's Binary Authorization policy: only the deployment's repositories and the images named run, the rest refused and audit-logged |
+
+Google Cloud keeps most things in both regions at once: the files bucket is a dual-region bucket,
+each secret has a replica in each, and Cloud SQL keeps a cross-region replica. After losing a
+region, `production` stands Iki up again in the DR region by adopting the replica and the same
+bucket: see [Restore a deployment from a backup](/guides/restore-from-a-backup/#recover-from-a-lost-region-on-google-cloud).
+
+## What it needs
+
+OpenTofu 1.11 or later, the gcloud CLI, kubectl, Helm, jq, curl and openssl; a project of its own
+for the deployment, with billing; and the project's Owner role, or roles covering what it makes,
+to apply it.
+
+Give each deployment a project of its own. GKE's and Compute Engine's IAM roles are granted on the
+project, so two deployments in one would administer each other's clusters.
+
+## Turn on the APIs, and make the state's bucket and key
+
+Once per deployment:
+
+```console
+cd deploy/gcp/bootstrap
+tofu init
+tofu apply -var project_id=acme-iki-production -var location=europe
+tofu output -raw backend_hcl > ../production/backend.hcl
+tofu output state_kms_key
+```
+
+The state's bucket and key are multi-regional (`europe` here: pick the one holding your region
+and DR region), so they outlive losing either. The bootstrap's own state holds no secrets. Keep it
+beside the deployment's: `gcloud storage cp terraform.tfstate gs://<bucket>/bootstrap/terraform.tfstate`.
+
+The bootstrap also makes the service agents of Cloud SQL, Secret Manager, Artifact Registry and
+Filestore, which a project makes only when asked, and which the deployment's keys are granted to.
+It uses the google-beta provider for that one resource (`google_project_service_identity`),
+pinned and locked as the Google provider is.
+
+## Make the infrastructure
+
+```console
+cd deploy/gcp/production
+cp terraform.tfvars.example terraform.tfvars   # and fill it in
+tofu init -backend-config=backend.hcl
+tofu apply
+```
+
+`terraform.tfvars` holds nothing secret:
+
+```hcl
+project_id   = "acme-iki-production"
+region       = "europe-west1"
+dr_region    = "europe-west4"
+multi_region = "europe"
+zones        = ["europe-west1-b", "europe-west1-c", "europe-west1-d"]
+
+kubernetes_version = "1.36"
+admin_members      = ["group:platform-admins@example.com"]
+# Reach the Kubernetes API from outside the VPC through its DNS endpoint, IAM deciding:
+# dns_endpoint = true
+
+# From deploy/gcp/bootstrap: tofu output state_kms_key.
+state_kms_key = "projects/acme-iki-production/locations/europe/keyRings/iki-production-tofu-state/cryptoKeys/state"
+
+public_host = "iki.example.com"
+
+# Reachable only from your network, through a VPN or Interconnect, with a regional
+# certificate you upload:
+# internal             = true
+# internal_certificate = "iki-production-internal"
+# A private zone names public_host inside the VPC, for backend workers and the VM tier's
+# machines; turn it off if your own DNS already does:
+# internal_dns = false
+# Or from the internet, but only your company's ranges:
+# ingress_cidrs = ["203.0.113.0/24"]
+
+# Your CI's service account, which pushes the server, worker and plugins' images:
+# image_writers = ["serviceAccount:ci@acme-iki-production.iam.gserviceaccount.com"]
+
+# When your config repository publishes to GHCR, point at its reviewed build output.
+# During a rollout, list the current and incoming image.yaml files from their checkouts.
+# config_image_files = ["/path/to/iki-config/deployments/production/image.yaml"]
+
+# Images the cluster may run besides this deployment's repositories, Iki's and External
+# Secrets' (Binary Authorization refuses the rest):
+# plugin_images = ["ghcr.io/yogesh-dhande/iki-*", "ghcr.io/acme/iki-plugins/**"]
+# extra_images  = ["quay.io/prometheus/prometheus*", "quay.io/prometheus-operator/**"]
+
+# Data Access audit logs are project-wide: in a project other workloads share, they log
+# (and bill) those workloads' reads too. To leave Cloud Storage's off there:
+# data_access_services = ["secretmanager.googleapis.com", "cloudkms.googleapis.com", "cloudsql.googleapis.com"]
+
+# The VM tier, ready for a Compute Engine provisioner:
+# vm_tier = {}
+
+# Shared reference data on Filestore:
+# filestore = {
+#   capacity_gib             = 1024
+#   root_squash_except_cidrs = ["10.40.1.5/32"]
+# }
+
+labels = {
+  "cost-centre" = "research-it"
+}
+```
+
+OpenTofu encrypts the state with the bootstrap's key before writing it, and locks it while anyone
+applies. An apply that makes everything takes about 40 minutes, most of it the cluster and the
+database.
+
+## Install the cluster's controllers
+
+From here on, run commands from the repository's root, with:
+
+```console
+out() { tofu -chdir=deploy/gcp/production output -raw "$1"; }
+```
+
+```console
+eval "$(out get_credentials)"
+helm repo add external-secrets https://charts.external-secrets.io
+helm install external-secrets external-secrets/external-secrets \
+  --namespace external-secrets --create-namespace
+```
+
+Pin it with `--version`, to the release you qualified. It needs no annotation: the `access` module
+lets its Kubernetes service account (`external-secrets/external-secrets`) read this deployment's
+secrets, as itself, through Workload Identity. GKE brings the rest: the Gateway controller, the
+cluster autoscaler and the CSI drivers.
+
+The cluster starts only images Binary Authorization allows (`out allowed_images`): this
+deployment's repositories (`out images`), Iki's, External Secrets', the chart's pinned ClamAV
+image, the first-party plugins', and GKE's own. Before installing anything else, add its images to `extra_images` and apply, or GKE
+refuses its pods, and the audit logs say which image.
+
+Your CI can push its plugin builds to the `server` and `worker` repositories, as `image_writers`.
+If you use the GHCR builds of a [configuration repository](/guides/keep-configuration-in-a-repository/),
+set `config_image_files` to the paths of this deployment's reviewed `image.yaml` files.
+Binary Authorization then admits the server and backend worker by their exact digests.
+
+- Before merging the deployment's pull request, apply with the current and incoming files, each
+  from its own checkout of the configuration repository.
+- After the rollout, remove the old file, or keep its pins for a rollback.
+- Give the cluster pull access to private GHCR packages through the chart's `imagePullSecrets`.
+
+## Store the secrets and make the database's roles
+
+Once per deployment:
+
+```console
+eval "$(out put_secrets)"
+eval "$(out create_database_roles)"
+out external_secrets | kubectl apply -f -
+```
+
+- `put_secrets` generates Iki's secrets straight into Secret Manager and sets Cloud SQL's
+  `postgres` password. OpenTofu makes the entries, never their values.
+- `create_database_roles` creates the database's two roles with their passwords, and stores Cloud
+  SQL's CAs as the `iki-database-ca` Secret.
+- `external_secrets` has External Secrets copy each secret into the namespace `iki`, refreshing
+  hourly.
+
+None of them overwrites what exists, so each is safe to run again.
+
+## Install Iki
+
+```console
+out helm_values > deploy/gcp/production/values-gcp.yaml
+helm upgrade --install iki deploy/helm/iki --namespace iki \
+  -f deploy/gcp/production/values-production.yaml -f deploy/gcp/production/values-gcp.yaml
+out gateway | kubectl apply -f -
+```
+
+`values-gcp.yaml` is what the infrastructure decided: the bucket, the Secrets' names and the
+networks pods may reach. Change those in OpenTofu and write it again. `values-production.yaml`
+holds the choices that are yours, such as replicas and the egress proxy. Pin the image by digest
+there.
+
+The `gateway` output is Iki's load balancer: a Gateway at the address OpenTofu reserved, an
+HTTPRoute to web pods, and GKE's policies for its TLS (1.2 or later, modern ciphers), its health
+check and Cloud Armor. The chart's web Service takes no annotations, so GKE's BackendConfig can't
+be used, and the Gateway API serves Iki instead.
+
+Point your DNS name at `out load_balancer_address`. Google issues the certificate once the name
+resolves there, which takes up to an hour. With `internal`, the load balancer serves the
+certificate you uploaded, and a private zone already names it inside the VPC (`internal_dns`), so
+backend workers and the VM tier's machines reach it; point your own network's DNS at the address
+too. Then open the one-time setup link that
+`kubectl -n iki exec deploy/iki-web -- iki-server setup_link` prints.
+
+OpenTofu sets the bucket's CORS and lifecycle rules, which the server's account can't change.
+`kubectl -n iki exec deploy/iki-web -- iki-server setup_storage --check` checks them, with the
+bucket's versioning and default key.
+
+## Metrics, dashboards and alerts
+
+Iki sends traces and metrics over OTLP to your collector: set `otel.endpoint` in
+`values-production.yaml`, to an OpenTelemetry Collector, which can write to Google Cloud Managed
+Service for Prometheus and Cloud Trace. With kube-prometheus-stack in the cluster, also set:
+
+```yaml
+monitoring:
+  dashboards: { enabled: true } # for Grafana's dashboard sidecar
+  alerts: { enabled: true, labels: { release: kube-prometheus-stack } }
+```
+
+Otherwise import `deploy/helm/iki/files/dashboards/iki.json` into Grafana and load
+`deploy/helm/iki/files/alerts.yaml` as a rules file. Each alert's annotations say what it means.
+
+## How it's secured
+
+- Nothing has a public address but the load balancer and Cloud NAT. Nodes are private, Cloud SQL
+  has only a private address, and the Kubernetes API is private unless you list networks or turn
+  on its DNS endpoint.
+- Every firewall rule is listed: ingress and egress are denied, and logged, unless a rule allows
+  them. Nodes reach the VPC, Google's APIs through `private.googleapis.com`, and HTTPS outside,
+  which `node_egress` narrows.
+- Each purpose has its own customer-managed key, rotated every 90 days: Kubernetes Secrets, node
+  and machine disks, the database, files, secrets, images, Filestore and logs. OpenTofu can't
+  destroy keys, and a destroyed version waits 30 days.
+- Logs are kept a year, encrypted: Cloud Audit Logs, with Data Access for Cloud Storage, Secret
+  Manager, Cloud KMS and Cloud SQL; GKE's control-plane logs; VPC flow, firewall and NAT logs; and
+  Postgres connections and DDL, through pgaudit.
+- Pods can't take a node's identity (GKE's metadata server), and a node's service account can
+  only write logs and metrics and pull images. Nodes boot shielded, with secure boot and integrity
+  monitoring.
+- NetworkPolicies are enforced, by Dataplane V2.
+- The database reaches back 35 days to any minute, its backups are kept in the DR region, and a
+  replica there follows it. Its `postgres` password lives in Secret Manager, never in OpenTofu's
+  state, and people sign in with IAM.
+- Every file is in two regions, every version is kept, and a deleted one can be restored for 30
+  days.
+- Each pod that calls Google has its own service account. Web pods, task runners and the
+  maintenance job reach only the files bucket under Iki's prefix, and read registered locations.
+  The provisioner may change only machines, disks and images named for its deployment. External
+  Secrets reads only this deployment's secrets. Backend workers and runs get no identity.
+- Images' tags can't be moved, and every image is scanned as it's pushed.
+- The cluster runs only images Binary Authorization allows: the deployment's own repositories,
+  Iki's and External Secrets' images, the chart's pinned ClamAV image, the first-party plugins', and
+  any you list (`plugin_images`,
+  `extra_images`). Google's policy allows GKE's system images. Anything else is refused, and each
+  refusal is in the audit logs.
+- Plugins' code runs on its own nodes. Pools other than `system` are tainted
+  `iki.ikisci.org/pool=<pool>:NoSchedule`. Give backend workers and compute templates the pool's
+  node selector and toleration, which the cluster module's `node_pools` output lists.
+
+## Check the modules
+
+```console
+make check-infra
+```
+
+It runs `tofu fmt`, `tofu validate` and `tofu test` for each module and root, a check that nothing
+writes a secret's value, then Checkov's Google checks. The tests run against a mocked Google
+provider, so they need no project or credentials: they check what would be applied, such as that
+the database has no public address and a pod's service account can't reach another prefix, not
+that Google accepts it. Each check Checkov skips says why, in the code. It also plans `production`
+and checks the chart's values it writes, which the chart's own tests then render with
+`values-production.yaml`. The Google provider is pinned in each module's `.terraform.lock.hcl`,
+with checksums for Linux and macOS.
+
+That Google accepts it is what the live test checks, on request only:
+
+```console
+IKI_GCP_PROJECT=<project> make check-gcp-live
+```
+
+- It follows this page's steps in that project, small: a regional cluster of two `e2-standard-4`
+  nodes, the smallest database and no DR replica, served only by an internal load balancer.
+- It checks Iki's readiness, the setup link, a project and a record, a file through signed URLs, a
+  backend worker's run, the bucket and the database's private TLS.
+- It then always tears everything down with `deploy/gcp/scripts/teardown.sh`, and fails if
+  anything of its own is left but what Google Cloud keeps, or anything that was there before is
+  gone.
+- A project has one Binary Authorization policy, so it refuses to start in a project whose policy
+  isn't the untouched one, or where a cluster or Cloud Run service or job enforces it.
+- It bills the project a few US dollars, and never runs on CI. At the end it reports what the run
+  cost at list prices, and `make gcp-live-cost` does again.
+
+Its settings, including `IKI_GCP_TOKEN_COMMAND` for the identity it acts as, are in
+`deploy/gcp/tests/test_gcp_live.py`. Run it when `make live-due` says Google Cloud is due:
+something it tests (`deploy/gcp/`, the chart, the images, the server's Google Cloud code, the
+harness) changed since its last passing run. A run that passes whole, of a clean tree, appends to
+`deploy/live-runs.json`: commit it. A release tag needs one, of a commit it descends from with
+nothing it tests changed since.
+
+## What to know before you rely on it
+
+- **Files go through Cloud Storage's own APIs**, as the server's service account through Workload
+  Identity, with no key. It signs its URLs through IAM's `signBlob`, as itself, so each upload
+  part and download link is one call to IAM. A deleted version stays restorable for the bucket's
+  soft-delete period (`soft_delete_days`) before it's gone for good.
+- **The VM tier starts Compute Engine machines** once `vm_tier` is set: compute templates with
+  `provisioner: gcp_gce` start from the `vm-tier` module's instance template, as the provisioner's
+  own service account, named `<name>-...` because its IAM condition matches names. A setup build's
+  volumes become images, not snapshots: Compute Engine makes at most six disks an hour from one
+  snapshot in a zone.
+- **The VM tier's machines reach only the VPC, Google's APIs and NFS.** Give them an address for
+  Iki's server inside the VPC (`vm_tier.server_url`), or list more networks in
+  `extra_https_cidrs`.
+- **The VM tier's machines can't mount Filestore or a bucket.** The spec refuses `gcp_gce`
+  templates that do. Environment volumes work.
+- **Binary Authorization allows by where an image is, not by who signed it.** Anyone who can push
+  to an allowed path can run an image there: keep `image_writers` to your CI, and pin images by
+  digest. Installing something else in the cluster, such as kube-prometheus-stack or a collector,
+  means listing its images in `extra_images` beforehand; `tofu output allowed_images` says what's
+  allowed. In an emergency, a pod annotated `alpha.image-policy.k8s.io/break-glass: "true"` starts
+  anyway, and the audit logs say so.
+- **NodeLocal DNSCache is off.** The chart's NetworkPolicies allow DNS to kube-dns alone.
+- **Filestore squashes root.** Make `/iki` for runs' user (UID 10001) from a machine listed in
+  `root_squash_except_cidrs`, then take it off the list.
+
+## Tear it down
+
+For a test deployment, or one decommissioned once its records are kept elsewhere:
+
+```console
+deploy/gcp/scripts/teardown.sh acme-iki-production iki-production --bootstrap
+```
+
+It uninstalls Iki and External Secrets, so the load balancer GKE made for the Gateway goes, and
+deletes any machines, disks and images the VM tier left. Then it turns `deletion_protection` off
+(the cluster, the database and the secrets), empties the files bucket, with soft delete off so
+nothing waits there, destroys `production`, and deletes the database's retained backups.
+
+- Cloud KMS keys and key rings can't be deleted: OpenTofu forgets them, and the script stops each
+  key's rotation and schedules every version's destruction, 30 days out.
+- `--bootstrap` then does the same for the bootstrap's state bucket and key, keeping the APIs on.
+- Cloud Logging deletes the log bucket after 7 days, and IAM the custom roles; their names can't
+  be reused until then.

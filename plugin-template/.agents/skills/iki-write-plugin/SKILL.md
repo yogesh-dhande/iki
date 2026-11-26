@@ -15,7 +15,7 @@ Use the [Iki plugin template](https://github.com/yogesh-dhande/iki/tree/main/plu
 2. Adapt the template’s Sample type, storage action and smoke test. When you copy and rename the plugin for a new lab, generate its initial migration under the new name. The template README walks through creating a record and running the action.
 3. Pin the Iki version your deployment uses in the template’s CI workflow. If you add a dependency, check it out at the deployment’s pinned commit and pass its directory to each CLI command with `--with`.
 
-Use the [manifest spec](https://github.com/yogesh-dhande/iki/blob/main/spec/README.md) and the template's schema hints when editing YAML. The CLI validates the manifests and generates the Django models and migrations.
+Use the [Write a plugin guide](https://ikisci.org/guides/write-a-plugin/), the [plugin spec reference](https://ikisci.org/reference/plugin-spec/) and the template's schema hints when editing YAML. The CLI validates the manifests and generates the Django models and migrations.
 
 The [storage labels lesson](https://github.com/yogesh-dhande/iki/tree/main/examples/plugins/storage_labels) shows a deployment setting, a DNA extension, two local actions in a workflow, a creation trigger and a label component. Copy it when your lab uses its own storage codes. Workflow steps and triggers resolve actions in the plugin that declares them.
 

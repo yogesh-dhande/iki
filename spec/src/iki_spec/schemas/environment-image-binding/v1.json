@@ -6,8 +6,11 @@
   "type": "object",
   "required": ["apiVersion", "kind", "environment", "plugin_version", "image"],
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "EnvironmentImageBinding" },
+    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
+    "kind": {
+      "description": "What this manifest is: `EnvironmentImageBinding`.",
+      "const": "EnvironmentImageBinding"
+    },
     "environment": {
       "$ref": "https://ikisci.org/schemas/environment-binding/v1#/properties/environment"
     },

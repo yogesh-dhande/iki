@@ -83,8 +83,8 @@ image under Apptainer, once cosign has checked who signed the image. The
 worker follows each job in `squeue`, cancels it with `scancel`, and reads
 how it ended and what it used from `sacct`. Restarting the worker leaves
 its jobs running, and it picks them up again when it starts.
-[Running Iki's jobs on a Slurm cluster](../docs/slurm.md) is the
-administrators' runbook.
+[Run actions on a Slurm cluster](https://ikisci.org/guides/run-actions-on-slurm/)
+is the administrators' runbook.
 
 ## Running it on a deployment
 
@@ -216,7 +216,8 @@ termination grace period of at least a minute.
 
 How a command is run, and what it can see, is in
 [ADR 0046](../docs/adr/0046-how-iki-worker-runs-a-command.md); what it reads
-and writes is in [`spec/`](../spec/README.md#what-a-command-reads).
+and writes is in
+[Read a run's input and write its results](https://ikisci.org/guides/write-a-plugin/run-input-and-output/).
 
 ## Running an action locally
 
@@ -231,7 +232,7 @@ cd my-plugin
 iki-worker run --local tests/relax/input.json > output.json
 ```
 
-The input is a run input ([`run-input/v1`](../spec/README.md#what-a-command-reads))
+The input is a run input ([`run-input/v1`](https://ikisci.org/reference/plugin-spec/run-input/))
 that may leave out `job`. Each of its `files` gives a `path` relative to
 input.json. The worker fills in missing `name`, `media_type`, `size` and
 `sha256` values and checks that the size and SHA-256 match the fixture.

@@ -1,0 +1,114 @@
+---
+// A use case's place in its series: every part, in order, this one marked, with the part
+// before and after it as links.
+interface Part {
+  title: string;
+  href: string;
+  part: number;
+}
+
+interface Props {
+  name: string;
+  parts: Part[];
+  current: number;
+}
+
+const { name, parts, current } = Astro.props;
+const at = parts.findIndex((part) => part.part === current);
+const before = at > 0 ? parts[at - 1] : undefined;
+const after = at >= 0 && at < parts.length - 1 ? parts[at + 1] : undefined;
+---
+
+<nav class="series" aria-labelledby="series-h">
+  <h2 id="series-h">
+    {name}: part {at + 1} of {parts.length}
+  </h2>
+  <ol>
+    {parts.map((part) => (
+      <li>
+        {part.part === current ? (
+          <span aria-current="page">{part.title}</span>
+        ) : (
+          <a href={part.href}>{part.title}</a>
+        )}
+      </li>
+    ))}
+  </ol>
+  <div class="steps">
+    {before && (
+      <a class="step before" href={before.href} rel="prev">
+        <span class="dir">Before</span>
+        <span>{before.title}</span>
+      </a>
+    )}
+    {after && (
+      <a class="step after" href={after.href} rel="next">
+        <span class="dir">Next</span>
+        <span>{after.title}</span>
+      </a>
+    )}
+  </div>
+</nav>
+
+<style>
+  .series {
+    margin: 48px 0 8px;
+    padding: 16px 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+  h2 {
+    margin: 0 0 8px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+  ol {
+    margin: 0;
+    padding-left: 22px;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  [aria-current="page"] {
+    font-weight: 600;
+  }
+  .steps {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .step {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    text-decoration: none;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .step:hover {
+    border-color: var(--aud);
+  }
+  .after {
+    grid-column: 2;
+    text-align: right;
+  }
+  .dir {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  @media (max-width: 560px) {
+    .steps {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .after {
+      grid-column: 1;
+      text-align: left;
+    }
+  }
+</style>

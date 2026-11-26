@@ -7,9 +7,11 @@
   "required": ["apiVersion", "kind", "name", "schema_version"],
   "properties": {
     "apiVersion": {
+      "description": "The spec version this manifest follows.",
       "const": "iki/v1"
     },
     "kind": {
+      "description": "What this manifest is: `EntityType`.",
       "const": "EntityType"
     },
     "name": {
@@ -156,27 +158,50 @@
         "amount": ["by", "source", "ready"]
       },
       "properties": {
-        "from": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
-        "source": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+        "from": {
+          "description": "Its required, immutable reference to the container the draw must come from.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "source": {
+          "description": "Its required, immutable reference to the source the container's material must come from, such as a lot: the first of the container's amount's `follows` that's set.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
         "state": {
+          "description": "Its state field, and the live state the record must be in to take the draw.",
           "type": "object",
           "additionalProperties": false,
           "required": ["field", "is"],
           "properties": {
-            "field": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
-            "is": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/enumValue" }
+            "field": {
+              "description": "The state field.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "is": {
+              "description": "The state.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/enumValue"
+            }
           }
         },
         "by": {
+          "description": "The lab roles that may record the draw: whoever records it must be able to set the state field as one of them.",
           "type": "array",
           "minItems": 1,
           "maxItems": 10,
           "uniqueItems": true,
           "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef" }
         },
-        "ready": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
-        "amount": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
-        "stored": { "type": "boolean" }
+        "ready": {
+          "description": "A computed field set when the record is prepared: until it's set, the record takes no draw.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "amount": {
+          "description": "Its required, immutable quantity field with the amount to draw: a draw of any other amount is refused.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "stored": {
+          "description": "The container must be in its storage position before the draw.",
+          "type": "boolean"
+        }
       }
     },
     "due": {
@@ -240,6 +265,7 @@
           "additionalProperties": false,
           "properties": {
             "field": {
+              "description": "The list of references, one of `sends`, whose records the service receives.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "by": {
@@ -289,9 +315,11 @@
           "required": ["field", "states"],
           "properties": {
             "field": {
+              "description": "The state field that says it's released.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "states": {
+              "description": "The states in which it's released.",
               "type": "array",
               "minItems": 1,
               "maxItems": 20,
@@ -307,6 +335,7 @@
       "additionalProperties": false
     },
     "display": {
+      "description": "How its entities are shown: their title, and Iki's viewers for them.",
       "type": "object",
       "properties": {
         "title": {
@@ -403,15 +432,19 @@
       "required": ["name", "unit", "threshold", "notify", "lots", "orders"],
       "properties": {
         "name": {
+          "description": "Its string or text field naming the item.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "unit": {
+          "description": "Its required, immutable enum field giving the item's ledger unit.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "threshold": {
+          "description": "Its required int or float field, with a minimum of 0 or more: an item whose available stock is at or below it is low.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "notify": {
+          "description": "The project's lab roles told when an item's stock becomes low, once each time it does.",
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
@@ -420,6 +453,7 @@
           }
         },
         "lots": {
+          "description": "The item's lots: their type, and its fields for the item, the lot number and the expiry date.",
           "type": "object",
           "required": ["type", "item", "number", "expiry"],
           "properties": {
@@ -427,18 +461,22 @@
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
             },
             "item": {
+              "description": "The lot type's required, immutable reference to the item.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "number": {
+              "description": "Its string or text field with the lot number.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "expiry": {
+              "description": "Its date field with the lot's expiry date.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             }
           },
           "additionalProperties": false
         },
         "orders": {
+          "description": "The item's orders: their type, and its fields for the item, the order's reference, and the packs ordered and received. An open order counts its ordered packs less those received.",
           "type": "object",
           "required": ["type", "item", "reference", "ordered", "received"],
           "properties": {
@@ -446,15 +484,19 @@
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
             },
             "item": {
+              "description": "The order type's required, immutable reference to the item.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "reference": {
+              "description": "Its string or text field with the order's reference, such as a purchase order number.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "ordered": {
+              "description": "Its required, immutable int field with the packs ordered, at least 1.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "received": {
+              "description": "Its computed int field with the packs received so far, at least 0. Empty counts as none.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             }
           },
@@ -477,6 +519,7 @@
           "maxLength": 100
         },
         "description": {
+          "description": "Help text shown beside it.",
           "type": "string",
           "maxLength": 2000
         },
@@ -548,7 +591,10 @@
       "type": "object",
       "required": ["export"],
       "properties": {
-        "export": { "enum": ["sequence", "protein", "compound", "signed_report"] }
+        "export": {
+          "description": "What it writes: `sequence`, a DNA or RNA sequence as GenBank and FASTA; `protein`, a protein sequence as FASTA; `compound`, a structure as SDF or Molfile; or `signed_report`, a report with its electronic signatures.",
+          "enum": ["sequence", "protein", "compound", "signed_report"]
+        }
       },
       "allOf": [
         {

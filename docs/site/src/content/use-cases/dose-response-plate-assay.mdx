@@ -1,0 +1,177 @@
+---
+title: Run a dose-response plate assay
+description: Take a requested sample from its receipt to a signed IC50 that the requesting project can see.
+audience: bench
+topic: Assays
+category: analysis
+order: 10
+prerequisites:
+  plugins:
+    - { name: iki/plate_assays, version: ">=0.2" }
+    - { name: iki/requests, version: ">=0.1" }
+    - { name: iki/samples, version: ">=0.1" }
+    - { name: iki/lab_roles, version: ">=0.1" }
+  starter: iki/plate_assays.dose-response
+  roles:
+    - { role: Admin, needs: "Project Admin of the assay service, and Editor of the requesting project" }
+    - { role: Coordinator, needs: "Project Editor, lab role Coordinator" }
+    - { role: Analyst, needs: "Project Editor, lab role Assay analyst" }
+    - { role: Reviewer, needs: "Project Viewer or above, lab role Assay reviewer" }
+    - { role: QA, needs: "Project Viewer or above, lab role Assay QA (Regulated QC only)" }
+  compute: backend
+  data:
+    - { name: "A BMG MARS export of one plate, mars-96-series.csv (synthetic)", source: "Ships with the server; the starter attaches it", licence: "Apache-2.0, with Iki" }
+  services: []
+reference:
+  - { label: "GET /entities/{ref}/signatures", href: /reference/api/get-entities-ref-signatures/ }
+  - { label: iki starter, href: /reference/cli/#iki-starter }
+  - { label: iki/plate_assays.AssayPlate, href: /reference/plugins/plate-assays/#AssayPlate }
+aside:
+  title: The fit, in full
+  text: Unweighted four-parameter log-logistic least squares; the interval is a Student t on the log midpoint.
+  href: /reference/plugins/plate-assays/#fit_curve
+---
+
+import PlateAssay from "../../components/assay/PlateAssay.astro";
+import ExampleUses from "../../components/ExampleUses.astro";
+import Step from "../../components/assay/Step.astro";
+import { doseResponse } from "../../lib/examples.ts";
+import { nM } from "../../lib/dose.ts";
+
+export const all = doseResponse.fits.all;
+export const fit = doseResponse.fits.excluded;
+export const a4 = doseResponse.readings.find((r) => r.well === doseResponse.exclusion.well);
+
+## In short
+
+The dose-response starter sets up this plate: an eight-point, two-fold dilution
+series from 1 to 128 nM in A1–A8, a blank in A9 and an uninhibited reference in A10, read once at
+484 nm on a BMG reader and exported from MARS. Its readings are simulated from a known curve (an
+IC50 of 12 nM), so the fit can be checked against the answer; the export ships with the server as
+`mars-96-series.csv`, made by the plate assays plugin's reader example.
+The seeded development deployment's **Research plate assays** and **QC plate assays** projects each
+hold this assay, completed.
+
+<ExampleUses prerequisites={frontmatter.prerequisites} />
+
+<Step n={1} id="setup" title="Set up the two projects" role="Admin">
+
+Use two active projects in the same registry with sharing enabled: the assay service, and the
+project that asks for the assay. Sign in as an admin of the service project with edit access to
+the requesting project. If the service already takes requests, its intake settings must allow
+**Research request** or **QC request**, for the chosen flow, from this requester; on a new service, the starter configures that intake.
+The deployment needs the `iki/plate_assays` plugin, its dependencies and a worker bound to
+`iki/plate_assays.assay-tools` ([deploy a plugin](/guides/keep-configuration-in-a-repository/#how-a-change-reaches-a-deployment)).
+
+Use the project UUIDs for `ASSAY_PROJECT` and `REQUESTER_PROJECT`. For the role assignments, use
+each person's direct, active membership ID from `GET /api/v1/projects/{project_id}/members`. Give
+the coordinator and analyst at least Editor access; the reviewer and QA signer each need at least
+Viewer access. For Regulated QC, assign different people as analyst, reviewer and QA. The CLI uses
+your SDK sign-in or the `IKI_URL` and `IKI_TOKEN` environment variables
+([signing in](/reference/python-sdk/#sign-in-as-yourself)).
+
+```bash
+iki starter list --project "$ASSAY_PROJECT"
+
+FLOW=regulated_qc    # Set to research for one sign-off.
+options=(
+  dose-response --version 1.0.0 --project "$ASSAY_PROJECT"
+  --requester-project "$REQUESTER_PROJECT" --flow "$FLOW"
+  --role "iki/lab_roles.coordinator=$COORDINATOR"
+  --role "iki/plate_assays.analyst=$ANALYST"
+  --role "iki/plate_assays.reviewer=$REVIEWER"
+)
+if [[ "$FLOW" == regulated_qc ]]; then
+  options+=(--role "iki/plate_assays.qa=$QA")
+fi
+iki starter preview "${options[@]}"
+iki starter apply "${options[@]}"
+```
+
+Preview shows the example records to create and the roles to grant. Apply returns the IDs of the
+submitted request, tube, sample, plate and reader file; repeating the same setup reuses them. To
+change flow, preview and apply again with the original requester. Existing results finish under
+their original flow, and a fit still running when the flow changes may need to be run again.
+
+</Step>
+
+<Step n={2} id="receive" title="Receive the tube" role="Coordinator">
+
+In the assay project's **Requests → Sent to us**, open **Example dose-response assay
+(synthetic)** and select **Receive what it sent**. Enter who handed over the example tube, choose
+**Start receiving**, and enter the tube's `TUB-…` identifier in **Scan each tube**. Check that the
+line is matched.
+
+Under **Put away**, set where the tube goes to **Keep in my custody**, then select **Complete
+receiving**. The completed receipt records that the tube was received without a storage position,
+and **Storage** lists it under **Received, not yet put away** until someone puts it away.
+
+</Step>
+
+<Step n={3} id="read" title="Read the plate and fit the curve" role="Analyst">
+
+Open **Example MARS dose-response plate (synthetic)** and its **Plate map** tab. Check the plate's
+request and the sample assigned to A1–A8: the concentrations double from 1 nM at A1 to 128 nM at
+A8. A9 is the blank and A10 the reference.
+
+Choose **Preview reader file**. The synthetic MARS CSV has ten readings on the 484 nm absorbance
+channel. Check the well, sample or control, file row and reading for each, and choose **Commit
+measurements** once all ten match. The plate read that results links to the source file and to
+ten individual well measurements.
+
+Run **Fit a dose-response curve** with the committed plate read and the sample from the request.
+Choose **IC50** and enter `A4: Simulated dispensing error` as the example exclusion. On the
+result's **Curve** tab, check that A4's {a4.concentration} nM reading is still visible with its
+reason and author. Seven sample wells contribute to the fit. Check the IC50 in nM, its range
+qualifier and its approximate 95% confidence interval: for these synthetic data the IC50 is
+**{nM(fit.endpoint_value)} nM**, within the measured range, with an approximate 95% interval of
+**{nM(fit.ci_low)}–{nM(fit.ci_high)} nM**. With A4 kept in, it would be {nM(all.endpoint_value)} nM.
+
+</Step>
+
+<PlateAssay data={doseResponse} />
+
+<Step n={4} id="sign" title="Sign and return the result" role="Reviewer, QA">
+
+Signing needs the organization's electronic-signature certification recorded in Iki. Each person
+signs in again with the organization's sign-in provider, and signs the revision on screen.
+
+<div class="table" tabindex="0" role="region" aria-label="Who signs in each review flow">
+  <table>
+    <caption class="sr-only">Who signs in each review flow</caption>
+    <thead>
+      <tr>
+        <th scope="col">Flow</th>
+        <th scope="col">Who signs, and what they check</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Research</td>
+        <td>The assay reviewer checks the recorded fit and the A4 exclusion, then sets <strong>Signed off</strong>.</td>
+      </tr>
+      <tr>
+        <td>Regulated QC</td>
+        <td>The analyst signs <strong>Submitted</strong>. An independent reviewer checks the readings and the exclusion and signs <strong>Independently reviewed</strong>. QA signs <strong>QA released</strong>.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+In Regulated QC, the reviewer and QA must also be independent of anyone who edited the recorded
+values. Correcting the notes on a submitted or reviewed result needs a reason, and returns it to
+**Recorded** for fresh signatures. To change an exclusion, run a new fit on the committed read and
+review that result.
+
+In the requesting project, open **Requests → We sent** and select the same request. After the
+final signature, its **Results** section shows the released revision. Open the result and choose
+**Check signatures** to verify who signed each revision.
+
+</Step>
+
+## What Iki does not decide
+
+Iki records the reader file, each exclusion with its reason and author, the fit and the IC50 with
+its interval. Whether a well should be excluded, whether the fit and its range are acceptable, and
+whether the assay is fit for its purpose are the analyst's and reviewer's calls, under the lab's
+procedures.

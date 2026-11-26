@@ -1,0 +1,29 @@
+---
+import Listing from "../../components/listing/Listing.astro";
+import Doc from "../../layouts/Doc.astro";
+import { inSection, sitePages } from "../../lib/pages.ts";
+
+const concepts = inSection(await sitePages(), "Concepts");
+---
+
+<Doc
+  title="Concepts"
+  description="How Iki behaves: its records, reviews and signatures, and the rules each one follows."
+  section="Concepts"
+>
+  <h1 class="doc-title">Concepts</h1>
+  <p class="intro">
+    How Iki behaves: its records, reviews and signatures, and the rules each one follows.
+  </p>
+  <Listing items={concepts} />
+</Doc>
+
+<style>
+  .intro {
+    margin: 14px 0 28px;
+    max-width: 680px;
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+</style>

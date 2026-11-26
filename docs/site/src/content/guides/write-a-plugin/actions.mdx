@@ -1,0 +1,433 @@
+---
+title: Write an action and its environment
+description: Declare what an action takes and may change, where it runs, what it may reach, and the environment its command runs in.
+audience: build
+order: 110
+reference:
+  - { label: Action manifest, href: /reference/plugin-spec/action/ }
+  - { label: Environment manifest, href: /reference/plugin-spec/environment/ }
+  - { label: Outside APIs in plugin.yaml, href: /reference/plugin-spec/plugin/#apis }
+---
+
+## What an action is
+
+An action is something your plugin does to records: compute values from them, create records
+from them, or import records from elsewhere. People launch it on records from Iki's pages, a
+workflow runs it as a step, and a trigger runs it when records change. Each run is a record of
+its own: what it read, at which revisions, what it wrote, and the plugin's commit, environment
+and machine it ran on.
+
+An action's manifest says what it takes, what it may change, where its command runs and what
+the command may reach. The plugin template's `assign_storage` records the storage location you
+choose for a sample that has none:
+
+```yaml
+# actions/assign_storage.yaml
+apiVersion: iki/v1
+kind: Action
+name: assign_storage
+label: Assign storage
+description: Record the storage location for a sample that has none.
+inputs:
+  sample: { type: Sample, schema: ">=1" }
+params:
+  location: { type: string, max_length: 100, default: "-80 °C freezer" }
+effects:
+  updates: [{ input: sample, fields: [storage] }]
+runs_on: { tier: container, environment: tools }
+command: [python, ./scripts/storage.py]
+deterministic: true
+timeout: 5m
+```
+
+Its command, `scripts/storage.py`, reads the run's input, and writes the storage it chose as an
+update of the sample ([Read a run's input and write its results](/guides/write-a-plugin/run-input-and-output/)).
+
+## Name an action for the tool it uses
+
+When several tools could do the same work, write an action for each and name it for its tool,
+such as `import_from_lims` and `import_from_eln`, never one action whose tool goes unnamed.
+Each tool has its own inputs, params, environment, tier and licence terms, so an admin can allow
+one and not another, and the run that made a record says what made it. A choice among one tool's
+own modes or models is a param.
+
+## What it takes
+
+- **Inputs** are the records a run reads, by type: [`inputs`](/reference/plugin-spec/action/#inputs).
+  Each takes one record or [`many`](/reference/plugin-spec/action/#inputs.cardinality), of its
+  [`type`](/reference/plugin-spec/action/#inputs.type) or a subtype, at the
+  [schema versions](/reference/plugin-spec/action/#inputs.schema) it works with, and can be
+  [`optional`](/reference/plugin-spec/action/#inputs.optional). An action that imports or fetches
+  records has no inputs.
+- **Params** are values the person launching it gives: [`params`](/reference/plugin-spec/action/#params).
+  They take a setting's types (`string`, `text`, `int`, `float`, `bool`, `enum` and lists of
+  them), and also `date`, `quantity` and `file`. A file param takes one file, such as one to
+  import, with `media_types` and `max_size`, and a list param whose items are files takes
+  several. Neither has a default, and neither is a record, which is an input
+  ([Import records from a file](/guides/write-a-plugin/import-from-a-file/)).
+
+### Records the run reads through an input
+
+An input can [`include`](/reference/plugin-spec/action/#inputs.include) some of its type's
+references, or lists of them, and the run reads the records they name too, under each input
+record's `included`. The reagents plugin's `receive_delivery` reads the stock item a reorder line
+is for, to know its pack size and unit:
+
+```yaml
+# plugins/reagents/actions/receive_delivery.yaml
+inputs:
+  order: { type: ReorderLine, schema: ">=1", include: [item] }
+  storage: { type: StockLocation, schema: ">=1" }
+```
+
+For a list of rows, name the row field: `components.part` includes each row's reference, in the
+rows' order. Included records are pinned when the run is launched, at the revisions they have
+then, and the run keeps them, as it keeps its inputs. Whoever launches it must be able to read
+them, and they must be in its project, which the launch can add them to as it does inputs. They
+count in what makes two runs identical, so a change to one runs the action again. Only the
+input's own references are included, not theirs.
+
+### Inputs the project gives
+
+An input marked [`from_project`](/reference/plugin-spec/action/#inputs.from_project) isn't chosen
+by whoever launches the run, a trigger or a workflow's step. Each run is given every record of its
+type the run's project owns and hasn't archived, at their current revisions, oldest first. The
+request priority example (`examples/plugins/request_priority`) reads a core's ranking of the
+projects it serves this way, kept as the core's own records:
+
+```yaml
+# examples/plugins/request_priority/actions/rank_requests.yaml
+inputs:
+  requests: { type: SequencingRequest, schema: ">=1", cardinality: many, max: 500 }
+  ranking: { type: ServedProject, schema: ">=1", cardinality: many, optional: true, from_project: true }
+```
+
+- It takes many (`from-project-one`).
+- A launch that names records for it is refused, as is one whose project has more than it takes
+  (its `max`, and never more than 1,000).
+- With none in the project, an input that isn't optional can't start.
+- A workflow's step doesn't name it (`workflow-input-from-project`), and a trigger gives it
+  nothing (`trigger-input-from-project`).
+
+## What it may change
+
+[`effects`](/reference/plugin-spec/action/#effects) lists everything a run may write, and Iki
+refuses anything else:
+
+- [`updates`](/reference/plugin-spec/action/#effects.updates): the fields of an input's records
+  that runs may set. They can be the type's own fields, inherited ones, or fields your plugin adds
+  to the type with an extension, but not removed, `immutable` or state fields.
+- [`creates`](/reference/plugin-spec/action/#effects.creates): the types of records runs may
+  make, each [derived from](/reference/plugin-spec/action/#effects.creates.derived_from) one or
+  more inputs, so the new record's lineage names what it came from. A create can
+  [`match_on`](/reference/plugin-spec/action/#effects.creates.match_on) a unique field, to update
+  a record the project already has instead of making another
+  ([Imports that match records](/guides/write-a-plugin/run-input-and-output/#imports-that-match-records)),
+  or [`receive_into`](/reference/plugin-spec/action/#effects.creates.receive_into) a storage
+  input ([Receive a delivery](/guides/write-a-plugin/run-input-and-output/#receive-a-delivery)).
+
+A run writes all of its results in one transaction, or none.
+
+## Where it runs
+
+[`runs_on`](/reference/plugin-spec/action/#runs_on) names a
+[tier](/reference/plugin-spec/action/#runs_on.tier) and one of your plugin's
+[environments](#environments):
+
+| Tier          | Where the command runs                                                                                                                             |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `self_hosted` | A machine a compute admin registered for a team, such as an instrument's PC or a licensed workstation, chosen by its labels                         |
+| `backend`     | Iki's own isolated worker pods, in a Python or conda environment built from your plugin's lockfile                                                 |
+| `container`   | Your environment's image, in a pod on Kubernetes                                                                                                   |
+| `vm`          | Your environment's image, on a cloud machine of its own, with GPUs if it needs them                                                                |
+
+On the container and vm tiers, [`lifecycle`](/reference/plugin-spec/action/#runs_on.lifecycle)
+says what machine a run needs. `ephemeral`, the default, is a fresh machine that runs nothing
+else. `persistent` is one kept warm that runs one job after another, for quick actions that run
+often. A persistent machine starts each run clean, but other projects' runs have run on it
+before. An action can ask for more than its environment's minimum with [`resources`](/reference/plugin-spec/action/#runs_on.resources).
+
+Each deployment decides which machines each tier and environment get
+([Configure a deployment's plugins and compute](/guides/configure-plugins-and-compute/)).
+
+## Timeouts and retries
+
+- [`timeout`](/reference/plugin-spec/action/#timeout) is the longest a run takes before it's
+  stopped: 1 hour unless it says, at most 7 days.
+- [`retries`](/reference/plugin-spec/action/#retries) says which runs that didn't finish are tried
+  again. Runs whose machine went away (`worker_lost`, `interrupted`) are tried twice more by
+  default. Actions that reach the network or an outside API aren't retried unless they say so,
+  since a retry could repeat what they did elsewhere, such as placing an order. The example LIMS
+  connector's import says so, as reading is safe to repeat:
+
+  ```yaml
+  retries: { max: 2, on: [worker_lost, interrupted] }
+  ```
+
+## Reuse, checkpoints and batches
+
+- [`deterministic: true`](/reference/plugin-spec/action/#deterministic) promises that the same
+  inputs, params and settings give the same results, so Iki can reuse a run
+  ([Reuse](/guides/write-a-plugin/run-input-and-output/#reuse-a-run)).
+- [`checkpointable: true`](/reference/plugin-spec/action/#checkpointable) says the command saves
+  its progress and resumes from it
+  ([Checkpoints](/guides/write-a-plugin/run-input-and-output/#save-progress-in-checkpoints)).
+- [`batchable: N`](/reference/plugin-spec/action/#batchable) runs up to N runs of a batch in one
+  job ([Batches and packing](/guides/write-a-plugin/run-input-and-output/#batches-and-packing)).
+
+## What a run reports and records
+
+- [`software`](/reference/plugin-spec/action/#software) lists the tools a run makes records with,
+  by name and version, as its environment installs them. Each record its runs create is recorded
+  as made with them. The template's action runs only its own script, so it lists none; one
+  that ran Biopython would say `software: [{ name: Biopython, version: "1.88", url: https://biopython.org }]`.
+- [`metrics`](/reference/plugin-spec/action/#metrics) names the numbers a run reports, which a
+  workflow's conditions read ([Steps that run only when conditions hold](/guides/write-a-plugin/workflows/#steps-that-run-only-when-conditions-hold)).
+  The example LIMS connector's import reports how many records the LIMS listed:
+
+  ```yaml
+  metrics:
+    records: { label: Records, description: How many records the LIMS listed. }
+  ```
+
+### Artifacts
+
+A run keeps as artifacts the files in its output directory (`$IKI_OUT_DIR`) that one of
+[`artifacts.keep`](/reference/plugin-spec/action/#artifacts.keep)'s patterns matches, whether the
+command succeeded or not, for people to download from the run's page. The example LIMS connector's
+`send_to_lims` keeps what it wrote:
+
+```yaml
+artifacts: { keep: [sent.json] }
+```
+
+Patterns match a path relative to that directory one segment at a time: `*` and `?` within a
+segment, `[...]` a set of characters, and a `**` segment any number of segments. Each attempt
+keeps at most 1,000 files. They're deleted once
+[`retention`](/reference/plugin-spec/action/#artifacts.retention) is over: the deployment's
+default if it's left out, which is 90 days unless the deployment says otherwise, and never less
+than its minimum. A batchable action can't keep artifacts.
+
+## Secrets
+
+A run gets the secrets its action declares under
+[`secrets`](/reference/plugin-spec/action/#secrets) as environment variables, and no others:
+
+```yaml
+# examples/plugins/lims_connector/actions/import_from_lims.yaml
+secrets:
+  - name: LIMS_TOKEN
+    description: An API token the LIMS issued for Iki, which can read and change proteins.
+```
+
+- Each deployment keeps a plugin's secrets in its own secret manager, for that plugin alone
+  (`acme__lims_connector.LIMS_TOKEN` is the LIMS connector example's), so a secret is never
+  another plugin's even under the same name.
+- Their values are never in the run's input, and `***` stands for them in its log.
+- A required secret the deployment hasn't set keeps the action from running, and says so.
+  An optional one ([`required: false`](/reference/plugin-spec/action/#secrets.required)) needs a
+  `description` telling administrators what it's for and where to get one.
+
+## Settings an action needs
+
+A run gets all its plugin's settings ([Take settings from each deployment](/guides/write-a-plugin/settings/)).
+A setting that's `required: false` without a default may be left unset. An action that can't
+run without it names it under [`requires_settings`](/reference/plugin-spec/action/#requires_settings).
+Until the deployment sets it, the action isn't offered: people see why before they launch it,
+and a launch is refused, instead of a worker taking the run only for it to fail.
+`iki deploy build` and `iki plugin validate --settings` warn which actions a deployment's
+settings leave unable to run (`setting-needed`).
+
+## Hosts a run reaches
+
+A run reaches the network only if its action names the hosts under
+[`network`](/reference/plugin-spec/action/#network), and only over HTTPS on port 443, through the
+deployment's egress proxy. `*.example.com` covers the subdomains of example.com, not example.com
+itself.
+
+- The command finds the proxy, with its attempt's credentials, in `HTTPS_PROXY`, which Python's
+  `urllib`, `requests`, `httpx` and `curl` use as they are.
+- Hosts it doesn't name, plain HTTP and private addresses are refused, and the run's page lists
+  each host an attempt reached or was refused.
+- On a deployment without the proxy, such actions can't run.
+
+When the host differs between deployments, as a LIMS's does, name a setting instead. The
+example LIMS connector reaches the host its `lims_host` setting gives, a string setting with
+`format: hostname`:
+
+```yaml
+network: ["{settings.lims_host}"]
+```
+
+A deployment's build fills in the host it sets, so the manifest the server reads, and what the
+run's page shows, name the real host. A setting left unset reaches nothing.
+
+## Outside APIs
+
+A model or service behind a company's API, such as a hosted language model or a document-reading
+service, is an outside API. Your plugin declares it under [`apis`](/reference/plugin-spec/plugin/#apis)
+in `plugin.yaml`, and each action that calls it says what of a run it
+[sends](/reference/plugin-spec/action/#apis.sends). A plugin that reads suppliers' certificates
+of analysis with a hosted service might declare:
+
+```yaml
+# plugin.yaml
+apis:
+  coa_reader:
+    label: CoA Reader
+    host: "{settings.coa_reader_host}" # or a host name
+    purpose: Reads the values from a supplier's certificate of analysis.
+    credential: { secret: COA_READER_API_KEY } # Authorization: Bearer <key>
+    reports:
+      model: /model # a JSON pointer in the answer, or header:<name>
+      version: header:x-model-version
+      usage: { pages: /usage/pages }
+    jobs: # for an API that takes a job, then answers polls
+      poll: /v1/documents/{id}
+      status: /status
+      done: [complete]
+      failed: [failed, cancelled]
+      cancel: /v1/documents/{id}/cancel
+      every: 30s
+      timeout: 1h
+
+# actions/read_certificate.yaml
+apis:
+  coa_reader:
+    sends: { inputs: { lot: [certificates] } }
+```
+
+- An Org Admin approves each API for each project, in Admin → Outside APIs, and people agree to
+  what's sent before they launch the action. An agent's runs wait for their person to agree.
+- The command calls the API at its address, in `IKI_API_COA_READER_URL`, through the egress proxy,
+  without a key: the proxy adds the organization's, from the run's secrets. Name the key's secret
+  in the API's [`credential`](/reference/plugin-spec/plugin/#apis.credential.secret), never under
+  the action's `secrets`, as the command never gets it (`api-credential-is-secret`).
+- The proxy records each call with the model, version and parameters the API
+  [reported](/reference/plugin-spec/plugin/#apis.reports), and hashes of what went each way.
+- A deployment prices calls with an `ApiPrice`, and they count toward its costs and budgets
+  ([Prices](/guides/configure-plugins-and-compute/#what-runs-cost)).
+
+An API with [`jobs`](/reference/plugin-spec/plugin/#apis.jobs) lets a command submit a job, then
+park: its output is `{"park": {"api": "coa_reader", "job": "<the API's job ID>", "state": {...}}}`.
+The run waits, holding no worker, while Iki polls the job, or the API calls back to
+`IKI_API_COA_READER_CALLBACK_URL`, signed as its [`webhook`](/reference/plugin-spec/plugin/#apis.jobs.webhook)
+says. Once the job is done, the command runs again with
+[`resume`](/reference/plugin-spec/run-input/#resume) in its input: the job, its `state` and the
+API's last answer. The hosted-model example (`examples/plugins/hosted_models`) uses this against
+a fictional provider.
+
+A self-hosted action can't call an outside API (`self-hosted-apis`), and a batchable one can't
+call an API with jobs, as one job couldn't park for each of its runs (`batch-parks`). Don't make
+an action that calls one `deterministic`: the API's model can change under it, and Iki would reuse
+a run that's out of date (`deterministic-with-api`, a warning).
+
+## What the validator checks
+
+`iki plugin validate` checks an action against the rest of your plugin:
+
+- its inputs, the types it creates and the fields it updates exist, and the fields aren't removed
+  or `immutable`
+- every `derived_from` and `updates` names an input
+- an input's `include` names references of its type, its own or a parent's
+- a create's `match_on` is a unique field of the type: its own, a parent's, or one your plugin's
+  extension adds
+- params follow the rules for settings, with the extra types above
+- the environment is one of your plugin's and runs on the action's tier
+- self-hosted actions declare no `secrets`, `network` or `apis`, since Iki can't keep the
+  deployment's secrets from, or limit, a machine its team looks after
+- only the self-hosted, container and vm tiers ask for GPUs
+- files the command names with `./` are in the plugin, and aren't symbolic links
+
+## Environments
+
+An environment is what your actions need, wherever they run. Each deployment binds it to
+machines of its own. The plugin template's `tools` environment is an image for the container
+tier:
+
+```yaml
+# environments/tools.yaml
+apiVersion: iki/v1
+kind: Environment
+name: tools
+tiers: [container]
+resources: { cpu: 0.25, memory: 256Mi }
+image: docker.io/library/python:3.13-alpine@sha256:1e1f6334529d1fb26a2ef619d7cffb30a7c7d7cc1cc7338ebee283a58d1aeaca
+```
+
+- [`tiers`](/reference/plugin-spec/environment/#tiers) are the tiers it can run on, and
+  [`resources`](/reference/plugin-spec/environment/#resources) the least a machine needs: CPUs,
+  memory, [GPUs](/reference/plugin-spec/environment/#resources.gpu) and scratch disk.
+- On the container and vm tiers, it runs [`image`](/reference/plugin-spec/environment/#image),
+  pinned by its digest: a tag can change under you. Iki's worker is copied in, so the image needs
+  nothing of Iki's.
+- On the backend tier, Iki builds a Python environment from a pinned
+  [requirements file](/reference/plugin-spec/environment/#python.requirements), or a conda one
+  from a [lockfile](/reference/plugin-spec/environment/#conda.lockfile). The self-hosted tier does
+  too, or runs the image with Docker or Podman. The example LIMS connector's environment is
+  `python: { version: "3.12", requirements: requirements.txt }`.
+- On the self-hosted tier, [`labels`](/reference/plugin-spec/environment/#labels) name what a
+  machine needs to run it, such as `labels: [chromeleon]` for the software its actions drive. A
+  self-hosted run goes only to a machine with every label it needs. Name what the machine must
+  have, not where it is: each deployment adds its own labels in its binding.
+
+### Pinned packages
+
+Everything an environment installs is pinned, so a run can be reproduced exactly:
+
+- images by digest
+- every Python package with `==` and its `--hash=sha256:`, as `uv pip compile --generate-hashes`
+  writes them; requirements can't include other files or editable packages
+- conda packages with their hashes, in an explicit lockfile for one platform, or in
+  conda-lock's own (`conda-lock lock`), which locks each of several platforms, so workers on
+  `linux-64` and `linux-aarch64` build the same environment for their own. micromamba takes a
+  conda-lock file by its name, so it ends in `-lock.yml` (`conda-lock-name`), and every package
+  in it has its URL and SHA-256.
+
+### Volumes and setup
+
+An environment can mount volumes of data its runs read, such as a lab's reference tables, on
+the container and vm tiers only, each at an absolute path that doesn't overlap another's. A
+volume its [`setup`](/reference/plugin-spec/environment/#setup) fills gets its data from a setup
+build: a Compute admin asks for one, the setup script fills a fresh disk on a machine of its own,
+and Iki keeps it as a new version. The storage labels example's `reference` environment
+(`examples/plugins/storage_labels`) fills a volume of the lab's storage codes:
+
+```yaml
+# environments/reference.yaml
+volumes:
+  storage-codes:
+    size: 16Mi
+    populated_by: setup
+    mount: /data/storage-codes
+setup:
+  script: setup/storage_codes.sh
+  timeout: 10m
+  requires_approval: true
+```
+
+- With [`requires_approval`](/reference/plugin-spec/environment/#setup.requires_approval), a
+  Compute admin approves each setup build before it starts, for a setup that costs a lot.
+- The script runs with `sh` from the plugin's directory, with each volume's mount, writable, in
+  `IKI_VOLUME_<NAME>` (`IKI_VOLUME_STORAGE_CODES` here), and the build's input, a
+  [setup input](/reference/plugin-spec/setup-input/), in `IKI_INPUT`. It reports progress as an
+  action's command does, and may say what the data is by writing
+  `{"data_version": "Storage codes 2026-11"}` to `IKI_OUTPUT`, which runs record.
+- A setup downloads its data from the hosts under its
+  [`network`](/reference/plugin-spec/environment/#setup.network), which can be
+  `{settings.<name>}` as an action's can. It can't call an outside API: a build belongs to the
+  deployment, so there's no project to approve one for or to bill. A setup host that's one of
+  your plugin's APIs' hosts is refused (`setup-calls-api`). A model's weights are a download: list
+  the host that serves the files.
+- Each run gets a read-only copy of the newest version, and records which version it read. Until
+  a version is ready, the environment's runs wait, saying why. How each deployment keeps the
+  versions is its own choice ([Volumes](/guides/configure-plugins-and-compute/#volumes)).
+
+### Images a deployment supplies
+
+An environment with a container or vm tier can set
+[`customer_image_required: true`](/reference/plugin-spec/environment/#customer_image_required)
+in place of `image`, for a tool each lab licenses and builds its own image of. Each deployment
+then supplies the image's digest in an `EnvironmentImageBinding`
+([Images a deployment supplies](/guides/configure-plugins-and-compute/#images-a-deployment-supplies)).
+The backend and self-hosted tiers can still use the environment's Python or conda environment.

@@ -1,0 +1,28 @@
+{
+  "name": "@ikisci/docs",
+  "version": "0.1.0-dev.0",
+  "private": true,
+  "description": "Iki's documentation site, ikisci.org, on Astro: `make docs` builds it, `make docs-dev` serves it, `make check-docs` checks it.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "site": "ASTRO_TELEMETRY_DISABLED=1 astro build && pagefind --site dist --quiet && node scripts/add-policies.ts",
+    "site:dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev",
+    "typecheck": "astro check && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ikisci/docs-tooling": "workspace:*",
+    "@ikisci/science": "workspace:*",
+    "@ikisci/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.12",
+    "@astrojs/markdown-satteri": "^0.4.10",
+    "@astrojs/mdx": "^8.1.6",
+    "astro": "^7.4.13",
+    "jsdom": "^31.0.1",
+    "pagefind": "^1.6.0",
+    "satteri": "^0.11.7"
+  }
+}

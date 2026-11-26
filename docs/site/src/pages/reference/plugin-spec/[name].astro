@@ -1,0 +1,200 @@
+---
+// One kind of the plugin spec: every key it takes, with its type, allowed values, default,
+// limits and description, generated from its JSON Schema.
+import Keys from "../../../components/spec/Keys.astro";
+import Toc from "../../../components/Toc.astro";
+import Doc from "../../../layouts/Doc.astro";
+import { render } from "../../../lib/markdown.ts";
+import { github } from "../../../lib/repo.ts";
+import { GROUPS, SCHEMAS, SPEC, spec, typeAnchor, typeKeys } from "../../../lib/spec.ts";
+
+export function getStaticPaths() {
+  return spec().map((page) => ({ params: { name: page.name }, props: { page } }));
+}
+
+const { page } = Astro.props;
+const group = GROUPS.find((candidate) => candidate.id === page.group);
+const toc = [
+  ...page.sections.map((section) => ({ id: section.id, label: section.title })),
+  ...(page.byType.length ? [{ id: "by-type", label: "Keys by field type" }] : []),
+];
+const byType = page.byType.length > 0 ? typeKeys(page) : undefined;
+const what = page.kind ? `A ${page.kind} manifest` : page.title;
+---
+
+<Doc
+  title={`${page.title} · Plugin spec`}
+  description={`${what}'s keys in Iki's plugin spec, iki/v1: each one's type, allowed values, default and meaning.`}
+  section="Reference"
+  audience="build"
+  measure={900}
+>
+  <nav class="breadcrumbs" aria-label="Breadcrumbs">
+    <a href="/reference/">Reference</a> / <a href={SPEC}>Plugin spec</a> / {group?.title}
+  </nav>
+  <h1 class="title mono">{page.title}</h1>
+  <div class="prose desc">
+    <Fragment set:html={render(page.description)} />
+    <p class="muted source">
+      Its JSON Schema is <code>{page.id}</code>, kept in the repository as{" "}
+      <a href={github(`${SCHEMAS}/${page.name}/v1.json`)}>{page.name}/v1.json</a>.
+    </p>
+  </div>
+  {page.examples.length > 0 && (
+    <section aria-labelledby="examples-h" class="part">
+      <h2 id="examples-h">Examples</h2>
+      <p>
+        {page.examples.map((example, index) => (
+          <>
+            {index > 0 && ", "}
+            <code>{example}</code>
+          </>
+        ))}
+      </p>
+    </section>
+  )}
+  {page.sections.map((section) => (
+    <section id={section.id} aria-labelledby={`${section.id}-h`} class="part">
+      <h2 id={`${section.id}-h`}>{section.title}</h2>
+      {section.description && (
+        <div class="prose section-desc" set:html={render(section.description)} />
+      )}
+      <Keys keys={section.keys} caption={`${page.title}: ${section.title.toLowerCase()}`} />
+      {section.also.length > 0 && (
+        <p class="also">
+          Each also takes{" "}
+          {section.also.map((link, index) => (
+            <>
+              {index > 0 && ", "}
+              <a href={link.href}>{link.text}</a>
+            </>
+          ))}
+          .
+        </p>
+      )}
+    </section>
+  ))}
+  {byType && (
+    <section id="by-type" aria-labelledby="by-type-h" class="part">
+      <h2 id="by-type-h">Keys by field type</h2>
+      <p class="section-desc">
+        Every type takes{" "}
+        {byType.shared.map((key, index) => (
+          <>
+            {index > 0 && (index === byType.shared.length - 1 ? " and " : ", ")}
+            <a href={`#${key}`}>
+              <code>{key}</code>
+            </a>
+          </>
+        ))}
+        , except where its row says. Each type's own keys follow, with what each means; each key
+        links to its full description.
+      </p>
+      <div class="table" tabindex="0" role="region" aria-label="The keys each field type takes">
+        <table>
+          <caption class="sr-only">The keys each field type takes</caption>
+          <thead>
+            <tr>
+              <th scope="col">Type</th>
+              <th scope="col">Its own keys</th>
+            </tr>
+          </thead>
+          <tbody>
+            {byType.rows.map((row) => (
+              <tr id={typeAnchor(row.type)}>
+                <th scope="row">
+                  <code>{row.type}</code>
+                </th>
+                <td class="type-keys">
+                  {row.own.length > 0 ? (
+                    <ul>
+                      {row.own.map((key) => (
+                        <li>
+                          <a href={`#${key.id}`}>
+                            <code>{key.name}</code>
+                          </a>
+                          {key.required && <span class="required">required</span>}{" "}
+                          <Fragment set:html={render(key.summary, { inline: true })} />
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>None: only the keys every type takes.</p>
+                  )}
+                  {row.without.length > 0 && (
+                    <p class="muted without">
+                      It doesn't take{" "}
+                      {row.without.map((key, index) => (
+                        <>
+                          {index > 0 && (index === row.without.length - 1 ? " or " : ", ")}
+                          <code>{key}</code>
+                        </>
+                      ))}
+                      .
+                    </p>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )}
+  <aside slot="aside" class="side" aria-label="On this page">
+    <Toc items={toc} />
+  </aside>
+</Doc>
+
+<style>
+  .title {
+    margin: 0;
+    font-size: 30px;
+    overflow-wrap: anywhere;
+  }
+  .desc {
+    margin-top: 14px;
+  }
+  .source {
+    font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+  .part {
+    margin-top: 32px;
+  }
+  .part h2 {
+    margin: 0 0 12px;
+    font-size: 22px;
+  }
+  .section-desc {
+    margin-bottom: 12px;
+  }
+  .also {
+    margin: 10px 0 0;
+    font-size: 14px;
+  }
+  .type-keys ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .type-keys p {
+    margin: 0;
+  }
+  .type-keys code {
+    font-size: 12px;
+  }
+  .type-keys .without {
+    margin-top: 6px;
+    font-size: 14px;
+  }
+  .required {
+    margin-left: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+</style>

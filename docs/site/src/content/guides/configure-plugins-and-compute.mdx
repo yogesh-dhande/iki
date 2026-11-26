@@ -1,0 +1,435 @@
+---
+title: Configure a deployment's plugins and compute
+description: Pin the plugins a deployment installs in its lockfile, and say which machines run their actions, how they get their volumes and what they cost.
+audience: run
+order: 20
+reference:
+  - { label: Lockfile, href: /reference/plugin-spec/plugin-lock/ }
+  - { label: Compute template, href: /reference/plugin-spec/compute-template/ }
+  - { label: Environment binding, href: /reference/plugin-spec/environment-binding/ }
+  - { label: Environment image binding, href: /reference/plugin-spec/environment-image-binding/ }
+  - { label: Outside API price, href: /reference/plugin-spec/api-price/ }
+  - { label: Bundle, href: /reference/plugin-spec/bundle/ }
+---
+
+## Where a deployment's configuration lives
+
+Each deployment has a directory in its config repository. Beside its Helm values it holds:
+
+- `plugins.lock.yaml`, the plugins it installs, each at a pinned commit
+- `settings/`, its values for each plugin's settings
+  ([Take settings from each deployment](/guides/write-a-plugin/settings/))
+- `compute.yaml`, the machines it runs actions on and which environments run on which
+
+Changes go through pull requests, so each is reviewed before the deployment builds. Compute admins
+own `compute.yaml`. Point your editor at `https://ikisci.org/schemas/compute/v1` for it, which
+checks each document by its `kind`.
+
+## Pin the plugins it installs
+
+The lockfile, a [`PluginLock`](/reference/plugin-spec/plugin-lock/), lists each plugin once, by
+its [name](/reference/plugin-spec/plugin-lock/#plugins.name), where its code is, and the
+[commit](/reference/plugin-spec/plugin-lock/#plugins.sha) to install:
+
+```yaml
+# deployments/production/plugins.lock.yaml
+apiVersion: iki/v1
+kind: PluginLock
+plugins:
+  - name: iki/reagents # Iki's own plugins come from Iki's repository
+    git: https://github.com/yogesh-dhande/iki.git
+    path: plugins/reagents # the plugin's directory in the repository, if not its root
+    sha: 4f1c2b9e0d6a7c3b8e5f1a2d9c0b7e6f5a4d3c2b
+    state: active
+  - name: iki/dna
+    git: https://github.com/yogesh-dhande/iki.git
+    path: plugins/dna
+    sha: 4f1c2b9e0d6a7c3b8e5f1a2d9c0b7e6f5a4d3c2b
+    state: active
+    settings: settings/dna.yaml # relative to the lockfile
+  - name: acme/storage_labels # a lab's own, in its namespace, from its repository
+    git: https://github.com/acme/iki-storage-labels.git
+    sha: 9b2e4c1d0a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d
+    state: active
+```
+
+- [`sha`](/reference/plugin-spec/plugin-lock/#plugins.sha) is a full commit, never a branch or a
+  tag, so the same lockfile always installs the same plugins. `git ls-remote <repository> <tag>`
+  prints a tag's commit.
+- In development, [`local: ../path/to/plugin`](/reference/plugin-spec/plugin-lock/#plugins.local)
+  takes a directory instead.
+- The core plugin comes with Iki and isn't listed. A plugin in the `iki` namespace comes only from
+  Iki's repository.
+- `iki deploy build` builds the deployment's plugins from the lockfile, and checks their settings
+  and that their migrations are complete.
+
+### Iki's plugins from a mirror
+
+A site that can't reach github.com still names Iki's repository in its lockfile, and fetches Iki's
+own plugins from its mirrors of it, which its admin names: `plugins.mirrors` in the deployment's
+Helm values, and `iki deploy build --mirror`. A plugin from a mirror must be at the commit the
+lockfile pins, with a tree Iki's repository has had, as the `iki` CLI's
+`first_party_trees.json` lists them.
+
+### Examples and fixtures are for tests
+
+`iki deploy build` checks where every active and detached plugin comes from. It refuses one pinned
+to these directories of Iki's repository, or of a mirror the deployment names, even at a full
+commit (`test-only-source`):
+
+- `examples/plugins/` and `plugin-template/`
+- `spec/tests/`, `server/tests/` and `deploy/dev/fixtures/`
+- `deploy/live/plugins/live_check/`
+
+Deploy a lab's adaptation of one of them from the lab's own repository, under its own name. To
+build them as they are, in CI or a live check, pass `--test-only`. A `local:` directory also needs
+`--allow-local`.
+
+## Say which machines run actions
+
+`compute.yaml` holds compute templates, the machines a deployment runs actions on, and bindings,
+which environments run on which. An action's environment
+([Environments](/guides/write-a-plugin/actions/#environments)) runs only where a binding puts
+it. This deployment runs the lab's storage labels plugin, adapted from
+`examples/plugins/storage_labels`, in Kubernetes pods: its `tools` environment in a Job for each
+run or a warm pool for quick actions, and its `reference` environment, with its volume of storage
+codes, in a Job:
+
+```yaml
+# deployments/production/compute.yaml
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: containers
+provisioner: k8s_job # a Kubernetes Job for each run
+capacity: { cpu: 4, memory: 16Gi, scratch_disk: 50Gi }
+kubernetes: { namespace: iki-runs, runtime_class: gvisor }
+volumes: { storage-codes: { strategy: clone_from_snapshot } }
+limits: { max_concurrent: 20 }
+price: { per_hour: 0.19, currency: USD }
+---
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: warm-containers
+provisioner: k8s_deployment # a pool of pods kept warm
+capacity: { cpu: 1, memory: 2Gi }
+kubernetes: { namespace: iki-runs, runtime_class: gvisor }
+limits: { max_concurrent: 4, min_warm: 1, idle_shutdown: 10m }
+price: { per_hour: 0.05, currency: USD }
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: acme/storage_labels.tools # plugin.environment
+templates:
+  - { template: containers } # priority 0 is tried first
+  - { template: warm-containers, priority: 1 }
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: acme/storage_labels.reference
+templates: [{ template: containers }]
+```
+
+A template's [`provisioner`](/reference/plugin-spec/compute-template/#provisioner) says how its
+machines start, and so which tier it serves:
+
+| Provisioner      | Tier      | Machines                                                     |
+| ---------------- | --------- | ------------------------------------------------------------ |
+| `backend_pool`   | backend   | Iki's backend worker pods                                    |
+| `k8s_job`        | container | a Kubernetes Job for each run                                |
+| `k8s_deployment` | container | a warm pool of pods                                          |
+| `slurm`          | container | a Slurm job for each run, submitted from the login node     |
+| `aws_ec2`        | vm        | EC2 instances                                                |
+| `gcp_gce`        | vm        | Compute Engine instances                                     |
+
+[`capacity`](/reference/plugin-spec/compute-template/#capacity) is what each machine gives a run,
+and a job runs on a template only if it fits.
+[`limits.max_concurrent`](/reference/plugin-spec/compute-template/#limits.max_concurrent) caps how
+many run at once. Running on a Slurm cluster has a guide of its own,
+[Run actions on a Slurm cluster](/guides/run-actions-on-slurm/).
+
+### How Iki picks a template
+
+For each job, Iki picks among the templates bound to the action's environment that are on the
+action's tier, that the job fits, and whose lifecycle the action asks for: the lowest
+[`priority`](/reference/plugin-spec/environment-binding/#templates.priority) number first, then the
+smallest. A `k8s_job` template is ephemeral and a `k8s_deployment` one persistent; `aws_ec2` and
+`gcp_gce` templates say which with [`lifecycle`](/reference/plugin-spec/compute-template/#lifecycle).
+A persistent template keeps [`min_warm`](/reference/plugin-spec/compute-template/#limits.min_warm)
+machines running for each environment bound to it, and stops others once they've had nothing to
+do for [`idle_shutdown`](/reference/plugin-spec/compute-template/#limits.idle_shutdown), ten
+minutes unless it says.
+
+### Kubernetes
+
+Kubernetes templates take [`kubernetes`](/reference/plugin-spec/compute-template/#kubernetes),
+with the [`namespace`](/reference/plugin-spec/compute-template/#kubernetes.namespace) pods start
+in, a [`node_selector`](/reference/plugin-spec/compute-template/#kubernetes.node_selector),
+[`tolerations`](/reference/plugin-spec/compute-template/#kubernetes.tolerations) for nodes kept for
+them, such as GPU nodes, and a
+[`runtime_class`](/reference/plugin-spec/compute-template/#kubernetes.runtime_class), such as
+`gvisor`.
+
+### AWS
+
+`aws_ec2` templates take [`aws`](/reference/plugin-spec/compute-template/#aws). Each instance boots
+[`image`](/reference/plugin-spec/compute-template/#aws.image), which needs Docker, and for GPUs
+NVIDIA's drivers and container toolkit, in one of
+[`subnets`](/reference/plugin-spec/compute-template/#aws.subnets), with
+[`security_groups`](/reference/plugin-spec/compute-template/#aws.security_groups) and an
+[`instance_profile`](/reference/plugin-spec/compute-template/#aws.instance_profile):
+
+```yaml
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: gpu-spot
+provisioner: aws_ec2
+lifecycle: ephemeral
+capacity: { cpu: 4, memory: 16Gi, gpu: { count: 1, memory: 24Gi, model: A10G }, scratch_disk: 200Gi }
+aws:
+  instance_type: g5.xlarge
+  # Docker, and for GPUs NVIDIA's drivers and container toolkit
+  image: resolve:ssm:/aws/service/ecs/optimized-ami/amazon-linux-2023/gpu/recommended/image_id
+  spot: true
+  fallback: on_demand # or none: wait for spot capacity
+  region: eu-west-1
+  subnets: [subnet-0a1b2c3d4e5f60718, subnet-0f1e2d3c4b5a69788] # private, one or more zones
+  security_groups: [sg-0a1b2c3d4e5f60718] # no inbound; outbound to Iki, storage, registry
+  instance_profile: iki-vm-worker # needs no permissions
+limits: { max_concurrent: 4 }
+price: { per_hour: 1.006, currency: USD }
+```
+
+With [`spot`](/reference/plugin-spec/compute-template/#aws.spot), Iki tries spot capacity in each
+subnet's zone first, then on-demand with `fallback: on_demand`. Spot instances AWS takes back are
+retried, and checkpointable runs resume. The root disk is the scratch disk plus 40 GiB unless
+[`root_disk`](/reference/plugin-spec/compute-template/#aws.root_disk) says otherwise, and
+[`kms_key`](/reference/plugin-spec/compute-template/#aws.kms_key) and
+[`tags`](/reference/plugin-spec/compute-template/#aws.tags) can be set too.
+
+### Google Cloud
+
+`gcp_gce` templates take [`gcp`](/reference/plugin-spec/compute-template/#gcp) instead, on Compute
+Engine. Each instance starts from the deployment's instance template, the `vm-tier` module's,
+which gives it its subnet with no public address, its service account and its network tag; the
+compute template says what changes:
+
+```yaml
+provisioner: gcp_gce
+capacity: { cpu: 4, memory: 15Gi, gpu: { count: 1, memory: 16Gi, model: T4 } }
+gcp:
+  machine_type: n1-standard-4
+  gpu_type: nvidia-tesla-t4
+  image: projects/cos-cloud/global/images/family/cos-stable # Docker; for GPUs, NVIDIA's too
+  spot: true # taken back with two minutes' notice
+  fallback: on_demand
+  region: europe-west4
+  zones: [europe-west4-a, europe-west4-b] # tried in turn
+```
+
+Each is a Shielded VM, named for the deployment (`<owner>-run-<launch>`), with its disk encrypted
+by the deployment's Cloud KMS key. With `spot`, Iki tries Spot capacity in each zone, then
+standard with `fallback: on_demand`. Spot VMs Compute Engine takes back are retried, and
+checkpointable runs resume. [`root_disk`](/reference/plugin-spec/compute-template/#gcp.root_disk),
+[`disk_type`](/reference/plugin-spec/compute-template/#gcp.disk_type) and
+[`labels`](/reference/plugin-spec/compute-template/#gcp.labels) can be set, and the KMS key and
+instance template are the deployment's unless set.
+
+### Self-hosted machines
+
+Self-hosted actions need no template: they go to machines a compute admin registered for a team.
+A binding's [`labels`](/reference/plugin-spec/environment-binding/#labels) are what this
+deployment's machines need for the environment's self-hosted runs, besides the environment's own,
+such as the lab whose instruments they drive. A binding may give only labels:
+
+```yaml
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: iki/reagents.reagent-tools
+labels: [stores-room-2]
+```
+
+A self-hosted run needs its environment's labels, its binding's, and any its launcher adds, which
+only narrow which machines take it.
+
+## Images a deployment supplies
+
+For an environment with
+[`customer_image_required: true`](/reference/plugin-spec/environment/#customer_image_required),
+add an [`EnvironmentImageBinding`](/reference/plugin-spec/environment-image-binding/) beside its
+template and label bindings:
+
+```yaml
+apiVersion: iki/v1
+kind: EnvironmentImageBinding
+environment: acme/tools.analysis-tools
+plugin_version: ">=1.2,<2"
+image: registry.northfield-bio.org/lab/analysis-tools@sha256:4b8c1f0e9d2a7b6c5e3f1a0d9c8b7a6e5f4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b
+pull_secret: private-registry
+```
+
+- [`plugin_version`](/reference/plugin-spec/environment-image-binding/#plugin_version) compares
+  the installed plugin's release numbers, as a plugin's `iki` does. Prerelease and build suffixes
+  compare as the release they belong to.
+- Keep at most one match for the installed release. A deployment can carry image bindings for
+  other releases. With no match for the installed release, the deployment still builds, and the
+  environment's container and vm actions are unavailable.
+- The image stays in the registry it's in. An optional
+  [`pull_secret`](/reference/plugin-spec/environment-image-binding/#pull_secret) names an existing
+  Kubernetes image pull secret in the namespace where the run starts. Set it only when the
+  environment's templates are Kubernetes ones; other provisioners use their own registry access.
+
+## Volumes
+
+A template says how its machines get each environment volume, by the volume's name, with a
+[`strategy`](/reference/plugin-spec/compute-template/#volumes.strategy). Each environment volume
+needs a strategy on every template it's bound to, and a volume one run at a time writes is attached
+exclusively (`attach_exclusive`). A volume a setup fills gets each version of its data from a
+setup build ([Volumes and setup](/guides/write-a-plugin/actions/#volumes-and-setup)). Until a
+version is ready, the environment's runs wait, saying why. Bound to templates in several places,
+they go to the first where one is ready, and each attempt records the version it read.
+
+### A disk from a snapshot
+
+With `clone_from_snapshot`, each machine gets a new read-only disk from the newest version's
+snapshot.
+
+- On Kubernetes, the template's
+  [`storage_class`](/reference/plugin-spec/compute-template/#volumes.storage_class) and
+  [`snapshot_class`](/reference/plugin-spec/compute-template/#volumes.snapshot_class) name the
+  StorageClass and VolumeSnapshotClass to use, the cluster's defaults unless set.
+- On `aws_ec2`, each instance gets a new EBS disk from the snapshot, mounted read-only. With
+  [`fast_snapshot_restore`](/reference/plugin-spec/compute-template/#volumes.fast_snapshot_restore),
+  a version is ready only once its snapshot starts disks at full speed in each of the template's
+  zones, at an hourly cost for each. [`iops`](/reference/plugin-spec/compute-template/#volumes.iops)
+  and [`throughput`](/reference/plugin-spec/compute-template/#volumes.throughput) (MiB/s) set its
+  disks' performance, gp3's baseline unless set.
+- On `gcp_gce`, the build's disk is made into an image in the template's region, encrypted with the
+  deployment's key, and each instance gets a new persistent disk from it, of the template's
+  `disk_type`, mounted read-only and deleted with the instance. It's an image rather than a
+  snapshot, as Compute Engine makes at most six disks an hour from one snapshot in a zone. Compute
+  Engine has no fast snapshot restore, and Iki doesn't yet give volumes there on a shared file
+  system or in a bucket.
+
+```yaml
+volumes:
+  storage-codes:
+    strategy: clone_from_snapshot
+    fast_snapshot_restore: true
+    iops: 16000
+    throughput: 1000
+```
+
+### A shared file system
+
+With `shared_filesystem`, each version is a directory of its own on a file system many machines
+mount at once, such as FSx for Lustre, EFS or NFS. A setup build writes its version's directory,
+nothing is copied, and each run mounts the newest version's directory read-only.
+
+- On Kubernetes, [`claim`](/reference/plugin-spec/compute-template/#volumes.claim) names its
+  PersistentVolumeClaim, in the namespace runs go in. Iki keeps versions under
+  [`path`](/reference/plugin-spec/compute-template/#volumes.path) in it, `iki` unless set, which
+  must exist and be writable by runs' user, UID 10001.
+- On `aws_ec2`, machines mount the file system themselves: name an NFS export
+  ([`nfs`](/reference/plugin-spec/compute-template/#volumes.nfs), such as EFS's) or a Lustre file
+  system ([`lustre`](/reference/plugin-spec/compute-template/#volumes.lustre), such as FSx for
+  Lustre's, whose client the machine image needs). A small on-demand machine,
+  [`aws.cleanup_instance_type`](/reference/plugin-spec/compute-template/#aws.cleanup_instance_type)
+  (`t3.small` unless set), removes retired versions.
+
+```yaml
+volumes:
+  storage-codes:
+    strategy: shared_filesystem
+    claim: fsx-reference
+    path: iki
+```
+
+### A bucket
+
+With `object_mount`, each version is a directory, a prefix, of its own in a bucket, mounted
+read-only. A bucket can't be written in place, so a setup build's script fills a disk, and Iki
+then copies the disk into the version's directory. Symbolic links can't be copied, and a build
+that leaves one fails, saying which.
+
+- On Kubernetes, the Mountpoint for Amazon S3 CSI driver mounts the bucket. `claim` and `path` are
+  as for a shared file system, and the bucket must be mounted with `uid=10001`, `gid=10001` and
+  `allow-delete`. The setup build's disk is of the template's `storage_class`, the cluster's
+  default unless set.
+- On `aws_ec2`, name the [`bucket`](/reference/plugin-spec/compute-template/#volumes.bucket)
+  instead, in the template's region. The machine image needs Mountpoint for Amazon S3
+  (`mount-s3`), and the template's role must be able to read the bucket and to write and delete
+  under `path`. A setup build's machine fills a disk, then copies it into the bucket before it
+  shuts down.
+
+```yaml
+volumes:
+  storage-codes:
+    strategy: object_mount
+    bucket: northfield-reference-data
+    path: iki
+```
+
+## What runs cost
+
+A template's [`price`](/reference/plugin-spec/compute-template/#price) is what one of its machines
+costs an hour, up or idle. Iki records what each run's machine time cost at that price, shows it
+on the run and in cost reports, and estimates what a run will cost before it's launched.
+
+- All of a deployment's prices are in one currency (`mixed-currencies`).
+- The build warns about a container or vm template without a price (`unpriced-template`): its runs
+  show machine time but no cost. Backend and self-hosted tiers have no per-run cost.
+
+An [`ApiPrice`](/reference/plugin-spec/api-price/) prices an outside API's calls
+([Outside APIs](/guides/write-a-plugin/actions/#outside-apis)): per call, and per unit of each
+usage the API reports, in the same currency.
+
+```yaml
+apiVersion: iki/v1
+kind: ApiPrice
+api: acme/coa.coa_reader
+per_call: 0.01
+usage: { pages: 0.002 }
+currency: USD
+```
+
+Each call's cost is recorded with its run and counts against budgets, and an action that calls a
+priced API is costly on any tier: an agent's runs of it wait for approval, and a spent budget
+that's enforced refuses it. The build warns about an installed API without a price
+(`unpriced-api`).
+
+## What the build checks
+
+`iki deploy build` checks that:
+
+- every binding names an environment of an installed plugin, and templates in this file on that
+  environment's tiers
+- every bound template is at least the environment's minimum, and every action fits at least one
+  template on its tier
+- each environment volume has a strategy on every template it's bound to, and volumes written by
+  one run at a time are attached exclusively
+- no setup's host, as the deployment's settings give it, is any installed plugin's outside API's
+
+Actions whose environments aren't bound on their tier can't run on the deployment, and the build
+warns about each (`unbound-environment`).
+
+## Records moved between deployments
+
+A bundle carries records from one project of one deployment to another, with every revision, the
+files they name, who made them and the runs that did. It's a `.tar.gz`:
+
+```text
+people.ndjson      # each person a record names, matched by email where it's imported
+agents.ndjson      # agents that acted for them
+files.ndjson       # the files revisions name, and their SHA-256
+entities.ndjson    # each record: its revisions, and each table's values at each
+outside.ndjson     # what the values or runs refer to that isn't in it
+runs.ndjson        # the finished runs that made or changed them: inputs, attempts with their logs and outputs, lineage
+signatures.ndjson  # their electronic signatures, as signed, and what was done to their history since
+blobs/sha256/<sha> # the bytes of Iki's own files, once each
+bundle.json        # who, when, why, the plugins and schema versions, every member's SHA-256
+bundle.json.sig    # the source deployment's Ed25519 signature of bundle.json
+```
+
+[`bundle.json`](/reference/plugin-spec/bundle/) has its own schema, which also describes each
+member's lines. `iki bundle verify` checks a bundle's signature, every member and every
+signature in it against the keys you trust.

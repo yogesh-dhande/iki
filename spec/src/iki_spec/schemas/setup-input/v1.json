@@ -8,19 +8,23 @@
   "additionalProperties": false,
   "properties": {
     "apiVersion": {
-      "const": "iki/v1"
+      "const": "iki/v1",
+      "description": "The spec version this document follows."
     },
     "kind": {
-      "const": "SetupInput"
+      "const": "SetupInput",
+      "description": "What this document is: `SetupInput`."
     },
     "setup": {
       "type": "object",
+      "description": "The setup build: which, the version it makes, and the environment and plugin it's for.",
       "required": ["id", "hrid", "version", "environment", "plugin"],
       "additionalProperties": false,
       "properties": {
         "id": {
           "type": "string",
-          "format": "uuid"
+          "format": "uuid",
+          "description": "The setup build's ID."
         },
         "hrid": {
           "type": "string",
@@ -37,14 +41,17 @@
         },
         "plugin": {
           "type": "object",
+          "description": "The plugin the environment is from, at the version installed when the build was asked for.",
           "required": ["name", "version", "sha"],
           "additionalProperties": false,
           "properties": {
             "name": {
-              "type": "string"
+              "type": "string",
+              "description": "Its qualified name, such as `iki/protein`."
             },
             "version": {
-              "type": "string"
+              "type": "string",
+              "description": "Its version."
             },
             "sha": {
               "type": ["string", "null"],
@@ -62,15 +69,18 @@
       "properties": {
         "id": {
           "type": "string",
-          "format": "uuid"
+          "format": "uuid",
+          "description": "The ID the worker API names the build by: the same as `setup.id`."
         },
         "lease_token": {
           "type": "string",
-          "format": "uuid"
+          "format": "uuid",
+          "description": "What the worker gives with every report on the build, to show it holds the lease. Each lease has a new one."
         },
         "lease_expires_at": {
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "description": "When the lease ends unless the worker renews it, in UTC."
         },
         "heartbeat_every": {
           "type": "integer",
@@ -105,7 +115,8 @@
         "properties": {
           "mount": {
             "type": "string",
-            "pattern": "^/"
+            "pattern": "^/",
+            "description": "Where it's mounted, writable: an absolute path."
           },
           "size": {
             "type": "integer",
