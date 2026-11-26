@@ -360,3 +360,85 @@ def exercise() -> None:
     assert by_id[str(expired.pk)]["expired"] and by_id[str(expired.pk)]["held"]
     assert by_id[str(expired.pk)]["expires_on"] == today.isoformat()
     assert by_id[str(first.pk)]["amount"] == "0"
+
+    # A lab that receives stock without ordering it in Iki, the default procedure. Its
+    # opening count goes to a cabinet without numbered positions, and an item it doesn't
+    # reorder by level has no threshold, so it's never low and nobody is alerted.
+    cabinet = Entity.objects.get(
+        pk=services.create(
+            editor, PREFIX + "StockArea", world.project, {"name": "Synthetic cabinet"}
+        ).entity.pk
+    )
+    film = Entity.objects.get(
+        pk=services.create(
+            editor,
+            PREFIX + "StockItem",
+            world.project,
+            {
+                "name": "Synthetic sealing film",
+                "supplier": "Synthetic supplier",
+                "catalogue_number": "SYN-FILM-1",
+                "stock_unit": "1",
+                "pack_size": 100,
+            },
+        ).entity.pk
+    )
+    (row,) = [i for i in api.get(base).json()["items"] if i["id"] == str(film.pk)]
+    assert (row["threshold"], row["low"]) == (None, False)
+    assert stock_alerts.send_alerts() == 0
+    assert not Notification.objects.filter(entity=film).exists()
+
+    def unordered(on: Entity, kind: str, note: str, **more: str) -> Attempt:
+        return prepare(
+            world,
+            "receive_stock",
+            {"item": on, "storage": cabinet},
+            {
+                "received_as": kind,
+                "delivery_note": note,
+                "delivery_line": "1",
+                "packs": 2,
+                "lot_number": f"Synthetic {kind}",
+                "received_on": today.isoformat(),
+                **more,
+            },
+        )
+
+    commit(unordered(film, "opening_balance", "Synthetic count 2026-11"))
+    counted = (
+        Entity.objects.filter(type=PREFIX + "CountStockLot")
+        .exclude(pk__in=[first.pk, second.pk, expired.pk])
+        .get()
+    )
+    values = services.current_values_of([counted])[counted.pk]
+    assert (values["received_as"], values["order_line"], values["item"]) == (
+        "opening_balance",
+        None,
+        film.pk,
+    )
+    place = Place.objects.get(entity=counted)
+    assert (place.container_id, place.row, place.column) == (cabinet.pk, None, None)
+    assert Amount.objects.get(entity=counted).value == 200
+    assert Movement.objects.get(entity=counted).reason == (
+        "Opening stock, count Synthetic count 2026-11, line 1."
+    )
+    # The supplier's delivery line already received against its order can't be received
+    # again without one, nor can the count be posted twice.
+    for kind, on, note in (
+        ("delivery", item, "Synthetic DN-001"),
+        ("opening_balance", film, "Synthetic count 2026-11"),
+    ):
+        again = unordered(on, kind, note)
+        with pytest.raises(results.InvalidOutput):
+            commit(again)
+        assert not RunEffect.objects.filter(run=again[0]).exists()
+    assert stock_lots.count() == 4
+    # A lot is received only by a receipt, with or without its order.
+    with pytest.raises(services.Invalid):
+        services.create(
+            editor,
+            PREFIX + "CountStockLot",
+            world.project,
+            {"item": str(film.pk), "lot_number": "No receipt"},
+            amount={"value": 100, "unit": "1"},
+        )

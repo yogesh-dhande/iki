@@ -906,8 +906,9 @@ stock_catalogue:
     received: received_packs
 ```
 
-The item's required, immutable enum gives its ledger unit. Its required
-numeric threshold has a nonnegative minimum. Each lot and order refers to
+The item's required, immutable enum gives its ledger unit. Its numeric
+threshold has a nonnegative minimum. An item whose threshold is empty isn't
+reordered by its level: it's never low, and nobody is notified. Each lot and order refers to
 an active catalogue item owned by the same project with a required,
 immutable reference. Every concrete lot type's amount uses that reference
 as its `material` and matches the item's unit. An open order contributes
@@ -920,8 +921,9 @@ Physical stock is the current ledger balance of its lots. Stored stock
 is in a container and checked in. Available stock must also pass routine
 draw guards and hold, archive and expiry checks. A reader sees a container's
 ID and position only when they can read it. The low-stock list
-(`low_only=true`) includes items with available stock at or below the
-threshold, including items without lots. The periodic stock check notifies
+(`low_only=true`) includes items with available stock at or below their
+threshold, including items without lots. An item's `threshold` is null
+when it has none. The periodic stock check notifies
 the declared project lab roles once per low-stock episode.
 
 ### Extensions
