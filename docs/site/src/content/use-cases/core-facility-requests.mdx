@@ -153,8 +153,8 @@ and a decline or a withdrawal keeps its reason: see
   [QC deliverable](/reference/plugins/requests/#QCDeliverable), whose result goes back when QA
   signs it Released.
 - Take requests from a LIMS the lab already has: add an action that reads them through its API and
-  a trigger that runs it on a schedule, as the example LIMS connector's
-  [import_from_lims](/reference/plugins/lims-connector-example/#import_from_lims) does for proteins.
+  a trigger that runs it on a schedule, as the LIMS connector example's `import_from_lims` does for
+  proteins, in `examples/plugins/lims_connector/` of Iki's repository.
 - Charge each request to a cost centre: write a request type of the lab's own that extends Plain
   request and adds a required cost centre field.
 - Let analysts start work without acceptance: write a request type of the lab's own with states
