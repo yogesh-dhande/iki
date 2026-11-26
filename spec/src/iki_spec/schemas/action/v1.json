@@ -6,8 +6,8 @@
   "type": "object",
   "required": ["apiVersion", "kind", "name", "runs_on", "command"],
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "Action" },
+    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
+    "kind": { "description": "What the manifest declares: `Action`.", "const": "Action" },
     "name": {
       "description": "The action's name in snake_case. Elsewhere it is `namespace/plugin.name`, such as `iki/protein.translate`.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
@@ -33,11 +33,13 @@
       "type": "object",
       "properties": {
         "creates": {
+          "description": "The types of entity a run may create, each with how many and what they're derived from.",
           "type": "array",
           "maxItems": 20,
           "items": { "$ref": "#/$defs/creates" }
         },
         "updates": {
+          "description": "The fields a run may set on its inputs' entities, by input.",
           "type": "array",
           "maxItems": 20,
           "items": { "$ref": "#/$defs/updates" }
@@ -51,7 +53,10 @@
       "required": ["tier", "environment"],
       "properties": {
         "tier": { "$ref": "#/$defs/tier" },
-        "environment": { "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/name" },
+        "environment": {
+          "description": "One of the plugin's environments, by name, such as `alphafold-gpu`.",
+          "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/name"
+        },
         "lifecycle": {
           "description": "For the container and vm tiers: a machine for each run (`ephemeral`, the default), or a warm pool (`persistent`).",
           "enum": ["ephemeral", "persistent"]
@@ -96,7 +101,10 @@
           "maxItems": 50,
           "items": { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "^[^/]" }
         },
-        "retention": { "$ref": "#/$defs/duration" }
+        "retention": {
+          "description": "How long its artifacts are kept, such as `90d`: the deployment's default unless given, and never less than the deployment's minimum.",
+          "$ref": "#/$defs/duration"
+        }
       },
       "additionalProperties": false
     },
@@ -150,11 +158,16 @@
       "maxProperties": 100,
       "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
       "additionalProperties": {
+        "description": "One metric, by the name its runs report it under in `metrics`.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
-          "description": { "type": "string", "maxLength": 2000 }
+          "description": {
+            "description": "Help text shown beside it.",
+            "type": "string",
+            "maxLength": 2000
+          }
         }
       }
     },
@@ -194,6 +207,7 @@
         "pattern": "^[a-z][a-z0-9_]{0,62}$"
       },
       "additionalProperties": {
+        "description": "One of the plugin's APIs, by its name in plugin.yaml, and what a run sends it.",
         "type": "object",
         "required": ["sends"],
         "properties": {
@@ -210,6 +224,7 @@
                   "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
                 },
                 "additionalProperties": {
+                  "description": "The fields of this input's entities that are sent.",
                   "type": "array",
                   "minItems": 1,
                   "maxItems": 200,
@@ -240,9 +255,15 @@
       "$ref": "#/$defs/duration"
     },
     "retries": {
+      "description": "Which failed attempts are tried again, as a new job after a short backoff, and how many times.",
       "type": "object",
       "properties": {
-        "max": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "max": {
+          "description": "How many times a run is retried, at most: 2 unless given, or 0 for an action with `network` or `apis`.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
         "on": {
           "description": "Which failures are retried. A run that ended in an error of its own isn't, unless `failed` is listed.",
           "type": "array",
@@ -263,6 +284,7 @@
       "pattern": "^[^\\s](.*[^\\s])?$"
     },
     "secret_name": {
+      "description": "A secret's name: the environment variable runs get it in, such as `NCBI_API_KEY`.",
       "type": "string",
       "pattern": "^[A-Z][A-Z0-9_]{0,62}$"
     },
@@ -281,6 +303,7 @@
       "pattern": "^(==|>=|<=|>|<|!=)[0-9]+(,(==|>=|<=|>|<|!=)[0-9]+)*$"
     },
     "input": {
+      "description": "An input: the type of entity it takes, how many, and whether a run needs it.",
       "type": "object",
       "required": ["type"],
       "properties": {
@@ -299,7 +322,10 @@
           "minimum": 2,
           "maximum": 100000
         },
-        "optional": { "type": "boolean" },
+        "optional": {
+          "description": "A run can start without it. Otherwise whoever launches the run must choose its entities, and a workflow step or trigger must give them.",
+          "type": "boolean"
+        },
         "from_project": {
           "description": "Not chosen by whoever launches the run: each run is given every record of its type that its project owns and hasn't archived, at their current revisions, such as a core's ranking of the projects it serves (ADR 0232). It takes many, at most its `max` and 1000; with none there, a run that needs it can't start.",
           "type": "boolean"
@@ -368,7 +394,10 @@
           "description": "The type of entity it creates.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
         },
-        "cardinality": { "enum": ["one", "many"] },
+        "cardinality": {
+          "description": "`one` (the default): a run creates at most one, in output.json's `creates`. `many`: any number, in `creates` or a `creates_file`'s lines.",
+          "enum": ["one", "many"]
+        },
         "receive_into": {
           "description": "Receive a fresh physical record with its starting amount into the container named by this single required input. Each inline create supplies its receipt.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"

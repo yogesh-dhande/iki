@@ -7,9 +7,11 @@
   "required": ["apiVersion", "kind", "name", "on", "run"],
   "properties": {
     "apiVersion": {
+      "description": "The spec version this manifest follows.",
       "const": "iki/v1"
     },
     "kind": {
+      "description": "What the manifest declares: `Trigger`.",
       "const": "Trigger"
     },
     "name": {
@@ -98,6 +100,7 @@
         "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
       },
       "additionalProperties": {
+        "description": "One of the action's other inputs, by name: which way, how far and through what its entities are found from the one that fired the trigger.",
         "type": "object",
         "required": ["direction"],
         "properties": {
@@ -136,6 +139,7 @@
         "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
       },
       "additionalProperties": {
+        "description": "The fields of the record this reference names whose change schedules a fresh run for each record that refers to it, such as an oligonucleotide's `molecular_weight` for its lots.",
         "type": "array",
         "minItems": 1,
         "uniqueItems": true,

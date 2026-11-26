@@ -6,9 +6,12 @@
   "type": "object",
   "required": ["apiVersion", "kind", "name", "tiers"],
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "Environment" },
-    "name": { "$ref": "#/$defs/name" },
+    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
+    "kind": { "description": "What the manifest declares: `Environment`.", "const": "Environment" },
+    "name": {
+      "description": "The environment's name in kebab-case, such as `alphafold-gpu`, which its actions give in `runs_on.environment`.",
+      "$ref": "#/$defs/name"
+    },
     "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
     "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
     "tiers": {
@@ -81,8 +84,14 @@
       "type": "object",
       "required": ["script"],
       "properties": {
-        "script": { "$ref": "#/$defs/file" },
-        "timeout": { "$ref": "https://ikisci.org/schemas/action/v1#/$defs/duration" },
+        "script": {
+          "description": "The script that fills the volumes: a path in the plugin, relative to its root.",
+          "$ref": "#/$defs/file"
+        },
+        "timeout": {
+          "description": "The longest the setup may take before it's stopped. 6h unless given.",
+          "$ref": "https://ikisci.org/schemas/action/v1#/$defs/duration"
+        },
         "requires_approval": {
           "description": "A compute admin approves each build before it starts, for setups that cost a lot.",
           "type": "boolean"
@@ -141,12 +150,21 @@
           "exclusiveMinimum": 0,
           "maximum": 1024
         },
-        "memory": { "$ref": "#/$defs/quantity" },
+        "memory": {
+          "description": "The memory a run needs, such as `8Gi`.",
+          "$ref": "#/$defs/quantity"
+        },
         "gpu": {
+          "description": "The GPUs a run needs. Backend workers have none: use the self-hosted, container or vm tier.",
           "type": "object",
           "required": ["count"],
           "properties": {
-            "count": { "type": "integer", "minimum": 1, "maximum": 16 },
+            "count": {
+              "description": "How many GPUs, from 1 to 16.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16
+            },
             "min_memory": {
               "description": "The memory each GPU must have.",
               "$ref": "#/$defs/quantity"
@@ -162,10 +180,14 @@
       "additionalProperties": false
     },
     "volume": {
+      "description": "One data volume: its size, where runs see it, how it's read, and what fills it.",
       "type": "object",
       "required": ["size", "mount"],
       "properties": {
-        "size": { "$ref": "#/$defs/quantity" },
+        "size": {
+          "description": "How big the volume is, such as `500Gi`.",
+          "$ref": "#/$defs/quantity"
+        },
         "access": {
           "description": "`read_only_many` (the default): many runs read it at once. `read_write_once`: one run at a time may change it.",
           "enum": ["read_only_many", "read_write_once"]
