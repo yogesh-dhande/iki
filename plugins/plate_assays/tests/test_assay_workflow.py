@@ -4,7 +4,7 @@ import hashlib
 import importlib
 from copy import deepcopy
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid5
 
 import pytest
 
@@ -87,9 +87,7 @@ def committed_read(actions):
     ]
     *created, read = result["creates"]
     assert read["values"]["reader_format"] == "bmg_mars_absorbance/1"
-    assert (
-        read["values"]["import_key"] == hashlib.sha256(f"{uid(1)}\n{digest}".encode()).hexdigest()
-    )
+    assert read["values"]["import_key"] == str(uuid5(UUID(uid(1)), digest))
     # The synthetic export's run header, as MARS wrote it.
     assert read["values"]["acquisition"] == {
         "user": "synthetic",

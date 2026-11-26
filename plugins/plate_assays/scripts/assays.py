@@ -9,6 +9,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from uuid import UUID, uuid5
 
 from reader import FORMATS, preview_reader
 
@@ -83,7 +84,8 @@ def reader_output(run: dict[str, Any], *, commit: bool) -> dict[str, Any]:
         raise ValueError("Preview this reader file and the current layout before committing.")
     # Each read of a plate is its own acquisition, one per reader file. The same export
     # can't be committed to the plate twice, including when two commits race.
-    import_key = hashlib.sha256(f"{plate['id']}\n{digest}".encode()).hexdigest()
+    # A name-based UUID (RFC 9562, section 5.5) of the file's digest within the plate.
+    import_key = str(uuid5(UUID(plate["id"]), digest))
     updated["values"] = {
         "committed": True,
         "committed_layout": layout_of(values),
