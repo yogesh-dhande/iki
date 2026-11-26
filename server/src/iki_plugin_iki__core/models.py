@@ -12,7 +12,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVector
 from django.db import models
 from django.db.models import Q
-from django.db.models.functions import Length
+from django.db.models.functions import Left, Length
 from django.db.models.lookups import GreaterThanOrEqual, LessThanOrEqual
 
 from iki_server.entities import checks
@@ -81,7 +81,7 @@ class Alignment(Entity):
                 name='name_trgm_e221cca4261cbd6418a2',
             ),
             GinIndex(
-                SearchVector('description', config='simple'),
+                SearchVector(Left('description', 100000), config='simple'),
                 name='descriptio_fts_14b467edb18a230',
             ),
         ]
@@ -173,7 +173,7 @@ class App(Entity):
                 name='name_trgm_d5b0dd7d9b8a079d1813',
             ),
             GinIndex(
-                SearchVector('description', config='simple'),
+                SearchVector(Left('description', 100000), config='simple'),
                 name='descriptio_fts_fe368f2fcfb4313',
             ),
         ]
@@ -240,7 +240,7 @@ class Collection(Entity):
                 name='name_trgm_22c29fcc1309db5182d3',
             ),
             GinIndex(
-                SearchVector('description', config='simple'),
+                SearchVector(Left('description', 100000), config='simple'),
                 name='descriptio_fts_3e8eee75573ff96',
             ),
         ]
@@ -338,7 +338,7 @@ class Complex(Entity):
                 name='name_trgm_7936eb2ad9f1941f6b25',
             ),
             GinIndex(
-                SearchVector('description', config='simple'),
+                SearchVector(Left('description', 100000), config='simple'),
                 name='descriptio_fts_1d54ab87528df50',
             ),
         ]
@@ -723,7 +723,7 @@ class Sequence(Entity):
                 name='name_trgm_15f33b667fc8e8e4c092',
             ),
             GinIndex(
-                SearchVector('description', config='simple'),
+                SearchVector(Left('description', 100000), config='simple'),
                 name='descriptio_fts_549c3fd437ccb77',
             ),
         ]
@@ -824,7 +824,7 @@ class View(Entity):
                 name='name_trgm_69c0d33f7d43bc366ba2',
             ),
             GinIndex(
-                SearchVector('description', config='simple'),
+                SearchVector(Left('description', 100000), config='simple'),
                 name='descriptio_fts_201bc7bf7161a9c',
             ),
         ]

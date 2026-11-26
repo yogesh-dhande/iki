@@ -159,6 +159,60 @@ def test_each_csv_record_is_digested_whole_as_written() -> None:
     ]
 
 
+FOMIVIRSEN = (
+    "RNA1{[dR](G)[sP].[dR](C)[sP].[dR](G)[sP].[dR](T)[sP].[dR](T)[sP].[dR](T)[sP].[dR](G)[sP]."
+    "[dR](C)[sP].[dR](T)[sP].[dR](C)[sP].[dR](T)[sP].[dR](T)[sP].[dR](C)[sP].[dR](T)[sP]."
+    "[dR](T)[sP].[dR](C)[sP].[dR](T)[sP].[dR](T)[sP].[dR](G)[sP].[dR](C)[sP].[dR](G)}$$$$V2.0"
+)
+EMPTY_MOLBLOCK = "  Iki\n\n  0  0  0  0  0  0  0  0  0  0999 V2000\nM  END\n"
+
+
+def test_an_sdf_value_runs_to_its_blank_line() -> None:
+    """A data item's value runs to a blank line (CTfile Formats, SDfiles), as the
+    small_molecule plugin reads it: a line of it starting with `>` is its value's, so a
+    description quoting a HELM header doesn't replace the record's HELM, and a MACCS-II
+    field number with no name is passed over with its value."""
+    (oligos,) = _modules("oligos")
+    text = (
+        "fomivirsen\n"
+        + EMPTY_MOLBLOCK
+        + f"> <HELM>\n{FOMIVIRSEN}\n\n"
+        + "> <Description>\nVitravene, against CMV retinitis.\n"
+        + "> <HELM> as its label gives it: RNA1{[dR](G)}$$$$V2.0\n\n"
+        + "> DT12   55\n> <Name> isn't this record's\n\n"
+        + "$$$$\n"
+    )
+    said: list[str] = []
+    (row,) = oligos._rows_sdf(text, said)
+    assert row["helm"] == FOMIVIRSEN
+    assert row["name"] == "fomivirsen"
+    assert row["description"] == (
+        "Vitravene, against CMV retinitis.\n> <HELM> as its label gives it: RNA1{[dR](G)}$$$$V2.0"
+    )
+    assert said == [
+        "Record 1: Its Description field has a line, '> <HELM> as its label gives it: "
+        "RNA1{[dR](G)}$$$$V2.0', that reads as the start of its HELM field, but an SD field "
+        "ends only at a blank line, so the line is part of Description's value and HELM "
+        "wasn't read. Put a blank line before it to make it a field of its own."
+    ]
+
+
+def test_an_sdf_records_helm_over_several_lines_is_one_helm() -> None:
+    """CTfile Formats allows 200 characters a line, so a long HELM is wrapped: its lines
+    are one HELM, even where one starts with HELM's own `$$$$`, which ends a record only
+    on a line of its own."""
+    (oligos,) = _modules("oligos")
+    cut = FOMIVIRSEN.index("$$$$")
+    wrapped = f"{FOMIVIRSEN[:100]}\r\n{FOMIVIRSEN[100:cut]}\r\n{FOMIVIRSEN[cut:]}\r\n"
+    text = "fomivirsen\r\n" + EMPTY_MOLBLOCK.replace("\n", "\r\n") + "> <HELM>\r\n" + wrapped
+    text += "\r\n$$$$  \r\nthe next\r\n" + EMPTY_MOLBLOCK + "> <HELM>\nPEPTIDE1{A.G.C}$$$$V2.0\n"
+    rows = oligos._rows_sdf(text, [])
+    assert [(r["name"], r["helm"]) for r in rows] == [
+        ("fomivirsen", FOMIVIRSEN),
+        ("the next", "PEPTIDE1{A.G.C}$$$$V2.0"),
+    ]
+
+
 # A repeated group of units is one position as written (HELM 2.04, 5.3.2): in the first,
 # position 4 is the 3′ phosphate after it, as position 9 is once the repeat is written out.
 AFTER_A_GROUP = (

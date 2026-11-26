@@ -483,7 +483,8 @@ def build() -> MCPServer:
         about itself: its facts (instrument, serial, operator, software, protocol, each with
         where in the file it's stated) and a SAM or BAM file's read groups. The records page
         gives the revisions that held it. The runs page lists the runs that read or made it.
-        Each has its own next_cursor. Use get_file_download_link when you need the bytes."""
+        Each has its own next_cursor. file.scan gives the malware scan status. When
+        file.scan.usable is true, get_file_download_link can issue a link to the bytes."""
         where = path("/files/{id}", id=str(file_id))
         file = await call("GET", where)
         records = await call(
@@ -496,7 +497,8 @@ def build() -> MCPServer:
     async def get_file_download_link(file_id: FileId) -> CallToolResult:
         """Get a signed URL for the file's bytes, its expiry (five minutes) and the SHA-256
         to check after download. Anyone holding the URL can read the bytes until it expires.
-        Use it without sending an Iki token. Issuing the link is audited."""
+        Use it without sending an Iki token. A held file returns its scan problem. Issuing
+        a link is audited."""
         return answer(await call("GET", path("/files/{id}/content-url", id=str(file_id))))
 
     @server.tool(annotations=READ, title="List entity types")
@@ -542,6 +544,14 @@ def build() -> MCPServer:
             ),
         ] = None,
         sort: Annotated[SortIn | None, Field(description="A field to sort by.")] = None,
+        then: Annotated[
+            list[SortIn] | None,
+            Field(
+                max_length=3,
+                description="Further sorts, in order, for what sort ties: a queue by its "
+                "service's ranking, then priority, then needed_by.",
+            ),
+        ] = None,
         archived: Annotated[
             bool | None, Field(description="false (the default): current ones only.")
         ] = False,
@@ -565,6 +575,8 @@ def build() -> MCPServer:
             body["where"] = where.model_dump(by_alias=True, exclude_unset=True)
         if sort is not None:
             body["sort"] = sort.model_dump(by_alias=True, exclude_unset=True)
+        if then:
+            body["then"] = [t.model_dump(by_alias=True, exclude_unset=True) for t in then]
         return answer(
             await call(
                 "POST", "/entities/search", body={k: v for k, v in body.items() if v is not None}

@@ -255,6 +255,7 @@ class UploadState(models.TextChoices):
     PENDING = "pending", "Waiting for its parts"
     #: All parts arrived; Iki is checking the bytes.
     CHECKING = "checking", "Checking"
+    SCANNING = "scanning", "Scanning"
     READY = "ready", "Ready"
     FAILED = "failed", "Failed"
     CANCELLED = "cancelled", "Cancelled"
@@ -341,6 +342,7 @@ class Upload(models.Model):
 class RegistrationState(models.TextChoices):
     #: Iki is reading the object to learn its SHA-256.
     CHECKING = "checking", "Checking"
+    SCANNING = "scanning", "Scanning"
     READY = "ready", "Ready"
     FAILED = "failed", "Failed"
 
@@ -404,3 +406,75 @@ class Registration(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+
+class BlobScan(models.Model):
+    """One completed inspection of an immutable source (ADR 0216). No row means pending."""
+
+    APPEND_ONLY = True
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    blob = models.OneToOneField(
+        Blob, null=True, on_delete=models.PROTECT, related_name="scan_result"
+    )
+    upload = models.OneToOneField(
+        Upload, null=True, on_delete=models.PROTECT, related_name="scan_result"
+    )
+    state = models.CharField(max_length=16)
+    scanner = models.CharField(max_length=255)
+    signature_version = models.CharField(max_length=255, blank=True)
+    scanned_at = models.DateTimeField(db_default=Now())
+    reason = models.CharField(max_length=1024, blank=True)
+    allow_unscanned = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "iki_blob_scan"
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(blob__isnull=False, upload__isnull=True)
+                | Q(blob__isnull=True, upload__isnull=False),
+                name="iki_scan_one_source",
+            ),
+            models.CheckConstraint(
+                condition=~Q(scanner="")
+                & (
+                    Q(state="clean", reason="") & ~Q(signature_version="")
+                    | Q(state="infected") & ~Q(reason="") & ~Q(signature_version="")
+                    | Q(state="not_scanned") & ~Q(reason="")
+                ),
+                name="iki_scan_evidence",
+            ),
+            models.CheckConstraint(
+                condition=Q(allow_unscanned=False) | Q(state="not_scanned", reason="too_large"),
+                name="iki_scan_size_exception",
+            ),
+        ]
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(
+                fields=["id"],
+                condition=Q(state="infected") | Q(state="not_scanned", allow_unscanned=False),
+                name="iki_scan_held",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.scanner}: {self.state}"
+
+
+class ScanRelease(models.Model):
+    """An operator's exception to a particular infected finding (ADR 0217)."""
+
+    APPEND_ONLY = True
+
+    decision = models.OneToOneField(
+        BlobScan, primary_key=True, on_delete=models.PROTECT, related_name="release"
+    )
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    reason = models.CharField(max_length=2000)
+    released_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_scan_release"
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(condition=Q(reason__regex=r"\S"), name="iki_scan_release_reason")
+        ]

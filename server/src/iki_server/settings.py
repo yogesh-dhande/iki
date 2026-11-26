@@ -787,6 +787,33 @@ except ValueError as _error:
     raise environ.ImproperlyConfigured(
         f"IKI_FILES_MAX_UPLOAD_SIZE must be a size such as 100GiB: {_error}"
     ) from None
+
+# Only deployment configuration supplies the scan adapter's import path (ADR 0216).
+IKI_FILES_SCANNER: str = env.str("IKI_FILES_SCANNER", default="iki_server.files.scanner.clamd")
+if len(IKI_FILES_SCANNER) > 255 or not re.fullmatch(
+    r"(?:[A-Za-z_]\w*\.)+[A-Za-z_]\w*", IKI_FILES_SCANNER
+):
+    raise environ.ImproperlyConfigured("IKI_FILES_SCANNER must be a dotted path to a scan adapter.")
+IKI_CLAMD_HOST: str = env.str("IKI_CLAMD_HOST", default="localhost")
+IKI_CLAMD_PORT: int = env.int("IKI_CLAMD_PORT", default=3310)
+IKI_CLAMD_TIMEOUT_SECONDS: int = env.int("IKI_CLAMD_TIMEOUT_SECONDS", default=120)
+if not IKI_CLAMD_HOST or not 1 <= IKI_CLAMD_PORT <= 65535:
+    raise environ.ImproperlyConfigured(
+        "IKI_CLAMD_HOST and IKI_CLAMD_PORT must name a TCP endpoint."
+    )
+if IKI_CLAMD_TIMEOUT_SECONDS < 1:
+    raise environ.ImproperlyConfigured("IKI_CLAMD_TIMEOUT_SECONDS must be positive.")
+try:
+    IKI_FILES_SCAN_MAX_BYTES: int = _parse_size(
+        env.str("IKI_FILES_SCAN_MAX_SIZE", default="100MiB")
+    )
+except ValueError as _error:
+    raise environ.ImproperlyConfigured(
+        f"IKI_FILES_SCAN_MAX_SIZE must be a size such as 100MiB: {_error}"
+    ) from None
+IKI_FILES_SCAN_OVERSIZE_POLICY: str = env.str("IKI_FILES_SCAN_OVERSIZE_POLICY", default="refuse")
+if IKI_FILES_SCAN_OVERSIZE_POLICY not in ("refuse", "allow"):
+    raise environ.ImproperlyConfigured("IKI_FILES_SCAN_OVERSIZE_POLICY must be refuse or allow.")
 # Runs' artifacts (ADR 0068): kept as long as their action says, or
 # IKI_FILES_ARTIFACT_RETENTION if it doesn't, and never less than
 # IKI_FILES_ARTIFACT_MIN_RETENTION.

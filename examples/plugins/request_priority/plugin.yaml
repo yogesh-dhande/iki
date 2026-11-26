@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: acme/request_priority
+version: 0.1.0
+title: Request priority
+description: >-
+  A sequencing core's own ranking of the projects it serves, and the rank each
+  request it's sent takes from it, which its queue sorts by.
+license: Apache-2.0
+iki: ">=0.1"
+dependencies:
+  iki/requests: { types: { PlainRequest: ">=1" } }
+  iki/lab_roles: {}

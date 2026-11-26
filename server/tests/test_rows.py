@@ -13,6 +13,7 @@ import pytest
 from django.db import DatabaseError, connection, transaction
 from org_world import World
 from test_api_entities import api_as, create, patch
+from test_files import run_tasks
 from test_graph import walk
 from test_run_results import _downloads_all, _failed, done, output
 from test_runs import launch, world
@@ -548,6 +549,7 @@ def stored(world: World, name: str, media_type: str = "application/pdf") -> str:
         size=0,
         sha256=EMPTY_SHA256,
     )
+    run_tasks()
     upload.refresh_from_db()
     return str(upload.file_id)
 

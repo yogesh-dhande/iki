@@ -21,12 +21,12 @@ from iki_server.api.common import caller, project, require
 from iki_server.api.entities import FieldOut, RunRefOut, field_out
 from iki_server.api.pagination import PageParams, cursor_after, page
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import AgentOut, Page, PersonRef, agent_out
+from iki_server.api.schemas import AgentOut, FileScanOut, Page, PersonRef, agent_out
 from iki_server.audit.models import Via
 from iki_server.entities import access, registry, schema
 from iki_server.entities.models import Entity, ProjectLink
 from iki_server.entities.values import Invalid
-from iki_server.files import storage
+from iki_server.files import scan_state, storage
 from iki_server.files.models import UploadState
 from iki_server.org import permissions
 from iki_server.runs import (
@@ -110,6 +110,11 @@ class InputOut(Schema):
     cardinality: Literal["one", "many"]
     max: int | None
     optional: bool
+    from_project: bool = Field(
+        False,
+        description="Not chosen: each run is given every record of its type the project owns "
+        "and hasn't archived (ADR 0232). Launching it with any is refused.",
+    )
 
 
 class ParamOut(FieldOut):
@@ -252,6 +257,7 @@ def _action_out(action: Action) -> dict[str, Any]:
                 "cardinality": i.cardinality,
                 "max": i.max,
                 "optional": i.optional,
+                "from_project": i.from_project,
             }
             for i in action.inputs.values()
         ],
@@ -556,7 +562,12 @@ class WorkflowStepRefOut(Schema):
 
 class TriggerFiredOut(TriggerRefOut):
     event: Literal[
-        "entity.created", "entity.registered", "entity.state_changed", "entity.updated", "schedule"
+        "entity.created",
+        "entity.registered",
+        "entity.state_changed",
+        "entity.updated",
+        "request.received",
+        "schedule",
     ]
     entity: UUID | None = Field(description="The visible entity whose change fired it.")
     revision: int | None = Field(
@@ -2171,10 +2182,13 @@ class RunArtifactOut(Schema):
     media_type: str
     size: int = Field(description="Bytes.")
     sha256: str = Field(description="Of its bytes, as hex.")
-    state: Literal["uploading", "kept", "failed", "deleted"] = Field(
-        description="`kept` while it can be downloaded; `deleted` once its retention is over "
-        "(its record stays); `failed` if its upload didn't finish."
+    state: Literal[
+        "uploading", "scanning", "quarantined", "not_scanned", "kept", "failed", "deleted"
+    ] = Field(
+        description="Whether the artifact can be downloaded, is still uploading or scanning, "
+        "is held, or has expired."
     )
+    scan: FileScanOut | None = Field(description="The scan decision for a verified upload.")
     created_at: datetime
     expires_at: datetime = Field(
         description="When its retention ends, and it's deleted. It may be kept longer, if "
@@ -2183,16 +2197,22 @@ class RunArtifactOut(Schema):
     deleted_at: datetime | None
 
 
-def _artifact_state(artifact: RunArtifact) -> str:
+def _artifact_state(artifact: RunArtifact, scan: scan_state.ScanStatus | None) -> str:
     if artifact.deleted_at is not None:
         return "deleted"
     upload = artifact.upload.state
-    if upload == UploadState.READY:
-        return "kept"
+    if upload == UploadState.SCANNING:
+        return "scanning"
+    if upload == UploadState.READY and scan is not None:
+        if scan.usable:
+            return "kept"
+        if scan.state == "pending":
+            return "scanning"
+        return "quarantined" if scan.state == "infected" else "not_scanned"
     return "uploading" if upload in (UploadState.PENDING, UploadState.CHECKING) else "failed"
 
 
-def _artifact_out(artifact: RunArtifact) -> dict[str, Any]:
+def _artifact_out(artifact: RunArtifact, scan: scan_state.ScanStatus | None) -> dict[str, Any]:
     upload = artifact.upload
     return {
         "id": artifact.pk,
@@ -2202,7 +2222,8 @@ def _artifact_out(artifact: RunArtifact) -> dict[str, Any]:
         "media_type": upload.media_type,
         "size": upload.size,
         "sha256": upload.sha256,
-        "state": _artifact_state(artifact),
+        "state": _artifact_state(artifact, scan),
+        "scan": scan,
         "created_at": artifact.created_at,
         "expires_at": artifact.expires_at,
         "deleted_at": artifact.deleted_at,
@@ -2219,7 +2240,10 @@ def list_artifacts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
         .select_related("upload", "job")
         .order_by("job__attempt", "path")
     )
-    return [_artifact_out(a) for a in found]
+    scans = scan_state.statuses_for_uploads(
+        a.upload_id for a in found if a.upload.state in (UploadState.READY, UploadState.SCANNING)
+    )
+    return [_artifact_out(a, scans.get(a.upload_id)) for a in found]
 
 
 @router.get(
@@ -2241,8 +2265,16 @@ def download_artifact(request: HttpRequest, ref: str, artifact_id: UUID) -> Http
             "retention was over.",
             code="artifact_deleted",
         )
-    if _artifact_state(artifact) != "kept":
+    if artifact.upload.state == UploadState.SCANNING:
+        raise Problem(
+            409,
+            "This artifact is being scanned.",
+            code="file_scanning",
+            headers={"Retry-After": "5"},
+        )
+    if artifact.upload.state != UploadState.READY:
         raise Problem(409, f"{artifact.path} didn't finish uploading.", code="artifact_not_kept")
+    scan_state.require_usable(artifact.upload)
     if not storage.configured():
         raise Problem(503, str(storage.NotConfigured()), code="storage_not_configured")
     upload = artifact.upload

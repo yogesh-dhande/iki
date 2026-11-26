@@ -208,7 +208,7 @@ class _Rules:
         for name, ref in step.inputs.items():
             self.step_input(workflow, step, action, name, ref, source, (*path, "inputs", name))
         for name, put in action.inputs.items():
-            if name not in step.inputs and not put.optional:
+            if name not in step.inputs and not put.optional and not put.from_project:
                 self.add(
                     "workflow-input-missing",
                     f"`{step.action}` needs `{name}`, and this step doesn't say where it comes "
@@ -285,6 +285,17 @@ class _Rules:
                 path,
                 key=True,
                 hint=schemas._did_you_mean(name, list(action.inputs)),
+            )
+            return
+        if wanted.from_project:
+            self.add(
+                "workflow-input-from-project",
+                f"`{step.action}`'s `{name}` is given every record of its type the project "
+                "owns: a step doesn't say where it comes from.",
+                source,
+                path,
+                key=True,
+                hint=f"Take `{name}` out of the step's inputs.",
             )
             return
         parts = ref.split(".")

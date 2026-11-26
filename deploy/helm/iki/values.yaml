@@ -191,6 +191,30 @@ files:
     secretAccessKeyKey: secret-access-key
   # The largest file one upload may add, e.g. 100GiB.
   maxUploadSize: 100GiB
+  # Every file waits for a scan (ADR 0216). Bundled clamd accepts limits below 2 GiB.
+  scanner:
+    adapter: iki_server.files.scanner.clamd
+    maxBytes: 104857600
+    oversizePolicy: refuse # allow records the exception as not_scanned
+    # For a deployment-provided adapter, disable bundled clamd and list the
+    # scanner's network destinations under networkPolicy.egress.externalScanner.
+    clamd:
+      enabled: true
+      # Official ClamAV 1.5.5 with signature databases, published 2026-11-19.
+      image: docker.io/clamav/clamav-debian@sha256:cb2b6fa0bf480a3c243117204b751f062c5350569d088dc269ebeef6b4331823
+      # Empty uses the chart's ClusterIP. Set host for an external clamd.
+      host: ""
+      port: 3310
+      timeoutSeconds: 120
+      # FreshClam uses the official CDN by default. For an internal mirror,
+      # set its URL and restrict networkPolicy.egress.signatureUpdates to it.
+      privateMirror: ""
+      resources:
+        requests: { cpu: 250m, memory: 1500Mi }
+        limits: { memory: 3Gi }
+      updaterResources:
+        requests: { cpu: 50m, memory: 128Mi }
+        limits: { memory: 2Gi }
   # How long runs' artifacts are kept (ADR 0068), for actions that don't
   # say, such as 90d. Then Iki deletes them, every version, so the pods'
   # IAM role needs s3:DeleteObjectVersion and s3:ListBucketVersions.
@@ -774,6 +798,29 @@ networkPolicy:
     # Iki also refuses addresses that resolve to private ones. For receivers
     # inside your network, add them here and in webhooks.allowedNetworks.
     webhooks:
+      ports: [443]
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - fc00::/7
+              - fe80::/10
+              - ::1/128
+    # Only web pods and task runners reach a deployment's own scanner. Each entry is a
+    # Kubernetes egress rule (to and ports), e.g. a private HTTPS endpoint.
+    externalScanner: []
+    # Only the scanner pod reaches signature updates, over public HTTPS by
+    # default. An air-gapped deployment supplies its mirror's peers and port.
+    signatureUpdates:
       ports: [443]
       to:
         - ipBlock:

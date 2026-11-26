@@ -17,7 +17,16 @@ import {
   withTypes,
 } from "./entity-fixtures";
 import { ACTION, AGENT, approval, attempt, run, RUN_ID } from "./run-fixtures";
-import { answer, calls, FakeEventSource, ME, page, problem, signedIn } from "./test-server";
+import {
+  answer,
+  calls,
+  CLEAN_SCAN,
+  FakeEventSource,
+  ME,
+  page,
+  problem,
+  signedIn,
+} from "./test-server";
 
 const EVENTS = "/api/v1/runs/RUN-000001/events";
 
@@ -57,6 +66,7 @@ function artifact(overrides: Partial<Schemas["RunArtifactOut"]> = {}): Schemas["
     size: 2048,
     sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
     state: "kept",
+    scan: CLEAN_SCAN,
     created_at: "2026-03-14T09:01:00Z",
     expires_at: "2026-06-12T09:01:00Z",
     deleted_at: null,
@@ -1467,6 +1477,46 @@ describe("a run's page", () => {
       expect(request).toHaveTextContent(/it waits for Alice Admin to approve it in Iki\./);
       expect(screen.getByText(/Fetch hemoglobin nightly, on its schedule/)).toHaveTextContent(
         /carries on from the run for .*\. It runs as Nightly robot on Alice Admin’s authority/,
+      );
+    });
+
+    it("says when a request's arrival asked, as the service's account", async () => {
+      const robot = { id: "00000000-0000-7000-8000-0000000000b7", name: "Queue ranker" };
+      const admin = { id: "00000000-0000-7000-8000-00000000a11c", name: "Alice Admin" };
+      const trigger = {
+        name: "acme/request_priority.rank_arriving_requests",
+        label: "Rank requests as they arrive",
+        event: "request.received" as const,
+        entity: "00000000-0000-7000-8000-0000000000e1",
+        revision: 2,
+        scheduled_for: null,
+        since: null,
+        enabled_by: admin,
+      };
+      onRun(
+        () =>
+          run({
+            ...waiting,
+            via: "trigger",
+            client: "",
+            agent: null,
+            requested_by: robot,
+            trigger,
+            approval: approval({
+              client: "",
+              agent: null,
+              trigger: { name: trigger.name, label: trigger.label },
+              requested_by: robot,
+              decider: admin,
+              can: { decide: false },
+            }),
+          }),
+        unstarted,
+      );
+      withLog(() => "");
+      await renderApp("/runs/RUN-000001/");
+      expect(screen.getByText(/Rank requests as they arrive, when/)).toHaveTextContent(
+        /arrived from the project that asked \(revision 2\)\. It runs as Queue ranker on Alice Admin’s authority, who turned the trigger on\./,
       );
     });
 

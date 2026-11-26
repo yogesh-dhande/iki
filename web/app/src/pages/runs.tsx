@@ -990,12 +990,19 @@ function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trig
         ) : (
           "an entity you can’t read"
         )}{" "}
-        {trigger.event === "entity.created" ? "was created" : "changed"}{" "}
+        {trigger.event === "entity.created"
+          ? "was created"
+          : trigger.event === "request.received"
+            ? "arrived from the project that asked"
+            : "changed"}{" "}
         {trigger.revision !== null ? (
           <span className="muted">(revision {trigger.revision})</span>
         ) : null}
-        . It runs as {run.requested_by.name}
-        {trigger.editor ? ", whose edit prompted the recheck." : ", who turned the trigger on."}
+        .{" "}
+        {trigger.event === "request.received"
+          ? // Nobody here sent it (ADR 0232): its run is a service account's.
+            `It runs as ${run.requested_by.name} on ${trigger.enabled_by?.name ?? "an Admin"}’s authority, who turned the trigger on.`
+          : `It runs as ${run.requested_by.name}${trigger.editor ? ", whose edit prompted the recheck." : ", who turned the trigger on."}`}
       </dd>
     </>
   );
@@ -2000,6 +2007,12 @@ function RunArtifacts({ runRef, artifacts }: { runRef: string; artifacts: Artifa
                   <div className="muted">
                     SHA-256 <code title={artifact.sha256}>{artifact.sha256.slice(0, 12)}…</code>
                   </div>
+                  {artifact.scan?.usable && artifact.scan.state === "not_scanned" ? (
+                    <div className="muted">Not scanned: too large</div>
+                  ) : null}
+                  {artifact.scan?.released ? (
+                    <div className="muted">Released from quarantine</div>
+                  ) : null}
                 </td>
                 {several ? <td>{artifact.attempt}</td> : null}
                 <td>{formatSize(artifact.size)}</td>
@@ -2024,6 +2037,9 @@ function ArtifactKept({ artifact }: { artifact: Artifact }) {
       </span>
     );
   }
+  if (artifact.state === "scanning") return <span className="muted">Scanning…</span>;
+  if (artifact.state === "quarantined") return <>Quarantined</>;
+  if (artifact.state === "not_scanned") return <>Not scanned</>;
   if (artifact.state === "uploading") return <span className="muted">Uploading…</span>;
   if (artifact.state === "failed") return <span className="muted">Didn’t finish uploading</span>;
   // The organization may keep it longer, as a legal hold does (ADR 0092).

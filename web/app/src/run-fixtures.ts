@@ -172,6 +172,7 @@ export const ACTION = {
       cardinality: "one",
       max: null,
       optional: false,
+      from_project: false,
     },
   ],
   params: [

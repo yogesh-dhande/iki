@@ -64,8 +64,9 @@ controller, the cluster autoscaler, and the CSI drivers.
 
 The cluster starts only images Binary Authorization allows
 (`out allowed_images`): this deployment's repositories (`out images`),
-Iki's, External Secrets', the first-party plugins', and GKE's own. Before
-installing anything else, add its images to `extra_images` and apply;
+Iki's, the chart's pinned ClamAV image, External Secrets', the first-party
+plugins', and GKE's own. Before installing anything else, add its images
+to `extra_images` and apply;
 otherwise GKE refuses its pods, and the audit logs say which image.
 Your CI can push its plugin builds to the `server` and `worker` repositories
 using `image_writers`. If you use the config template's GHCR builds, set

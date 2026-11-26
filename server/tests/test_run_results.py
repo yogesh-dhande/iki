@@ -327,6 +327,8 @@ def _upload(gpu: WorkerClient, job: dict[str, Any], data: bytes = b"") -> dict[s
 
 def _structure_file(gpu: WorkerClient, job: dict[str, Any]) -> str:
     upload = _upload(gpu, job)
+    run_tasks()
+    upload = gpu.report(job, f"uploads/{upload['id']}/complete").json()
     assert upload["state"] == "ready"
     return str(upload["file"])
 
@@ -678,6 +680,7 @@ def test_results_attach_only_their_own_files(world: World, s3: Any) -> None:
         size=0,
         sha256=EMPTY_SHA256,
     )
+    run_tasks()
     theirs.refresh_from_db()
     assert theirs.state == UploadState.READY
     structure = _structure(gpu, job, run)
@@ -704,7 +707,7 @@ def test_uploads_belong_to_the_job_holding_the_lease(world: World, s3: Any) -> N
 
 
 def _stored(world: World, name: str) -> str:
-    """A file in the project (empty, so it's ready at once)."""
+    """An empty file in the project, ready for use."""
     upload = files.start(
         world.users["editor"],
         world.project,
@@ -713,6 +716,7 @@ def _stored(world: World, name: str) -> str:
         size=0,
         sha256=EMPTY_SHA256,
     )
+    run_tasks()
     upload.refresh_from_db()
     return str(upload.file_id)
 

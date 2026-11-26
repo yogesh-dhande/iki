@@ -3,13 +3,23 @@
  * reader downloading it. The format's declaration names the viewer (ADR 0213); each is
  * Iki's own code, loaded when it's first needed. A file whose format has no viewer, or
  * that's past what its viewer reads, says so and offers the download instead. A file held
- * by the deployment's malware scan (62g) shows why, never its content.
+ * by the deployment's malware scan (ADR 0216), or still being scanned, shows why, never its
+ * content: nothing reads it until the scan lets it be used.
  */
 
-import { lazy, Suspense, useEffect, useMemo, useState, type ComponentType } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
 
 import { formatSize } from "../entities";
 import { useMedia } from "../media";
+import { heldBecause, type Scan } from "../quarantine";
 import { Loading } from "../ui";
 import { NoPreview } from "./no-preview";
 import { PreviewReader } from "./reader";
@@ -80,29 +90,26 @@ export const VIEWERS: Record<string, Viewer> = {
   },
 };
 
-/** The deployment's scan of the file, where the server says (62g). */
-interface Scan {
-  state: string;
-  usable: boolean;
-  reason?: string;
-}
-
-function scanOf(file: PreviewFile): Scan | undefined {
-  const scan = (file as PreviewFile & { scan?: unknown }).scan;
-  if (typeof scan !== "object" || scan === null) return undefined;
-  const { state, usable, reason } = scan as Record<string, unknown>;
-  return typeof state === "string" && typeof usable === "boolean"
-    ? { state, usable, ...(typeof reason === "string" ? { reason } : {}) }
-    : undefined;
-}
-
-/** Why a held file can't be shown, as the server words it when it refuses a download. */
-export function heldMessage(scan: Scan): string {
-  if (scan.state === "pending") return "This file is being scanned. Try again shortly.";
-  if (scan.state === "infected") {
-    return "This file is quarantined: the deployment’s malware scan found something in it. An administrator reviews held files.";
+/** Why a file the scan holds, or hasn't finished, isn't shown, as its page words it. */
+export function heldMessage(scan: Scan): ReactNode {
+  if (scan.state === "pending") {
+    return "Scanning… It’s shown once the deployment’s malware scan finds it clean.";
   }
-  return "This file is held because the scanner couldn’t inspect it completely. An administrator reviews held files.";
+  const why = heldBecause(scan);
+  if (scan.state === "infected") {
+    return (
+      <>
+        <strong>Quarantined</strong>: the scanner found{" "}
+        {why.finding ? <code>{why.finding}</code> : "malware"}. It isn’t shown or downloaded unless
+        a Quarantine Admin finds it a false positive.
+      </>
+    );
+  }
+  return (
+    <>
+      <strong>Held</strong>: {why.label}. {why.detail} It isn’t shown or downloaded.
+    </>
+  );
 }
 
 /** The viewer for a file's format, or undefined. */
@@ -123,7 +130,6 @@ export function useViewer(file: PreviewFile): {
 
 export function FilePreview({ file }: { file: PreviewFile }) {
   const { viewer, name, label } = useViewer(file);
-  const scan = scanOf(file);
   // One link cache and one worker per preview of a file, ended with it.
   const stored = useMemo(() => new StoredBytes(file), [file]);
   const [reader] = useState(() => new PreviewReader());
@@ -134,10 +140,10 @@ export function FilePreview({ file }: { file: PreviewFile }) {
     [reader],
   );
 
-  if (scan && !scan.usable) {
+  if (!file.scan.usable) {
     return (
       <NoPreview file={file} download={false}>
-        {heldMessage(scan)}
+        {heldMessage(file.scan)}
       </NoPreview>
     );
   }

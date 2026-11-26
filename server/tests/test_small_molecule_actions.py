@@ -957,6 +957,149 @@ def test_records_name_from_a_field_and_batches_from_theirs(tmp_path: Path) -> No
     assert pheniramine["values"]["name"] == "pheniramine"
 
 
+# --- Reading SDF files as CTfile Formats has them ------------------------------------------------
+
+#: PubChem's own SDF of aspirin and caffeine (tests/data/README.md says where it's from).
+PUBCHEM_SDF = SCRIPTS.parent / "tests" / "data" / "pubchem-aspirin-caffeine.sdf"
+
+
+def as_rdkit_reads(path: Path) -> list[dict[str, str]]:
+    """Each record's SD fields as RDKit's SDMolSupplier reads them, outer spaces stripped."""
+    from rdkit import Chem
+
+    return [
+        {name: mol.GetProp(name).strip() for name in mol.GetPropNames()}
+        for mol in Chem.SDMolSupplier(str(path), sanitize=False)
+    ]
+
+
+def test_pubchems_sdf_is_read_as_rdkit_reads_it(tmp_path: Path, scripts: Any) -> None:
+    """Every value of PubChem's own SDF, those over several lines too, as RDKit reads it; and
+    each compound registered by the standard InChIKey PubChem gives it."""
+    sdf = scripts.import_module("sdf")
+    read = list(sdf.records(PUBCHEM_SDF))
+    assert [r.fields for r in read] == as_rdkit_reads(PUBCHEM_SDF)
+    aspirin = read[0].fields
+    assert len(aspirin) == 34
+    assert aspirin["PUBCHEM_COORDINATE_TYPE"] == "1\n5\n255"
+    assert aspirin["PUBCHEM_BONDANNOTATIONS"].splitlines()[:2] == ["5  6  8", "5  7  8"]
+    assert [r.title for r in read] == ["2244", "2519"]
+
+    result, output = imported(tmp_path, PUBCHEM_SDF.read_text())
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    assert [c["values"]["inchikey"] for c in output["creates"]] == [
+        r.fields["PUBCHEM_IUPAC_INCHIKEY"] for r in read
+    ]
+    assert [c["values"]["inchi"] for c in output["creates"]] == [
+        r.fields["PUBCHEM_IUPAC_INCHI"] for r in read
+    ]
+    assert [c["values"]["pubchem_cid"] for c in output["creates"]] == ["2244", "2519"]
+
+
+def test_a_values_line_starting_with_a_header_sign_is_the_values(
+    tmp_path: Path, scripts: Any
+) -> None:
+    """A data item's value runs to a blank line (CTfile Formats, SDfiles), so a line of it
+    that starts with `>` is its value's, as RDKit reads it, not another field's header:
+    a purity of `>99%`, or a note quoting an SD header."""
+    note = "Recrystallised from ethanol.\n> <Supplier> on the vial's label is Enamine's."
+    text = sdf_text(
+        (ASPIRIN, "aspirin", {"Description": note, "IC50": ">10 uM", "Assay": "> 25 <HPLC>"}),
+    )
+    path = tmp_path / "quoted.sdf"
+    path.write_text(text)
+    sdf = scripts.import_module("sdf")
+    (record,) = sdf.records(path)
+    assert record.fields == {"Description": note, "IC50": ">10 uM", "Assay": "> 25 <HPLC>"}
+    assert [record.fields] == as_rdkit_reads(path)
+
+    result, output = imported(tmp_path, text, batches=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    compound, batch = output["creates"]
+    assert compound["values"]["description"] == note
+    # No Supplier field was read from the description's line.
+    assert "supplier" not in batch["values"]
+    assert output["messages"] == [
+        {
+            "level": "warning",
+            "text": 'Record 1 (aspirin): Its Description field has a line, "> <Supplier> on '
+            "the vial's label is Enamine's.\", that reads as the start of its Supplier field, "
+            "but an SD field ends only at a blank line, so the line is part of Description's "
+            "value and Supplier wasn't read. Put a blank line before it to make it a field of "
+            "its own.",
+        },
+        {
+            "level": "info",
+            "text": "These SD fields aren't fields of compounds or batches, so they weren't "
+            "kept: Assay (1), IC50 (1).",
+        },
+    ]
+
+
+def test_values_run_over_lines_to_a_blank_line(tmp_path: Path, scripts: Any) -> None:
+    """Each value's lines, up to a blank line or one of only spaces, CRLF or not; a header's
+    registry numbers beside its name; a MACCS-II field number with no name passed over
+    with its value, and lines between items that aren't headers."""
+    from rdkit import Chem
+
+    molblock = Chem.MolToMolBlock(Chem.MolFromSmiles(ASPIRIN))
+    items = (
+        "> 25 (MD-08974) <Synonyms>\r\n"
+        "acetylsalicylic acid\r\n"
+        "  2-acetoxybenzoic acid  \r\n"
+        "   \r\n"
+        "> DT12   55\n"
+        "> <Supplier> isn't a field of its own here\n"
+        "\n"
+        "stray text, which is no item's\n"
+        "> <Lot>\n"
+        "B-17\n"
+        "$$$$\n"
+    )
+    path = tmp_path / "items.sdf"
+    path.write_text(molblock + items, newline="")
+    sdf = scripts.import_module("sdf")
+    (record,) = sdf.records(path)
+    assert record.fields == {
+        "Synonyms": "acetylsalicylic acid\n  2-acetoxybenzoic acid",
+        "Lot": "B-17",
+    }
+    assert record.warnings == []
+
+
+def test_a_line_starting_with_four_dollar_signs_ends_a_record(tmp_path: Path, scripts: Any) -> None:
+    """As CTfile Formats says, and RDKit's SDMolSupplier splits a file: `$$$$` with spaces
+    or a CR after it too. A last record without one is read."""
+    from rdkit import Chem
+
+    def record(smiles: str, title: str, lot: str) -> str:
+        return (
+            f"{title}\n"
+            + Chem.MolToMolBlock(Chem.MolFromSmiles(smiles)).split("\n", 1)[1]
+            + (f"> <Lot>\n{lot}\n\n")
+        )
+
+    text = (
+        record(ASPIRIN, "aspirin", "A-1")
+        + "$$$$  \r\n"
+        + record("CC(=O)Nc1ccc(O)cc1", "paracetamol", "P-2")
+        + "$$$$\n"
+        + record("Cn1c(=O)c2c(ncn2C)n(C)c1=O", "caffeine", "C-3")
+    )
+    path = tmp_path / "three.sdf"
+    path.write_bytes(text.encode())
+    sdf = scripts.import_module("sdf")
+    read = list(sdf.records(path))
+    assert [(r.title, r.fields) for r in read] == [
+        ("aspirin", {"Lot": "A-1"}),
+        ("paracetamol", {"Lot": "P-2"}),
+        ("caffeine", {"Lot": "C-3"}),
+    ]
+    assert [r.fields for r in read] == as_rdkit_reads(path)
+
+
 def v3000(smiles: str, title: str) -> str:
     """An SDF record of a CXSMILES, as a V3000 molfile, which keeps its enhanced stereo."""
     from rdkit import Chem
@@ -1773,7 +1916,7 @@ def scripts(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     monkeypatch.syspath_prepend(str(SCRIPTS))
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
     yield importlib
-    for name in ("chemistry", "descriptors", "fetching", "pubchem", "chembl"):
+    for name in ("chemistry", "descriptors", "fetching", "pubchem", "chembl", "sdf"):
         sys.modules.pop(name, None)
 
 

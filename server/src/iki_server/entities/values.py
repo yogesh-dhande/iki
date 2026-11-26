@@ -24,9 +24,11 @@ from django.db import models
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import best_match
 
+from iki_server.api.problems import Problem
 from iki_server.core.sizes import human_size
 from iki_server.entities import registry
 from iki_server.entities.models import Entity
+from iki_server.files.scan_state import status_from_decision
 from iki_server.storage.codes import RESERVED_VENDOR_MESSAGE, has_iki_prefix
 from iki_spec import naming, units
 from iki_spec.model import EntityType, Field, refined, refinement, split_entry
@@ -366,11 +368,17 @@ class Refs:
         return {i: t.type for i, t in self.look_up(ids).items() if isinstance(t, Target)}
 
     def file(self, file_id: uuid.UUID) -> tuple[str, int] | None:
-        """A readable file's media type and size."""
+        """A readable and usable file's media type and size."""
         if self.files is None:
             return None
-        found = self.files.filter(pk=file_id).values_list("media_type", "blob__size").first()
-        return None if found is None else (found[0], found[1])
+        found = self.files.filter(pk=file_id).select_related("blob__scan_result__release").first()
+        if found is None:
+            return None
+        try:
+            status_from_decision(getattr(found.blob, "scan_result", None)).require_usable()
+        except Problem as error:
+            raise ValueError(error.detail) from error
+        return found.media_type, found.blob.size
 
     def why_held(self, entity_id: uuid.UUID) -> str | None:
         """Why a readable entity can't be referred to, if it's why it can't be."""

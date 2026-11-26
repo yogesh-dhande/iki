@@ -69,6 +69,7 @@ SAMPLES = {
     "registryId": "01a1c452-a14b-7195-acd0-4b6ba266a655",
     "savedId": "01a1c452-a14b-7195-acd0-4b6ba266a656",
     "id": "01a1c452-a14b-7195-acd0-4b6ba266a657",
+    "decisionId": "01a1c452-a14b-7195-acd0-4b6ba266a658",
     # A splat, `$`, takes the rest of the path: a name with its `/`, as a type's or a
     # component's has (ADR 0113).
     "": "acme/protein.Protein",

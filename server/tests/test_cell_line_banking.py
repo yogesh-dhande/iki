@@ -5,13 +5,14 @@ from pathlib import Path
 import pytest
 from first_party_dependencies import PLUGINS, build_order
 from org_world import build_world
+from scan_fixtures import clean_blob
 from test_plugin_migrations import database, iki, migrate, orm, sync
 from test_signatures import ready, signed
 
 from iki_server.entities import search, services
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
-from iki_server.files.models import Blob, File, FileUse
+from iki_server.files.models import File, FileUse
 from iki_server.files.services import EMPTY_SHA256
 from iki_server.graph import queries
 from iki_server.org.models import LabRoleGrant, ProjectMembership
@@ -163,7 +164,7 @@ def exercise_history() -> None:
         name="synthetic-observation.csv",
         media_type="text/csv",
         project=world.project,
-        blob=Blob.objects.create(sha256=EMPTY_SHA256, size=0, storage_uri="s3://iki/synthetic"),
+        blob=clean_blob(sha256=EMPTY_SHA256, size=0, storage_uri="s3://iki/synthetic"),
     )
     sample = make(
         "CellSample",

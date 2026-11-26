@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: fixtures/worker_execution
+version: 0.1.0
+title: Worker execution checks
+description: Exercises fresh and persistent container workers and versioned setup volumes in dev-ci.
+license: Apache-2.0
+iki: ">=0.1"

@@ -12,8 +12,8 @@ plugins:
     local: ../../../examples/plugins/hosted_models
     state: active
     settings: settings/hosted_models.yaml
-  # The plugin template, for its container-tier action (ADR 0061).
-  - { name: acme/example, local: ../../../plugin-template, state: active }
+  # Exercise fresh and warm workers and the three reference-volume strategies.
+  - { name: fixtures/worker_execution, local: plugins/worker_execution, state: active }
   # Declares a Tecan worklist writer, so the fixture cluster runs a plugin's writer
   # in the export sandbox (ADR 0230); sso.py downloads a worklist through it.
   - name: examples/liquid_handling

@@ -15,6 +15,8 @@ from iki_server.amounts.models import Amount, Movement
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import services
 from iki_server.entities.models import Entity, Revision
+from iki_server.files import scan_state
+from iki_server.files.models import Blob, File
 from iki_server.storage.models import Place
 
 pytestmark = pytest.mark.django_db
@@ -254,6 +256,49 @@ def test_references_are_found_by_id_hrid_or_name_and_an_ambiguous_name_says_whic
 
 
 # --- Saving ----------------------------------------------------------------------------------
+
+
+def test_a_sheet_cant_set_a_file_the_scan_holds(world: World) -> None:
+    """A cell holds no file (ADR 0228), and a save's values are checked as any edit's are,
+    so a quarantined workbook named by its ID reaches no record through the sheet (ADR 0216)."""
+    lot = make(world, "acme/protein.Lot", {"label": "LOT-0042"})
+    blob = Blob.objects.create(sha256="d" * 64, size=4096, storage_uri="s3://iki/blobs/held")
+    scan_state.record_result(
+        blob,
+        state="infected",
+        scanner="fixture",
+        signature_version="1",
+        reason="Xls.Downloader.Agent-7372345-0",
+    )
+    held = File.objects.create(
+        blob=blob,
+        name="EnVision_plate-07.xlsm",
+        media_type="application/vnd.ms-excel.sheet.macroenabled.12",
+        project=world.project,
+        created_by=world.users["editor"],
+    )
+    rows = checked(world, [edit(lot, report=str(held.pk))], type="acme/protein.Lot")
+    assert problems_of(rows[0]) == {
+        "values/report": ["Report: It holds a file: add files to records once they're imported."]
+    }
+    revisions = Revision.objects.count()
+    answer = save(
+        world,
+        [
+            {
+                "key": lot.hrid,
+                "entity": str(lot.pk),
+                "revision": lot.revision,
+                "values": {"report": str(held.pk)},
+            }
+        ],
+        type="acme/protein.Lot",
+    )
+    body = problem(answer, 422, "sheet_problems")
+    assert [e["pointer"] for e in body["errors"]] == ["#/rows/0/values/report"], body
+    assert "quarantine" in " ".join(e["detail"] for e in body["errors"]).lower(), body
+    assert Revision.objects.count() == revisions
+    assert values_of(lot)["report"] is None
 
 
 def test_saving_writes_every_change_as_a_revision_with_its_reason(world: World) -> None:

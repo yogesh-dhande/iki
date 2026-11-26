@@ -19,6 +19,7 @@ from test_browser import (  # noqa: F401 - fixtures
     open_as,
     playwright,
     server,
+    tasks,
     watch,
     world,
 )
@@ -26,6 +27,7 @@ from test_project_files import add
 
 from iki_server.entities import services as entities
 from iki_server.entities.models import Entity
+from iki_server.files import scan_state
 from iki_server.files.models import File
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app]
@@ -394,7 +396,7 @@ def test_used_by_links_to_the_records_and_revisions_that_held_a_file(
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
 def test_uploading_files_to_a_project_saying_when_their_data_was_acquired(
-    open_as: Any, world: World, color_scheme: str
+    open_as: Any, world: World, color_scheme: str, tasks: Any
 ) -> None:
     a_plate(world)
     page = open_as("admin", "/projects/kinase-atlas/files/", color_scheme)
@@ -422,6 +424,8 @@ def test_uploading_files_to_a_project_saying_when_their_data_was_acquired(
     expect(row).to_contain_text("2026-03-14")
     stored = File.objects.get(name="plate-7.csv")
     assert (stored.acquired_at, stored.acquired_from) == ("2026-03-14", "given")
+    # Added once the task runner had scanned it, even with no bytes to send.
+    assert scan_state.status_for(stored.blob).state == "clean"
     assert_clean(page)
 
 

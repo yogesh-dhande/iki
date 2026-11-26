@@ -21,10 +21,11 @@ from api_client import Api
 from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 from org_world import World, build_world
+from scan_fixtures import clean_blob
 
 from iki_server.entities import services as entities
 from iki_server.files import listing
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -168,7 +169,7 @@ def test_a_projects_files_stay_quick(files: int) -> None:
     editor = world.users["editor"]
     ProjectMembership.objects.create(project=elsewhere, user=editor, role=ProjectRole.EDITOR)
     for n in range(3):
-        blob = Blob.objects.create(
+        blob = clean_blob(
             sha256=f"{files + n + 1:064x}", size=4096, storage_uri=f"s3://iki/held/{n}"
         )
         held = File.objects.create(

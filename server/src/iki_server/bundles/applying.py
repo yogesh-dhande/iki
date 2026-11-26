@@ -43,10 +43,11 @@ from django.utils import timezone
 from jsonschema import Draft202012Validator
 
 from iki_server.accounts.models import SERVICE_ACCOUNT_DOMAIN, Kind, User
+from iki_server.api.problems import Problem
 from iki_server.audit import log as audit
 from iki_server.audit.models import Agent
 from iki_server.bundles import reading
-from iki_server.bundles.imports import _current, _Planner, _typed, check_archive
+from iki_server.bundles.imports import _current, _Planner, _typed, archive_hold, check_archive
 from iki_server.bundles.models import (
     BundleImport,
     EntityPlan,
@@ -69,9 +70,11 @@ from iki_server.entities.services import (
 from iki_server.entities.values import Shape, shape
 from iki_server.entities.values import is_list_table as _is_list
 from iki_server.files import metadata as stated
-from iki_server.files import services as files
+from iki_server.files import services as file_services
 from iki_server.files import storage
 from iki_server.files.models import Blob, File
+from iki_server.files.scan_state import require_usable
+from iki_server.files.scanner import ScannerError
 from iki_server.org.models import registry_of
 from iki_server.org.permissions import Action, can
 from iki_server.org.services import Refused
@@ -94,6 +97,7 @@ from iki_server.runs.models import (
     RunOutput,
 )
 from iki_server.tasks import task
+from iki_server.tasks.backend import Retry
 from iki_spec import schemas
 from iki_spec.model import Field
 
@@ -130,6 +134,7 @@ def apply(by: User, made: BundleImport, reason: str, *, planned_at: dt.datetime)
             raise StalePlan("The plan changed. Review the current plan before applying it.")
         if not locked.plan.get("applicable"):
             raise Refused("Resolve what keeps it from being applied first, then import it again.")
+        require_usable(locked.upload)
         locked.state = ImportState.APPLYING
         locked.applied_by = by
         locked.reason = reason
@@ -141,11 +146,15 @@ def apply(by: User, made: BundleImport, reason: str, *, planned_at: dt.datetime)
 
 @task()
 def apply_import(import_id: str, planned_at: str | None = None) -> str:
-    made = BundleImport.objects.select_related("project__team", "applied_by").get(pk=import_id)
+    made = BundleImport.objects.select_related(
+        "project__team", "applied_by", "upload__scan_result__release"
+    ).get(pk=import_id)
     if made.state != ImportState.APPLYING or (
         planned_at is not None and dt.datetime.fromisoformat(planned_at) != made.planned_at
     ):
         return made.state
+    if hold := archive_hold(made):
+        return hold
     with tempfile.TemporaryDirectory(prefix="iki-import-") as tmp:
         path = Path(tmp) / "bundle.tar.gz"
         try:
@@ -161,6 +170,10 @@ def apply_import(import_id: str, planned_at: str | None = None) -> str:
                 )
             _verify_registered_files(made, bundle)
             return _apply(made, bundle, Path(tmp))
+        except (ScannerError, Retry):
+            return _failed(made, "A file is awaiting its scan. Try applying the import again.")
+        except Problem as error:
+            return _failed(made, error.detail)
         except (reading.BundleError, IntegrityError, DatabaseError) as error:
             logger.warning("bundle_import_failed", import_id=import_id, error=str(error))
             return _failed(made, _said(error))
@@ -194,7 +207,7 @@ def _verify_registered_files(made: BundleImport, bundle: reading.Bundle) -> None
         source = (uri, version)
         if source not in checked:
             try:
-                found = files.registration_object(uri, version)
+                found = file_services.registration_object(uri, version)
                 if found["size"] != size:
                     raise reading.BundleError(
                         f"{label}: the registered version has a different size."
@@ -254,6 +267,8 @@ def _failed(made: BundleImport, message: str) -> str:
 
 
 def _apply(made: BundleImport, bundle: reading.Bundle, tmp: Path) -> str:
+    writer = _Writer(made, bundle, tmp)
+    prepared = writer.prepare_files()
     with transaction.atomic(), quietly():
         # Project registry changes take the project row lock. Use its current registry
         # through the entire replan and write, even if it moved during the download.
@@ -271,7 +286,7 @@ def _apply(made: BundleImport, bundle: reading.Bundle, tmp: Path) -> str:
         confirmed = ReviewedPlan.read(locked)
         ImportEntity.objects.filter(bundle_import=locked).delete()
         ImportPerson.objects.filter(bundle_import=locked).delete()
-        locked.plan = _Planner(locked, bundle).plan()
+        locked.plan = _Planner(locked, bundle, prepared_blobs=prepared).plan()
         difference = confirmed.difference(ReviewedPlan.read(locked))
         if difference or not locked.plan["applicable"]:
             locked.state = ImportState.PLANNED
@@ -297,7 +312,8 @@ def _apply(made: BundleImport, bundle: reading.Bundle, tmp: Path) -> str:
                 },
             )
             return locked.state
-        written = _Writer(locked, bundle, tmp).write()
+        writer.made = locked
+        written = writer.write()
         locked.state = ImportState.APPLIED
         locked.applied_at = timezone.now()
         locked.save()
@@ -339,6 +355,7 @@ class _Writer:
     made: BundleImport
     bundle: reading.Bundle
     tmp: Path
+    file_blobs: dict[str, Blob] = field(default_factory=dict)
     people: dict[str, User] = field(default_factory=dict)
     agents: dict[str, Agent] = field(default_factory=dict)
     counts: Counter[str] = field(default_factory=Counter)
@@ -455,21 +472,45 @@ class _Writer:
 
     # Files ------------------------------------------------------------------------------
 
-    def _files(self) -> None:
+    def prepare_files(self) -> set[uuid.UUID]:
+        """Verify and scan reviewed sources before locking the project and writing its records.
+
+        Keep quarantine evidence even if the import cannot proceed. During the final
+        replan, blobs created here are part of the import's own work.
+        """
+        decisions = self.made.plan.get("members", {}).get("files", {})
+        if not decisions:
+            return set()  # empty or legacy plan; the replan checks it before applying
         lines = list(self.bundle.lines("files.ndjson"))
-        decisions = self.made.plan["members"]["files"]
-        new = [f for f in lines if decisions[f["id"]]["action"] == "new"]
-        self._store([f for f in new if decisions[f["id"]]["storage"] == "store"])
-        blobs: dict[str, uuid.UUID] = {}
-        for f in new:
+        self._store([f for f in lines if decisions[f["id"]]["storage"] == "store"])
+        existing = Blob.objects.in_bulk(
+            {uuid.UUID(d["blob"]) for d in decisions.values() if "blob" in d}
+        )
+        created: set[uuid.UUID] = set()
+        checked: set[uuid.UUID] = set()
+        for f in lines:
             decision = decisions[f["id"]]
-            if decision["storage"] == "reuse_blob":
-                blob_id = uuid.UUID(decision["blob"])
+            if "blob" in decision:
+                blob = existing[uuid.UUID(decision["blob"])]
             elif decision["storage"] == "share_blob":
-                blob_id = blobs[decision["source_file"]]
+                blob = self.file_blobs[decision["source_file"]]
             else:
-                blob_id = self._new_blob(f).pk
-            blobs[f["id"]] = blob_id
+                blob, added = self._prepare_blob(f)
+                if added:
+                    created.add(blob.pk)
+            if (blob.sha256, blob.size) != (f["sha256"], f["size"]):
+                raise reading.BundleError("A file's recorded SHA-256 or size differs here.")
+            if blob.pk not in checked:
+                file_services.scan_source(blob).require_usable()
+                checked.add(blob.pk)
+            self.file_blobs[f["id"]] = blob
+        return created
+
+    def _files(self) -> None:
+        for f in self.bundle.lines("files.ndjson"):
+            if self.made.plan["members"]["files"][f["id"]]["action"] != "new":
+                continue
+            blob_id = self.file_blobs[f["id"]].pk
             # When its data was acquired, and how that was known, as the deployment it came
             # from had it (ADR 0177).
             when = f.get("acquired") or {}
@@ -500,7 +541,15 @@ class _Writer:
 
     def _store(self, files: list[dict[str, Any]]) -> None:
         """Store the reviewed new blobs in one archive pass, checking each SHA-256."""
-        wanted = {f["sha256"] for f in files if not storage.exists(storage.blob_key(f["sha256"]))}
+        sizes = {f["sha256"]: f["size"] for f in files}
+        for member in self.bundle.manifest["members"]:
+            path = member["path"]
+            if (
+                path.startswith("blobs/")
+                and sizes.get(path.rsplit("/", 1)[1], member["size"]) != member["size"]
+            ):
+                raise reading.BundleError("A carried file differs from its declared size.")
+        wanted = {sha for sha in sizes if not storage.exists(storage.blob_key(sha))}
         for sha256, chunks in self.bundle.blobs(wanted):
             local = self.tmp / sha256
             try:
@@ -512,19 +561,22 @@ class _Writer:
                 local.unlink(missing_ok=True)
 
     @staticmethod
-    def _new_blob(f: dict[str, Any]) -> Blob:
+    def _prepare_blob(f: dict[str, Any]) -> tuple[Blob, bool]:
         registered = f["registered"]
         if registered:
-            return Blob.objects.create(
-                sha256=f["sha256"],
-                size=f["size"],
-                storage_uri=registered["uri"],
-                object_version=registered["version"],
+            uri, version = registered["uri"], registered["version"]
+            return Blob.objects.get_or_create(
+                storage_uri=uri,
+                object_version=version,
                 registered_external=True,
+                defaults={"sha256": f["sha256"], "size": f["size"]},
             )
-        # Its bytes are stored: _store stored them if they weren't.
         key = storage.blob_key(f["sha256"])
-        return Blob.objects.create(sha256=f["sha256"], size=f["size"], storage_uri=storage.uri(key))
+        return Blob.objects.get_or_create(
+            sha256=f["sha256"],
+            registered_external=False,
+            defaults={"size": f["size"], "storage_uri": storage.uri(key)},
+        )
 
     # Registry entries -------------------------------------------------------------------
 

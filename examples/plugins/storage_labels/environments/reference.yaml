@@ -4,8 +4,7 @@
 # every run reads. Iki runs the script on a machine of its own when a Compute
 # admin asks for a setup build (and, with `requires_approval`, another approves
 # it), then snapshots the volume. Each run gets a read-only copy of the newest
-# version, and records which version it read. A real setup downloads its data:
-# list the hosts it may reach under `setup.network`.
+# version, and records which version it read.
 apiVersion: iki/v1
 kind: Environment
 name: reference

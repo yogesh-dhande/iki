@@ -129,7 +129,7 @@ def delete_expired(limit: int = 10 * _BATCH) -> int:
             now = timezone.now()
             per_run: dict[uuid.UUID, list[RunArtifact]] = defaultdict(list)
             for artifact in due:
-                if artifact.upload.state in ("pending", "checking"):
+                if artifact.upload.state in ("pending", "checking", "scanning"):
                     files.cancel(artifact.upload)
                 storage.delete_for_good(storage.artifact_key(artifact.upload_id))
                 artifact.deleted_at = now

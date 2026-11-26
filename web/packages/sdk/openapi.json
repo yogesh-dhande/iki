@@ -5257,7 +5257,7 @@
                 "type": "null"
               }
             ],
-            "description": "For a scheduled trigger: the service account its runs are launched as, one of its `run_as_choices`.",
+            "description": "For a trigger whose runs are launched as a service account (on a schedule, or as a request arrives): the account, one of its `run_as_choices`.",
             "title": "Run As"
           }
         },
@@ -7514,6 +7514,18 @@
             ],
             "description": "A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise."
           },
+          "searchable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Text: true when a search finds its words with `matches`, which reads its first 100,000 characters (ADR 0233); false for machine text, such as a Molfile, which a search reads with `contains` only. Null for other kinds of field.",
+            "title": "Searchable"
+          },
           "states": {
             "description": "State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}. A correction can also return it to the current state's `on_edit` destination. Empty otherwise.",
             "items": {
@@ -7819,6 +7831,10 @@
             "title": "Samples",
             "type": "array"
           },
+          "scan": {
+            "$ref": "#/components/schemas/FileScanOut",
+            "description": "The deployment's malware scan of the file's bytes."
+          },
           "sha256": {
             "title": "Sha256",
             "type": "string"
@@ -7843,6 +7859,7 @@
           "agent",
           "created_at",
           "external",
+          "scan",
           "acquired",
           "facts",
           "used_by",
@@ -7897,7 +7914,7 @@
         "type": "object"
       },
       "FileFactsOut": {
-        "description": "What the file says about where its data came from (ADR 0224), read when it was\nadded. Each is null when the file doesn't say, or doesn't say clearly.",
+        "description": "What the file says about where its data came from (ADR 0224), read when it was\nadded once its scan let it be used: a held file's bytes aren't parsed. Each is null when\nthe file doesn't say, or doesn't say clearly.",
         "properties": {
           "instrument": {
             "anyOf": [
@@ -8324,6 +8341,10 @@
             ],
             "description": "Where it was added. Null if you can't see it."
           },
+          "scan": {
+            "$ref": "#/components/schemas/FileScanOut",
+            "description": "The deployment's malware scan of the file's bytes."
+          },
           "sha256": {
             "title": "Sha256",
             "type": "string"
@@ -8345,6 +8366,7 @@
           "agent",
           "created_at",
           "external",
+          "scan",
           "acquired",
           "facts"
         ],
@@ -8476,6 +8498,10 @@
             ],
             "description": "Where it was added. Null if you can't see it."
           },
+          "scan": {
+            "$ref": "#/components/schemas/FileScanOut",
+            "description": "The deployment's malware scan of the file's bytes."
+          },
           "sha256": {
             "title": "Sha256",
             "type": "string"
@@ -8500,11 +8526,89 @@
           "agent",
           "created_at",
           "external",
+          "scan",
           "acquired",
           "facts",
           "used_by"
         ],
         "title": "FileRowOut",
+        "type": "object"
+      },
+      "FileScanOut": {
+        "properties": {
+          "decision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The immutable scan decision, once recorded.",
+            "title": "Decision Id"
+          },
+          "reason": {
+            "description": "The finding or reason the file could not be scanned.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "released": {
+            "description": "A Quarantine Admin released this infected decision.",
+            "title": "Released",
+            "type": "boolean"
+          },
+          "scanned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the decision was recorded.",
+            "title": "Scanned At"
+          },
+          "scanner": {
+            "description": "Scanner identity, when known.",
+            "title": "Scanner",
+            "type": "string"
+          },
+          "signature_version": {
+            "description": "Signatures used by the scanner, when available.",
+            "title": "Signature Version",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "clean",
+              "infected",
+              "not_scanned"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "usable": {
+            "description": "Whether the scan decision allows this file to be used.",
+            "title": "Usable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "state",
+          "usable",
+          "decision_id",
+          "scanner",
+          "signature_version",
+          "scanned_at",
+          "reason",
+          "released"
+        ],
+        "title": "FileScanOut",
         "type": "object"
       },
       "FileSignatureOut": {
@@ -8635,6 +8739,7 @@
               "entity.registered",
               "entity.state_changed",
               "entity.updated",
+              "request.received",
               "schedule"
             ],
             "title": "Event",
@@ -9353,6 +9458,98 @@
           "to"
         ],
         "title": "HandOverIn",
+        "type": "object"
+      },
+      "HeldCopyOut": {
+        "description": "Where held bytes are: a project's file, or a run's or a bundle's own upload.",
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that added it for them, if one did."
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who added it."
+          },
+          "file": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project file, for a ``file``, if you can read it: its page opens.",
+            "title": "File"
+          },
+          "kind": {
+            "description": "A project's ``file``; or a run's ``artifact`` or ``checkpoint``, or a ``bundle`` to import, each kept apart from the project's files.",
+            "enum": [
+              "file",
+              "artifact",
+              "checkpoint",
+              "bundle"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectRef"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run's ID, for an artifact or a checkpoint.",
+            "title": "Run"
+          }
+        },
+        "required": [
+          "kind",
+          "file",
+          "name",
+          "media_type",
+          "project",
+          "run",
+          "created_by",
+          "agent",
+          "created_at"
+        ],
+        "title": "HeldCopyOut",
         "type": "object"
       },
       "HeldOut": {
@@ -10638,6 +10835,9 @@
           "state": {
             "enum": [
               "uploading",
+              "scanning",
+              "quarantined",
+              "not_scanned",
               "planning",
               "planned",
               "refused",
@@ -11019,6 +11219,9 @@
           "state": {
             "enum": [
               "uploading",
+              "scanning",
+              "quarantined",
+              "not_scanned",
               "planning",
               "planned",
               "refused",
@@ -11315,6 +11518,12 @@
               }
             ],
             "title": "Description"
+          },
+          "from_project": {
+            "default": false,
+            "description": "Not chosen: each run is given every record of its type the project owns and hasn't archived (ADR 0232). Launching it with any is refused.",
+            "title": "From Project",
+            "type": "boolean"
           },
           "label": {
             "title": "Label",
@@ -12409,6 +12618,11 @@
             "title": "Manage Org",
             "type": "boolean"
           },
+          "manage_quarantine": {
+            "description": "Review held file scans and release false positives.",
+            "title": "Manage Quarantine",
+            "type": "boolean"
+          },
           "manage_webhooks": {
             "description": "The organization's webhooks.",
             "title": "Manage Webhooks",
@@ -12430,7 +12644,8 @@
           "create_projects",
           "manage_webhooks",
           "read_costs",
-          "manage_compute"
+          "manage_compute",
+          "manage_quarantine"
         ],
         "title": "MeCan",
         "type": "object"
@@ -12519,7 +12734,8 @@
               "enum": [
                 "org_admin",
                 "compute_admin",
-                "auditor"
+                "auditor",
+                "quarantine_admin"
               ],
               "type": "string"
             },
@@ -14006,7 +14222,8 @@
               "enum": [
                 "org_admin",
                 "compute_admin",
-                "auditor"
+                "auditor",
+                "quarantine_admin"
               ],
               "type": "string"
             },
@@ -14027,7 +14244,8 @@
               "enum": [
                 "org_admin",
                 "compute_admin",
-                "auditor"
+                "auditor",
+                "quarantine_admin"
               ],
               "type": "string"
             },
@@ -14915,6 +15133,35 @@
           "next_cursor"
         ],
         "title": "Page[ProjectOut]",
+        "type": "object"
+      },
+      "Page_QuarantineOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QuarantineOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[QuarantineOut]",
         "type": "object"
       },
       "Page_RecordExportOut_": {
@@ -15892,6 +16139,18 @@
               }
             ],
             "description": "A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise."
+          },
+          "searchable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Text: true when a search finds its words with `matches`, which reads its first 100,000 characters (ADR 0233); false for machine text, such as a Molfile, which a search reads with `contains` only. Null for other kinds of field.",
+            "title": "Searchable"
           },
           "states": {
             "description": "State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}. A correction can also return it to the current state's `on_edit` destination. Empty otherwise.",
@@ -17725,7 +17984,7 @@
                 "type": "null"
               }
             ],
-            "description": "Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a scheduled one's are. Null if nobody ever has."
+            "description": "Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a service account's are. Null if nobody ever has."
           },
           "field": {
             "description": "For `entity.state_changed`: the state field it watches. Empty otherwise.",
@@ -17780,12 +18039,13 @@
             "title": "Next Run At"
           },
           "on": {
-            "description": "What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.",
+            "description": "What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, a request of its type sent to the project as a service (ADR 0232), or its schedule.",
             "enum": [
               "entity.created",
               "entity.registered",
               "entity.state_changed",
               "entity.updated",
+              "request.received",
               "schedule"
             ],
             "title": "On",
@@ -17823,15 +18083,21 @@
                 "type": "null"
               }
             ],
-            "description": "On a schedule: the service account its runs are launched as."
+            "description": "On a schedule or a request's arrival: the service account its runs are launched as."
           },
           "run_as_choices": {
-            "description": "On a schedule, for the project's Admins: the service accounts it may run as, members who can run its action here.",
+            "description": "For one whose runs are launched as a service account, for the project's Admins: the accounts it may run as, members who can run its action here.",
             "items": {
               "$ref": "#/components/schemas/PersonRef"
             },
             "title": "Run As Choices",
             "type": "array"
+          },
+          "runs_as_account": {
+            "default": false,
+            "description": "Its runs are launched as a service account the Admin who turns it on chooses, on their authority: on a schedule, or as a request arrives, since nobody in the project made it happen (ADR 0081, ADR 0232).",
+            "title": "Runs As Account",
+            "type": "boolean"
           },
           "schedule": {
             "description": "On a schedule: when it runs, in cron's five fields. Empty otherwise.",
@@ -18005,6 +18271,180 @@
         "title": "PutAwayIn",
         "type": "object"
       },
+      "QuarantineFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "q": {
+            "default": "",
+            "description": "Part of a file's name, or the start of its SHA-256.",
+            "maxLength": 255,
+            "title": "Q",
+            "type": "string"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "infected",
+                  "not_scanned"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only malware findings, or only inspections that couldn't finish.",
+            "title": "State"
+          },
+          "status": {
+            "default": "held",
+            "description": "Held now, or infected findings released as false positives.",
+            "enum": [
+              "held",
+              "released"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "QuarantineFilters",
+        "type": "object"
+      },
+      "QuarantineOut": {
+        "properties": {
+          "file_count": {
+            "description": "How many places the bytes are, listed or not.",
+            "title": "File Count",
+            "type": "integer"
+          },
+          "files": {
+            "description": "Where the bytes are, oldest first: the first few in a list, every one in a decision's own.",
+            "items": {
+              "$ref": "#/components/schemas/HeldCopyOut"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "id": {
+            "description": "The decision ID for releasing a confirmed false positive.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "reason": {
+            "description": "What was found (the signature's name), or why an inspection could not finish: ``too_large``, ``unsupported_source``, ``clamd_stream_limit``, or the scanner's own reason, such as ``Heuristics.Encrypted.Zip``.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "releasable": {
+            "description": "An infected finding not yet released. An incomplete inspection never is: it found nothing to call false (ADR 0217).",
+            "title": "Releasable",
+            "type": "boolean"
+          },
+          "release": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuarantineReleaseOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its release, once released."
+          },
+          "scanned_at": {
+            "format": "date-time",
+            "title": "Scanned At",
+            "type": "string"
+          },
+          "scanner": {
+            "title": "Scanner",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "signature_version": {
+            "title": "Signature Version",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "infected",
+              "not_scanned"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sha256",
+          "size",
+          "state",
+          "scanner",
+          "signature_version",
+          "scanned_at",
+          "reason",
+          "releasable",
+          "release",
+          "files",
+          "file_count"
+        ],
+        "title": "QuarantineOut",
+        "type": "object"
+      },
+      "QuarantineReleaseOut": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "by": {
+            "$ref": "#/components/schemas/UserOut",
+            "description": "The Quarantine Admin who released it."
+          },
+          "reason": {
+            "description": "Why they found the finding false, as they gave it.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "by",
+          "at",
+          "reason"
+        ],
+        "title": "QuarantineReleaseOut",
+        "type": "object"
+      },
       "QueryIn": {
         "description": "A search, as ``POST /entities/search`` takes it, without its project or paging.",
         "properties": {
@@ -18045,6 +18485,15 @@
                 "type": "null"
               }
             ]
+          },
+          "then": {
+            "description": "Further sorts, in order, for what `sort` ties (ADR 0232).",
+            "items": {
+              "$ref": "#/components/schemas/SortIn"
+            },
+            "maxItems": 3,
+            "title": "Then",
+            "type": "array"
           },
           "type": {
             "anyOf": [
@@ -19708,6 +20157,7 @@
           "state": {
             "enum": [
               "checking",
+              "scanning",
               "ready",
               "failed"
             ],
@@ -19772,6 +20222,7 @@
           "state": {
             "enum": [
               "checking",
+              "scanning",
               "ready",
               "failed"
             ],
@@ -20174,6 +20625,22 @@
           "edges"
         ],
         "title": "RelatedOut",
+        "type": "object"
+      },
+      "ReleaseQuarantineIn": {
+        "properties": {
+          "reason": {
+            "description": "Why the finding is false.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ReleaseQuarantineIn",
         "type": "object"
       },
       "ReproduceIn": {
@@ -21536,6 +22003,17 @@
             "title": "Path",
             "type": "string"
           },
+          "scan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileScanOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scan decision for a verified upload."
+          },
           "sha256": {
             "description": "Of its bytes, as hex.",
             "title": "Sha256",
@@ -21547,9 +22025,12 @@
             "type": "integer"
           },
           "state": {
-            "description": "`kept` while it can be downloaded; `deleted` once its retention is over (its record stays); `failed` if its upload didn't finish.",
+            "description": "Whether the artifact can be downloaded, is still uploading or scanning, is held, or has expired.",
             "enum": [
               "uploading",
+              "scanning",
+              "quarantined",
+              "not_scanned",
               "kept",
               "failed",
               "deleted"
@@ -21567,6 +22048,7 @@
           "size",
           "sha256",
           "state",
+          "scan",
           "created_at",
           "expires_at",
           "deleted_at"
@@ -23961,6 +24443,15 @@
             "description": "A field to sort by.",
             "title": "Sort"
           },
+          "then": {
+            "description": "Further sorts, in order, for what `sort` ties: each a field, with `-` first for descending, as `-priority`.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Then",
+            "type": "array"
+          },
           "type": {
             "anyOf": [
               {
@@ -24248,6 +24739,15 @@
                 "type": "null"
               }
             ]
+          },
+          "then": {
+            "description": "Further sorts, in order, for what `sort` ties: a core's queue by its ranking, then priority, then when each is needed (ADR 0232). Blanks are last in each.",
+            "items": {
+              "$ref": "#/components/schemas/SortIn"
+            },
+            "maxItems": 3,
+            "title": "Then",
+            "type": "array"
           },
           "type": {
             "anyOf": [
@@ -24553,7 +25053,8 @@
               "enum": [
                 "org_admin",
                 "compute_admin",
-                "auditor"
+                "auditor",
+                "quarantine_admin"
               ],
               "type": "string"
             },
@@ -27542,7 +28043,7 @@
             "type": "boolean"
           },
           "field": {
-            "description": "A field to sort by: text, numbers, dates or yes/no.",
+            "description": "A field to sort by: text, numbers, dates or yes/no; or a request's `asked_by` or `sent_to`, by the project's name (ADR 0232).",
             "title": "Field",
             "type": "string"
           }
@@ -28159,6 +28660,7 @@
             "enum": [
               "pending",
               "checking",
+              "scanning",
               "ready",
               "failed",
               "cancelled",
@@ -29582,6 +30084,7 @@
               "entity.registered",
               "entity.state_changed",
               "entity.updated",
+              "request.received",
               "schedule"
             ],
             "title": "Event",
@@ -29699,12 +30202,13 @@
             "type": "string"
           },
           "on": {
-            "description": "What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.",
+            "description": "What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, a request of its type sent to the project as a service (ADR 0232), or its schedule.",
             "enum": [
               "entity.created",
               "entity.registered",
               "entity.state_changed",
               "entity.updated",
+              "request.received",
               "schedule"
             ],
             "title": "On",
@@ -29732,6 +30236,12 @@
             "description": "Other inputs it gives the entities related to the one that fired it (ADR 0123), by input: each, every one of the input's type in the project that way of it. All of them or none: past the most an input takes, it fails.",
             "title": "Related",
             "type": "object"
+          },
+          "runs_as_account": {
+            "default": false,
+            "description": "Its runs are launched as a service account the Admin who turns it on chooses, on their authority: on a schedule, or as a request arrives, since nobody in the project made it happen (ADR 0081, ADR 0232).",
+            "title": "Runs As Account",
+            "type": "boolean"
           },
           "schedule": {
             "description": "On a schedule: when it runs, in cron's five fields. Empty otherwise.",
@@ -30420,6 +30930,7 @@
             "enum": [
               "pending",
               "checking",
+              "scanning",
               "ready",
               "failed",
               "cancelled",
@@ -30486,6 +30997,7 @@
             "enum": [
               "pending",
               "checking",
+              "scanning",
               "ready",
               "failed",
               "cancelled",
@@ -36054,7 +36566,7 @@
     },
     "/api/v1/entities/search": {
       "post": {
-        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``\n(then by ID), oldest first without one.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case); a sequence\n  (a ``dna_sequence``, ``rna_sequence`` or ``protein_sequence``, its field's ``format``)\n  also ``motif`` (ADR 0175): its bases or residues in IUPAC codes, as ``GAATTY``, each\n  matching a residue it certainly is (Y matches C, T and Y; a record's N only N), found\n  on a duplex's other strand as its reverse complement, and across a circle's origin, as\n  the record's strands and topology say\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or in another by its UCUM code, as\n  ``{\"value\": 50, \"unit\": \"ku\"}`` for 50 kDa)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA state field (ADR 0125) is searched as an enum of its states, by name.\n``upstream`` and ``downstream`` (ADR 0123) take ``of``: what an entity (by ID or\nHRID) was derived from, or what was derived from it, through references and runs, as\n``{\"field\": \"downstream\", \"op\": \"of\", \"value\": \"TUB-000001\"}``, or with a ``depth``\nand ``edges``: ``{\"entity\": \"TUB-000001\", \"depth\": 5, \"edges\": [\"reference\"]}``; and\n``is_set``, whether anything you can read is that way.\n``held`` and ``breaks`` (ADR 0127) find what plugins' rules caught: records a rule holds\nfor review now, and records that break a rule they were saved before (one its plugin\nadded or changed since, or one a bundle brought). They take a rule's name with ``eq``,\n``ne`` and ``in``, as ``{\"field\": \"held\", \"op\": \"eq\", \"value\": \"mass_within_tolerance\"}``,\nand ``is_set``, held or breaking any rule. Each result's ``holds`` and ``breaches``\nsay which, and why.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
+        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``,\nthen by each of ``then`` (ADR 0232), then by ID; oldest first without one. Requests\nalso sort by ``asked_by`` and ``sent_to``: the projects on their two sides, by name.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case); a sequence\n  (a ``dna_sequence``, ``rna_sequence`` or ``protein_sequence``, its field's ``format``)\n  also ``motif`` (ADR 0175): its bases or residues in IUPAC codes, as ``GAATTY``, each\n  matching a residue it certainly is (Y matches C, T and Y; a record's N only N), found\n  on a duplex's other strand as its reverse complement, and across a circle's origin, as\n  the record's strands and topology say\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or in another by its UCUM code, as\n  ``{\"value\": 50, \"unit\": \"ku\"}`` for 50 kDa)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA state field (ADR 0125) is searched as an enum of its states, by name.\n``upstream`` and ``downstream`` (ADR 0123) take ``of``: what an entity (by ID or\nHRID) was derived from, or what was derived from it, through references and runs, as\n``{\"field\": \"downstream\", \"op\": \"of\", \"value\": \"TUB-000001\"}``, or with a ``depth``\nand ``edges``: ``{\"entity\": \"TUB-000001\", \"depth\": 5, \"edges\": [\"reference\"]}``; and\n``is_set``, whether anything you can read is that way.\n``held`` and ``breaks`` (ADR 0127) find what plugins' rules caught: records a rule holds\nfor review now, and records that break a rule they were saved before (one its plugin\nadded or changed since, or one a bundle brought). They take a rule's name with ``eq``,\n``ne`` and ``in``, as ``{\"field\": \"held\", \"op\": \"eq\", \"value\": \"mass_within_tolerance\"}``,\nand ``is_set``, held or breaking any rule. Each result's ``holds`` and ``breaches``\nsay which, and why.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
         "operationId": "iki_server_api_entities_search_entities",
         "parameters": [],
         "requestBody": {
@@ -36266,6 +36778,21 @@
               "default": false,
               "title": "Descending",
               "type": "boolean"
+            }
+          },
+          {
+            "description": "Further sorts, in order, for what `sort` ties: each a field, with `-` first for descending, as `-priority`.",
+            "in": "query",
+            "name": "then",
+            "required": false,
+            "schema": {
+              "description": "Further sorts, in order, for what `sort` ties: each a field, with `-` first for descending, as `-priority`.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 3,
+              "title": "Then",
+              "type": "array"
             }
           },
           {
@@ -44612,7 +45139,7 @@
     },
     "/api/v1/projects/{project_id}/triggers/{name}/enable": {
       "post": {
-        "description": "From now on an entity trigger's runs are launched as you, and a scheduled one's as the\nservice account you choose (`run_as`), on your authority: either way you must be able to\nrun its action here. Only in the web app: no token, and so no agent, can turn one on.",
+        "description": "From now on an entity trigger's runs are launched as you, and a scheduled one's, or one\non a request's arrival, as the service account you choose (`run_as`), on your authority:\neither way you must be able to run its action here. Only in the web app: no token, and so\nno agent, can turn one on.",
         "operationId": "iki_server_api_triggers_enable_trigger",
         "parameters": [
           {
@@ -44798,6 +45325,215 @@
         "summary": "Add a webhook to a project",
         "tags": [
           "webhooks"
+        ]
+      }
+    },
+    "/api/v1/quarantine": {
+      "get": {
+        "description": "For Quarantine Admins. Newest first, across the deployment: what's held now, or with\n``status=released``, the infected findings released as false positives. Each entry\nidentifies the held bytes, the finding, and where the bytes are: several project files\ncan share one source, and so its scan.",
+        "operationId": "iki_server_api_files_list_quarantine",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Held now, or infected findings released as false positives.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "held",
+              "description": "Held now, or infected findings released as false positives.",
+              "enum": [
+                "held",
+                "released"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only malware findings, or only inspections that couldn't finish.",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "infected",
+                    "not_scanned"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only malware findings, or only inspections that couldn't finish.",
+              "title": "State"
+            }
+          },
+          {
+            "description": "Part of a file's name, or the start of its SHA-256.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "Part of a file's name, or the start of its SHA-256.",
+              "maxLength": 255,
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_QuarantineOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "List quarantined files",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/quarantine/{decision_id}": {
+      "get": {
+        "description": "For Quarantine Admins: a held decision, or a released one, with every place its\nbytes are.",
+        "operationId": "iki_server_api_files_read_quarantine",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Decision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuarantineOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Read a quarantined file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/quarantine/{decision_id}/release": {
+      "post": {
+        "description": "For Quarantine Admins. The given reason and the reviewer are recorded with the\nrelease and in the audit log. Every file covered by this decision becomes usable and\nkeeps its original finding. An incomplete inspection can't be released.",
+        "operationId": "iki_server_api_files_release_quarantine",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Decision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseQuarantineIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuarantineOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Release an infected file after reviewing its finding",
+        "tags": [
+          "files"
         ]
       }
     },
@@ -45783,7 +46519,7 @@
         ]
       },
       "post": {
-        "description": "Pins one version of an object in an approved, versioned bucket. Iki reads it to learn\nits SHA-256 (202), then it's ready. An object version registered before is ready at once\n(201).",
+        "description": "Pins one version of an object in an approved, versioned bucket. Iki reads it to learn\nits SHA-256 and scan it (202). A version with a completed registration can be reused\nimmediately (201). Its file says whether it is usable.",
         "operationId": "iki_server_api_files_register_file",
         "parameters": [],
         "requestBody": {
@@ -49771,7 +50507,7 @@
         ]
       },
       "post": {
-        "description": "Answers with the parts to send. An empty file needs none, and is ready at once.",
+        "description": "Answers with the parts to send. An empty file needs none.",
         "operationId": "iki_server_api_files_start_upload",
         "parameters": [],
         "requestBody": {
@@ -49894,7 +50630,7 @@
     },
     "/api/v1/uploads/{upload_id}/complete": {
       "post": {
-        "description": "Once every part has arrived. Iki then checks the bytes (202), and the upload becomes\nready, or fails if they don't match its SHA-256. Finishing it again changes nothing.",
+        "description": "Once every part has arrived. Iki then checks the bytes (202), and the upload becomes\nready after its malware scan, or fails if its bytes don't match the SHA-256.\nFinishing it again returns its current state.",
         "operationId": "iki_server_api_files_complete_upload",
         "parameters": [
           {

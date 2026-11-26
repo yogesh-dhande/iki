@@ -21,13 +21,13 @@ metadata:
   labels:
     {{- include "iki.labels" . | nindent 4 }}
 spec:
-  # Every Iki pod but workers, which never reach the database, and the export
-  # sandbox, which reaches nothing at all.
+  # Workers, the scanner and the export sandbox have separate policies; workers and
+  # the scanner never reach the database, and the sandbox reaches nothing at all.
   podSelector:
     matchExpressions:
       - { key: app.kubernetes.io/name, operator: In, values: [{{ include "iki.name" . }}] }
       - { key: app.kubernetes.io/instance, operator: In, values: [{{ .Release.Name }}] }
-      - { key: app.kubernetes.io/component, operator: NotIn, values: [worker, sandbox] }
+      - { key: app.kubernetes.io/component, operator: NotIn, values: [worker, clamd, sandbox] }
   policyTypes: [Egress]
   egress:
     # DNS through the cluster resolver only.
@@ -55,6 +55,68 @@ spec:
         - { protocol: TCP, port: {{ . }} }
         {{- end }}
     {{- end }}
+{{- if .Values.files.bucket }}
+{{- $clam := .Values.files.scanner.clamd }}
+{{- $clients := dict "matchLabels" (dict "app.kubernetes.io/name" (include "iki.name" .) "app.kubernetes.io/instance" .Release.Name) "matchExpressions" (list (dict "key" "app.kubernetes.io/component" "operator" "In" "values" (list "web" "tasks"))) }}
+{{- if or $clam.enabled $egress.externalScanner }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "iki.fullname" . }}-scan-clients
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    {{- toYaml $clients | nindent 4 }}
+  policyTypes: [Egress]
+  egress:
+    {{- if $clam.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "iki.selectorLabels" (dict "ctx" . "component" "clamd") | nindent 14 }}
+      ports: [{ protocol: TCP, port: {{ $clam.port }} }]
+    {{- end }}
+    {{- with $egress.externalScanner }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
+{{- if $clam.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "iki.fullname" . }}-clamd
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "iki.selectorLabels" (dict "ctx" . "component" "clamd") | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            {{- toYaml $clients | nindent 12 }}
+      ports: [{ protocol: TCP, port: {{ $clam.port }} }]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+    {{- with $egress.signatureUpdates.to }}
+    - to:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        {{- range $egress.signatureUpdates.ports }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
 {{- with $egress.identityProvider.to }}
 ---
 # Only web pods talk to the identity provider.

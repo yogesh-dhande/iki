@@ -13,6 +13,7 @@ _TEST_ENV = {
     "IKI_ALLOWED_HOSTS": "testserver,localhost",
     "IKI_ENVIRONMENT": "test",
     "IKI_DATABASE_URL": "postgres://iki:iki@localhost:5432/iki",
+    "IKI_FILES_SCANNER": "scan_fixtures.scan",
     "IKI_DB_SSLMODE": "disable",
     "IKI_DB_POOL": "false",
     "IKI_HTTPS": "true",

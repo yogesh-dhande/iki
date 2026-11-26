@@ -4,6 +4,26 @@ Instrument and Booking share a calendar with the instrument's service and calibr
 The calendar shows bookings by instrument, project or person and can narrow its search to a month.
 Project members can open a booking from the calendar. Instrument maintenance and use are recorded alongside it.
 
+## Book time for someone else
+
+A core's coordinator can book an instrument for the analyst who'll run it. Set
+**Booked for** to the analyst and **For** to the record the time is for, such as
+the request it runs. Leave **Booked for** empty to book the time for yourself.
+
+- **Your bookings** on each person's home lists the time booked for them,
+  whoever booked it. **Bookings you made for others** lists the time they booked
+  for other people, with whom each is for.
+- When an instrument goes out of service, the person a booking is for and the
+  person who booked it are both told, until the booking ends.
+- A cancelled booking is kept but frees its time, so another booking can take
+  it. Calendars leave cancelled bookings out until **Show cancelled** is on, and
+  then show them struck through and labelled Cancelled. A cancelled booking
+  tells no one when its instrument goes out of service.
+- A booking can name only records its project may use, such as a request sent
+  to the core. Its calendar names that record only to people who can read it. The
+  record's **Lineage** lists the bookings that name it, as far as the reader can
+  read them.
+
 Set the deployment's `review_flow` to `research` or `regulated_qc` during
 setup. The scheduling action copies that choice onto each new appointment.
 Changing the setting applies to future appointments. The Research engineer

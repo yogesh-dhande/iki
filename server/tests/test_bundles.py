@@ -11,6 +11,7 @@ import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection
+from scan_fixtures import clean_blob
 
 from iki_server.accounts.models import User
 from iki_server.audit.models import AuditEvent
@@ -18,7 +19,7 @@ from iki_server.bundles import export, keys, reading
 from iki_server.entities import services
 from iki_server.entities.models import Entity
 from iki_server.files import storage
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
 from iki_server.org.models import Project, ProjectMembership, ProjectRole, Team
 
 pytestmark = pytest.mark.django_db
@@ -38,7 +39,7 @@ def stored(project: Project, data: bytes, name: str = "1abc.pdb") -> File:
     sha = hashlib.sha256(data).hexdigest()
     key = storage.blob_key(sha)
     storage.client().put_object(Bucket=storage.bucket(), Key=key, Body=data)
-    blob = Blob.objects.create(sha256=sha, size=len(data), storage_uri=storage.uri(key))
+    blob = clean_blob(sha256=sha, size=len(data), storage_uri=storage.uri(key))
     return File.objects.create(blob=blob, name=name, media_type="chemical/x-pdb", project=project)
 
 

@@ -117,6 +117,10 @@ class Field:
     #: rather than of each project's record (ADR 0115). None for a record's own field.
     registry: str | None = None
     indexed: bool = False
+    #: For text: a search finds its words (``matches``), from a full-text index of its first
+    #: ``conditions.WORDS_SEARCHED`` characters (ADR 0233). False for machine text, such as
+    #: a Molfile, which gets no full-text index.
+    searchable: bool = True
     #: No two entities in a project share a value (ADR 0082); for a registry fact, no two
     #: entries in a registry.
     unique: bool = False
@@ -210,6 +214,7 @@ class Field:
             reason_on_clear=bool(data.get("reason_on_clear", False)),
             registry=data.get("registry"),
             indexed=bool(data.get("indexed", False)),
+            searchable=bool(data.get("searchable", True)),
             unique=bool(data.get("unique", False)),
             link=data.get("link"),
             removed=bool(data.get("removed", False)),
@@ -1183,6 +1188,9 @@ class Input:
     description: str | None = None
     #: Its type's reference fields whose entities the run reads too.
     include: tuple[str, ...] = ()
+    #: Not chosen: each run is given every record of its type its project owns, not
+    #: archived, such as a core's ranking of the projects it serves (ADR 0232).
+    from_project: bool = False
 
 
 @dataclass(frozen=True)
@@ -1506,17 +1514,28 @@ class Workflow:
 
 
 #: What fires a trigger: an entity of its type created, a new registry entry of it
-#: registered (ADR 0115), a record's state field set (ADR 0125), an entity changed, or
-#: its schedule.
+#: registered (ADR 0115), a record's state field set (ADR 0125), an entity changed, a
+#: request sent to the project as a service (ADR 0232), or its schedule.
 TRIGGER_EVENTS = (
     "entity.created",
     "entity.registered",
     "entity.state_changed",
     "entity.updated",
+    "request.received",
     "schedule",
 )
 #: The events that fire a trigger for an entity.
-ENTITY_EVENTS = ("entity.created", "entity.registered", "entity.state_changed", "entity.updated")
+ENTITY_EVENTS = (
+    "entity.created",
+    "entity.registered",
+    "entity.state_changed",
+    "entity.updated",
+    "request.received",
+)
+#: The events whose trigger's runs are launched as a service account the Admin who turns
+#: it on chooses, on their authority (ADR 0081, ADR 0232): nobody in the project made
+#: them happen.
+ACCOUNT_EVENTS = ("request.received", "schedule")
 
 
 #: Which way a trigger's related entities are (ADR 0123): derived from the entity, or what

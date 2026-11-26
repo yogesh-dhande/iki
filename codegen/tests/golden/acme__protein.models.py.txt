@@ -12,7 +12,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVector
 from django.db import models
 from django.db.models import Q
-from django.db.models.functions import Length
+from django.db.models.functions import Left, Length
 from django.db.models.lookups import GreaterThanOrEqual, LessThanOrEqual
 
 from iki_server.accounts.models import User
@@ -109,11 +109,11 @@ class AssayRequest(Entity):
         ]
         indexes = [
             GinIndex(
-                SearchVector('instructions', config='simple'),
+                SearchVector(Left('instructions', 100000), config='simple'),
                 name='instructio_fts_6d8ee9eeea08520',
             ),
             GinIndex(
-                SearchVector('core_notes', config='simple'),
+                SearchVector(Left('core_notes', 100000), config='simple'),
                 name='core_notes_fts_78bb93fba8fb721',
             ),
         ]
@@ -648,6 +648,52 @@ class Box_History(models.Model):
         db_table = 'acme__protein_box__history'
 
 
+class ClientRank(Entity):
+    """Client rank (acme/protein.ClientRank), schema version 1. Where a core ranks a project it serves (ADR 0232), by the project's slug."""
+
+    IKI_TYPE = 'acme/protein.ClientRank'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    project_slug = models.CharField(max_length=100)
+    rank = models.BigIntegerField()
+
+    class Meta:
+        db_table = 'acme__protein_clientrank'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('project_slug'), 1),
+                name='acme__protein_clientrank__project_slug__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(project_slug__regex='[\\r\\n]'),
+                name='acme__protein_clientrank__project_slug__one_line',
+            ),
+        ]
+
+
+class ClientRank_History(models.Model):
+    """The history of acme__protein_clientrank: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'ClientRank'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    project_slug = models.TextField(null=True)
+    rank = models.BigIntegerField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_clientrank__history'
+
+
 class Compound(Entity):
     """Compound (acme/protein.Compound), schema version 1."""
 
@@ -710,7 +756,7 @@ class Compound(Entity):
                 name='name_trgm_a82352d5f75bd93d9577',
             ),
             GinIndex(
-                SearchVector('description', config='simple'),
+                SearchVector(Left('description', 100000), config='simple'),
                 name='descriptio_fts_f1b87780ad0e0e7',
             ),
         ]
@@ -792,10 +838,6 @@ class Compound_Entry(Entity):
                 fields=['inchikey'],
                 opclasses=['gin_trgm_ops'],
                 name='inchikey_trgm_e6989095b17cbb44',
-            ),
-            GinIndex(
-                SearchVector('molfile', config='simple'),
-                name='molfile_fts_ef99c390e3ae7db94d',
             ),
         ]
 
@@ -1084,6 +1126,7 @@ class Protein(iki_plugin_acme__dna.models.Sequence):
     temperature_optimum = QuantityField(unit='Cel', null=True)
     uniprot_ids = ArrayField(models.TextField(), null=True)
     summary = models.TextField(null=True)
+    pdb_text = models.TextField(null=True)
     host = models.CharField(max_length=200, null=True, db_index=True)
     hydropathy = models.JSONField(null=True)
 
@@ -1144,6 +1187,10 @@ class Protein(iki_plugin_acme__dna.models.Sequence):
                 name='acme__protein_protein__summary__not_empty',
             ),
             models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('pdb_text'), 1),
+                name='acme__protein_protein__pdb_text__not_empty',
+            ),
+            models.CheckConstraint(
                 condition=GreaterThanOrEqual(Length('host'), 1),
                 name='acme__protein_protein__host__not_empty',
             ),
@@ -1164,7 +1211,7 @@ class Protein(iki_plugin_acme__dna.models.Sequence):
                 name='lims_id_trgm_8eb1fa52d218dbeb4',
             ),
             GinIndex(
-                SearchVector('summary', config='simple'),
+                SearchVector(Left('summary', 100000), config='simple'),
                 name='summary_fts_44d975f33c3986725e',
             ),
             GinIndex(
@@ -1192,6 +1239,7 @@ class Protein_History(models.Model):
     temperature_optimum = QuantityField(unit='Cel', null=True)
     uniprot_ids = ArrayField(models.TextField(), null=True)
     summary = models.TextField(null=True)
+    pdb_text = models.TextField(null=True)
     host = models.TextField(null=True)
     hydropathy = models.JSONField(null=True)
 
@@ -1447,6 +1495,48 @@ class Rack_History(models.Model):
         db_table = 'acme__protein_rack__history'
 
 
+class RankedAssayRequest(AssayRequest):
+    """Ranked assay request (acme/protein.RankedAssayRequest), schema version 1. An assay request the core ranks by the project that asked (ADR 0232)."""
+
+    IKI_TYPE = 'acme/protein.RankedAssayRequest'
+
+    assayrequest_ptr = models.OneToOneField(
+        AssayRequest,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    client_rank = models.BigIntegerField(null=True)
+    turnaround = models.TextField(null=True, db_default='standard')
+
+    class Meta:
+        db_table = 'acme__protein_rankedassayrequest'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(turnaround__in=['standard', 'express', 'same_day']),
+                name='acme__protein_rankedassayrequest__turnaround__values',
+            ),
+        ]
+
+
+class RankedAssayRequest_History(models.Model):
+    """The history of acme__protein_rankedassayrequest: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'RankedAssayRequest'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    client_rank = models.BigIntegerField(null=True)
+    turnaround = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_rankedassayrequest__history'
+
+
 class Tube(Entity):
     """Tube (acme/protein.Tube), schema version 1. A tube of a sample, whose volume is drawn at the bench (ADR 0180): the sample's holds and purposes apply to it, and a draw needs its barcode scanned."""
 
@@ -1636,7 +1726,10 @@ class Sample(Entity):
                 opclasses=['gin_trgm_ops'],
                 name='label_trgm_569071a1e789b3a1e52',
             ),
-            GinIndex(SearchVector('notes', config='simple'), name='notes_fts_a5bf4641b5eb98a678ff'),
+            GinIndex(
+                SearchVector(Left('notes', 100000), config='simple'),
+                name='notes_fts_a5bf4641b5eb98a678ff',
+            ),
         ]
 
 

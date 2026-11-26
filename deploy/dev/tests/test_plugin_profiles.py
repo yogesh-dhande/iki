@@ -13,7 +13,7 @@ from iki_spec import lockfile, naming
 FIXTURE_PLUGINS = {
     "acme/lims_connector",
     "lab/hosted_models",
-    "acme/example",
+    "fixtures/worker_execution",
     "examples/liquid_handling",
 }
 

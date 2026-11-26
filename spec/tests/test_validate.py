@@ -239,6 +239,16 @@ def test_points_at_the_line_and_column(tmp_path: Path) -> None:
             "Did you mean `required`?",
         ),
         ("x: { type: string, unit: mg }", "`unit` isn't an option for string fields.", None),
+        (
+            "x: { type: string, searchable: false }",
+            "`searchable` isn't an option for string fields.",
+            None,
+        ),
+        (
+            "x: { type: list, items: { type: text, searchable: false } }",
+            "`searchable` isn't allowed here in `fields.x.items`.",
+            None,
+        ),
         ("x: { type: quantity }", "`unit` is missing in `fields.x`.", "such as `unit: mg`"),
         ("x: { type: enum }", "`values` is missing in `fields.x`.", None),
         ("x: { type: ref }", "`to` is missing in `fields.x`.", None),
@@ -739,6 +749,24 @@ def test_flags_that_contradict(tmp_path: Path) -> None:
 )
 def test_indexes(tmp_path: Path, spec: str, code: str) -> None:
     only(make(tmp_path, fields(f"x: {spec}\n")), code)
+
+
+def test_machine_text_can_go_without_word_search(tmp_path: Path) -> None:
+    """A Molfile's "words" mean nothing to a reader, so it has no full-text index (ADR 0233):
+    text is searchable unless it says otherwise."""
+    result = make(
+        tmp_path,
+        fields("""\
+            molfile: { type: text, searchable: false }
+            notes: { type: text }
+            remarks: { type: text, searchable: true }
+        """),
+    )
+    assert result.ok, result.problems
+    assert result.plugin is not None
+    assay = result.plugin.types["acme/lab.Assay"].fields
+    assert (assay["molfile"].searchable, assay["notes"].searchable) == (False, True)
+    assert assay["remarks"].searchable
 
 
 @pytest.mark.parametrize(
@@ -2861,7 +2889,23 @@ request:
   service_fields: [status]
 """
     files = {**requests(), "types/urgent.yaml": sub}
-    assert "is a request type already" in only(make(tmp_path, files, ROLES), "request-redeclared")
+    # It adds service fields of its own (ADR 0232), not its parent's.
+    found = only(make(tmp_path, files, ROLES), "service-field-inherited")
+    assert found.startswith("`status` is ")
+    own = sub + "fields:\n  queue_rank: { type: int }\n"
+    files["types/urgent.yaml"] = own.replace("[status]", "[queue_rank]")
+    assert make(tmp_path, files, ROLES).problems == []
+    # Its parent says the rest.
+    files["types/urgent.yaml"] = own.replace("[status]", "[queue_rank]\n  sends: [samples]")
+    message = only(make(tmp_path, files, ROLES), "request-redeclared")
+    assert "can only add service fields of their own" in message
+    files["types/urgent.yaml"] = own.replace("[status]", "[]")
+    assert "request-redeclared" in codes(make(tmp_path, files, ROLES))
+    # A service field of its own is held to a service field's rules.
+    files["types/urgent.yaml"] = own.replace("[status]", "[queue_rank]").replace(
+        "{ type: int }", "{ type: int, required: true }"
+    )
+    assert only(make(tmp_path, files, ROLES), "service-field-required")
     files["types/urgent.yaml"] = sub.replace("request:\n  service_fields: [status]\n", "")
     assert make(tmp_path, files, ROLES).problems == []
 

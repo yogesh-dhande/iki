@@ -17,7 +17,7 @@ plugin_deps = [
 ]
 chart_values = ['deploy/dev/values-dev.yaml']
 if fixtures == '1':
-    plugin_deps += ['deploy/dev/fixtures', 'examples/plugins/hosted_models', 'examples/plugins/lims_connector', 'examples/plugins/liquid_handling', 'plugin-template']
+    plugin_deps += ['deploy/dev/fixtures', 'examples/plugins/hosted_models', 'examples/plugins/lims_connector', 'examples/plugins/liquid_handling']
     chart_values.append('deploy/dev/fixtures/values.yaml')
 
 # --- Dependencies -------------------------------------------------------------
@@ -161,6 +161,11 @@ k8s_yaml(helm(
     values=chart_values,
 ))
 
+k8s_resource(
+    'iki-clamd',
+    objects=['iki-clamd:configmap', 'iki-clamd:networkpolicy', 'iki-clamd:serviceaccount'],
+    labels=['deps'],
+)
 k8s_resource('iki-migrate', resource_deps=['iki-db'], labels=['iki'])
 k8s_resource(
     'iki-web',

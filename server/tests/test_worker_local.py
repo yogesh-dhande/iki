@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from first_party_dependencies import FIRST_PARTY, TEMPLATE, build_order, withs
+from first_party_dependencies import EXECUTION_FIXTURE, FIRST_PARTY, TEMPLATE, build_order, withs
 from first_party_dependencies import PLUGINS as FIRST_PARTY_PLUGINS
 from test_worker_e2e import (
     PLUGINS,
@@ -210,7 +210,7 @@ def with_action_tests() -> list[Path]:
     ]
 
 
-@pytest.mark.parametrize("plugin", with_action_tests(), ids=lambda path: path.name)
+@pytest.mark.parametrize("plugin", [*with_action_tests(), EXECUTION_FIXTURE], ids=lambda p: p.name)
 def test_first_party_plugins_and_the_template_pass_their_action_tests(
     worker_bin: Path,  # noqa: F811 - the fixture
     tmp_path: Path,
@@ -218,9 +218,9 @@ def test_first_party_plugins_and_the_template_pass_their_action_tests(
 ) -> None:
     deps = withs(dependencies_of(plugin))
     env = {**os.environ, "IKI_WORKER": str(worker_bin), "IKI_WORK_DIR": str(tmp_path)}
-    if plugin == TEMPLATE:
-        # Run through the test skill shipped with the template as a lab would.
-        script = plugin / ".agents/skills/iki-test-plugin/scripts/check-plugin.sh"
+    if plugin in (TEMPLATE, EXECUTION_FIXTURE):
+        # The template and the execution fixture both validate their migrations before running.
+        script = TEMPLATE / ".agents/skills/iki-test-plugin/scripts/check-plugin.sh"
         command = ["sh", str(script)]
         env["PATH"] = os.pathsep.join([str(Path(sys.executable).parent), env["PATH"]])
     else:

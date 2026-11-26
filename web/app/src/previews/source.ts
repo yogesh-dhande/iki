@@ -21,6 +21,8 @@ export interface PreviewFile {
   media_type: string;
   size: number;
   sha256: string;
+  /** The deployment's malware scan of its bytes (ADR 0216): only a usable file is read. */
+  scan: Schemas["FileScanOut"];
 }
 
 /** A link is asked for again this long before it expires, so a read never starts on one

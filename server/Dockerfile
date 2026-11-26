@@ -16,7 +16,7 @@ ARG RUST_IMAGE=rust:1.93.0-slim-trixie@sha256:760ad1d638d70ebbd0c61e06210e1289cb
 # amd64 artifact job supplies these modules and both native Wasmtime artifacts.
 ARG WASM_BUILD_PLATFORM=linux/amd64
 
-FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
+FROM ghcr.io/astral-sh/uv:0.13.10@sha256:a3ea1357342c1a4bf9a0c53a3deb1b55379aefa037338d8113d5771efa01774f AS uv
 
 # --- Build the digest-pinned worker artifact on its canonical compiler host ------
 FROM --platform=$WASM_BUILD_PLATFORM ${RUST_IMAGE} AS dna-annotation

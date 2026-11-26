@@ -104,10 +104,11 @@ def migrate(build: Path, database: str, *args: str) -> str:
 
 WORLD = """
 from iki_server.org.models import Project, Team
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
+from scan_fixtures import clean_blob
 team = Team.objects.create(name="Biologics")
 project = Project.objects.create(team=team, name="Antibodies")
-blob = Blob.objects.create(sha256="a" * 64, size=10,
+blob = clean_blob(sha256="a" * 64, size=10,
                            storage_uri="s3://iki/a")
 pdb = File.objects.create(blob=blob, name="a.pdb", media_type="chemical/x-pdb", project=project)
 
@@ -372,6 +373,10 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__protein_assayrequest__sample_notes",
         "acme__protein_assayrequest__samples",
         "acme__protein_assayrequest__tubes",
+        "acme__protein_rankedassayrequest",
+        "acme__protein_rankedassayrequest__history",
+        "acme__protein_clientrank",
+        "acme__protein_clientrank__history",
         # Where material is kept, and the tubes it's kept in (ADR 0180).
         "acme__protein_freezer",
         "acme__protein_freezer__history",
@@ -1100,12 +1105,14 @@ def test_indexing_a_field_adds_search_indexes_after_pg_trgm(lab: Path, database:
         )
     )
     defs = sorted(indexes.values())
-    # name keeps its B-tree and gains trigrams; notes, as text, is searched by its words.
+    # name keeps its B-tree and gains trigrams; notes, as text, is searched by the words of
+    # its first 100,000 characters, so a long value still saves (ADR 0233).
     assert any("btree (name)" in d for d in defs)
     assert any("gin (name gin_trgm_ops)" in d for d in defs)
     assert any(
-        "gin (to_tsvector('simple'::regconfig, COALESCE(notes, ''::text)))" in d for d in defs
-    )
+        "gin (to_tsvector('simple'::regconfig, COALESCE(\"left\"(notes, 100000), ''::text)))" in d
+        for d in defs
+    ), defs
 
 
 def test_migrations_are_named_after_what_changed(lab: Path) -> None:

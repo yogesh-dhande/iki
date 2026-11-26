@@ -1703,7 +1703,9 @@ class Files(_Part):
         version to compute its SHA-256. The location must keep immutable object versions.
         The name defaults to the object's own. Iki checks its media type against the
         installed format declarations. ``acquired`` supplies a date when the format lacks
-        one. ``timeout`` limits the wait for verification in seconds.
+        one. The returned record includes the scan decision for the pinned version.
+        Check ``file["scan"]["usable"]`` before using the file.
+        ``timeout`` limits the wait for verification and scanning, in seconds.
         """
         from iki._uploads import wait_for_file
 
@@ -1756,7 +1758,9 @@ class Files(_Part):
         ``acquired`` is when its data was acquired, a date or datetime, or ISO 8601 text such
         as ``"2026-03-14"`` or ``"2026-03-14T09:21"``, for a file whose format doesn't record
         it: where it does, the file's own wins (ADR 0177). Without either, it's unknown.
-        ``timeout`` limits the wait for Iki to check the upload, in seconds.
+        Iki waits for a scan decision before returning the file. Check ``file["scan"]["usable"]``
+        before using it. A quarantined file keeps its metadata and finding.
+        ``timeout`` limits the wait for verification and scanning, in seconds.
         """
         from iki._uploads import upload
 
@@ -1770,6 +1774,34 @@ class Files(_Part):
             timeout,
             poll,
             given,
+        )
+
+    def wait(
+        self,
+        pending: Mapping[str, str],
+        *,
+        timeout: float | None = None,
+        poll: float = 2.0,
+    ) -> FileOut:
+        """Wait again for an upload or registration whose ``upload`` or ``register`` timed
+        out, given the ``pending`` of its ``iki.TimedOut``: ``{"upload": id}`` or
+        ``{"registration": id}``. Returns its file once Iki has checked and scanned it, as
+        they do. The file is never sent again, so a script that's run again later doesn't
+        add it twice."""
+        from iki._uploads import wait_for_file
+
+        if poll < 0 or (timeout is not None and timeout < 0):
+            raise ValueError("poll and timeout must be nonnegative.")
+        (operation, found), *more = pending.items() if pending else [("", "")]
+        if more or operation not in ("upload", "registration") or not found:
+            raise ValueError('Give the pending upload or registration: {"upload": id}.')
+        kind: Literal["upload", "registration"] = (
+            "upload" if operation == "upload" else "registration"
+        )
+        path = _path(f"/{kind}s/{{id}}", id=found)
+        status = self._client.request("GET", path)
+        return wait_for_file(
+            self._client, path, status, str(status.get("name") or found), kind, timeout, poll
         )
 
     def download(self, file_id: str, to: str | os.PathLike[str]) -> str:

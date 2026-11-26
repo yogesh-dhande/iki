@@ -55,14 +55,19 @@ document.addEventListener("securitypolicyviolation", (e) => {
   window.refused.push(`${e.violatedDirective} ${e.blockedURI}`);
 });
 window.sent = [];
-await customElements.whenDefined("equipment-booking-calendar");
-const element = document.createElement("equipment-booking-calendar");
+const asked = new URLSearchParams(location.search);
+const name = asked.get("element") ?? "equipment-booking-calendar";
+await customElements.whenDefined(name);
+const element = document.createElement(name);
 for (const name of ["iki-refine", "iki-more", "iki-open", "iki-select"]) {
   element.addEventListener(name, (e) => window.sent.push({ type: name, detail: e.detail }));
 }
 document.querySelector("main").append(element);
 window.give = (entities) => { element.entities = entities; };
-element.place = { slot: "entity.tab", label: "Bookings" };
+element.place = {
+  slot: asked.get("slot") ?? "entity.tab",
+  label: asked.get("label") ?? "Bookings",
+};
 window.give(JSON.parse(decodeURIComponent(location.hash.slice(1))));
 """
 
@@ -76,7 +81,7 @@ def frame_server() -> Iterator[str]:
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             origin = f"http://{self.headers['Host']}"
-            path = self.path.split("#")[0]
+            path = self.path.split("#")[0].split("?")[0]
             body, kind = {
                 "/frame": (page, "text/html; charset=utf-8"),
                 "/calendar.js": (module, "text/javascript"),
@@ -178,6 +183,7 @@ def test_a_month_of_bookings_by_day_asking_only_for_what_it_shows(
                     "all": [
                         {"field": "starts_at", "op": "gte", "value": start.strftime(iso)},
                         {"field": "starts_at", "op": "lt", "value": end.strftime(iso)},
+                        ACTIVE,
                     ]
                 },
                 "sort": {"field": "starts_at", "descending": False},
@@ -226,6 +232,115 @@ def test_a_month_of_bookings_by_day_asking_only_for_what_it_shows(
         f"{frame_server}/driver.js",
         f"{frame_server}/frame",
     ]
+    context.close()
+
+
+#: What a calendar asks for until it's asked to show cancelled bookings too.
+ACTIVE = {"field": "cancelled", "op": "eq", "value": False}
+ANALYST = "00000000-0000-7000-8000-0000000000a1"
+REQUEST = "00000000-0000-7000-8000-0000000000r1"
+UNREADABLE = "00000000-0000-7000-8000-0000000000r2"
+FOR_THE_ANALYST = ", for Priya Shah"
+FOR_THE_REQUEST = " · REQ-000004 16S rRNA V4 amplicon panel"
+
+
+@pytest.mark.parametrize(
+    ("element", "slot", "label", "names"),
+    [
+        ("equipment-booking-calendar", "entity.tab", "Bookings", True),
+        ("equipment-booking-calendar", "person.home", "Your bookings", False),
+        ("equipment-bookings-made", "person.home", "Bookings you made for others", True),
+    ],
+    ids=["instrument", "your-bookings", "made-for-others"],
+)
+def test_each_booking_says_whom_and_what_its_for(
+    browser: Browser, frame_server: str, element: str, slot: str, label: str, names: bool
+) -> None:
+    """Whom it's for, except on your own home, where every booking is yours; and the
+    record it's for, only as its reader may read it."""
+    month = dt.datetime.now(dt.UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    run = booking(1, month.replace(day=8, hour=9), "16S amplicon run")
+    run["values"] |= {"booked_by": ANALYST, "work": REQUEST}
+    run["refs"][REQUEST] = {
+        "hrid": "REQ-000004",
+        "title": "16S rRNA V4 amplicon panel",
+        "type": "iki/requests.PlainRequest",
+        "archived": False,
+        "purged": False,
+    }
+    run["people"] = {ANALYST: {"name": "Priya Shah"}}
+    # For a record its reader can't read: the server gives no ref, so nothing's said of it.
+    qc = booking(2, month.replace(day=9, hour=14), "Library QC")
+    qc["values"] |= {"work": UNREADABLE}
+    qc["people"] = {}
+    context = browser.new_context(locale="en-GB", timezone_id="UTC")
+    page = context.new_page()
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    query = urllib.parse.urlencode({"element": element, "slot": slot, "label": label})
+    page.goto(f"{frame_server}/frame?{query}#{urllib.parse.quote(json.dumps(given([run, qc])))}")
+
+    page.get_by_role("table", name=f"{label}: {month.strftime('%B %Y')}").wait_for()
+    whom = FOR_THE_ANALYST if names else ""
+    text = f"09:00–11:00 16S amplicon run (Plate reader){whom}{FOR_THE_REQUEST}"
+    opens = page.get_by_role("button", name=f"Open BKG-000001: {text}", exact=True)
+    opens.wait_for()
+    assert opens.inner_text() == text
+    qc_text = "14:00–16:00 Library QC (Plate reader)"
+    assert page.get_by_role("button", name=f"Open BKG-000002: {qc_text}", exact=True).is_visible()
+    assert page.get_by_text("Priya Shah").count() == (1 if names else 0)
+    violations = check(page)
+    assert violations == [], violations
+    opens.click()
+    assert sent(page)[-1] == {"type": "iki-open", "detail": {"entity": "BKG-000001"}}
+    assert errors == []
+    assert page.evaluate("window.refused") == []
+    context.close()
+
+
+def test_cancelled_bookings_are_left_out_until_asked_for_then_marked_cancelled(
+    browser: Browser, frame_server: str
+) -> None:
+    """As a resource calendar drops a cancelled meeting: a cancelled booking holds no time,
+    so the calendar asks for active ones; asked, it shows the rest struck through and
+    labelled Cancelled, in words as well as by its look."""
+    month = dt.datetime.now(dt.UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    run = booking(1, month.replace(day=8, hour=9), "16S amplicon run")
+    off = booking(2, month.replace(day=8, hour=14), "Shotgun metagenomics run")
+    off["values"]["cancelled"] = True
+    context = browser.new_context(locale="en-GB", timezone_id="UTC")
+    page = context.new_page()
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    # What a place gives before the calendar's month narrows it may hold a cancelled one.
+    page.goto(f"{frame_server}/frame#{urllib.parse.quote(json.dumps(given([run, off])))}")
+    page.get_by_role("table", name=f"Bookings: {month.strftime('%B %Y')}").wait_for()
+    assert ACTIVE in sent(page)[-1]["detail"]["where"]["all"]
+    shown = page.get_by_role("checkbox", name="Show cancelled")
+    assert not shown.is_checked()
+    page.get_by_role("status").get_by_text(f"1 booking in {month.strftime('%B %Y')}").wait_for()
+    assert page.get_by_role("button", name="Open BKG-000002", exact=False).count() == 0
+
+    shown.check()
+    assert ACTIVE not in sent(page)[-1]["detail"]["where"]["all"]
+    page.evaluate("(e) => window.give(e)", given([run, off]))
+    text = "14:00–16:00 Shotgun metagenomics run (Plate reader)"
+    cancelled = page.get_by_role("button", name=f"Open BKG-000002: Cancelled: {text}", exact=True)
+    cancelled.wait_for()
+    assert cancelled.inner_text() == f"Cancelled {text}"
+    assert cancelled.locator("s").inner_text() == text
+    status = page.get_by_role("status")
+    status.get_by_text(f"1 booking in {month.strftime('%B %Y')}, 1 cancelled").wait_for()
+    violations = check(page)
+    assert violations == [], violations
+    cancelled.click()
+    assert sent(page)[-1] == {"type": "iki-open", "detail": {"entity": "BKG-000002"}}
+
+    shown.uncheck()
+    assert ACTIVE in sent(page)[-1]["detail"]["where"]["all"]
+    assert cancelled.count() == 0
+    assert errors == []
+    assert page.evaluate("window.refused") == []
     context.close()
 
 

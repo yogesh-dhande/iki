@@ -1,0 +1,146 @@
+{{- $scan := .Values.files.scanner }}
+{{- $clam := $scan.clamd }}
+{{- if and .Values.files.bucket $clam.enabled }}
+{{- if gt (int64 $scan.maxBytes) 2147483647 }}
+{{- fail "files.scanner.maxBytes must be below 2 GiB with bundled clamd" }}
+{{- end }}
+{{- $name := printf "%s-clamd" (include "iki.fullname" .) }}
+{{- $selector := include "iki.selectorLabels" (dict "ctx" . "component" "clamd") }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+data:
+  clamd.conf: |
+    Foreground yes
+    LogTime yes
+    DatabaseDirectory /signatures
+    TCPSocket {{ $clam.port }}
+    StreamMaxLength {{ int64 $scan.maxBytes }}
+    MaxFileSize {{ int64 $scan.maxBytes }}
+    AlertExceedsMax yes
+    AlertEncrypted yes
+    EnableShutdownCommand no
+    EnableReloadCommand no
+    EnableStatsCommand no
+    EnableVersionCommand yes
+    ConcurrentDatabaseReload no
+    SelfCheck 60
+  freshclam.conf: |
+    Foreground yes
+    DatabaseDirectory /signatures
+    {{- if $clam.privateMirror }}
+    PrivateMirror {{ $clam.privateMirror }}
+    {{- else }}
+    DatabaseMirror database.clamav.net
+    {{- end }}
+    Checks 24
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clamd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- $selector | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- $selector | nindent 8 }}
+      annotations:
+        checksum/config: {{ toJson $scan | sha256sum }}
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "iki.podSecurityContext" . | nindent 8 }}
+      initContainers:
+        # Seed the writable database from the pinned image, including when
+        # the signature mirror is temporarily unavailable during startup.
+        - name: seed-signatures
+          image: {{ $clam.image | quote }}
+          command: ["/bin/sh", "-ec", "cp /var/lib/clamav/* /signatures/"]
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            {{- include "iki.containerSecurityContext" . | nindent 12 }}
+            # The upstream image keeps its signature database in a 0700 home.
+            runAsUser: 1000
+          volumeMounts:
+            - { name: signatures, mountPath: /signatures }
+      containers:
+        - name: clamd
+          image: {{ $clam.image | quote }}
+          command: ["clamd", "--config-file=/config/clamd.conf"]
+          ports:
+            - { name: clamd, containerPort: {{ $clam.port }}, protocol: TCP }
+          startupProbe:
+            tcpSocket: { port: clamd }
+            periodSeconds: 5
+            failureThreshold: 72
+          readinessProbe:
+            tcpSocket: { port: clamd }
+            periodSeconds: 10
+          resources:
+            {{- toYaml $clam.resources | nindent 12 }}
+          securityContext:
+            {{- include "iki.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - { name: config, mountPath: /config, readOnly: true }
+            - { name: signatures, mountPath: /signatures, readOnly: true }
+            - { name: scratch, mountPath: /tmp }
+        - name: freshclam
+          image: {{ $clam.image | quote }}
+          command: ["freshclam", "--daemon", "--foreground", "--stdout", "--config-file=/config/freshclam.conf"]
+          resources:
+            {{- toYaml $clam.updaterResources | nindent 12 }}
+          securityContext:
+            {{- include "iki.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - { name: config, mountPath: /config, readOnly: true }
+            - { name: signatures, mountPath: /signatures }
+            - { name: update-scratch, mountPath: /tmp }
+      volumes:
+        - name: config
+          configMap: { name: {{ $name }} }
+        - name: signatures
+          emptyDir: { sizeLimit: 2Gi }
+        - name: scratch
+          emptyDir: { sizeLimit: 3Gi }
+        - name: update-scratch
+          emptyDir: { sizeLimit: 2Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- $selector | nindent 4 }}
+  ports:
+    - { name: clamd, port: {{ $clam.port }}, targetPort: clamd }
+{{- end }}

@@ -18,7 +18,7 @@ from iki_server.files.models import Upload, UploadKind, UploadState
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
-from iki_server.runs.models import ActionRun, RunFile, RunFileRole, RunUpload, Worker
+from iki_server.runs.models import ActionRun, RunUpload, Worker
 from iki_server.runs.queue import held
 
 __all__ = ["MAX_UPLOADS", "complete", "parts", "start"]
@@ -53,10 +53,6 @@ def start(
             sha256=sha256,
         )
         RunUpload.objects.create(upload=upload, run=run, job=job)
-        upload.refresh_from_db()
-        if upload.file_id is not None:
-            # Empty, so a file already: the run made it, as any of its uploads (ADR 0177).
-            RunFile.objects.create(run=run, file_id=upload.file_id, role=RunFileRole.MADE)
     return upload
 
 

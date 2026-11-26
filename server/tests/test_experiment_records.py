@@ -21,6 +21,7 @@ from django.db import connection, transaction
 from django.utils import timezone
 from first_party_dependencies import PLUGINS, build_order
 from org_world import World, build_world
+from scan_fixtures import clean_blob
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, ready, signed
 from test_signatures import evidence as authenticated
@@ -29,7 +30,7 @@ from iki_server.amounts import services as amounts
 from iki_server.amounts.models import Amount, Movement
 from iki_server.entities import services, states
 from iki_server.entities.models import Entity, Revision
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
 from iki_server.graph.models import Edge
 from iki_server.org.models import LabRoleGrant, Project, ProjectMembership, ProjectRole
 from iki_server.org.services import Refused
@@ -281,7 +282,7 @@ def exercise(flow: str) -> None:
     )
     body = b"Synthetic observations for " + flow.encode()
     digest = hashlib.sha256(body).hexdigest()
-    blob = Blob.objects.create(
+    blob = clean_blob(
         sha256=digest,
         size=len(body),
         storage_uri=f"s3://test/{digest}",
