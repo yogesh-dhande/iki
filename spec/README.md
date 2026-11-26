@@ -1906,6 +1906,24 @@ slots:
 | `project.page`   | what its `search` finds in the project; the section shows once it finds something     |
 | `person.home`    | what its `search` finds in every project the person reads; it names `{{ me }}`        |
 
+A tab for `iki/core.Entity` is on every record's page, wherever its search
+finds something for that record, as a measurement's evidence is on whatever
+was measured (ADR 0237). Its search names the record with `{{ entity }}`
+(`tab-on-every-record`), and a record it finds nothing for has no such tab.
+The component's tab for a nearer type of the record's, if it has one, is
+used instead:
+
+```yaml
+entities: { type: InstrumentUse, fields: [result, measurement_at], limit: 1000 }
+slots:
+  - slot: entity.tab # an instrument's uses
+    type: Instrument
+    search: { where: { field: instrument, op: eq, value: "{{ entity }}" } }
+  - slot: entity.tab # any record measured on one: a QC deliverable, an assay result
+    type: iki/core.Entity
+    search: { where: { field: result, op: eq, value: "{{ entity }}" } }
+```
+
 A search is the API's, of `entities.type`: `where` conditions on its fields
 and `hrid`, `created_by`, `created_at` and `updated_at`, at most 20, 4
 levels deep, and a field to `sort` by. `{{ entity }}` is the entity whose
@@ -2812,7 +2830,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `self-hosted-apis`, `api-in-network`, `api-credential-is-secret`, `api-credential-header`, `webhook-needs-header`, `webhook-header`, `webhook-secret-is-credential`, `api-status-twice`, `api-polls-too-often`, `api-job-timeout`, `unknown-api`, `batch-parks`, `deterministic-with-api`; `unused-api` (warning)                                                                                                                                                                                                                                                                                                                                     | Outside APIs                    |
 | `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-each-takes-many`, `workflow-unknown-metric`, `workflow-condition-type`, `workflow-condition-each`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`, `workflow-input-from-project`                                                                                                                                                                                               | Workflows                       |
 | `trigger-unknown-action`, `trigger-unknown-input`, `trigger-input-ambiguous`, `trigger-input-missing`, `trigger-wrong-type`, `trigger-fields-not-updated`, `trigger-state-not-state-changed`, `trigger-state-field-missing`, `trigger-not-a-state-field`, `trigger-field-is-state`, `trigger-unknown-param`, `trigger-invalid-param`, `trigger-param-missing`, `trigger-type-missing`, `trigger-schedule-missing`, `trigger-schedule-invalid`, `trigger-schedule-never`, `trigger-schedule-entity`, `trigger-schedule-not-scheduled`, `trigger-timezone-unknown`, `duplicate-trigger`, `trigger-received-not-a-request`, `trigger-input-from-project` | Triggers                        |
-| `duplicate-component`, `element-twice`, `component-too-big`, `missing-file`, `unreadable-file`, `symlink`, `slot-needs-entities`, `slot-twice`, `home-not-personal`, `unknown-operator`, `unsortable-field`, `unknown-context`, `context-misplaced`, `search-too-big`                                                                                                                                                                                                                                                                                                                                                                                 | Components                      |
+| `duplicate-component`, `element-twice`, `component-too-big`, `missing-file`, `unreadable-file`, `symlink`, `slot-needs-entities`, `slot-twice`, `home-not-personal`, `tab-on-every-record`, `unknown-operator`, `unsortable-field`, `unknown-context`, `context-misplaced`, `search-too-big`                                                                                                                                                                                                                                                                                                                                                          | Components                      |
 | `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Environments                    |
 | `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`, `conda-lock-name`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Pinned packages                 |
 | `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-calls-api`, `setup-fills-nothing` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Volumes and setup               |

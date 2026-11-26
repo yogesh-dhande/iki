@@ -57,15 +57,24 @@ export interface EntityTab {
   slot: ComponentSlot;
 }
 
+/** A tab for this type is on every record's page where its search finds something for
+ * the record, unless the component has a tab for a nearer type (ADR 0237). */
+export const EVERY_RECORD = "iki/core.Entity";
+
+/** Whether the tab is on every record, shown only where its search finds something. */
+export function onEveryRecord(tab: EntityTab): boolean {
+  return tab.slot.type === EVERY_RECORD;
+}
+
 /** The component's tab on pages of entities of `type`: the one for the nearest type it
- * extends, as the server picks it. */
+ * extends, or else its tab on every record, as the server picks it. */
 export function tabFor(
   component: PluginComponent,
   type: string,
   types: EntityType[],
 ): ComponentSlot | undefined {
   const tabs = component.slots.filter((s) => s.slot === "entity.tab");
-  for (const name of lineageOf(type, types)) {
+  for (const name of [...lineageOf(type, types), EVERY_RECORD]) {
     const found = tabs.find((s) => s.type === name);
     if (found) return found;
   }

@@ -42,7 +42,7 @@ action: record_instrument_use
 description: Synthetic laboratory records and times.
 inputs:
   instrument: [{ values: { name: Demonstration spectrophotometer } }]
-  result: [{ type: iki/requests.QCDeliverable, values: {} }]
+  result: [{ type: iki/core.Collection, values: { name: Absorbance at 260 nm } }]
   calibration:
     - values:
         instrument: 00000000-0000-7000-8003-000000000001
@@ -75,7 +75,7 @@ name: the_calibration_expiry_is_exclusive
 action: record_instrument_use
 inputs:
   instrument: [{ values: { name: Demonstration spectrophotometer } }]
-  result: [{ type: iki/requests.QCDeliverable, values: {} }]
+  result: [{ type: iki/core.Collection, values: { name: Absorbance at 260 nm } }]
   calibration:
     - values:
         instrument: 00000000-0000-7000-8003-000000000001
