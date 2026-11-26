@@ -391,6 +391,30 @@ writes them to a creates file instead
 ([Creates in a file](/guides/write-a-plugin/run-input-and-output/#creates-in-a-file)), and reports
 its progress with `::progress` lines as it reads, as Iki's SDF import does.
 
+## Files that come from an instrument
+
+When the PC beside an instrument sends each run's export by itself, make the file a field of a
+record instead of a param of the import. A small uploader on the PC sends the export with the
+credential of a service account that is an Editor in the facility's project and nowhere else. Once
+Iki's scan finds the file clean, the uploader makes the record that holds it, and an
+`entity.created` trigger runs the import on that record. Iki refuses a record whose file is still
+being scanned or is held, and a run's worker gets a file only once it's usable, so the import only
+ever reads clean files. Give the record a `unique` field holding the file's SHA-256: an export sent
+again then finds its record instead of making a second one.
+
+**Upload or register.** Upload files up to about a gigabyte, such as qPCR, plate reader and most
+chromatography exports. Iki keeps them in its own storage, and the lab needs no bucket of its own.
+Register large files, such as sequencer runs, imaging stacks and mass spectrometry raw files, and
+any file the facility must keep in its own bucket under its own retention and access rules. To
+register, the PC writes the file to the facility's versioned bucket, under a location an
+administrator approved, and registers it there. Iki pins that version, reads it once to hash and
+scan it, and never copies it. Write each file under a key of its own, such as its SHA-256, so
+nothing is written over it. Either way, the record, the scan and the import are the same.
+
+The instrument intake example, in `examples/plugins/instrument_intake/` of Iki's repository, is a
+template for this: a QuantStudio qPCR run record, its import, the trigger that runs it, and an
+uploader for the instrument PC that retries and keeps a journal of what it sent.
+
 ## Import the same report again
 
 A week later the core sends the report again: sample 04 has passed QC, with its concentration, RIN
