@@ -1,5 +1,5 @@
 """`iki plugin writers` (ADR 0230): a plugin's writers, the crates they pin, and their
-digests; and the worker bundle, which leaves writers to the plugin image."""
+digests; and the workers' files, which leave writers to the plugin image and the server."""
 
 from __future__ import annotations
 
@@ -12,7 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from iki_cli import workers, writer_commands
+from iki_cli import writer_commands
+from iki_cli.main import main
 from iki_spec.writers import build as writer_build
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "plugins" / "liquid_handling"
@@ -61,11 +62,29 @@ def test_the_builder_stages_a_context_as_a_deployments_build_does(tmp_path: Path
     assert (tmp_path / "Dockerfile").read_text() == writer_build.dockerfile()
 
 
-def test_a_workers_bundle_leaves_out_the_writers(tmp_path: Path) -> None:
+def test_both_worker_distributions_leave_the_writers_to_the_server(tmp_path: Path) -> None:
+    """A writer's crate is built into the plugin image and run by the server (ADR 0230), so
+    the archive self-hosted workers fetch and the backend worker image both leave it out,
+    file for file the same (ADR 0219), while the server's build carries it."""
     copy = tmp_path / "liquid_handling"
     shutil.copytree(EXAMPLE, copy, ignore=shutil.ignore_patterns("target", "*.wasm"))
-    workers.bundle(copy, tmp_path / "bundle.tar.gz")
-    with gzip.open(tmp_path / "bundle.tar.gz") as raw, tarfile.open(fileobj=raw) as tar:
-        names = tar.getnames()
-    assert "plugin.yaml" in names
-    assert not [n for n in names if n.startswith("writers/")]
+    (tmp_path / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        "  - { name: acme/liquid_handling, local: ./liquid_handling, state: active }\n"
+    )
+    server, image = tmp_path / "server", tmp_path / "image"
+    command = ["deploy", "build", str(tmp_path), "--allow-local", "-o", str(server)]
+    assert main([*command, "--workers", str(image)]) == 0
+
+    registry = server / "iki_installed_plugins"
+    archive = registry / "bundles" / "acme__liquid_handling-local.tar.gz"
+    with gzip.open(archive) as raw, tarfile.open(fileobj=raw) as tar:
+        archived = set(tar.getnames())
+    staged = image / "plugins" / "acme__liquid_handling"
+    assert archived == {p.relative_to(staged).as_posix() for p in staged.rglob("*") if p.is_file()}
+    assert "plugin.yaml" in archived
+    assert not [name for name in archived if name.startswith("writers/")]
+    crate = registry / "writers" / "acme__liquid_handling" / "tecan-worklist"
+    assert (crate / "src" / "lib.rs").read_bytes() == (
+        copy / "writers" / "tecan-worklist" / "src" / "lib.rs"
+    ).read_bytes()
