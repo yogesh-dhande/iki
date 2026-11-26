@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: EntityType
 name: ReleaseCertificate
-label: Certificate of analysis
+label: Certificate record
 schema_version: 2
 abstract: true
 description: A lot's evaluated results and investigation decisions, assembled for review and signed issue.
@@ -27,10 +27,19 @@ fields:
     immutable: true
     label: Certificate
     description: >-
-      What the issued certificate states: the issuer, the lot and its dates, the
-      specification, and each criterion's limits and final result (ICH Q7 §11.4). Its
-      signed export is what the lab sends. Failed attempts, investigations and analysts
-      stay in the evidence.
+      What its certificate of analysis will state: the issuer, the lot and its dates, the
+      specification, and each criterion's limits and final result (ICH Q7 §11.4). Failed
+      attempts, investigations and analysts stay in the evidence.
+  coa_digest:
+    type: string
+    label: Certificate SHA-256
+    max_length: 64
+    computed: true
+    immutable: true
+    indexed: true
+    description: >-
+      The SHA-256 of the certificate's canonical JSON. The certificate of analysis issued
+      from this record holds the same digest, which links the two inside Iki only.
   analysts:
     type: list
     items: { type: person }
@@ -49,7 +58,7 @@ rules:
       record.case != null && record.lot != null && record.specification != null &&
       record.specification_revision != null && record.version != null &&
       record.testing_on != null && record.review_flow != null && record.report != null &&
-      record.coa != null &&
+      record.coa != null && record.coa_digest != null &&
       record.analysts != null && size(record.analysts) > 0
     message: Assemble the certificate from the completed release case.
-display: { title: "Certificate of analysis · {{ version or hrid }}" }
+display: { title: "Certificate record · {{ version or hrid }}" }

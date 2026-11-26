@@ -1,11 +1,10 @@
 apiVersion: iki/v1
 kind: EntityType
 name: QCCertificate
-label: Regulated certificate of analysis
+label: Regulated certificate record
 schema_version: 3
 extends: ReleaseCertificate
 hrid: { prefix: QCA }
-exports: [{ export: signed_report, report: coa, review: review, issued: [released] }]
 fields:
   review:
     type: state
@@ -45,13 +44,13 @@ fields:
               edits.review.recorded.all(e, e.by != actor.person)
             message: The reviewer must be independent of the testing, certificate preparation, submission and edits.
       released:
-        label: Issued by QA
+        label: Approved by QA
         set_by: [qa]
         locks: true
         signatures:
           - meaning: approval
-            label: QA issue
-            statement: I issue this certificate of analysis on the complete independently reviewed lot release evidence.
+            label: QA approval
+            statement: I approve the certificate of analysis on the complete, independently reviewed lot release evidence.
         guards:
           independent:
             check: >-

@@ -96,13 +96,18 @@ class ReleaseCertificate extends HTMLElement {
 
   set entity(entity) {
     const { report, coa, review } = entity.values;
-    // The state that issues it is the one its procedure named when it was prepared.
-    const issued = review != null && review === (coa ?? report)?.issue?.state;
-    const status = node("p", issued ? "Issued certificate" : "Draft awaiting signed issue");
+    // A certificate record holds the evidence and is signed under its procedure; the
+    // certificate of analysis issued from it holds only what it states. Each is final in
+    // the state its procedure named when it was prepared.
+    const issued = review != null && review === (report ?? coa)?.issue?.state;
+    const [done, draft] = report
+      ? ["Signed certificate record", "Certificate record awaiting signatures"]
+      : ["Issued certificate", "Draft awaiting signed issue"];
+    const status = node("p", issued ? done : draft);
     status.setAttribute("role", "status");
     const body = [
       node("style", STYLE),
-      node("h2", coa?.title ?? "Certificate of analysis"),
+      node("h2", report ? "Certificate record" : (coa?.title ?? "Certificate of analysis")),
       status,
     ];
     if (coa) {
@@ -138,8 +143,8 @@ class ReleaseCertificate extends HTMLElement {
             ]),
           );
         }),
-        node("h3", "Evidence"),
       );
+      if (report) body.push(node("h3", "Evidence"));
     }
     if (report) {
       const lot = report.lot;

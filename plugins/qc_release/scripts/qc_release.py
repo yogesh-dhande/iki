@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -20,6 +21,7 @@ FLOWS: dict[str, dict[str, Any]] = {
         "certificate": "ResearchCertificate",
         "investigation_final": "signed_off",
         "certificate_final": "signed_off",
+        "issued": "issued",
         "title": "Research certificate of analysis",
         # Said on the certificate, so it is never mistaken for a quality unit's release.
         "intended_use": (
@@ -31,6 +33,7 @@ FLOWS: dict[str, dict[str, Any]] = {
         "certificate": "QCCertificate",
         "investigation_final": "released",
         "certificate_final": "released",
+        "issued": "released",
         "title": "Certificate of analysis",
         "intended_use": None,
     },
@@ -462,18 +465,44 @@ def statement(
             "source": specification["values"]["source"],
         },
         "testing_on": values["testing_on"],
+        # The results as stated, without the records they came from: those stay in the
+        # evidence, on the certificate record.
         "results": [
             {
-                **{
-                    k: final[name]["values"][k]
-                    for k in STATED
-                    if final[name]["values"].get(k) is not None
-                },
-                "test": final[name]["hrid"],
+                k: final[name]["values"][k]
+                for k in STATED
+                if final[name]["values"].get(k) is not None
             }
             for name in criteria(specification)
         ],
-        "issue": {"state": flow["certificate_final"]},
+        # The certificate of analysis's own issuing state, not its record's.
+        "issue": {"state": flow["issued"]},
+    }
+
+
+def digest(coa: dict[str, Any]) -> str:
+    """The SHA-256 of a certificate's canonical JSON, which links its record to it."""
+    text = json.dumps(coa, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def issue_certificate(run: dict[str, Any]) -> dict[str, Any]:
+    """The certificate of analysis a finally signed certificate record states, signed on its
+    own when it's issued: its export holds only what it states (ICH Q7 §11.4). The record
+    keeps the evidence, and names the certificate by its digest."""
+    record = run["inputs"]["certificate"][0]
+    values = record["values"]
+    flow = values.get("review_flow")
+    coa = values.get("coa")
+    if flow not in FLOWS or values.get("review") != FLOWS[flow]["certificate_final"]:
+        raise ValueError("Finish signing the certificate record before issuing its certificate.")
+    if not isinstance(coa, dict) or digest(coa) != values.get("coa_digest"):
+        raise ValueError("The certificate record's certificate doesn't match its digest.")
+    issued = {"coa": coa, "digest": values["coa_digest"], "review_flow": flow}
+    return {
+        "apiVersion": "iki/v1",
+        "kind": "RunOutput",
+        "creates": [create("CertificateOfAnalysis", issued, record)],
     }
 
 
@@ -548,6 +577,7 @@ def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
         "report": report,
         "coa": statement(case, lot, specification, tests, issuer),
     }
+    certificate["coa_digest"] = digest(certificate["coa"])
     kind = FLOWS[values["review_flow"]]["certificate"]
     # The signed records above are permanently locked. A newly recorded test races this
     # seal on the case revision and either invalidates the preparation or is refused.
@@ -564,6 +594,7 @@ ACTIONS = {
     "open_release": open_release,
     "record_test": record_test,
     "prepare_certificate": prepare_certificate,
+    "issue_certificate": issue_certificate,
 }
 
 

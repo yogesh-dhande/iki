@@ -1,0 +1,17 @@
+apiVersion: iki/v1
+kind: Action
+name: issue_certificate
+label: Issue the certificate of analysis
+description: >-
+  Prepare the certificate of analysis a signed certificate record states, for its
+  reviewer or QA to issue. The certificate holds only what it states, so its signed export
+  carries no internal evidence.
+inputs:
+  certificate:
+    type: ReleaseCertificate
+    description: The certificate record, finally signed under its procedure.
+effects:
+  creates: [{ type: CertificateOfAnalysis, derived_from: [certificate] }]
+runs_on: { tier: backend, environment: qc-tools }
+command: [python, ./scripts/qc_release.py, issue_certificate]
+timeout: 1m

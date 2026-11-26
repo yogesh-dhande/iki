@@ -50,7 +50,7 @@ predecessor. Publication appends versions and retains all earlier ones.
    it using the lot's disposition. The original measurement remains visible.
 4. Prepare the certificate with every attempt and each signed investigation. Iki checks
    the selections against the case's attempt sequence and confirms every criterion has a
-   passing result. It then seals the case and writes two parts:
+   passing result. It then seals the case and writes a certificate record with two parts:
    - **Certificate:** what the certificate states (ICH Q7 §11.4). That's the issuer, the
      lot number with its made, retest and expiry dates, the specification, and each
      criterion's method, limits or requirement, and final reportable result. A Research
@@ -59,11 +59,18 @@ predecessor. Publication appends versions and retains all earlier ones.
    - **Evidence:** everything behind the certificate. That's every attempt with its
      analyst and evidence, the full pinned criteria and each signed investigation.
      It stays internal to the lab.
-5. Sign the certificate through the selected flow. The signatures cover both parts. Use
-   **Export** on the issued record to download the certificate as signed HTML or
-   machine-readable JSON, which is what the lab sends. The HTML can be printed to PDF
-   and attached to the lot alongside any supplier certificates. Lot QA signs the lot's
-   disposition through its existing workflow.
+5. Sign the certificate record through the selected flow. It's internal: it keeps the
+   evidence for audit and has no export.
+6. Run **Issue the certificate of analysis** on the signed record. The certificate of
+   analysis holds only what the certificate states. It doesn't name the tests,
+   investigations or people behind it. A research certificate's reviewer issues it, and
+   Release Testing QA issues a regulated one. That signature is its own.
+   Use **Export** on the issued certificate to download it as signed HTML or
+   machine-readable JSON, which is what the lab sends. A recipient can check the
+   signature against the file they hold, and any edit fails that check. The HTML can be
+   printed to PDF and attached to the lot alongside any supplier certificates. The
+   certificate record names the certificate by its SHA-256 inside Iki only. Lot QA signs
+   the lot's disposition through its existing workflow.
 
 One project holds one case per lot in this example. A lab that releases the same lot again
 under a retest or rework SOP needs its own disposition and case-series policy.

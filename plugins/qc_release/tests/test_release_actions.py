@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 from copy import deepcopy
 from pathlib import Path
 from types import ModuleType
@@ -177,7 +178,6 @@ def test_certificate_preserves_original_and_ordered_retest(qc_actions: ModuleTyp
             "lower": 90,
             "upper": 110,
             "value": 90,
-            "test": "TEST2",
         }
     ]
     assert {"analysts", "investigations", "tests"}.isdisjoint(coa)
@@ -264,4 +264,50 @@ def test_a_research_certificate_says_what_it_is_for(qc_actions: ModuleType) -> N
     assert coa["title"] == "Research certificate of analysis"
     assert "not released by a quality unit" in coa["intended_use"]
     assert "issuer" not in coa
-    assert coa["issue"] == {"state": "signed_off"}
+    assert coa["issue"] == {"state": "issued"}
+
+
+def test_a_certificate_of_analysis_is_issued_from_its_signed_record_alone(
+    qc_actions: ModuleType,
+) -> None:
+    """The certificate of analysis holds only what its record says it states, so its own
+    signed export carries nothing of the evidence. The record names it by its digest."""
+    run, original = start_oos(qc_actions)
+    investigation = investigation_for(original, "released", "invalidated")
+    run["inputs"]["investigation"] = [investigation]
+    output = qc_actions.record_test(run)
+    case = run["inputs"]["case"][0]
+    case["values"].update(output["updates"]["case"][0]["values"])
+    repeat = record("test2", 1, **output["creates"][0]["values"])
+    prepared = qc_actions.prepare_certificate(
+        {
+            "inputs": {
+                "case": [case],
+                "tests": [repeat, original],
+                "investigations": [investigation],
+            },
+            "settings": {"certificate_issuer": "Synthetic Labs, 1 Example Way · +1 555 0100"},
+        }
+    )
+    values = prepared["creates"][0]["values"]
+    certificate = record("cert1", 4, **values)
+
+    with pytest.raises(ValueError, match="Finish signing the certificate record"):
+        qc_actions.issue_certificate({"inputs": {"certificate": [certificate]}})
+    certificate["values"]["review"] = "released"
+    tampered = deepcopy(certificate)
+    tampered["values"]["coa"]["results"][0]["value"] = 101
+    with pytest.raises(ValueError, match="doesn't match its digest"):
+        qc_actions.issue_certificate({"inputs": {"certificate": [tampered]}})
+
+    (issued,) = qc_actions.issue_certificate({"inputs": {"certificate": [certificate]}})["creates"]
+    assert issued["type"] == "iki/qc_release.CertificateOfAnalysis"
+    assert issued["derived_from"] == ["cert1"]
+    assert issued["values"] == {
+        "coa": values["coa"],
+        "digest": values["coa_digest"],
+        "review_flow": "regulated_qc",
+    }
+    shared = json.dumps(issued["values"])
+    evidence = ["test1", "TEST1", "test2", "inv1", "INV1", "analyst1", '": 89', "Synthetic proof"]
+    assert [text for text in evidence if text in shared] == []
