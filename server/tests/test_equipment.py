@@ -44,7 +44,7 @@ __all__ = ["database"]
 PLUGIN = PLUGINS / "equipment"
 PREFIX = "iki/equipment."
 EXAMPLE = ROOT / "examples" / "plugins" / "calibration_tracing"
-POLICY = "example/calibration_tracing."
+POLICY = "acme/calibration_tracing."
 
 SERVICED = {
     "performed_by": "engineer",

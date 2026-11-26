@@ -51,6 +51,7 @@ from typing import Any
 
 from iki_spec import API_VERSION, modules, naming
 from iki_spec.model import Environment, Plugin
+from iki_spec.writers import DIRECTORY as WRITERS
 
 __all__ = [
     "ENVIRONMENTS",
@@ -380,6 +381,8 @@ def _place_modules(directory: Path, files: Sequence[Path], *, pinned: bool) -> l
 
 def _first_party_build_file(path: Path) -> bool:
     """Source used to publish Iki's component modules, container images and dictionaries."""
+    # Left out of the server's build too: it serves the built components/, and a worker
+    # runs published images, never builds them, so no runtime reads web/ or images/ sources.
     if path.parts[0] in {"web", "images"}:
         # Image sources also carry the runtime's redistribution notices and provenance.
         return path.name not in {"README.md", "SHA256SUMS"} and not re.search(
@@ -412,16 +415,31 @@ def _runtime_files(directory: Path, name: str = "") -> list[Path]:
     return sorted(found)
 
 
-def stage_runtime(name: str, directory: Path, output: Path) -> None:
-    """Copy the files a deployment can use, retaining custom paths and executable scripts."""
+def _worker_files(name: str, directory: Path) -> list[Path]:
+    """What both worker distributions carry, file for file (ADR 0219): the runtime files
+    less writers' crates, which the plugin image builds and the server runs (ADR 0230)."""
+    return [
+        file
+        for file in _runtime_files(directory, name)
+        if file.relative_to(directory).parts[0] != WRITERS
+    ]
+
+
+def _copy(files: Sequence[Path], directory: Path, output: Path) -> None:
     output.mkdir(parents=True)
-    for file in _runtime_files(directory, name):
+    for file in files:
         target = output / file.relative_to(directory)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(file, target)
 
 
-def bundle(directory: Path, output: Path, *, pinned: bool = False) -> dict[str, Any]:
+def stage_runtime(name: str, directory: Path, output: Path) -> None:
+    """Copy the files a deployment can use, retaining custom paths and executable scripts.
+    The server's build reads writers' crates from here; workers get :func:`_worker_files`."""
+    _copy(_runtime_files(directory, name), directory, output)
+
+
+def bundle(name: str, directory: Path, output: Path, *, pinned: bool = False) -> dict[str, Any]:
     """Writes `directory`'s code to `output`, a gzipped tar workers fetch, and returns its
     ``sha256`` and ``size``. Only regular files: a symbolic link could point anywhere on
     the computer that unpacks it, so a plugin with one is refused. Times, owners and
@@ -429,8 +447,7 @@ def bundle(directory: Path, output: Path, *, pinned: bool = False) -> dict[str, 
 
     A module `directory` tracks a digest for is put there and checked first, or the
     bundle is refused: see :func:`_place_modules`."""
-    # A writer's crate is built into the plugin image, not run by workers (ADR 0230).
-    files = [f for f in _runtime_files(directory) if f.relative_to(directory).parts[0] != "writers"]
+    files = _worker_files(name, directory)
     files = sorted({*files, *_place_modules(directory, files, pinned=pinned)})
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode="w", format=tarfile.PAX_FORMAT) as tar:
@@ -498,7 +515,7 @@ def write(
     for item in sorted(plugins, key=lambda p: p.plugin.name):
         name = item.plugin.name
         label = naming.app_label(name)
-        stage_runtime(name, item.directory, code / label)
+        _copy(_worker_files(name, item.directory), item.directory, code / label)
         environments = {}
         for env_name, env in sorted(item.plugin.environments.items()):
             if not _built(env):

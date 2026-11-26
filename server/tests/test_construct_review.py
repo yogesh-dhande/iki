@@ -19,7 +19,7 @@ from iki_server.runs.models import TriggerFiring
 
 __all__ = ["database"]
 
-PLUGIN = "examples/construct_review"
+PLUGIN = "acme/construct_review"
 REVIEW = f"{PLUGIN}.ReviewedAssembly"
 
 
