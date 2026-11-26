@@ -61,6 +61,7 @@ from iki_server.entities import (
     exports,
     holds,
     people,
+    plugin_writers,
     registry,
     requests,
     schema,
@@ -107,6 +108,7 @@ from iki_spec.model import (
     AnyExport,
     CompoundExport,
     EntityType,
+    PluginExport,
     ProteinExport,
     ReportExport,
     Rule,
@@ -463,26 +465,36 @@ ViewerOut = Annotated[
 ]
 
 
-ExportFormat = Literal[
-    "genbank",
-    "fasta",
-    "protein-fasta",
-    "sdf",
-    "molfile",
-    "signed-report-html",
-    "signed-report-json",
+#: A format a type exports: one of Iki's (genbank, fasta, protein-fasta, sdf, molfile,
+#: signed-report-html, signed-report-json), or a plugin's writer's, by its qualified ID.
+ExportFormat = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=200,
+        pattern=r"^[a-z0-9][a-z0-9._/-]*$",
+        examples=["genbank", "acme/liquid_handling.tecan-worklist"],
+    ),
 ]
 
 
 class FileFormatOut(Schema):
-    format: ExportFormat = Field(description="What `/entities/{ref}/export` takes.")
+    format: str = Field(
+        description="What `/entities/{ref}/export` takes: one of Iki's formats, such as "
+        "`genbank`, or a plugin's writer's qualified ID (ADR 0230)."
+    )
     label: str = Field(description="Its name, such as GenBank.")
     extension: str = Field(description="Its file name's, such as gb.")
     media_type: str = Field(description="Its media type, such as chemical/seq-na-genbank.")
     description: str = Field(description="What of a record it holds.")
-    many: Literal["file", "one"] = Field(
+    many: Literal["file", "one", "zip"] = Field(
         description="`file`: many records make one file of it, from `POST /entity-exports` "
-        "(ADR 0229); `one`: it holds one record."
+        "(ADR 0229); `one`: it holds one record; `zip`: one record each, so many records "
+        "make a ZIP of them."
+    )
+    plugin: str | None = Field(
+        description="The plugin whose writer writes it, in the export sandbox (ADR 0230); "
+        "null for Iki's own."
     )
 
 
@@ -520,6 +532,17 @@ class CompoundExportOut(Schema):
         description="The fields an SDF can carry as data, in order, which it carries unless "
         "`fields` names fewer: those of a kind SD holds as text (not files, people or JSON)."
     )
+
+
+class PluginExportOut(Schema):
+    export: Literal["plugin"] = Field(
+        description="What it writes. `plugin`: a plugin's format, by its writer (ADR 0230)."
+    )
+    writer: str = Field(description="The writer, by its qualified ID.")
+    formats: list[FileFormatOut] = Field(
+        description="The file it's written as; none when this deployment can't write it."
+    )
+    fields: dict[str, str] = Field(description="The field each of the writer's roles reads.")
 
 
 class SignedReportExportOut(Schema):
@@ -666,7 +689,11 @@ class EntityTypeOut(Schema):
     )
     exports: list[
         Annotated[
-            FileExportOut | ProteinExportOut | CompoundExportOut | SignedReportExportOut,
+            FileExportOut
+            | ProteinExportOut
+            | CompoundExportOut
+            | SignedReportExportOut
+            | PluginExportOut,
             Field(discriminator="export"),
         ]
     ] = Field(
@@ -1497,10 +1524,12 @@ def _track_out(form: Shape, track: Track) -> dict[str, Any]:
 
 def _export_out(type_name: str, e: AnyExport) -> dict[str, Any]:
     """An export, as ``EntityTypeOut.exports`` gives it."""
-    out: dict[str, Any] = {
-        "export": e.export,
-        "formats": [asdict(f) for f in exports.FORMATS[e.export]],
-    }
+    formats = [
+        {k: v for k, v in asdict(f).items() if k != "signatures"} for f in exports.formats_of(e)
+    ]
+    if isinstance(e, PluginExport):
+        return {"export": "plugin", "writer": e.export, "formats": formats, "fields": e.fields}
+    out: dict[str, Any] = {"export": e.export, "formats": formats}
     if isinstance(e, ReportExport):
         return {**out, "report": e.report, "review": e.review, "issued": e.issued}
     if isinstance(e, ProteinExport):
@@ -3444,8 +3473,13 @@ class ExportParams(Schema):
                     "chemical/x-mdl-molfile": {},
                     "text/html": {},
                     "application/json": {},
+                    "application/octet-stream": {
+                        "description": "A plugin's format, as its media type (ADR 0230)."
+                    },
                 },
-            }
+            },
+            422: {"description": "Its plugin's writer refused it, or failed (ADR 0230)."},
+            503: {"description": "The export sandbox can't take it now: try again."},
         }
     },
 )
@@ -3456,13 +3490,27 @@ def export_entity(request: HttpRequest, ref: str, params: Query[ExportParams]) -
     with the file's SHA-256. What the file can't say, such as a feature across a linear
     molecule's ends, is listed in it where the format has a place (GenBank's COMMENT, an
     SDF's ``IKI_NOTES``), and ``Iki-Left-Out`` says how many such notes there are. Many
-    records make one file from ``POST /entity-exports`` (ADR 0229)."""
+    records make one file from ``POST /entity-exports`` (ADR 0229).
+
+    A plugin's format is written by its writer in the export sandbox (ADR 0230), and its
+    audit event names the plugin's commit and the module's digest. A writer that refuses
+    the record (``writer_refused``) or fails (``writer_failed``) is 422, and no file is
+    made; a sandbox that's busy or away is 503 (``sandbox_unavailable``) with
+    ``Retry-After``."""
     me = caller(request)
     entity = _find(me, ref, params.project)
     try:
         made = exports.export(me, entity, params.format, params.revision, data=params.fields)
     except exports.Unexportable as why:
-        raise Problem(404, str(why), code=why.code) from None
+        status = 422 if why.code in ("writer_refused", "writer_failed") else 404
+        raise Problem(status, str(why), code=why.code) from None
+    except plugin_writers.SandboxUnavailable as why:
+        raise Problem(
+            503,
+            str(why),
+            code="sandbox_unavailable",
+            headers={"Retry-After": str(plugin_writers.RETRY_AFTER)},
+        ) from None
     response = HttpResponse(made.content, content_type=made.media_type)
     response["Content-Disposition"] = f'attachment; filename="{made.name}"'
     response["Cache-Control"] = "no-store"

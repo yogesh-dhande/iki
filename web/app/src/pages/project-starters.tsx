@@ -1,8 +1,9 @@
 /**
- * A project's starters (ADRs 0198 and 0247): the recipes installed to set a project's review
- * up. Its Admins choose a review flow, drawn as the flow its records follow (ADR 0199), and the
- * members who hold each lab role. They preview the changes before applying them. Its
- * other members read what's installed and what's applied.
+ * A project's starters (ADRs 0198, 0240 and 0247): the recipes installed to set a service or
+ * procedure up, such as an assay, lot release testing or experiment sign-off. Its Admins choose a review flow,
+ * drawn as the flow its results follow (ADR 0199), and the members who hold each lab role.
+ * They preview the changes before applying them. Its other members read what's installed
+ * and what's applied.
  */
 
 import { ApiError } from "@ikisci/sdk";
@@ -20,14 +21,15 @@ import { listed } from "../requests";
 import {
   applyStarter,
   eligible,
-  flowUsed,
   independentEnough,
   planChanges,
   previewStarter,
   STARTERS,
   startersQuery,
   type Member,
+  routeOf,
   type Starter,
+  type StarterFlow,
   type StarterPlan,
   type StarterSetup,
 } from "../starters";
@@ -51,8 +53,8 @@ export function ProjectStarters() {
       <section className="card card-wide starter-intro">
         <h2 className="section-title">Starters</h2>
         <p className="muted">
-          A starter configures the review flow for new records in {project.name}, such as assay
-          results or experiments, and assigns the lab roles needed to run it.
+          A starter chooses the review flow for new work in {project.name}, such as assay results,
+          lot release testing or experiments, and assigns the lab roles needed to run it.
         </p>
         <p>
           <Link to="/projects/$slug/settings/" params={{ slug: project.slug }}>
@@ -114,19 +116,20 @@ function StarterCard({ starter, project }: { starter: Starter; project: Project 
         <div className="starter-flow" key={flow.id}>
           <h3 className="starter-flow-title">{flow.label}</h3>
           <p>{flow.summary}</p>
-          <ResultFlow type={flow.result_type} states={flow.states} />
+          <ResultFlow flow={flow} />
         </div>
       ))}
     </section>
   );
 }
 
-/** The flow a starter's result type follows, drawn: the states this review flow uses. */
-function ResultFlow({ type, states }: { type: string; states?: string[] | null }) {
+/** The flow a starter's result type follows, drawn: only this flow's route, where the type
+ * has one per flow (ADR 0240). */
+function ResultFlow({ flow: chosen }: { flow: StarterFlow }) {
+  const type = chosen.result_type;
   const flow = useQuery(typeFlowQuery(type));
   const roles = useRoleLabels();
-  const served = flow.data?.fields[0];
-  const field = served ? flowUsed(served, states) : undefined;
+  const field = routeOf(flow.data?.fields[0], chosen.states);
   if (flow.isPending) return <Loading label="Loading its flow" />;
   if (!field) return null;
   return (
@@ -292,14 +295,14 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
         {flow ? (
           <div className="starter-flow">
             <h3 className="starter-flow-title">How a {flow.label} record moves</h3>
-            <ResultFlow type={flow.result_type} states={flow.states} />
+            <ResultFlow flow={flow} />
           </div>
         ) : null}
         {applied && flow && applied.flow !== flow.id ? (
           <div className="alert alert-warning" role="note">
             <p>
-              New records will use the {flow.label} flow. Records already signed keep the review and
-              signature requirements they were signed under.
+              New {starter.governs} will use the {flow.label} flow. Existing ones keep their current
+              review and signature requirements.
             </p>
           </div>
         ) : null}

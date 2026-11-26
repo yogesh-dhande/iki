@@ -1,4 +1,4 @@
-"""Recipes installed with active plugins configure individual projects (ADRs 0198, 0223, 0247)."""
+"""Recipes installed with active plugins configure projects (ADRs 0198, 0223, 0240, 0247)."""
 
 import hashlib
 import json
@@ -36,14 +36,25 @@ class Starter:
     roles: dict[str, ProjectRole]
     required_roles: dict[str, tuple[str, ...]]
     independent_roles: dict[str, tuple[str, ...]]
-    #: What each flow asks of people, in a sentence or two.
-    summaries: dict[str, str]
-    #: The states a flow uses, when its records share one type with other flows' states.
+    #: What the project's choice governs, as in "New dose-response fits use Research".
+    governs: str = "dose-response fits"
+    #: The type whose records pin the flow when an action opens them (ADR 0240). Records
+    #: made under one, such as a release case's certificate, follow its pinned flow, not
+    #: the project's current choice. Without one, new results must be the chosen flow's
+    #: result type.
+    pinned_by: str | None = None
+    #: The states each flow's records pass through, where the result type has one route
+    #: per flow in a single state field. Without them, a flow is its result type's.
     flow_states: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: What each flow asks of people, where it differs from the general sentence for it.
+    summaries: dict[str, str] = field(default_factory=dict)
+
+    def summary(self, flow: str) -> str:
+        return self.summaries.get(flow) or FLOW_SUMMARIES[flow]
 
     @property
     def types(self) -> tuple[str, ...]:
-        return tuple(dict.fromkeys((self.result_base, *self.flows.values())))
+        return (self.result_base, *self.flows.values())
 
 
 PLATE = "iki/plate_assays."
@@ -52,6 +63,15 @@ FLOW_LABELS = {
     "author_signed": "Author sign-off",
     "research": "Research",
     "regulated_qc": "Regulated QC",
+}
+#: What a flow asks of people, in a sentence, unless a starter says it for its records.
+FLOW_SUMMARIES = {
+    "author_signed": "The author signs the record. For work the author's own signature closes.",
+    "research": "A result is recorded, then one reviewer signs it off. For discovery work, "
+    "where one check is enough.",
+    "regulated_qc": "The analyst signs the submission, an independent reviewer signs the "
+    "review, and QA signs the release: three different people, each signing in again. "
+    "For GxP and QC work.",
 }
 
 DOSE_RESPONSE = Starter(
@@ -73,18 +93,112 @@ DOSE_RESPONSE = Starter(
         "regulated_qc": (ANALYST, REVIEWER, QA),
     },
     independent_roles={"regulated_qc": (ANALYST, REVIEWER, QA)},
-    summaries={
-        "research": "A result is recorded, then one reviewer signs it off. For discovery work, "
-        "where one check is enough.",
-        "regulated_qc": "The analyst signs the submission, an independent reviewer signs the "
-        "review, and QA signs the release: three different people, each signing in again. "
-        "For GxP and QC work.",
+)
+
+# Release testing, stability and prep verification pin their flow on the record an action
+# opens: a case, a scheduled study, a verification (ADR 0240). A later choice governs only
+# records opened after it, and the ones in progress finish as they began.
+QC = "iki/qc_release."
+QC_ANALYST, QC_REVIEWER, QC_QA = QC + "analyst", QC + "reviewer", QC + "qa"
+LOT_RELEASE_TESTING = Starter(
+    id="lot-release-testing",
+    version="1.0.0",
+    label="Lot release testing",
+    description=(
+        "Choose how new release cases' investigations and certificates of analysis are "
+        "signed, and assign the release testing roles."
+    ),
+    plugin="iki/qc_release",
+    setting="review_flow",
+    result_base=QC + "ReleaseCertificate",
+    flows={"research": QC + "ResearchCertificate", "regulated_qc": QC + "QCCertificate"},
+    roles={
+        QC_ANALYST: ProjectRole.EDITOR,
+        QC_REVIEWER: ProjectRole.VIEWER,
+        QC_QA: ProjectRole.VIEWER,
     },
+    # Release Testing QA approves the specifications in either flow.
+    required_roles={
+        "research": (QC_REVIEWER, QC_QA),
+        "regulated_qc": (QC_ANALYST, QC_REVIEWER, QC_QA),
+    },
+    independent_roles={"regulated_qc": (QC_ANALYST, QC_REVIEWER, QC_QA)},
+    governs="release cases",
+    pinned_by=QC + "ReleaseCase",
+)
+
+STABILITY = "iki/stability."
+COORDINATOR, ST_ANALYST, ST_REVIEWER, ST_QA = (
+    STABILITY + r for r in ("coordinator", "analyst", "reviewer", "qa")
+)
+STABILITY_STUDY = Starter(
+    id="stability-study",
+    version="1.0.0",
+    label="Stability study",
+    description=(
+        "Choose how measurements on newly scheduled studies are reviewed, and assign who "
+        "pulls, records, reviews and releases them."
+    ),
+    plugin="iki/stability",
+    setting="review_flow",
+    result_base=STABILITY + "Measurement",
+    flows={"research": STABILITY + "Measurement", "regulated_qc": STABILITY + "Measurement"},
+    flow_states={
+        "research": ("recorded", "signed"),
+        "regulated_qc": ("recorded", "submitted", "reviewed", "released"),
+    },
+    roles={
+        COORDINATOR: ProjectRole.EDITOR,
+        ST_ANALYST: ProjectRole.EDITOR,
+        ST_REVIEWER: ProjectRole.VIEWER,
+        ST_QA: ProjectRole.VIEWER,
+    },
+    required_roles={
+        "research": (COORDINATOR, ST_REVIEWER),
+        "regulated_qc": (COORDINATOR, ST_ANALYST, ST_REVIEWER, ST_QA),
+    },
+    independent_roles={"regulated_qc": (ST_ANALYST, ST_REVIEWER, ST_QA)},
+    governs="scheduled studies",
+    pinned_by=STABILITY + "Study",
+)
+
+LOTS = "iki/lots."
+VER_ANALYST, VER_REVIEWER, LOT_QA = (
+    LOTS + r for r in ("verification_analyst", "verification_reviewer", "qa")
+)
+PREP_VERIFICATION = Starter(
+    id="plasmid-prep-verification",
+    version="1.0.0",
+    label="Plasmid prep verification",
+    description=(
+        "Choose how new verifications of physical plasmid preps are reviewed, and assign who "
+        "submits, reviews and releases them."
+    ),
+    plugin="iki/lots",
+    setting="verification_flow",
+    result_base=LOTS + "PlasmidVerification",
+    flows={"research": LOTS + "PlasmidVerification", "regulated_qc": LOTS + "PlasmidVerification"},
+    flow_states={
+        "research": ("recorded", "signed_off"),
+        "regulated_qc": ("recorded", "submitted", "reviewed", "released"),
+    },
+    roles={
+        VER_ANALYST: ProjectRole.EDITOR,
+        VER_REVIEWER: ProjectRole.VIEWER,
+        LOT_QA: ProjectRole.VIEWER,
+    },
+    required_roles={
+        "research": (VER_REVIEWER,),
+        "regulated_qc": (VER_ANALYST, VER_REVIEWER, LOT_QA),
+    },
+    independent_roles={"regulated_qc": (VER_ANALYST, VER_REVIEWER, LOT_QA)},
+    governs="plasmid verifications",
+    pinned_by=LOTS + "PlasmidVerification",
 )
 EXPERIMENT = "iki/experiments."
 AUTHOR, WITNESS, EXPERIMENT_QA = (EXPERIMENT + r for r in ("author", "reviewer", "qa"))
-# Every flow's records are experiments, created by hand: the record pins its flow when its
-# evidence is captured, and the flow's guards ask only for what that flow signs.
+# Experiments are created by hand, so every flow's records are one type with a route per
+# flow. Each record pins its flow when its evidence is captured (ADR 0247).
 EXPERIMENT_REVIEW = Starter(
     id="experiment-review",
     version="1.0.0",
@@ -97,6 +211,11 @@ EXPERIMENT_REVIEW = Starter(
         "author_signed": EXPERIMENT + "Experiment",
         "research": EXPERIMENT + "Experiment",
         "regulated_qc": EXPERIMENT + "Experiment",
+    },
+    flow_states={
+        "author_signed": ("recorded", "signed"),
+        "research": ("recorded", "witnessed"),
+        "regulated_qc": ("recorded", "submitted", "reviewed", "released"),
     },
     roles={
         AUTHOR: ProjectRole.EDITOR,
@@ -122,13 +241,16 @@ EXPERIMENT_REVIEW = Starter(
         "review, and QA signs the release: three different people, each signing in again. "
         "For GxP work.",
     },
-    flow_states={
-        "author_signed": ("recorded", "signed"),
-        "research": ("recorded", "witnessed"),
-        "regulated_qc": ("recorded", "submitted", "reviewed", "released"),
-    },
+    governs="experiment captures",
+    pinned_by=EXPERIMENT + "Experiment",
 )
-CATALOG = (DOSE_RESPONSE, EXPERIMENT_REVIEW)
+CATALOG = (
+    DOSE_RESPONSE,
+    LOT_RELEASE_TESTING,
+    STABILITY_STUDY,
+    PREP_VERIFICATION,
+    EXPERIMENT_REVIEW,
+)
 
 
 @cache
@@ -171,15 +293,16 @@ def list_starters(project: Project | None = None) -> list[dict[str, Any]]:
             "version": s.version,
             "label": s.label,
             "description": s.description,
+            "governs": s.governs,
             "flows": [
                 {
                     "id": f,
                     "label": FLOW_LABELS[f],
                     "result_type": t,
+                    "states": list(s.flow_states[f]) if f in s.flow_states else None,
                     "required_roles": list(s.required_roles[f]),
                     "independent_roles": list(s.independent_roles.get(f, ())),
-                    "summary": s.summaries[f],
-                    "states": list(s.flow_states[f]) if f in s.flow_states else None,
+                    "summary": s.summary(f),
                 }
                 for f, t in s.flows.items()
             ],
@@ -247,8 +370,9 @@ def _members(
     ):
         names = [lab_roles.label(r) for r in independent]
         raise Refused(
-            f"Choose {NUMBERS[len(independent)]} different people, one each for "
-            f"{', '.join(names[:-1])} and {names[-1]}: each signs independently of the others.",
+            f"Choose {NUMBERS.get(len(independent), str(len(independent)))} different people, "
+            f"one each for {', '.join(names[:-1])} and {names[-1]}: each signs independently "
+            "of the others.",
             field="role_assignments",
         )
     return memberships

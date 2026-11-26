@@ -215,7 +215,7 @@ describe("unwrap", () => {
 
   it("gives what a launch sends outside when it needs consent (ADR 0130)", async () => {
     const consent = {
-      api: "lab/hosted_models.foldcloud",
+      api: "acme/hosted_models.foldcloud",
       label: "FoldCloud",
       host: "fold.example.com",
       purpose: "Predicts protein structures.",
@@ -237,7 +237,7 @@ describe("unwrap", () => {
     };
     const call = iki
       .POST("/api/v1/actions/{name}/runs", {
-        params: { path: { name: "lab/hosted_models.predict_structure" } },
+        params: { path: { name: "acme/hosted_models.predict_structure" } },
         body,
       })
       .then(unwrap);

@@ -1,6 +1,7 @@
 /**
- * Starters (ADR 0198): versioned recipes a project's Admin applies to set an assay service
- * up, choosing its review flow and who holds each lab role.
+ * Starters (ADRs 0198 and 0240): versioned recipes a project's Admin applies to set an assay
+ * service or a procedure such as lot release testing up, choosing its review flow and who
+ * holds each lab role.
  * This is their data and the checks a setup screen makes before asking Iki, which makes
  * the same ones.
  */
@@ -109,6 +110,25 @@ export function eligible(
   );
 }
 
+/** A flow's own route through its result type's states: all of them, unless the type has a
+ * route per flow in one state field and the starter names this flow's (ADR 0240). Moves
+ * between its states are kept; those leading elsewhere are dropped. */
+export function routeOf(
+  field: FlowField | undefined,
+  states: readonly string[] | null | undefined,
+): FlowField | undefined {
+  if (!field || !states) return field;
+  const kept = new Set(states);
+  return {
+    ...field,
+    // A correction that would return a record to another flow's state isn't this route's.
+    states: field.states
+      .filter((s) => kept.has(s.name))
+      .map((s) => (s.on_edit && !kept.has(s.on_edit) ? { ...s, on_edit: null } : s)),
+    transitions: field.transitions.filter((t) => kept.has(t.from) && kept.has(t.to)),
+  };
+}
+
 /**
  * Whether the people chosen for these roles can each sign a different step: for every
  * group of the roles, at least as many different people hold one of them as there are
@@ -126,23 +146,4 @@ export function independentEnough(
     if (people.size < group.length) return false;
   }
   return true;
-}
-
-/**
- * A flow as one of a starter's review flows uses it: when its records share one type with
- * other flows (experiments do), only the states it uses and the moves between them.
- */
-export function flowUsed(
-  field: FlowField,
-  states: readonly string[] | null | undefined,
-): FlowField {
-  if (!states) return field;
-  const kept = new Set(states);
-  return {
-    ...field,
-    states: field.states
-      .filter((s) => kept.has(s.name))
-      .map((s) => (s.on_edit && !kept.has(s.on_edit) ? { ...s, on_edit: null } : s)),
-    transitions: field.transitions.filter((t) => kept.has(t.from) && kept.has(t.to)),
-  };
 }

@@ -38,7 +38,8 @@ function modelOf(type: string, field: string): FlowModel {
 }
 
 const RESULT = "iki/requests.QCDeliverable";
-const SAMPLE = "iki/samples.Sample";
+const SAMPLE = "iki/samples.ReviewedSample";
+const PLAIN_SAMPLE = "iki/samples.PlainSample";
 const REQUEST = "iki/requests.Request";
 const LOT = "iki/lots.Lot";
 const RESEARCH = "iki/plate_assays.ResearchAssayResult";
@@ -175,6 +176,23 @@ describe("a flow as a diagram has it", () => {
       signatures: [{ label: "Responsibility", meaning: "Responsibility" }],
     });
     expect(model.edges.filter((e) => e.kind === "correction").map((e) => e.id)).toEqual([]);
+  });
+
+  it("draws a plain sample completed by its analyst, and reopened with a reason", () => {
+    const model = modelOf(PLAIN_SAMPLE, "status");
+    expect(nextFrom(model, "received").map((n) => n.name)).toEqual(["in_testing", "done"]);
+    expect(model.nodes.find((n) => n.name === "done")).toMatchObject({
+      from: ["received", "in_testing", "retesting"],
+      setters: ["Analyst"],
+      locks: true,
+      signatures: [],
+    });
+    expect(model.nodes.find((n) => n.name === "retesting")).toMatchObject({
+      from: ["done"],
+      setters: ["Analyst"],
+      reason: "required",
+      signatures: [],
+    });
   });
 
   it("says each state in words, with its guards' messages", () => {

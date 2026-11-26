@@ -82,23 +82,38 @@ c, z, y, x = np.mgrid[0:2, 0:2, 0:96, 0:128]
 data = (c * 10000 + z * 1000 + (y * 2 + x) % 256).astype(np.uint16)
 with tifffile.TiffWriter("ome_pyramid.ome.tif", ome=True) as tif:
     opts = dict(tile=(64, 64), compression="lzw", predictor=True)
-    tif.write(data, subifds=2, metadata={
-        "axes": "CZYX", "Channel": {"Name": ["DAPI", "GFP"]},
-        "PhysicalSizeX": 0.325, "PhysicalSizeXUnit": "µm",
-        "PhysicalSizeY": 0.325, "PhysicalSizeYUnit": "µm"}, **opts)
+    tif.write(
+        data,
+        subifds=2,
+        metadata={
+            "axes": "CZYX",
+            "Channel": {"Name": ["DAPI", "GFP"]},
+            "PhysicalSizeX": 0.325,
+            "PhysicalSizeXUnit": "µm",
+            "PhysicalSizeY": 0.325,
+            "PhysicalSizeYUnit": "µm",
+        },
+        **opts,
+    )
     tif.write(data[:, :, ::2, ::2], subfiletype=1, **opts)
     tif.write(data[:, :, ::4, ::4], subfiletype=1, **opts)
 
 yy, xx = np.mgrid[0:40, 0:50]
 f = (xx * 0.5 - yy * 0.25).astype(">f4")
 f[3, 4] = np.nan
-tifffile.imwrite("float_predictor3_bigtiff.tif", f, bigtiff=True, byteorder=">",
-                 tile=(32, 32), compression="zlib", predictor=3)
+tifffile.imwrite(
+    "float_predictor3_bigtiff.tif",
+    f,
+    bigtiff=True,
+    byteorder=">",
+    tile=(32, 32),
+    compression="zlib",
+    predictor=3,
+)
 
 y, x = np.mgrid[0:64, 0:96]
 rgb = np.stack([x * 2, y * 3, x + y], -1).astype(np.uint8)
-tifffile.imwrite("jpeg_ycbcr_tiles.tif", rgb, tile=(32, 32), compression="jpeg",
-                 photometric="rgb")
+tifffile.imwrite("jpeg_ycbcr_tiles.tif", rgb, tile=(32, 32), compression="jpeg", photometric="rgb")
 Image.fromarray(rgb).save("jpeg_rgb_strips.tif", compression="jpeg")
 
 idx = ((x // 12 + y // 16) % 4).astype(np.uint8)
@@ -119,11 +134,31 @@ ws.title = "Results"
 run = dt.datetime(2026, 3, 9, 14, 5, 30)
 took = dt.timedelta(hours=1, minutes=42, seconds=7)
 rows = [
-    ["Well", "Sample", "Target", "Cq", "Quantity (copies/µL)", "Run started", "Run time", "Passed QC", "Notes"],
+    [
+        "Well",
+        "Sample",
+        "Target",
+        "Cq",
+        "Quantity (copies/µL)",
+        "Run started",
+        "Run time",
+        "Passed QC",
+        "Notes",
+    ],
     ["A1", "NTC", "GAPDH", "Undetermined", None, run, took, False, "no template control"],
     ["A2", "Donor 17 PBMC", "GAPDH", 18.4321, 152000.0, run, took, True, None],
     ["A3", "Donor 17 PBMC", "IL-6", 31.07, 0.000125, run, took, True, "  low copy, repeat  "],
-    ["B1", "Standard 1e6", "GAPDH", 15.002, 1e6, dt.date(2026, 3, 9), dt.timedelta(days=1, hours=2), True, "Std curve slope −3.32"],
+    [
+        "B1",
+        "Standard 1e6",
+        "GAPDH",
+        15.002,
+        1e6,
+        dt.date(2026, 3, 9),
+        dt.timedelta(days=1, hours=2),
+        True,
+        "Std curve slope −3.32",
+    ],
 ]
 for r, row in enumerate(rows, start=3):
     for c, value in enumerate(row, start=2):

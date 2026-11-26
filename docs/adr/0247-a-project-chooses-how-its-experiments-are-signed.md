@@ -3,7 +3,8 @@
 - Status: Accepted
 - Date: 2026-11-26
 - Refines: [0189](0189-an-experiment-pins-the-evidence-its-witness-signs.md),
-  [0198](0198-a-project-applies-a-versioned-assay-starter.md)
+  [0198](0198-a-project-applies-a-versioned-assay-starter.md),
+  [0240](0240-a-project-chooses-its-release-stability-and-verification-review.md)
 
 ## Context
 
@@ -40,10 +41,13 @@ recorded follows the new flow at its next capture.
 
 Every flow's records are **Experiment** records. Experiments are created by
 hand from the type picker, so one type per flow would make each author choose a
-review procedure there. Instead, the starter lists the states each flow uses,
-and the starters page draws only those states and the moves between them. The
-API lists, for each flow, a summary and the roles whose signers must be
-different people, so the page checks the same condition the server applies.
+review procedure there. As [ADR 0240](0240-a-project-chooses-its-release-stability-and-verification-review.md) does for stability
+measurements, the starter names each flow's route through the type's one state
+field, and the starters page draws only that route. The experiment pins its
+own flow (`pinned_by`) when its evidence is captured. The API also lists, for
+each flow, a summary of what it asks of people and the roles whose signers must
+be different people. The setup page checks the same condition the server
+applies, instead of deriving it from the type's signatures.
 
 ## Consequences
 

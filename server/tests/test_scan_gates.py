@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import pytest
 from api_client import problem
-from django.utils import timezone
 from org_world import World
 from test_api_entities import api_as, create
 from test_file_fields import STRUCTURE
@@ -23,10 +22,15 @@ from iki_server.entities.models import Entity
 from iki_server.files import scan_state
 from iki_server.files.models import Blob, File
 from iki_server.runs.models import ActionRun, Job
+from iki_server.tasks.runner import Runner
 
 __all__ = ["keep_connection", "world"]
 
 pytestmark = pytest.mark.django_db
+
+
+def run_tasks() -> int:
+    return Runner(queues=["default"]).run_ready()
 
 
 def _file(world: World, name: str = "structure.pdb", *, registered: bool = False) -> File:
@@ -95,18 +99,22 @@ def test_authorized_readers_see_status_without_getting_a_content_url(
 
 
 @pytest.mark.parametrize("infected", [False, True])
-def test_fields_and_run_parameters_require_a_usable_file(world: World, infected: bool) -> None:
+def test_fields_require_a_usable_file_and_params_one_not_held(world: World, infected: bool) -> None:
     pdb, fasta = _file(world), _file(world, "proteins.fasta")
     if infected:
         _infected(pdb)
         _infected(fasta)
     editor = api_as(world)
     field = create(editor, world.project, {"structure": str(pdb.pk)}, STRUCTURE)
-    param = launch(editor, world.project, {}, IMPORT, params={"file": str(fasta.pk)})
     explanation = "quarantin" if infected else "scan"
     assert explanation in errors(field)["#/values/structure"].lower()
-    assert explanation in errors(param)["#/params/file"].lower()
-    assert not ActionRun.objects.exists()
+    param = launch(editor, world.project, {}, IMPORT, params={"file": str(fasta.pk)})
+    if infected:
+        assert "quarantin" in errors(param)["#/params/file"].lower()
+        assert not ActionRun.objects.exists()
+    else:
+        # A run waits for its param's scan (ADR 0234): test_scan_waits.py.
+        assert param.status_code == 201, param.content
 
 
 @pytest.mark.parametrize("infected", [False, True])
@@ -123,28 +131,24 @@ def test_a_lease_waits_for_files_in_the_pinned_included_record(
     ).entity
     editor = api_as(world)
     inputs = {"sample": str(sample.pk)}
-    action = "acme/protein.measure_purity"
-    denied = launch(editor, world.project, inputs, action)
-    assert "scann" in problem(denied, 409, "refused")["detail"].lower()
-    # The existing queue entry models a job accepted before the scan gate was installed.
-    with patch.object(scan_state.ScanStatus, "require_usable"):
-        run = launch(editor, world.project, inputs, action)
+    run = launch(editor, world.project, inputs, "acme/protein.measure_purity")
     assert run.status_code == 201, run.content
+    # The run reads the lot at its pinned revision, whose report it waits for (ADR 0234).
     services.update(world.users["editor"], lot, {"report": None}, expected_revision=1)
     pod = worker(world)
     assert pod.lease().status_code == 204
     waiting = Job.objects.get(run_id=run.json()["id"])
-    assert waiting.state == "queued" and waiting.queued_at > timezone.now()
-    assert "scann" in waiting.progress_message.lower()
-    Job.objects.filter(pk=waiting.pk).update(queued_at=timezone.now())
+    assert waiting.state == "queued" and waiting.scan_wait_files == [file.pk]
     if infected:
         _infected(file)
+        run_tasks()
         assert pod.lease().status_code == 204
         ended = ActionRun.objects.get(pk=run.json()["id"])
-        assert ended.status == "rejected" and ended.error is not None
-        assert "quarantin" in ended.error["message"].lower()
+        assert ended.status == "failed" and ended.error is not None
+        assert ended.error["code"] == "file_quarantined"
     else:
         scan_state.record_result(file.blob, state="clean", scanner="test", signature_version="1")
+        run_tasks()
         leased = pod.lease()
         assert leased.status_code == 200, leased.content
         assert list(leased.json()["files"]) == [str(file.pk)]

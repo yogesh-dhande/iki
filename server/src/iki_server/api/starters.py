@@ -20,17 +20,20 @@ StarterFlow = Literal["author_signed", "research", "regulated_qc"]
 class StarterFlowOut(Schema):
     id: StarterFlow
     label: str
-    result_type: str = Field(description="Qualified type of the records new in this flow.")
+    result_type: str = Field(
+        description="Qualified result type whose states this flow's records pass through."
+    )
+    states: list[str] | None = Field(
+        default=None,
+        description="The result type's states in this flow, where its one state field has a "
+        "route per flow. Null: all of them.",
+    )
     required_roles: list[str] = Field(description="Qualified lab roles needed to run this flow.")
     independent_roles: list[str] = Field(
         description="Required roles whose signatures must come from different people: each "
         "group of them needs at least as many people as it has roles."
     )
     summary: str = Field(description="What the flow asks of people, in a sentence or two.")
-    states: list[str] | None = Field(
-        description="The states of `result_type` this flow uses, when the type's records "
-        "follow more than one flow. Null when it uses all of them."
-    )
 
 
 class StarterRoleOut(Schema):
@@ -51,6 +54,10 @@ class StarterOut(Schema):
     version: str
     label: str
     description: str
+    governs: str = Field(
+        description="The records the project's choice applies to from now on, such as "
+        "`release cases`. Those already opened keep the flow they were opened with."
+    )
     flows: list[StarterFlowOut]
     roles: list[StarterRoleOut]
     types: list[str] = Field(description="Qualified types the starter uses.")
@@ -131,8 +138,8 @@ def apply_starter(request: HttpRequest, starter: str, payload: StarterApplyIn) -
     If what applying does changed since the preview, as when another Admin removed a grant or
     applied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,
     what applying would do now, for review (ADR 0207). Reapplying a setup that's in place
-    changes nothing. Changing the flow selects the result type for future fits. Existing
-    results keep their flow."""
+    changes nothing. Changing the flow applies to records opened from now on, such as
+    new fits or release cases. Existing ones keep their flow."""
     me = common.caller(request)
     project = common.project(me, payload.project, Action.PROJECT_MANAGE)
     try:

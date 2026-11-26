@@ -327,7 +327,10 @@ def test_an_experiment_review_flow_asks_only_for_the_signers_it_needs(
         ("regulated_qc", ["recorded", "submitted", "reviewed", "released"]),
     ]
     assert {f["result_type"] for f in listed["flows"]} == {starters.EXPERIMENT + "Experiment"}
-    assert listed["types"] == [starters.EXPERIMENT + "Experiment"]
+    assert set(listed["types"]) == {starters.EXPERIMENT + "Experiment"}
+    assert [f["summary"] for f in listed["flows"]] == [
+        recipe.summaries[f] for f in ("author_signed", "research", "regulated_qc")
+    ]
     with pytest.raises(services.Refused, match="two different people"):
         starters.preview(
             project,

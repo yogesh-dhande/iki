@@ -1,13 +1,23 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/reagents
-version: 0.1.0
+version: 0.2.0
 title: Reagents and consumables
-description: Track catalogue packs, stock across storage, reorder lines and partial deliveries.
+description: Track catalogue packs, stock across storage, reorder lines, partial deliveries and stock received without an order.
 iki: ">=0.1"
 license: Apache-2.0
 dependencies:
   iki/lots: { types: { Lot: ">=2" } }
+settings:
+  receipts_without_order:
+    type: enum
+    label: Receipts without an order
+    values: [allowed, refused]
+    default: allowed
+    description: >-
+      Allowed lets a project receive a supplier delivery, a transfer or its opening stock
+      without a reorder line. Refused receives stock only against a reorder line, for a lab
+      whose purchasing procedure requires one.
 roles:
   stock_manager:
     {

@@ -1,11 +1,11 @@
 apiVersion: iki/v1
 kind: Action
 name: hold_withdrawn
-label: Hold stock derived from a withdrawn tube
-description: Applies the source tube's hold to its downstream stock in this project.
+label: Hold stock derived from a withdrawn container
+description: Applies the source container's hold to its downstream stock in this project.
 inputs:
-  source: { type: Tube }
-  tubes: { type: Tube, cardinality: many, optional: true }
+  source: { type: Container }
+  tubes: { type: Container, cardinality: many, optional: true }
 effects:
   updates:
     - { input: source, fields: [hold_reason] }

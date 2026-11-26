@@ -1,0 +1,36 @@
+# The liquid-handling plugin's Tecan worklist writer (ADR 0230): a Freedom EVOware or
+# FluentControl worklist (.gwl), one aspirate, dispense and wash per transfer.
+#
+# Its own workspace, so no other is ever taken for it. iki-writer, Iki's SDK, isn't on
+# crates.io yet; worker/crates/iki-writer/build-writer.sh patches it in to build the
+# module, and its unit tests run natively with the same patch, from this directory:
+#
+#   cargo test --config 'patch.crates-io.iki-writer.path="../../../../../worker/crates/iki-writer"'
+#
+# scripts/build-writer-wasm.sh builds the module here; `uv run iki plugin writers
+# examples/plugins/liquid_handling --update` writes its digest, from the Linux x86-64
+# builder.
+[package]
+name = "tecan-worklist"
+description = "Writes liquid transfers as a Tecan Freedom EVOware or FluentControl worklist."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+license = "Apache-2.0"
+publish = false
+
+[workspace]
+
+[lib]
+# cdylib for the writer's module; rlib for its unit tests.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+iki-writer = "=0.1.0-dev.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+opt-level = "s"

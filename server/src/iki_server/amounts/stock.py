@@ -119,7 +119,8 @@ class StockSummary:
     hrid: str
     name: str
     unit: str
-    threshold: str
+    #: None for an item the lab doesn't reorder by its level: it's never low.
+    threshold: str | None
     physical: str
     stored: str
     available: str
@@ -293,7 +294,8 @@ def summaries(project: Project, records: list[Entity]) -> list[StockSummary]:
     for item in records:
         cfg = catalogues()[item.type]
         fields = values[item.pk]
-        threshold = Decimal(str(fields[cfg.threshold]))
+        given = fields[cfg.threshold]
+        threshold = None if given is None else Decimal(str(given))
         physical, stored, available = totals[item.pk]
         out.append(
             StockSummary(
@@ -301,11 +303,11 @@ def summaries(project: Project, records: list[Entity]) -> list[StockSummary]:
                 item.hrid,
                 fields[cfg.name] or item.hrid,
                 fields[cfg.unit],
-                amounts.shown(threshold),
+                None if threshold is None else amounts.shown(threshold),
                 amounts.shown(physical),
                 amounts.shown(stored),
                 amounts.shown(available),
-                available <= threshold,
+                threshold is not None and available <= threshold,
                 pending.get(item.pk, 0),
             )
         )
