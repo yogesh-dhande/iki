@@ -3404,7 +3404,7 @@ def bookings(alice: requests.Session, project: dict[str, Any]) -> None:
     items = tab.json()["items"]
     if [i["hrid"] for i in items] != [b["hrid"] for b in booked[:2]]:
         fail(f"{reader['hrid']}'s calendar shows {[i['hrid'] for i in items]}, not its bookings")
-    reads = {"purpose", "instrument", "starts_at", "ends_at", "booked_by", "work"}
+    reads = {"purpose", "instrument", "starts_at", "ends_at", "booked_by", "work", "cancelled"}
     if not {"purpose", "instrument", "starts_at", "ends_at"} <= set(items[0]["values"]) <= reads:
         fail(f"the calendar was given {sorted(items[0]['values'])}, not the fields it reads")
     if items[0]["refs"].get(entry_of(reader), {}).get("hrid") != reader["hrid"]:
