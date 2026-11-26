@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/qc_release
-version: 0.2.1
+version: 0.3.0
 title: QC release testing
 description: Effective-dated lot specifications, out-of-specification investigations and signed certificates of analysis.
 license: Apache-2.0
@@ -19,6 +19,16 @@ settings:
     values: [research, regulated_qc]
     default: research
     description: New release cases retain this flow for investigations and certificates.
+  successor_effective_dates:
+    type: enum
+    label: When a successor specification can take effect
+    values: [future, same_day, backdated]
+    default: future
+    description: >-
+      future: a successor version starts after today (UTC). same_day: it can start today.
+      backdated: it can start on an earlier date, as when importing a history of approved
+      versions, and its publication states why. Under every policy a successor starts after
+      its predecessor and after every testing date a release case has already pinned.
 roles:
   analyst:
     label: QC analyst
