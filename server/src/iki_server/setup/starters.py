@@ -177,24 +177,24 @@ PREP_VERIFICATION = Starter(
     governs="plasmid verifications",
     pinned_by=LOTS + "PlasmidVerification",
 )
-# Mass spectrometry results pin their flow when the import records them (ADR 0266).
+# Omics results pin their flow when the import records them (ADR 0266).
 # Record only keeps the report as evidence: its results stay recorded, and no one signs.
-MS_STATES = {
+RESULT_STATES = {
     "research": ("recorded", "signed_off"),
     "regulated_qc": ("recorded", "submitted", "reviewed", "released"),
     "record_only": ("recorded",),
 }
 
 
-def _ms_review(plugin: str, result: str, **more: str) -> Starter:
+def _result_review(plugin: str, result: str, **more: str) -> Starter:
     analyst, reviewer, qa = (f"{plugin}.{r}" for r in ("analyst", "reviewer", "qa"))
     return Starter(
         version="1.0.0",
         plugin=plugin,
         setting="review_flow",
         result_base=f"{plugin}.{result}",
-        flows=dict.fromkeys(MS_STATES, f"{plugin}.{result}"),
-        flow_states=MS_STATES,
+        flows=dict.fromkeys(RESULT_STATES, f"{plugin}.{result}"),
+        flow_states=RESULT_STATES,
         roles={analyst: ProjectRole.EDITOR, reviewer: ProjectRole.VIEWER, qa: ProjectRole.VIEWER},
         required_roles={
             "research": (reviewer,),
@@ -207,7 +207,7 @@ def _ms_review(plugin: str, result: str, **more: str) -> Starter:
     )
 
 
-PROTEOMICS_REVIEW = _ms_review(
+PROTEOMICS_REVIEW = _result_review(
     "iki/proteomics",
     "ProteomicsResult",
     id="proteomics-search-review",
@@ -218,7 +218,7 @@ PROTEOMICS_REVIEW = _ms_review(
     ),
     governs="proteomics search results",
 )
-BIOLOGICS_MS_REVIEW = _ms_review(
+BIOLOGICS_MS_REVIEW = _result_review(
     "iki/biologics_ms",
     "MSResult",
     id="biologics-ms-review",
