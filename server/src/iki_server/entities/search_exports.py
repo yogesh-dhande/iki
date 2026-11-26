@@ -152,8 +152,9 @@ def text(f: Mapping[str, Any], value: Any, row: Row) -> str:  # noqa: ANN401 - J
             for item in value
         )
     if isinstance(value, list):
+        # Items apart by "; ", as a spreadsheet import reads a list back (ADR 0178).
         item = {**f, "type": f.get("items") or "string"}
-        return ", ".join(text(item, v, row) for v in value)
+        return "; ".join(_item(text(item, v, row)) for v in value)
     kind = f["type"]
     if kind == "bool":
         return "Yes" if value is True else "No"
@@ -177,6 +178,14 @@ def text(f: Mapping[str, Any], value: Any, row: Row) -> str:  # noqa: ANN401 - J
     if kind == "state":
         return _state(f, value, row)
     return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+
+
+def _item(shown: str) -> str:
+    """A list's item as its cell holds it: in double quotes, a quote in it doubled, where
+    it holds a semicolon or starts with a quote, so the import reads it as one item."""
+    if ";" in shown or shown.startswith('"'):
+        return '"' + shown.replace('"', '""') + '"'
+    return shown
 
 
 def _shown(f: Mapping[str, Any], value: float) -> float:
