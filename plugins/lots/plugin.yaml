@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/lots
-version: 0.6.1
+version: 0.7.0
 title: Lots
 description: >-
   Lots of any registered entity: what was made or bought at one time, how much of it is
@@ -54,6 +54,13 @@ roles:
   verification_reviewer:
     label: Verification reviewer
     description: Reviews a prep’s evidence against the pinned plasmid revision and signs the outcome.
+  stock_keeper:
+    label: Stock keeper
+    description: >-
+      Makes received or made material available for use without a QA release, under the
+      lab's own procedure, as for research material and consumables. Puts available lots
+      on hold, and marks lots expired. A project whose lots need QA release leaves this
+      role unassigned: then only Lot QA's signed release makes a lot usable.
   qa:
     label: Lot QA
     description: >-

@@ -83,18 +83,29 @@ describe("the plugins' flows", () => {
     expect(lot.filter((m) => m.endsWith("> on_hold"))).toEqual([
       "quarantined > on_hold",
       "released > on_hold",
+      "available > on_hold",
+      "retest_due > on_hold",
     ]);
     expect(lot.filter((m) => m.includes("> expired"))).toEqual([
       "quarantined > expired ?",
       "released > expired ?",
+      "available > expired ?",
+      "retest_due > expired ?",
       "on_hold > expired ?",
       "rejected > expired ?",
     ]);
-    // Released from Quarantined or On hold; its other guards are the record's and the
-    // person's, one of them only when the lot was made.
+    // Released from Quarantined, Due for retest or On hold; its other guards are the
+    // record's and the person's, one of them only when the lot was made.
     expect(lot.filter((m) => m.endsWith("> released ?"))).toEqual([
       "quarantined > released ?",
+      "retest_due > released ?",
       "on_hold > released ?",
+    ]);
+    // Made available from Quarantined, or from On hold only when it was available
+    // before, which only its history knows (ADR 0242).
+    expect(lot.filter((m) => m.includes("> available"))).toEqual([
+      "quarantined > available",
+      "on_hold > available ?",
     ]);
   });
 
@@ -210,6 +221,7 @@ describe("a flow as a diagram has it", () => {
     const lot = modelOf(LOT, "disposition");
     expect(nextFrom(lot, "released").map((n) => n.name)).toEqual([
       "quarantined",
+      "retest_due",
       "on_hold",
       "rejected",
       "expired",

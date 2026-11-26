@@ -66,6 +66,8 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
     parents = {name: t.extends for name, t in concrete.items()}
     assert parents == {
         "GenericLot": "iki/lots.Lot",
+        "GenericVolumeLot": "iki/lots.Lot",
+        "GenericCountLot": "iki/lots.Lot",
         "OligoLot": "iki/lots.Lot",
         "PlasmidPrep": "iki/lots.Lot",
         "PolymerLot": "iki/lots.Lot",
@@ -78,8 +80,11 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
     # Distinct physical isolates of one strain are distinct materials.
     assert all(t.amount is not None for t in concrete.values())
     units = {name: t.amount.unit for name, t in concrete.items() if t.amount is not None}
+    # A generic material is kept by mass, by volume, or as whole items (ADR 0242).
     assert units == {
         "GenericLot": "mg",
+        "GenericVolumeLot": "mL",
+        "GenericCountLot": "1",
         "OligoLot": "nmol",
         "PlasmidPrep": "ug",
         "PolymerLot": "mg",
@@ -88,8 +93,11 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "StrainIsolate": "uL",
     }
     materials = {n: t.amount.material for n, t in concrete.items() if t.amount is not None}
+    assert concrete["GenericCountLot"].amount.whole_units  # type: ignore[union-attr]
     assert materials == {
         "GenericLot": "of",
+        "GenericVolumeLot": "of",
+        "GenericCountLot": "of",
         "OligoLot": "oligonucleotide",
         "PlasmidPrep": "plasmid",
         "PolymerLot": "polymer",
@@ -104,6 +112,8 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
     }
     assert refs == {
         "GenericLot": ["iki/core.Entity"],
+        "GenericVolumeLot": ["iki/core.Entity"],
+        "GenericCountLot": ["iki/core.Entity"],
         "OligoLot": ["iki/oligo.Oligonucleotide"],
         "PlasmidPrep": ["iki/plasmid.Plasmid"],
         "PolymerLot": ["iki/polymer.Polymer"],
@@ -136,7 +146,13 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "not_who_edited_it",
         "a_person",
     }
-    assert {s for st in states.values() for s in st.set_by} == {"iki/lots.qa"}
+    # Only QA releases or rejects. A stock keeper makes research material available
+    # without a release, and holds or expires what's in use (ADR 0242).
+    assert {s for n in ("released", "rejected", "retest_due") for s in states[n].set_by} == {
+        "iki/lots.qa"
+    }
+    assert states["available"].set_by == ("iki/lots.stock_keeper",)
+    assert not states["available"].locks and not states["available"].signatures
 
 
 def test_each_kind_of_lot_works_out_its_values_when_its_recorded_and_measured() -> None:
@@ -1240,3 +1256,188 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
             "Register a single-stranded circle, such as a phage's genome, as a DNA sequence."
         ]
     }
+
+
+def test_a_stock_keeper_makes_research_material_available_without_qa(
+    tmp_path: Path, database: str
+) -> None:
+    """Where the lab's procedure has no QA release (ADR 0242): in a project with stock
+    keepers and no Lot QA, a received lot is drawn from once it's made available, stays
+    editable, and goes on hold and back; nobody there can release or reject it, nor lift
+    QA's hold; and QA marks a lot past its retest date Due for retest, not expired, and
+    releases it again on its retest."""
+    out = tmp_path / "build"
+    built = iki("plugin", "build", *build_order(LOTS), "--output", out, cwd=ROOT)
+    assert built.returncode == 0, built.stdout + built.stderr
+    migrate(out, database)
+    sync(out, database)
+    result = orm(
+        out,
+        database,
+        """
+        import datetime as dt
+        from decimal import Decimal
+        from django.db import transaction
+        from iki_server.accounts.models import User
+        from iki_server.amounts import services as amounts
+        from iki_server.entities import services, states
+        from iki_server.entities.models import Entity
+        from iki_server.org import permissions
+        from iki_server.org.models import LabRoleGrant, ProjectMembership, ProjectRole
+
+        sam, eve = (User.objects.create_user(f"{n}@example.com") for n in ("sam", "eve"))
+        member = {
+            u: ProjectMembership.objects.create(project=project, user=u, role=ProjectRole.EDITOR)
+            for u in (sam, eve)
+        }
+        LabRoleGrant.objects.create(membership=member[sam], role="iki/lots.stock_keeper")
+        assert not LabRoleGrant.objects.filter(role="iki/lots.qa").exists()
+        disposition = states.state_fields("iki/lots.GenericLot")["disposition"]
+        one = amounts.Given(Decimal("1"), "mg")
+        today = dt.date.today()
+
+        def refused(do):
+            try:
+                do()
+            except Exception as error:
+                return type(error).__name__
+            return None
+
+        def move(who, lot, state, reason=""):
+            lot.refresh_from_db()
+            states.set_state(who, lot, "disposition", state,
+                             expected_revision=lot.revision, reason=reason)
+            lot.refresh_from_db()
+            return states.values_of(lot)["disposition"]
+
+        def allowed(who, lot):
+            lot.refresh_from_db()
+            current = states.values_of(lot)["disposition"]
+            return sorted(
+                name for name, state in disposition.states.items()
+                if name != current and state.set_by
+                and states.refusal(who, lot, state.set_by, state.label,
+                                   field="disposition") is None
+                and states.condition(who, lot, "disposition", state) is None
+            )
+
+        # A reagent bought for research, its supplier's lot with no certificate: sodium
+        # chloride, PubChem CID 5234. The lots, suppliers and amounts are synthetic.
+        salt = services.create(
+            eve, "iki/small_molecule.Compound", project,
+            {"name": "Sodium chloride", "smiles": "[Na+].[Cl-]",
+             "inchikey": "FAPWRFPIFSIZLT-UHFFFAOYSA-M"},
+        ).entity
+        lot = services.create(
+            eve, "iki/lots.GenericLot", project,
+            {"of": str(salt.entry_id), "lot_number": "NACL-2291", "source": "bought",
+             "supplier": "Synthetic Reagents Inc.", "responsible": str(sam.pk)},
+            amount={"value": 100, "unit": "mg"},
+        ).entity
+        out = {"quarantined_routine": refused(lambda: amounts.draw(eve, lot, one))}
+        out["eve_may"] = allowed(eve, lot)
+        out["sam_may"] = allowed(sam, lot)
+        out["made_available"] = move(sam, lot, "available")
+        amounts.draw(eve, lot, one, reason="Western blot")
+        lot.refresh_from_db()
+        services.update(eve, lot, {"notes": "Dissolved to 1 M in water"},
+                        expected_revision=lot.revision)
+        out["held"] = move(sam, lot, "on_hold", "Precipitate seen in the stock bottle")
+        out["held_draw"] = refused(lambda: amounts.draw(eve, lot, one))
+        out["back"] = move(sam, lot, "available", "Redissolved on warming")
+        out["expired"] = refused(lambda: move(sam, lot, "expired", "Not yet"))
+        out["left"] = str(amounts.amounts_of([lot])[lot.pk].value)
+
+        # The same route for a solvent kept by volume and a standard kept in vials.
+        dmso = services.create(
+            eve, "iki/small_molecule.Compound", project,
+            {"name": "Dimethyl sulfoxide", "smiles": "CS(C)=O",
+             "inchikey": "IAZDPXIOMUYVGZ-UHFFFAOYSA-N"},
+        ).entity
+        solvent = services.create(
+            eve, "iki/lots.GenericVolumeLot", project,
+            {"of": str(dmso.entry_id), "lot_number": "DMSO-0007", "source": "bought",
+             "supplier": "Synthetic Reagents Inc."},
+            amount={"value": 1, "unit": "L"},
+        ).entity
+        vials = services.create(
+            eve, "iki/lots.GenericCountLot", project,
+            {"of": str(salt.entry_id), "lot_number": "NACL-STD-3", "source": "bought",
+             "supplier": "Synthetic Reagents Inc.", "item": "1 g ampoule"},
+            amount={"value": 12, "unit": "1"},
+        ).entity
+        move(sam, solvent, "available")
+        move(sam, vials, "available")
+        amounts.draw(eve, solvent, amounts.Given(Decimal("250"), "uL"), reason="Stock solution")
+        amounts.draw(eve, vials, amounts.Given(Decimal("1"), "1"), reason="Calibration")
+        out["half_vial"] = refused(
+            lambda: amounts.draw(eve, vials, amounts.Given(Decimal("0.5"), "1"))
+        )
+        out["solvent_left"] = str(amounts.amounts_of([solvent])[solvent.pk].value)
+        out["vials_left"] = str(amounts.amounts_of([vials])[vials.pk].value)
+
+        # Lot QA joins. A hold QA puts on a released lot is QA's to lift, and a lot past
+        # its retest date comes due for retest and is released again once it's retested.
+        LabRoleGrant.objects.create(membership=member[eve], role="iki/lots.qa")
+        permissions.forget(eve)
+        coa = File.objects.create(blob=blob, name="CoA.pdf", media_type="application/pdf",
+                                  project=project)
+        made = services.create(
+            sam, "iki/lots.GenericLot", project,
+            {"of": str(salt.entry_id), "lot_number": "NACL-0042", "source": "bought",
+             "certificates": [str(coa.pk)],
+             "retest_on": (today - dt.timedelta(days=1)).isoformat(),
+             "expires_on": (today + dt.timedelta(days=365)).isoformat()},
+            amount={"value": 10, "unit": "mg"},
+        ).entity
+
+        def release(lot):
+            # As its QA signature does (ADR 0126), once its guards let it.
+            with transaction.atomic():
+                locked = Entity.objects.select_for_update().get(pk=lot.pk)
+                assert states.condition(eve, locked, "disposition",
+                                        disposition.states["released"]) is None
+                states.write(locked, disposition, "released", eve, "")
+            lot.refresh_from_db()
+
+        release(made)
+        out["retest_due"] = move(eve, made, "retest_due")
+        out["retest_routine"] = refused(lambda: amounts.draw(sam, made, one))
+        amounts.draw(eve, made, one, purpose="qa_sampling", reason="Retest sample")
+        out["hold_released"] = move(eve, made, "on_hold", "Retest result pending")
+        out["keeper_lifts_qa_hold"] = refused(lambda: move(sam, made, "available"))
+        out["keeper_may_on_qa_hold"] = allowed(sam, made)
+        # Retested: its new retest date is recorded, and QA releases it again.
+        made.refresh_from_db()
+        services.update(sam, made, {"retest_on": (today + dt.timedelta(days=180)).isoformat()},
+                        expected_revision=made.revision, reason="Retested to specification")
+        out["rereleased_may"] = allowed(eve, made)
+        release(made)
+        amounts.draw(sam, made, one, reason="After its retest")
+        out["made_left"] = str(amounts.amounts_of([made])[made.pk].value)
+        result = out
+        """,
+    )
+    assert result["quarantined_routine"] == "Wrong"
+    # Without Lot QA, nobody here can release or reject: the stock keeper makes it
+    # available, holds it or expires it, and an editor alone does none of these.
+    assert result["eve_may"] == []
+    assert result["sam_may"] == ["available", "on_hold"]
+    assert (result["made_available"], result["held"], result["back"]) == (
+        "available",
+        "on_hold",
+        "available",
+    )
+    assert result["held_draw"] == "Wrong"
+    assert result["expired"] == "GuardRefused"
+    assert Decimal(result["left"]) == 99
+    assert Decimal(result["solvent_left"]) == Decimal("999.75")
+    assert Decimal(result["vials_left"]) == Decimal(11)
+    assert result["half_vial"] == "Wrong"
+    assert result["retest_due"] == "retest_due"
+    assert result["retest_routine"] == "Wrong"
+    assert result["hold_released"] == "on_hold"
+    assert result["keeper_lifts_qa_hold"] == "GuardRefused"
+    assert "available" not in result["keeper_may_on_qa_hold"]
+    assert "released" in result["rereleased_may"]
+    assert Decimal(result["made_left"]) == 8
