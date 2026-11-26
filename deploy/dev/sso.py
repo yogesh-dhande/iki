@@ -2336,20 +2336,43 @@ def qc_release(alice: requests.Session, project: dict[str, Any]) -> None:
         or report["investigations"][0]["resolution"] != "invalidated"
     ):
         fail(f"{certificate['hrid']} lost the pinned data: {report}")
+    # The certificate states each criterion's final result and says it's for research,
+    # without the failed attempt or its investigation.
+    coa = certificate["values"]["coa"]
+    if [row["value"] for row in coa["results"]] != [99.9, 0.2] or "research" not in coa.get(
+        "intended_use", ""
+    ):
+        fail(f"{certificate['hrid']} states the wrong results: {coa}")
     sign(certificate, "review", "signed_off")
     proofs = api_call(alice, "GET", f"/entities/{certificate['id']}/signatures?verify=true").json()
     if len(proofs["items"]) != 1 or not proofs["items"][0]["verification"]["valid"]:
         fail(f"{certificate['hrid']} has no verifiable reviewer signature")
-    url = f"/entities/{certificate['id']}/export?format=signed-report-json"
+    # The certificate of analysis is issued, and signed, on its own: what's sent holds
+    # only what it states, and the record keeps the evidence.
+    issued = effect(
+        launch(alice, project, prefix + "issue_certificate", {"certificate": certificate["id"]}),
+        "CertificateOfAnalysis",
+    )
+    if issued["values"]["digest"] != certificate["values"]["coa_digest"]:
+        fail(f"{issued['hrid']} isn't the certificate {certificate['hrid']} names")
+    sign(issued, "review", "issued")
+    url = f"/entities/{issued['id']}/export?format=signed-report-json"
     receipt = api_call(alice, "GET", url)
+    shared = receipt.text
     if (
         receipt.status_code != 200
-        or receipt.json()["report"] != report
+        or receipt.json()["report"] != coa
         or len(receipt.json()["signatures"]) != 1
         or api_call(alice, "GET", url).content != receipt.content
     ):
-        fail(f"{certificate['hrid']} has no reproducible signed certificate download")
-    ok(f"{certificate['hrid']} pins an effective specification, original OOS and signed resolution")
+        fail(f"{issued['hrid']} has no reproducible signed certificate download")
+    held = [original["hrid"], investigation["hrid"], certificate["hrid"], "98.7", "specimen"]
+    if leaked := [text for text in held if text in shared]:
+        fail(f"{issued['hrid']}'s download carries its evidence: {leaked}")
+    ok(
+        f"{certificate['hrid']} pins an effective specification, original OOS and signed "
+        f"resolution; {issued['hrid']} states only its final results"
+    )
 
 
 def signing(
