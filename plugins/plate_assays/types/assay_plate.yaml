@@ -2,19 +2,32 @@ apiVersion: iki/v1
 kind: EntityType
 name: AssayPlate
 label: Assay plate
-schema_version: 4
+schema_version: 5
 hrid: { prefix: APL }
-description: The reader export and the samples, dilution series and controls assigned to its wells.
+description: >-
+  A physical plate: the samples, dilution series and controls assigned to its wells, and
+  the reader exports committed against that layout, one read per export.
 fields:
   procedure: { type: string, max_length: 200, label: Analytical procedure ID }
   procedure_revision: { type: string, max_length: 80, label: Procedure revision }
   name: { type: string, required: true, max_length: 200 }
   size: { type: enum, values: [plate_96, plate_384], required: true }
+  reader_format:
+    type: enum
+    label: Reader file format
+    required: true
+    default: bmg_mars_absorbance
+    values: [bmg_mars_absorbance, iki_plate_matrix]
+    description: >-
+      The format of the reader file: a BMG LABTECH MARS absorbance endpoint export in OD, or
+      Iki's plate matrix of normalized activity (%).
   reader_file:
     type: file
     media_types: [text/csv, text/plain, application/vnd.ms-excel]
     max_size: 1MiB
-    description: One CSV matrix of BMG MARS endpoint absorbance (OD) or normalized activity (%).
+    description: >-
+      The export of the read to preview and commit next. After a commit, attach the next
+      read's export to add another read of the same plate.
   request:
     type: ref
     to: iki/requests.Request
@@ -44,24 +57,27 @@ fields:
       description: The well join and its problems for this layout and reader file.,
     }
   committed:
-    {
-      type: bool,
-      computed: true,
-      description: The reader run has created the measurements for this plate.,
-    }
+    { type: bool, computed: true, description: "A read is committed, so the layout is fixed." }
+  committed_layout:
+    type: json
+    computed: true
+    description: The size, assignments, procedure and request the plate's reads were joined to.
+  committed_reads:
+    type: json
+    computed: true
+    description: The reader file and content digest of each committed read, in commit order.
 display: { title: "{{ name }}" }
 rules:
   committed_source:
-    label: A committed plate retains its layout and reader file
+    label: A committed plate retains its layout
     when: record.committed == true
     check: >-
-      record.preview != null &&
-      record.reader_file == record.preview.source.reader_file &&
-      record.procedure == ("procedure" in record.preview.source ? record.preview.source.procedure : null) &&
-      record.procedure_revision == ("procedure_revision" in record.preview.source ? record.preview.source.procedure_revision : null) &&
-      record.size == record.preview.source.size &&
-      record.assignments == record.preview.source.assignments &&
-      (record.request == null ? record.preview.source.request == null :
-       record.request.id == record.preview.source.request)
-    fields: [size, reader_file, assignments, request, procedure, procedure_revision]
-    message: The measurements for this layout have been committed. Start a new plate for a corrected layout or reader file.
+      record.committed_layout != null &&
+      record.size == record.committed_layout.size &&
+      record.assignments == record.committed_layout.assignments &&
+      record.procedure == record.committed_layout.procedure &&
+      record.procedure_revision == record.committed_layout.procedure_revision &&
+      (record.request == null ? record.committed_layout.request == null :
+       record.request.id == record.committed_layout.request)
+    fields: [size, assignments, request, procedure, procedure_revision]
+    message: Measurements for this layout have been committed. Start a new plate for a corrected layout.

@@ -1,5 +1,6 @@
 """A synthetic reader matrix flows through commit to the fitted result without re-entry."""
 
+import hashlib
 import importlib
 from copy import deepcopy
 from pathlib import Path
@@ -47,6 +48,7 @@ def plate_run():
                         "size": "plate_96",
                         "assignments": rows,
                         "reader_file": uid(2),
+                        "reader_format": "bmg_mars_absorbance",
                         "name": "Synthetic",
                         "procedure": "SOP-A",
                         "procedure_revision": "2",
@@ -64,10 +66,42 @@ def committed_read(actions):
     assert preview["require_unchanged"] and not preview["values"]["preview"]["issues"]
     run["inputs"]["plate"][0]["values"].update(preview["values"])
     result = actions.reader_output(run, commit=True)
+    digest = hashlib.sha256((PLUGIN / "tests/data/mars-96-series.csv").read_bytes()).hexdigest()
+    plate = run["inputs"]["plate"][0]["values"]
     assert result["updates"]["plate"] == [
-        {"entity": uid(1), "require_unchanged": True, "values": {"committed": True}}
+        {
+            "entity": uid(1),
+            "require_unchanged": True,
+            "values": {
+                "committed": True,
+                "committed_layout": {
+                    "size": "plate_96",
+                    "assignments": plate["assignments"],
+                    "procedure": "SOP-A",
+                    "procedure_revision": "2",
+                    "request": None,
+                },
+                "committed_reads": [{"reader_file": uid(2), "sha256": digest}],
+            },
+        }
     ]
     *created, read = result["creates"]
+    assert read["values"]["reader_format"] == "bmg_mars_absorbance/1"
+    assert (
+        read["values"]["import_key"] == hashlib.sha256(f"{uid(1)}\n{digest}".encode()).hexdigest()
+    )
+    # The synthetic export's run header, as MARS wrote it.
+    assert read["values"]["acquisition"] == {
+        "user": "synthetic",
+        "test_run": "1",
+        "test_name": "Synthetic decreasing dose response",
+        "date": "01/01/2025",
+        "time": "00:00:00",
+        "id1": "synthetic-96",
+    }
+    assert {row["values"]["readout"] for row in created} == {"absorbance"}
+    assert all(row["values"]["signal"] is not None for row in created)
+    assert not any("activity_percent" in row["values"] for row in created)
     readings = [
         {"id": uid(100 + i), "hrid": f"WME-{i:06d}", "revision": 1, "values": row["values"]}
         for i, row in enumerate(created, 1)
@@ -145,5 +179,54 @@ def test_commit_requires_the_clean_preview_of_the_current_input(actions):
     with pytest.raises(ValueError, match="without assignments"):
         actions.reader_output(run, commit=True)
     plate["committed"] = True
-    with pytest.raises(ValueError, match="already been committed"):
+    with pytest.raises(ValueError, match="keeps its layout"):
         actions.reader_output(run, commit=True)
+
+
+def test_the_same_export_is_one_read(actions):
+    """The same export can't be committed to a plate twice."""
+    run = plate_run()
+    plate = run["inputs"]["plate"][0]
+    plate["values"].update(
+        actions.reader_output(run, commit=False)["updates"]["plate"][0]["values"]
+    )
+    first = actions.reader_output(run, commit=True)
+    plate["values"].update(first["updates"]["plate"][0]["values"])
+    plate["revision"] += 1
+    # Previewing the same export again says so, and commit refuses it.
+    again = actions.reader_output(run, commit=False)["updates"]["plate"][0]["values"]["preview"]
+    assert again["issues"] == [
+        "This reader file is already committed to this plate. Attach the next read's file."
+    ]
+    plate["values"]["preview"] = again
+    with pytest.raises(ValueError, match="already committed"):
+        actions.reader_output(run, commit=True)
+
+
+def test_a_later_read_commits_on_the_same_layout(actions, tmp_path):
+    """Here the same synthetic values, re-exported with another run number."""
+    run = plate_run()
+    plate = run["inputs"]["plate"][0]
+    plate["values"].update(
+        actions.reader_output(run, commit=False)["updates"]["plate"][0]["values"]
+    )
+    first = actions.reader_output(run, commit=True)
+    plate["values"].update(first["updates"]["plate"][0]["values"])
+    later = tmp_path / "second-read.csv"
+    later.write_bytes(
+        (PLUGIN / "tests/data/mars-96-series.csv")
+        .read_bytes()
+        .replace(b"Test run no.: 1", b"Test run no.: 2")
+    )
+    plate["values"]["reader_file"] = uid(9)
+    run["files"][uid(9)] = {"path": str(later)}
+    plate["values"].update(
+        actions.reader_output(run, commit=False)["updates"]["plate"][0]["values"]
+    )
+    second = actions.reader_output(run, commit=True)
+    *_, read = second["creates"]
+    assert read["values"]["acquisition"]["test_run"] == "2"
+    assert read["values"]["reader_file"] == uid(9)
+    assert read["values"]["import_key"] != first["creates"][-1]["values"]["import_key"]
+    reads = second["updates"]["plate"][0]["values"]["committed_reads"]
+    assert [r["reader_file"] for r in reads] == [uid(2), uid(9)]

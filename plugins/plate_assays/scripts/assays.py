@@ -9,35 +9,60 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from reader import preview_reader
+from reader import FORMATS, preview_reader
 
 PLUGIN = "iki/plate_assays"
 SIZES = {"plate_96": 96, "plate_384": 384}
 # SI prefixes, BIPM SI Brochure (9th ed.), Table 7, https://doi.org/10.59161/AUEZ1291.
 MOLAR = {"M": 1.0, "mM": 1e-3, "uM": 1e-6, "nM": 1e-9}
+# Each readout is its own typed field on a well measurement, so a reading keeps its unit.
+READOUT_FIELDS = {"absorbance": "signal", "normalized_activity": "activity_percent"}
+RESPONSE_UNITS = {"absorbance": "AU", "normalized_activity": "percent"}
+
+
+def layout_of(values: dict[str, Any]) -> dict[str, Any]:
+    """What a committed read's wells were joined to. Every later read of the plate keeps it."""
+    return {
+        "size": values["size"],
+        "assignments": values.get("assignments") or [],
+        "procedure": values.get("procedure"),
+        "procedure_revision": values.get("procedure_revision"),
+        "request": values.get("request"),
+    }
 
 
 def reader_output(run: dict[str, Any], *, commit: bool) -> dict[str, Any]:
     plate = run["inputs"]["plate"][0]
     values = plate["values"]
-    if values.get("committed"):
-        raise ValueError("This plate's measurements have already been committed.")
     file_id = values.get("reader_file")
     if not file_id:
-        raise ValueError("Attach the BMG MARS raw OD endpoint file to the plate.")
+        raise ValueError("Attach the plate reader's export file to the plate.")
+    reader_format = values.get("reader_format")
+    if reader_format not in FORMATS:
+        raise ValueError("Choose the reader file format on the plate.")
     source = Path(run["files"][file_id]["path"]).read_bytes()
     assignments = values.get("assignments") or []
     size = values["size"]
     procedure = {key: values[key] for key in ("procedure", "procedure_revision") if values.get(key)}
     if procedure and (len(procedure) != 2 or not all(text.strip() for text in procedure.values())):
         raise ValueError("Give both the analytical procedure ID and its revision.")
-    preview = preview_reader(source, SIZES[size], assignments)
+    committed = values.get("committed_layout")
+    if values.get("committed") and committed != layout_of(values):
+        raise ValueError("A committed plate keeps its layout. Start a new plate to change it.")
+    digest = hashlib.sha256(source).hexdigest()
+    preview = preview_reader(source, SIZES[size], assignments, reader_format)
+    reads = values.get("committed_reads") or []
+    if any(read.get("sha256") == digest for read in reads):
+        preview["issues"].append(
+            "This reader file is already committed to this plate. Attach the next read's file."
+        )
     # Bind the reviewed preview to the *specific* file, assignments and request. Even a
     # correction giving identical numerical results requires another preview.
     preview["source"] = {
         **procedure,
         "reader_file": file_id,
-        "sha256": hashlib.sha256(source).hexdigest(),
+        "reader_format": reader_format,
+        "sha256": digest,
         "size": size,
         "assignments": assignments,
         "request": values.get("request"),
@@ -55,7 +80,14 @@ def reader_output(run: dict[str, Any], *, commit: bool) -> dict[str, Any]:
         raise ValueError("Resolve the preview issues before committing: " + preview["issues"][0])
     if preview != values.get("preview"):
         raise ValueError("Preview this reader file and the current layout before committing.")
-    updated["values"] = {"committed": True}
+    # Each read of a plate is its own acquisition, one per reader file. The same export
+    # can't be committed to the plate twice, including when two commits race.
+    import_key = hashlib.sha256(f"{plate['id']}\n{digest}".encode()).hexdigest()
+    updated["values"] = {
+        "committed": True,
+        "committed_layout": layout_of(values),
+        "committed_reads": [*reads, {"reader_file": file_id, "sha256": digest}],
+    }
     creates = []
     references = []
     source_fields = {
@@ -65,8 +97,9 @@ def reader_output(run: dict[str, Any], *, commit: bool) -> dict[str, Any]:
     }
     for reading in preview["readings"]:
         fields = dict(reading)
-        signal = "activity_percent" if fields.pop("unit") == "%" else "signal"
-        fields[signal] = fields.pop("value")
+        fields.pop("unit")
+        field = READOUT_FIELDS[fields["readout"]]
+        fields[field] = fields.pop("value")
         key = fields["well"]
         creates.append(
             {
@@ -76,6 +109,7 @@ def reader_output(run: dict[str, Any], *, commit: bool) -> dict[str, Any]:
             }
         )
         references.append({"$create": key})
+    described = preview["format"]
     creates.append(
         {
             "type": f"{PLUGIN}.PlateRead",
@@ -83,7 +117,9 @@ def reader_output(run: dict[str, Any], *, commit: bool) -> dict[str, Any]:
                 **source_fields,
                 **procedure,
                 "name": values["name"],
-                "import_key": plate["id"],
+                "import_key": import_key,
+                "reader_format": f"{described['id']}/{described['version']}",
+                "acquisition": preview["acquisition"],
                 "request": values.get("request"),
                 "measurements": references,
             },
@@ -117,7 +153,7 @@ def fit_output(run: dict[str, Any]) -> dict[str, Any]:
     sample = sample_record["id"]
     reference_id = sample_record.get("entry_id", sample)
     read_values = read["values"]
-    if not read_values.get("import_key") or read_values["import_key"] != read_values["plate"]:
+    if not read_values.get("import_key"):
         raise ValueError("Choose a plate read created by the reader commit action.")
     measurements = read.get("included", {}).get("measurements", [])
     if [m["id"] for m in measurements] != read_values.get("measurements"):
@@ -145,11 +181,11 @@ def fit_output(run: dict[str, Any]) -> dict[str, Any]:
         ):
             raise ValueError(f"{well} is not from this committed read.")
         dose = values["concentration"] * (MOLAR[given_unit] / MOLAR[unit])
-        if values.get("activity_percent") is None:
-            response, response_unit = values["signal"], "AU"
-        else:
-            response, response_unit = values["activity_percent"], "percent"
-        response_units.add(response_unit)
+        readout = values.get("readout")
+        if readout not in READOUT_FIELDS or values.get(READOUT_FIELDS[readout]) is None:
+            raise ValueError(f"{well} has no reading of its stated readout.")
+        response = values[READOUT_FIELDS[readout]]
+        response_units.add(RESPONSE_UNITS[readout])
         reason = excluded.pop(well, None)
         points.append(
             {

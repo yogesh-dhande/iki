@@ -4,13 +4,14 @@ name: commit_reader
 label: Commit previewed measurements
 description: >-
   Validate the current export and layout against their clean preview, then
-  create a committed read and a measurement record per well in one transaction.
+  create a read and a measurement record per well in one transaction. Each export is
+  its own read of the plate, and fixes the plate's layout.
 inputs: { plate: { type: AssayPlate, schema: ">=1" } }
 effects:
   creates:
     - { type: WellMeasurement, cardinality: many, derived_from: [plate] }
     - { type: PlateRead, derived_from: [plate] }
-  updates: [{ input: plate, fields: [committed] }]
+  updates: [{ input: plate, fields: [committed, committed_layout, committed_reads] }]
 runs_on: { tier: backend, environment: assay-tools }
 command: [python, ./scripts/assays.py, commit]
 timeout: 5m

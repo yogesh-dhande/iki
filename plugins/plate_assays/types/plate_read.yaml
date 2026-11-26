@@ -2,9 +2,11 @@ apiVersion: iki/v1
 kind: EntityType
 name: PlateRead
 label: Committed plate read
-schema_version: 3
+schema_version: 4
 hrid: { prefix: PRD }
-description: The reader file and measurement records committed together for this version of the plate layout.
+description: >-
+  One read of a plate: its reader file, the format it was read in and the measurement records
+  committed together for the plate's layout.
 fields:
   procedure: { type: string, computed: true, max_length: 200, label: Analytical procedure ID }
   procedure_revision: { type: string, computed: true, max_length: 80, label: Procedure revision }
@@ -15,8 +17,20 @@ fields:
     computed: true
     indexed: true
     unique: true
-    max_length: 36
-    description: The plate ID. A plate can commit only once, including when requests overlap.
+    max_length: 64
+    description: >-
+      A digest of the plate ID and the reader file's content. The same export commits to a
+      plate once, including when commits race or requests overlap.
+  reader_format:
+    type: string
+    computed: true
+    max_length: 100
+    label: Reader file format
+    description: The format and its version the file was read in, such as bmg_mars_absorbance/1.
+  acquisition:
+    type: json
+    computed: true
+    description: The export header's own run identification, verbatim, such as its test name, run number, date and time.
   plate_revision: { type: int, min: 1, computed: true }
   reader_file: { type: file, computed: true }
   request: { type: ref, to: iki/requests.Request, computed: true }

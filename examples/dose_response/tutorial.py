@@ -326,6 +326,7 @@ def material(api: Api, receipt: Receipt, core: str, requester: str, flow: str) -
             "procedure_revision": plate.SOURCE["procedure_revision"],
             "size": "plate_96",
             "reader_file": source,
+            "reader_format": "iki_plate_matrix",
             "request": req["id"],
             "reagent_tube": tube["id"],
             "assignments": plate.assignments(tubes),
