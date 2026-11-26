@@ -48,6 +48,11 @@ def schedule(run: dict[str, Any]) -> dict[str, Any]:
     tests = [row["test"] for row in values["tests"]]
     if not tests:
         raise ValueError("List the tests to run on each pull.")
+    for row in values["tests"]:
+        if (row.get("kind") or "numeric") == "numeric" and not row.get("unit"):
+            raise ValueError(f"Give {row['test']}'s reporting unit.")
+        if row.get("kind") == "conforms" and row.get("unit"):
+            raise ValueError(f"{row['test']} conforms or doesn't: it has no reporting unit.")
     seen: dict[tuple[int, str], str] = {}
     for code, point in time_points.items():
         same = seen.setdefault((point["interval"], point["unit"]), code)
@@ -191,8 +196,22 @@ def measure(run: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Choose a test listed on the study protocol.")
     if test["test"] not in (values.get("tests") or [test["test"]]):
         raise ValueError(f"The protocol doesn't plan {test['test']} at this pull.")
-    if not math.isfinite(params["value"]):
-        raise ValueError("Enter a finite test result.")
+    typed: dict[str, Any] = {"kind": test.get("kind") or "numeric"}
+    if typed["kind"] == "conforms":
+        if params.get("value") is not None:
+            raise ValueError(f"{test['test']} conforms or doesn't: say which, without a value.")
+        if params.get("result") not in ("conforms", "does_not_conform"):
+            raise ValueError(f"Say whether {test['test']} conforms.")
+        typed["result"] = params["result"]
+    else:
+        value = params.get("value")
+        if params.get("result") is not None:
+            raise ValueError(f"{test['test']} is a number: give its observed value.")
+        if value is None or not math.isfinite(value):
+            raise ValueError("Enter a finite test result.")
+        typed["value"] = value
+    if seen := str(params.get("observation") or "").strip():
+        typed["observation"] = seen
     return output(
         creates=[
             {
@@ -210,11 +229,12 @@ def measure(run: dict[str, Any]) -> dict[str, Any]:
                             "pulled_on",
                         )
                     },
-                    **test,
+                    **{name: test[name] for name in ("test", "method") if name in test},
+                    **({"unit": test["unit"]} if test.get("unit") else {}),
+                    **typed,
                     "pull": pull["id"],
                     "pull_revision": pull["revision"],
                     "review_flow": flow,
-                    "value": params["value"],
                     "report": params.get("report"),
                     "notes": params.get("notes"),
                 },

@@ -116,7 +116,16 @@ fields:
       fields:
         test: { type: string, label: Test or attribute, max_length: 100, required: true }
         method: { type: string, label: Method and revision, max_length: 200, required: true }
-        unit: { type: string, label: Reporting unit, max_length: 40, required: true }
+        kind:
+          type: enum
+          label: Result
+          values: [numeric, conforms]
+          default: numeric
+          required: true
+          description: >-
+            A number in its reporting unit, or a result that conforms or doesn't, such as
+            an appearance or a container's integrity (ICH Q6A).
+        unit: { type: string, label: Reporting unit, max_length: 40 }
   scheduled:
     type: bool
     label: Pulls generated

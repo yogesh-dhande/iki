@@ -45,6 +45,11 @@ as any draw by mass is. To allow this, a type's `draw_target` can name a float `
 with a `unit` field beside it, as well as a quantity in one fixed unit. The draw must
 still be exactly the planned amount, once, from the assigned tube and lot.
 
+**A test is numeric or conforms.** A numeric test reports a value in its unit. A
+conforming test, such as an appearance, reports whether it conforms and what was seen, as
+release testing's conforming criteria do (ADR 0244). A rule keeps a measurement to its
+test's kind. The trend plots numbers and lists conforming results.
+
 ## Consequences
 
 The full-grid, monthly, one-tube-per-condition design still schedules as it did. Its

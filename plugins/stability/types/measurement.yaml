@@ -18,8 +18,14 @@ fields:
   pulled_on: { type: date, required: true, immutable: true }
   test: { type: string, max_length: 100, required: true, immutable: true }
   method: { type: string, max_length: 200, required: true, immutable: true }
-  unit: { type: string, max_length: 40, required: true, immutable: true }
-  value: { type: float, required: true }
+  kind: { type: enum, label: Result, values: [numeric, conforms], required: true, immutable: true }
+  unit: { type: string, max_length: 40, immutable: true }
+  value: { type: float }
+  result: { type: enum, label: Conforms, values: [conforms, does_not_conform] }
+  observation:
+    type: text
+    max_length: 2000
+    description: What was seen, for a result that conforms or doesn't.
   report:
     type: file
     label: Test report
@@ -83,5 +89,15 @@ fields:
           independent:
             check: history.review[0].by != actor.person && last.review.submitted.by != actor.person && last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
             message: Release requires a signer independent of the analyst, reviewer and editors.
+rules:
+  typed_result:
+    label: A measurement is its test's kind of result
+    fields: [value, result]
+    check: >-
+      record.kind == "conforms" ? record.result != null && record.value == null :
+      record.value != null && record.unit != null && record.result == null
+    message: >-
+      Give a numeric test's value in its unit, or say whether a conforming test's
+      result conforms.
 display:
   title: "{{ test }} · {{ time_point }}"

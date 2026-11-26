@@ -19,7 +19,9 @@ entities:
       pulled_on,
       test,
       method,
+      kind,
       value,
+      result,
       unit,
       review,
     ]

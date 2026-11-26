@@ -35,6 +35,8 @@ permissions of study material when planning the windows.
    with its stored tube and planned amount, by volume (µL, mL) or by mass (µg,
    mg) drawn at the tube's concentration. A tube may supply several time points
    within its assigned condition. Each other condition needs its own tube.
+   Each test is **numeric**, with its reporting unit, or **conforms**, such as an
+   appearance that matches its description or doesn't (ICH Q6A).
    - A full design plans every condition at every time point, and every test at
      every pull.
    - A reduced design, bracketed or matrixed as ICH Q1D describes, plans only
@@ -60,7 +62,9 @@ permissions of study material when planning the windows.
    the deviation in **Window note** if it is early or late. If the window
    closed without a draw, set it to **Missed** and give the reason.
 5. From the completed pull run **Record stability measurement** with a test
-   the protocol plans for that pull and its observed value. Attach the report. Sign it off
+   the protocol plans for that pull and its observed value, or, for a conforming
+   test, whether it conforms and what was seen. **Trend** plots numeric results
+   and lists conforming ones. Attach the report. Sign it off
    in Research, or submit, independently review and release it in Regulated
    QC. A correction before final sign-off sends the submission back to Recorded.
    Open the study's **Trend** tab to compare the results over time. It places

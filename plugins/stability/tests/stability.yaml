@@ -238,3 +238,56 @@ inputs:
                 - { test: Assay, method: Synthetic HPLC v2, unit: "%" }
                 - { test: Appearance, method: Synthetic visual v1, unit: description }
 expect: { error: The protocol doesn't plan Appearance at this pull. }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: an_appearance_conforms_or_it_doesnt
+description: >-
+  A synthetic appearance test, which conforms to its description or doesn't (ICH Q6A
+  §3.2.1 a): recorded with what was seen and no value. A value for it is refused.
+action: record_measurement
+params: { test: Appearance, result: does_not_conform, observation: Synthetic yellow tint. }
+inputs:
+  pull:
+    - values:
+        status: pulled
+        study_revision: 1
+        study: 00000000-0000-7000-8003-000000000015
+        condition: accelerated
+        condition_label: Accelerated
+        time_point: M3
+        elapsed_days: 90
+        replicate: 1
+        tests: [Appearance]
+        pulled_on: "2028-04-30"
+      included:
+        study:
+          - values:
+              review_flow: research
+              scheduled: true
+              tests: [{ test: Appearance, method: Synthetic visual v1, kind: conforms }]
+expect:
+  output:
+    creates:
+      - type: iki/stability.Measurement
+        values:
+          test: Appearance
+          kind: conforms
+          result: does_not_conform
+          observation: Synthetic yellow tint.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: refuse_a_value_for_a_conforming_test
+action: record_measurement
+params: { test: Appearance, value: 1 }
+inputs:
+  pull:
+    - values: { status: pulled, study_revision: 1, pulled_on: "2028-04-30", tests: [Appearance] }
+      included:
+        study:
+          - values:
+              review_flow: research
+              scheduled: true
+              tests: [{ test: Appearance, method: Synthetic visual v1, kind: conforms }]
+expect: { error: "Appearance conforms or doesn't: say which, without a value." }

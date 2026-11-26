@@ -194,6 +194,16 @@ def test_stability_trend_keeps_only_signed_results_in_the_same_test_series(
             reading(4, method="Example method 2", value=5),
             reading(5, unit="mg/mL", value=48),
             reading(6, condition=1, value=73),
+            # A conforming test's results are a table, not a plot.
+            reading(
+                8,
+                test="Appearance",
+                method="Visual 1",
+                unit=None,
+                kind="conforms",
+                value=None,
+                result="does_not_conform",
+            ),
         ],
         more=True,
     )
@@ -203,7 +213,10 @@ def test_stability_trend_keeps_only_signed_results_in_the_same_test_series(
     expect(page.get_by_text("99.1", exact=True)).to_be_visible()
     expect(page.get_by_text("123", exact=True)).to_have_count(0)
     series = page.get_by_role("combobox", name="Test series")
-    expect(series.locator("option")).to_have_count(4)
+    expect(series.locator("option")).to_have_count(5)
+    series.select_option(label="Appearance · Visual 1 · conforms · 25 °C / 60% RH")
+    expect(page.get_by_role("img")).to_have_count(0)
+    expect(page.get_by_text("Does not conform", exact=True)).to_be_visible()
     series.select_option(label="Assay · Example method 2 · % · 25 °C / 60% RH")
     expect(page.get_by_role("row")).to_have_count(2)
     expect(page.get_by_text("5", exact=True)).to_be_visible()

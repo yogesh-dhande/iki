@@ -73,10 +73,12 @@ function groups(items) {
   for (const item of items) {
     const values = item.values;
     if (!FINAL.has(values.review)) continue;
-    const { condition, condition_label, test, method, unit } = values;
-    const key = JSON.stringify([condition, test, method, unit]);
+    const { condition, condition_label, test, method, unit, kind } = values;
+    const key = JSON.stringify([condition, test, method, unit, kind]);
     if (!series.has(key)) {
-      series.set(key, { label: `${test} · ${method} · ${unit} · ${condition_label}`, rows: [] });
+      // A conforming test's series is its results over time; a number's, in its unit.
+      const measure = kind === "conforms" ? "conforms" : unit;
+      series.set(key, { label: `${test} · ${method} · ${measure} · ${condition_label}`, rows: [] });
     }
     series.get(key).rows.push(item);
   }
@@ -217,7 +219,9 @@ class MeasurementTrend extends HTMLElement {
     const table = node("table");
     table.setAttribute("aria-label", label);
     const header = table.createTHead().insertRow();
-    for (const name of ["Time point", "Pulled", `Value (${values.unit})`, "Result"]) {
+    const conforms = values.kind === "conforms";
+    const heading = conforms ? "Conforms" : `Value (${values.unit})`;
+    for (const name of ["Time point", "Pulled", heading, "Result"]) {
       const th = node("th", name);
       th.scope = "col";
       if (name.startsWith("Value")) th.className = "number";
@@ -231,7 +235,14 @@ class MeasurementTrend extends HTMLElement {
       const { time_point, replicate } = item.values;
       const month = node("th", replicate > 1 ? `${time_point} (${replicate})` : time_point);
       month.scope = "row";
-      const value = node("td", measurementNumber.format(item.values.value));
+      const value = node(
+        "td",
+        conforms
+          ? item.values.result === "conforms"
+            ? "Conforms"
+            : "Does not conform"
+          : measurementNumber.format(item.values.value),
+      );
       value.className = "number";
       row.append(month, node("td", date(item.values.pulled_on)), value, node("td", open));
     }
@@ -252,18 +263,22 @@ class MeasurementTrend extends HTMLElement {
     if (choice) {
       const { label, rows } = choice;
       const [{ values }] = rows;
-      const canvas = node("canvas");
-      canvas.setAttribute("role", "img");
-      canvas.setAttribute("aria-label", `${values.test} in ${values.unit} by scheduled time point`);
-      this.#result.append(
-        node("h3", label),
-        node("figure", canvas),
-        this.#measurements(rows, label),
-      );
-      plot(
-        canvas,
-        rows.map(({ values }) => values),
-      );
+      this.#result.append(node("h3", label));
+      // Only numbers are plotted. A conforming test's results are its table.
+      if (values.kind !== "conforms") {
+        const canvas = node("canvas");
+        canvas.setAttribute("role", "img");
+        canvas.setAttribute(
+          "aria-label",
+          `${values.test} in ${values.unit} by scheduled time point`,
+        );
+        this.#result.append(node("figure", canvas));
+        plot(
+          canvas,
+          rows.map(({ values }) => values),
+        );
+      }
+      this.#result.append(this.#measurements(rows, label));
     }
     this.#more.hidden = !more || Boolean(error);
     this.#more.disabled = loading;
