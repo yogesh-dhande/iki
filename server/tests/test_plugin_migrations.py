@@ -373,6 +373,10 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__protein_assayrequest__sample_notes",
         "acme__protein_assayrequest__samples",
         "acme__protein_assayrequest__tubes",
+        "acme__protein_rankedassayrequest",
+        "acme__protein_rankedassayrequest__history",
+        "acme__protein_clientrank",
+        "acme__protein_clientrank__history",
         # Where material is kept, and the tubes it's kept in (ADR 0180).
         "acme__protein_freezer",
         "acme__protein_freezer__history",

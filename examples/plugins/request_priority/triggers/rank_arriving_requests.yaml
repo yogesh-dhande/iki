@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# Fires in the core's project as another project sends it a request, once. An
+# Admin turns it on, choosing the service account its runs are launched as, on
+# their authority: nobody in the core sent the request (ADR 0232).
+apiVersion: iki/v1
+kind: Trigger
+name: rank_arriving_requests
+label: Rank requests as they arrive
+description: Gives each request sent to the core the rank of the project that asked.
+on: request.received
+type: SequencingRequest
+run: rank_requests
+input: requests

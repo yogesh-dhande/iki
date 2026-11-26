@@ -989,8 +989,9 @@ export interface paths {
          * Search entities
          * @description Entities you can read that match every filter given: a type (with its subtypes), a
          *     project, archived or not, text in their HRID or title (``q``), membership of a
-         *     ``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``
-         *     (then by ID), oldest first without one.
+         *     ``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``,
+         *     then by each of ``then`` (ADR 0232), then by ID; oldest first without one. Requests
+         *     also sort by ``asked_by`` and ``sent_to``: the projects on their two sides, by name.
          *
          *     Each kind of field takes its own operators, and every field takes ``is_set``:
          *
@@ -3480,9 +3481,10 @@ export interface paths {
         put?: never;
         /**
          * Turn a trigger on in a project
-         * @description From now on an entity trigger's runs are launched as you, and a scheduled one's as the
-         *     service account you choose (`run_as`), on your authority: either way you must be able to
-         *     run its action here. Only in the web app: no token, and so no agent, can turn one on.
+         * @description From now on an entity trigger's runs are launched as you, and a scheduled one's, or one
+         *     on a request's arrival, as the service account you choose (`run_as`), on your authority:
+         *     either way you must be able to run its action here. Only in the web app: no token, and so
+         *     no agent, can turn one on.
          */
         post: operations["iki_server_api_triggers_enable_trigger"];
         delete?: never;
@@ -8306,7 +8308,7 @@ export interface components {
         EnableIn: {
             /**
              * Run As
-             * @description For a scheduled trigger: the service account its runs are launched as, one of its `run_as_choices`.
+             * @description For a trigger whose runs are launched as a service account (on a schedule, or as a request arrives): the account, one of its `run_as_choices`.
              */
             run_as?: string | null;
         };
@@ -9816,7 +9818,7 @@ export interface components {
              * Event
              * @enum {string}
              */
-            event: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "schedule";
+            event: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "request.received" | "schedule";
             /** Fired At */
             fired_at: string | null;
             /**
@@ -11181,6 +11183,12 @@ export interface components {
             cardinality: "one" | "many";
             /** Description */
             description: string | null;
+            /**
+             * From Project
+             * @description Not chosen: each run is given every record of its type the project owns and hasn't archived (ADR 0232). Launching it with any is refused.
+             * @default false
+             */
+            from_project: boolean;
             /** Label */
             label: string;
             /** Max */
@@ -13904,7 +13912,7 @@ export interface components {
             enabled: boolean;
             /** Enabled At */
             enabled_at: string | null;
-            /** @description Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a scheduled one's are. Null if nobody ever has. */
+            /** @description Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a service account's are. Null if nobody ever has. */
             enabled_by: components["schemas"]["PersonRef"] | null;
             /**
              * Field
@@ -13937,10 +13945,10 @@ export interface components {
             next_run_at: string | null;
             /**
              * On
-             * @description What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.
+             * @description What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, a request of its type sent to the project as a service (ADR 0232), or its schedule.
              * @enum {string}
              */
-            on: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "schedule";
+            on: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "request.received" | "schedule";
             /** Params */
             params: {
                 [key: string]: unknown;
@@ -13960,13 +13968,19 @@ export interface components {
             related: {
                 [key: string]: components["schemas"]["RelatedOut"];
             };
-            /** @description On a schedule: the service account its runs are launched as. */
+            /** @description On a schedule or a request's arrival: the service account its runs are launched as. */
             run_as: components["schemas"]["PersonRef"] | null;
             /**
              * Run As Choices
-             * @description On a schedule, for the project's Admins: the service accounts it may run as, members who can run its action here.
+             * @description For one whose runs are launched as a service account, for the project's Admins: the accounts it may run as, members who can run its action here.
              */
             run_as_choices: components["schemas"]["PersonRef"][];
+            /**
+             * Runs As Account
+             * @description Its runs are launched as a service account the Admin who turns it on chooses, on their authority: on a schedule, or as a request arrives, since nobody in the project made it happen (ADR 0081, ADR 0232).
+             * @default false
+             */
+            runs_as_account: boolean;
             /**
              * Schedule
              * @description On a schedule: when it runs, in cron's five fields. Empty otherwise.
@@ -14151,6 +14165,11 @@ export interface components {
             /** Q */
             q?: string | null;
             sort?: components["schemas"]["SortIn"] | null;
+            /**
+             * Then
+             * @description Further sorts, in order, for what `sort` ties (ADR 0232).
+             */
+            then?: components["schemas"]["SortIn"][];
             /** Type */
             type?: string | null;
             where?: components["schemas"]["Condition"] | null;
@@ -16774,6 +16793,11 @@ export interface components {
              */
             sort?: string | null;
             /**
+             * Then
+             * @description Further sorts, in order, for what `sort` ties: each a field, with `-` first for descending, as `-priority`.
+             */
+            then?: string[];
+            /**
              * Type
              * @description This type and its subtypes.
              */
@@ -16897,6 +16921,11 @@ export interface components {
              */
             run?: string | null;
             sort?: components["schemas"]["SortIn"] | null;
+            /**
+             * Then
+             * @description Further sorts, in order, for what `sort` ties: a core's queue by its ranking, then priority, then when each is needed (ADR 0232). Blanks are last in each.
+             */
+            then?: components["schemas"]["SortIn"][];
             /**
              * Type
              * @description This type and its subtypes.
@@ -18377,7 +18406,7 @@ export interface components {
             descending: boolean;
             /**
              * Field
-             * @description A field to sort by: text, numbers, dates or yes/no.
+             * @description A field to sort by: text, numbers, dates or yes/no; or a request's `asked_by` or `sent_to`, by the project's name (ADR 0232).
              */
             field: string;
         };
@@ -19340,7 +19369,7 @@ export interface components {
              * Event
              * @enum {string}
              */
-            event: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "schedule";
+            event: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "request.received" | "schedule";
             /**
              * Label
              * @description Its label, or its name once it's no longer installed.
@@ -19402,10 +19431,10 @@ export interface components {
             name: string;
             /**
              * On
-             * @description What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.
+             * @description What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, a request of its type sent to the project as a service (ADR 0232), or its schedule.
              * @enum {string}
              */
-            on: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "schedule";
+            on: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "request.received" | "schedule";
             /** Params */
             params: {
                 [key: string]: unknown;
@@ -19425,6 +19454,12 @@ export interface components {
             related: {
                 [key: string]: components["schemas"]["RelatedOut"];
             };
+            /**
+             * Runs As Account
+             * @description Its runs are launched as a service account the Admin who turns it on chooses, on their authority: on a schedule, or as a request arrives, since nobody in the project made it happen (ADR 0081, ADR 0232).
+             * @default false
+             */
+            runs_as_account: boolean;
             /**
              * Schedule
              * @description On a schedule: when it runs, in cron's five fields. Empty otherwise.
@@ -22343,6 +22378,8 @@ export interface operations {
                 /** @description A field to sort by. */
                 sort?: string | null;
                 descending?: boolean;
+                /** @description Further sorts, in order, for what `sort` ties: each a field, with `-` first for descending, as `-priority`. */
+                then?: string[];
                 /** @description The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). Defaults to the grid columns. Every row ends with `updated_at`, `revision` and `id`. */
                 columns?: string[];
             };

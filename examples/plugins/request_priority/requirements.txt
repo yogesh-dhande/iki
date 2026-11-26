@@ -1,0 +1,1 @@
+# Nothing to install: rank.py uses Python's standard library alone.

@@ -20,6 +20,8 @@ import {
   gridSearch,
   SAVED_SEARCHES,
   savedSearchesQuery,
+  sortKeysOf,
+  sortKeyText,
   validateEntitySearch,
   type EntitySearch,
   type SavedSearch,
@@ -34,6 +36,7 @@ interface Query {
   q?: string | null;
   where?: { all?: unknown[] } | Filter | null;
   sort?: { field: string; descending?: boolean } | null;
+  then?: { field: string; descending: boolean }[] | null;
 }
 
 /**
@@ -78,10 +81,12 @@ export function toAddress(query: Query): EntitySearch | null {
   if (
     query.sort &&
     (query.sort.field !== DEFAULT_SORT.field ||
-      Boolean(query.sort.descending) !== DEFAULT_SORT.descending)
+      Boolean(query.sort.descending) !== DEFAULT_SORT.descending ||
+      Boolean(query.then?.length))
   ) {
     out.sort = query.sort.field;
     if (query.sort.descending) out.desc = true;
+    if (query.then?.length) out.then = query.then.map(sortKeyText);
   }
   // The grid reads only so many filters and so much text from its address. A search that
   // needs more isn't a link: the grid would run it without what it cut.
@@ -99,6 +104,7 @@ export function fromAddress(search: EntitySearch) {
     // Without a sort in the address, the grid's default order, which it runs.
     sort: search.sort ?? DEFAULT_SORT.field,
     descending: search.sort ? search.desc : DEFAULT_SORT.descending,
+    then: search.sort ? sortKeysOf(search.then) : undefined,
   });
 }
 

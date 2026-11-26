@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# The core's request type: a Plain request, with one more field of the
+# service's own (ADR 0232). The project asking never sees it change, nor sets it.
+apiVersion: iki/v1
+kind: EntityType
+name: SequencingRequest
+label: Sequencing request
+schema_version: 1
+extends: iki/requests.PlainRequest
+description: Work sent to the sequencing core, ranked by the project that asked.
+hrid: { prefix: SEQ }
+request:
+  service_fields: [project_rank]
+fields:
+  project_rank:
+    type: int
+    computed: true
+    label: Project rank
+    description: >-
+      The asking project's rank in the core's agreed ranking when it was last
+      ranked; blank for a project the core hasn't ranked.

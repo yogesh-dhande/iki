@@ -31,8 +31,11 @@ import {
   entitiesQuery,
   gridSearch,
   inSentence,
+  MAX_THEN,
   recordSearch,
   searchCsvUrl,
+  sortKeysOf,
+  sortKeyText,
   stateFields,
   typeDisplayName,
   typeDisplayText,
@@ -41,13 +44,17 @@ import {
   type Entity,
   type EntityType,
   type FieldDef,
+  type SortKey,
 } from "../entities";
 import {
+  ASKED_BY_SORT,
   asksWhatRulesCaught,
   CREATED,
   filterable,
   HRID,
+  PROJECT_FILTERS,
   searchWords,
+  SENT_TO_SORT,
   sortable,
   UPDATED,
   type Filter,
@@ -244,6 +251,7 @@ function columnsFor(
           {
             key: "asked_by",
             label: "Asked by",
+            sort: ASKED_BY_SORT.name,
             csv: "asked_by",
             text: (e: Entity) => e.request?.asking_project?.name ?? "",
             cell: (e: Entity) => e.request?.asking_project?.name ?? "",
@@ -251,6 +259,7 @@ function columnsFor(
           {
             key: "sent_to",
             label: "Sent to",
+            sort: SENT_TO_SORT.name,
             csv: "sent_to",
             text: (e: Entity) => e.request?.service?.name ?? "Not sent yet",
             cell: (e: Entity) =>
@@ -486,6 +495,16 @@ function directionWords(field: FieldDef, descending: boolean): string {
     return descending ? "highest first" : "lowest first";
   }
   if (field.type === "bool") return descending ? "yes first" : "no first";
+  // An enum, or a state field's states, sort in the order the type declares them (ADR 0232):
+  // "routine first", "urgent first".
+  if (field.type === "enum" || field.type === "state") {
+    const values = field.values.length ? field.values : field.states.map((st) => st.name);
+    const end = descending ? values[values.length - 1] : values[0];
+    if (end !== undefined && values.length > 1) {
+      const said = field.states.find((st) => st.name === end)?.label ?? end.replaceAll("_", " ");
+      return `${inSentence(said)} first`;
+    }
+  }
   return descending ? "Z to A" : "A to Z";
 }
 
@@ -536,18 +555,38 @@ export function EntityGrid({
 
   const fields = filterable(type, extra);
   const filters = search.filters ?? [];
+  // A request's sides (ADR 0132) sort by their projects' names (ADR 0232), not by the IDs
+  // their filters take.
+  const sideSorts =
+    type?.request || sides?.always
+      ? [ASKED_BY_SORT, SENT_TO_SORT].filter((f) => f.name !== sides?.omit)
+      : [];
   const sortFields = [
     UPDATED,
     CREATED,
-    ...fields.filter((f) => sortable(f) && f.name !== CREATED.name && f.name !== UPDATED.name),
+    ...fields.filter(
+      (f) =>
+        sortable(f) &&
+        f.name !== CREATED.name &&
+        f.name !== UPDATED.name &&
+        !PROJECT_FILTERS.has(f.name),
+    ),
+    ...sideSorts,
   ];
   // The address's sort, if it names one; without one, the default: last changed, newest
   // first (ADR 0176), so recent work is at the top. An index serves it across types.
-  const chosenSort = fields.some((f) => f.name === search.sort && sortable(f))
-    ? search.sort
-    : undefined;
+  const chosenSort = sortFields.some((f) => f.name === search.sort) ? search.sort : undefined;
   const sort = chosenSort ?? DEFAULT_SORT.field;
   const descending = chosenSort ? Boolean(search.desc) : DEFAULT_SORT.descending;
+  // Then by others, for what it ties (ADR 0232): each a field it can sort by, once.
+  const then: SortKey[] = chosenSort
+    ? sortKeysOf(search.then).filter(
+        (t, i, all) =>
+          t.field !== chosenSort &&
+          sortFields.some((f) => f.name === t.field) &&
+          all.findIndex((o) => o.field === t.field) === i,
+      )
+    : [];
   const narrowed = Boolean(search.q) || filters.length > 0;
   const filter = {
     project: project?.id,
@@ -557,6 +596,7 @@ export function EntityGrid({
     filters: [...fixed, ...filters],
     sort,
     descending,
+    then,
     collection: library ? search.collection : undefined,
     run: search.run,
   };
@@ -582,16 +622,24 @@ export function EntityGrid({
     });
   };
   const sortBy = (field: string, direction: Direction) => {
-    // The default order is kept as no sort, so the address stays short.
+    // The default order is kept as no sort, so the address stays short. What it's then
+    // sorted by stays, but for the field it's now sorted by first.
     const byDefault =
       direction === "none" ||
       (field === DEFAULT_SORT.field && (direction === "descending") === DEFAULT_SORT.descending);
+    const rest = then.filter((t) => t.field !== field).map(sortKeyText);
     navigate({
       search: (prev) => ({
         ...prev,
         sort: byDefault ? undefined : field,
         desc: !byDefault && direction === "descending" ? true : undefined,
+        then: !byDefault && rest.length ? rest : undefined,
       }),
+    });
+  };
+  const thenBy = (next: SortKey[]) => {
+    navigate({
+      search: (prev) => ({ ...prev, then: next.length ? next.map(sortKeyText) : undefined }),
     });
   };
   const pickType = (value: string) => {
@@ -617,6 +665,7 @@ export function EntityGrid({
     filters,
     sort,
     descending,
+    then,
     search.collection,
     search.run,
     project?.id,
@@ -878,22 +927,17 @@ export function EntityGrid({
                 sortBy(name, direction === "desc" ? "descending" : "ascending");
               }}
             >
-              {sortFields.flatMap((f) =>
-                // Times newest first first: that's how people look for recent work.
-                (f.type === "datetime" || f.type === "date" ? [true, false] : [false, true]).map(
-                  (desc) => {
-                    const key = `${f.name}:${desc ? "desc" : "asc"}`;
-                    return (
-                      <MenuItem key={key} id={key} className="menu-item">
-                        {f.label}, {directionWords(f, desc)}
-                      </MenuItem>
-                    );
-                  },
-                ),
-              )}
+              {sortChoices(sortFields)}
             </Menu>
           </Popover>
         </MenuTrigger>
+        {chosenSort ? (
+          <ThenBy
+            fields={sortFields.filter((f) => f.name !== chosenSort)}
+            then={then}
+            onChange={thenBy}
+          />
+        ) : null}
         {views.length ? (
           <ToolbarSelect
             label="Show as"
@@ -1316,6 +1360,99 @@ function cutShort(column: Column, entity: Entity, width: number | undefined): st
 /** The sort button's words: what it's sorted by, and which way. */
 function sortLabel(field: FieldDef, key: string): string {
   return `${field.label}, ${directionWords(field, key.endsWith(":desc"))}`;
+}
+
+/** A sort menu's items: each field, each way, as `name:asc` and `name:desc`. */
+function sortChoices(fields: readonly FieldDef[]) {
+  return fields.flatMap((f) =>
+    // Times newest first first: that's how people look for recent work.
+    (f.type === "datetime" || f.type === "date" ? [true, false] : [false, true]).map((desc) => {
+      const key = `${f.name}:${desc ? "desc" : "asc"}`;
+      return (
+        <MenuItem key={key} id={key} className="menu-item">
+          {f.label}, {directionWords(f, desc)}
+        </MenuItem>
+      );
+    }),
+  );
+}
+
+function sortKeyOf(key: string): SortKey {
+  const [field = "", direction] = key.split(":");
+  return { field, descending: direction === "desc" };
+}
+
+/**
+ * What a grid is sorted by after its first sort, for the rows that tie (ADR 0232): a core
+ * sorts its queue by its own ranking of the projects it serves, then priority, then when
+ * each is needed. Each is a menu of its own, which can change it or take it away; one more
+ * can be added, up to the most the API takes.
+ */
+function ThenBy({
+  fields,
+  then,
+  onChange,
+}: {
+  /** What it can sort by, besides the first sort. */
+  fields: readonly FieldDef[];
+  then: readonly SortKey[];
+  onChange: (then: SortKey[]) => void;
+}) {
+  const named = (key: SortKey) => fields.find((f) => f.name === key.field);
+  const free = (except?: string) =>
+    fields.filter((f) => f.name === except || !then.some((t) => t.field === f.name));
+  const more = free();
+  return (
+    <>
+      {then.map((key, index) => {
+        const field = named(key);
+        if (!field) return null;
+        const words = `${field.label}, ${directionWords(field, key.descending)}`;
+        return (
+          <MenuTrigger key={key.field}>
+            <AriaButton className={buttonClass()}>
+              <span className="muted">then</span> {words}
+            </AriaButton>
+            <Popover className="menu-popover" placement="bottom start" offset={4}>
+              <Menu
+                className="menu"
+                aria-label={`Then by, after ${index === 0 ? "the sort" : "the one before"}`}
+                selectionMode="single"
+                selectedKeys={[`${key.field}:${key.descending ? "desc" : "asc"}`]}
+                onAction={(chosen) => {
+                  const next = [...then];
+                  if (chosen === "remove") next.splice(index, 1);
+                  else next[index] = sortKeyOf(String(chosen));
+                  onChange(next);
+                }}
+              >
+                {sortChoices(free(key.field))}
+                <MenuItem id="remove" className="menu-item">
+                  Don’t sort by {inSentence(field.label)}
+                </MenuItem>
+              </Menu>
+            </Popover>
+          </MenuTrigger>
+        );
+      })}
+      {then.length < MAX_THEN && more.length ? (
+        <MenuTrigger>
+          <AriaButton className={buttonClass()}>Then by…</AriaButton>
+          <Popover className="menu-popover" placement="bottom start" offset={4}>
+            <Menu
+              className="menu"
+              aria-label="Then by"
+              onAction={(chosen) => {
+                onChange([...then, sortKeyOf(String(chosen))]);
+              }}
+            >
+              {sortChoices(more)}
+            </Menu>
+          </Popover>
+        </MenuTrigger>
+      ) : null}
+    </>
+  );
 }
 
 /** The columns a reader hid in this list, or those hidden until shown. */

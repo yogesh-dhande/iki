@@ -4491,7 +4491,7 @@ def test_a_core_takes_requests_a_project_sends_one_and_the_core_works_it(
     heading = page.get_by_role("heading", name="Requests it takes")
     heading.wait_for()
     card = page.locator("section", has=heading)
-    card.get_by_role("checkbox", name="Assay request").check()
+    card.get_by_role("checkbox", name="Assay request", exact=True).check()
     card.get_by_role("radio", name=re.compile("^Every project in the")).check()
     assert_clean(page)
     card.get_by_role("button", name="Save").click()
@@ -4598,6 +4598,8 @@ def test_a_project_follows_the_requests_it_sent_in_its_requests_tab(
     tab = tabs.get_by_role("link", name=re.compile(r"^Requests\b"))
     page.wait_for_url(re.compile(r"/requests/"))
     assert tab.get_attribute("aria-current") == "page"
+    # It sends two types of request: its assay requests, by the type they are.
+    page.get_by_role("combobox", name="Type").select_option(label="Assay request")
     # Only what it sent: not the request it hasn't sent yet.
     grid = page.get_by_role("table", name="1 assay request", exact=True)
     row = grid.get_by_role("row").filter(has=page.get_by_role("link", name=request.hrid))
@@ -4613,6 +4615,81 @@ def test_a_project_follows_the_requests_it_sent_in_its_requests_tab(
     grid = page.get_by_role("table", name="1 assay request match")
     grid.get_by_role("link", name=request.hrid).wait_for()
     assert_clean(page)
+    page.context.close()
+
+
+def test_a_core_sorts_its_queue_by_its_ranking_then_priority_then_need(
+    open_as: Any, world: World
+) -> None:
+    """A service orders its own work (ADR 0232): its queue sorts by a service field of its
+    own, then by priority in its declared order, urgent first, then by when each is needed.
+    By role, never by label (Firefox; see above)."""
+    from iki_server.entities import requests
+    from iki_server.entities import services as entities
+
+    core = Project.objects.create(team=world.team, name="Protein Core", description="Assays")
+    tech = User.objects.create_user("tech@example.com", "Tech")
+    world.users["tech"] = tech
+    ProjectMembership.objects.create(project=core, user=tech, role=ProjectRole.EDITOR)
+    editor = world.users["editor"]
+    requests.set_intake(
+        core,
+        types=["acme/protein.RankedAssayRequest"],
+        from_registry=True,
+        sources=[],
+        by=world.users["admin"],
+    )
+    hrids = {}
+    for title, rank, priority, needed_by in (
+        ("Intact mass, lot 7", 2, "urgent", "2026-12-04"),
+        ("SEC purity, lot 9", 1, "routine", "2026-12-01"),
+        ("Peptide map, lot 3", 1, "urgent", "2026-12-09"),
+        ("Endotoxin, lot 5", 1, "urgent", "2026-12-02"),
+    ):
+        made = entities.create(
+            editor,
+            "acme/protein.RankedAssayRequest",
+            world.project,
+            {"title": title, "needed_by": needed_by},
+        )
+        request = Entity.objects.get(pk=made.entity.pk)
+        requests.submit(editor, request, core, expected_revision=request.revision)
+        request.refresh_from_db()
+        entities.update(
+            tech,
+            request,
+            {"client_rank": rank, "priority": priority},
+            expected_revision=request.revision,
+            acting_in=core,
+        )
+        hrids[title] = request.hrid
+
+    page: Page = open_as("tech", f"/projects/{core.slug}/requests/")
+    grid = page.get_by_role("table", name="4 ranked assay requests", exact=True)
+    grid.wait_for()
+    page.get_by_role("button", name=re.compile("^Sort: ")).click()
+    page.get_by_role("menuitemradio", name="Client rank, lowest first").click()
+    page.get_by_role("button", name="Then by…").click()
+    page.get_by_role("menuitem", name="Priority, urgent first").click()
+    page.get_by_role("button", name="Then by…").click()
+    page.get_by_role("menuitem", name="Needed by, oldest first").click()
+    page.get_by_role("button", name="then Needed by, oldest first").wait_for()
+    assert_clean(page)
+    expected = [
+        hrids["Endotoxin, lot 5"],
+        hrids["Peptide map, lot 3"],
+        hrids["SEC purity, lot 9"],
+        hrids["Intact mass, lot 7"],
+    ]
+
+    def order() -> list[str]:
+        links = grid.get_by_role("row").get_by_role("link", name=re.compile("^RAR-"))
+        return [links.nth(i).inner_text() for i in range(links.count())]
+
+    deadline = time.monotonic() + 10
+    while order() != expected and time.monotonic() < deadline:
+        page.wait_for_timeout(100)
+    assert order() == expected
     page.context.close()
 
 

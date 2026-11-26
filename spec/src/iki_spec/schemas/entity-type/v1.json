@@ -195,7 +195,7 @@
       }
     },
     "request": {
-      "description": "Its records are requests a project sends to another project's service, such as a core facility (ADR 0132). The asking project owns each request; the service it's sent to may change only the fields named here, and set only the state fields named here, while the rest stay the asking project's. Its subtypes are requests too.",
+      "description": "Its records are requests a project sends to another project's service, such as a core facility (ADR 0132). The asking project owns each request; the service it's sent to may change only the fields named here, and set only the state fields named here, while the rest stay the asking project's. Its subtypes are requests too; a subtype may declare `request` with only `service_fields`, naming more of its own fields the service writes, such as a ranking a lab's core keeps (ADR 0232).",
       "type": "object",
       "properties": {
         "service_fields": {

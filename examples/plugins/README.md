@@ -23,6 +23,8 @@ Iki's installable first-party plugins live in [`plugins/`](../../plugins).
 - [qPCR instrument intake](instrument_intake/README.md) sends each QuantStudio
   run from the instrument PC to a facility's project, and reads its wells and
   standard curves once the file is scanned clean.
+- [Request priority](request_priority/README.md) ranks a core facility's queue
+  by its own agreed ranking of the projects it serves, as each request arrives.
 - [Sample storage labels](storage_labels/README.md) expands a lab’s location
   codes and displays them on sample labels. It includes an approved reference
   dataset, a DNA extension, a two-step workflow and a creation trigger.

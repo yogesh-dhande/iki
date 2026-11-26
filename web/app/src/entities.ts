@@ -64,6 +64,8 @@ export interface EntityFilter {
   filters?: Filter[] | undefined;
   sort?: string | undefined;
   descending?: boolean | undefined;
+  /** Further sorts, in order, for what `sort` ties (ADR 0232). */
+  then?: readonly SortKey[] | undefined;
   /** Only a collection's members (its HRID), from every project the reader can read. */
   collection?: string | undefined;
   /** Only the records a run wrote, by its HRID: an import's, say (ADR 0178). */
@@ -97,6 +99,9 @@ export function gridSearch(filter: EntityFilter) {
     ...(filter.sort
       ? { sort: { field: filter.sort, descending: filter.descending ?? false } }
       : {}),
+    ...(filter.sort && filter.then?.length
+      ? { then: filter.then.map((t) => ({ field: t.field, descending: t.descending })) }
+      : {}),
   };
 }
 
@@ -118,6 +123,7 @@ export function searchCsvUrl(filter: EntityFilter, columns: readonly string[] = 
     query.set("sort", search.sort.field);
     if (search.sort.descending) query.set("descending", "true");
   }
+  for (const t of search.then ?? []) query.append("then", `${t.descending ? "-" : ""}${t.field}`);
   return `/api/v1/entities/search.csv?${query.toString()}`;
 }
 
@@ -372,6 +378,24 @@ export type Showing = "current" | "archived" | "all";
  * so recent work is at the top. An index on when records changed serves it across types. */
 export const DEFAULT_SORT = { field: "updated_at", descending: true } as const;
 
+/** One of a search's sorts: a field, and which way. */
+export interface SortKey {
+  field: string;
+  descending: boolean;
+}
+
+/** The most sorts a search has after its first (ADR 0232), as the API takes. */
+export const MAX_THEN = 3;
+
+/** Further sorts as an address keeps them: a field's name, with `-` first for descending. */
+export function sortKeysOf(then: readonly string[] | undefined): SortKey[] {
+  return (then ?? []).map((t) => ({ field: t.replace(/^-/, ""), descending: t.startsWith("-") }));
+}
+
+export function sortKeyText(key: SortKey): string {
+  return `${key.descending ? "-" : ""}${key.field}`;
+}
+
 export interface EntitySearch {
   type?: string | undefined;
   show?: Showing | undefined;
@@ -379,6 +403,8 @@ export interface EntitySearch {
   filters?: Filter[] | undefined;
   sort?: string | undefined;
   desc?: boolean | undefined;
+  /** Further sorts, for what `sort` ties: `["priority", "-needed_by"]` (ADR 0232). */
+  then?: string[] | undefined;
   /** A collection's members, by its HRID. */
   collection?: string | undefined;
   /** The records a run wrote, by its HRID. */
@@ -399,6 +425,16 @@ export function validateEntitySearch(search: Record<string, unknown>): EntitySea
   if (filters) out.filters = filters;
   if (typeof search["sort"] === "string" && search["sort"]) out.sort = search["sort"];
   if (search["desc"] === true) out.desc = true;
+  const then = search["then"];
+  if (
+    out.sort &&
+    Array.isArray(then) &&
+    then.length > 0 &&
+    then.length <= MAX_THEN &&
+    then.every((t) => typeof t === "string" && /^-?[a-z][a-z0-9_]{0,99}$/.test(t))
+  ) {
+    out.then = then as string[];
+  }
   if (typeof search["collection"] === "string" && search["collection"]) {
     out.collection = search["collection"].slice(0, 100);
   }

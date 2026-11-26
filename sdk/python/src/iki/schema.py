@@ -1259,7 +1259,7 @@ class EgressOut(TypedDict):
 
 
 class EnableIn(TypedDict):
-    #: For a scheduled trigger: the service account its runs are launched as, one of its `run_as_choices`.
+    #: For a trigger whose runs are launched as a service account (on a schedule, or as a request arrives): the account, one of its `run_as_choices`.
     run_as: NotRequired[str | None]
 
 
@@ -1986,7 +1986,7 @@ class FiringOut(TypedDict):
     #: The visible entity whose change fired it.
     entity: FiredEntityOut | None
     error: FiringErrorOut | None
-    event: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'schedule']
+    event: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'request.received', 'schedule']
     fired_at: str | None
     id: str
     label: str
@@ -2627,6 +2627,8 @@ class InboxFilters(TypedDict):
 class InputOut(TypedDict):
     cardinality: Literal['one', 'many']
     description: str | None
+    #: Not chosen: each run is given every record of its type the project owns and hasn't archived (ADR 0232). Launching it with any is refused.
+    from_project: NotRequired[bool]
     label: str
     max: int | None
     name: str
@@ -3974,7 +3976,7 @@ class ProjectTriggerOut(TypedDict):
     disabled_reason: str
     enabled: bool
     enabled_at: str | None
-    #: Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a scheduled one's are. Null if nobody ever has.
+    #: Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a service account's are. Null if nobody ever has.
     enabled_by: PersonRef | None
     #: For `entity.state_changed`: the state field it watches. Empty otherwise.
     field: str
@@ -3988,18 +3990,20 @@ class ProjectTriggerOut(TypedDict):
     name: str
     #: On a schedule, while it's on: when it next runs.
     next_run_at: str | None
-    #: What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.
-    on: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'schedule']
+    #: What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, a request of its type sent to the project as a service (ADR 0232), or its schedule.
+    on: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'request.received', 'schedule']
     params: dict[str, Any]
     plugin: str
     #: Recheck an edited record on the editor’s authority.
     recheck: NotRequired[bool]
     #: Other inputs it gives the entities related to the one that fired it (ADR 0123), by input: each, every one of the input's type in the project that way of it. All of them or none: past the most an input takes, it fails.
     related: dict[str, RelatedOut]
-    #: On a schedule: the service account its runs are launched as.
+    #: On a schedule or a request's arrival: the service account its runs are launched as.
     run_as: PersonRef | None
-    #: On a schedule, for the project's Admins: the service accounts it may run as, members who can run its action here.
+    #: For one whose runs are launched as a service account, for the project's Admins: the accounts it may run as, members who can run its action here.
     run_as_choices: list[PersonRef]
+    #: Its runs are launched as a service account the Admin who turns it on chooses, on their authority: on a schedule, or as a request arrives, since nobody in the project made it happen (ADR 0081, ADR 0232).
+    runs_as_account: NotRequired[bool]
     #: On a schedule: when it runs, in cron's five fields. Empty otherwise.
     schedule: str
     #: For `entity.state_changed`: it fires only when the field is set to one of these. Empty for any of its states.
@@ -4082,6 +4086,8 @@ class QueryIn(TypedDict):
     exact_type: NotRequired[bool]
     q: NotRequired[str | None]
     sort: NotRequired[SortIn | None]
+    #: Further sorts, in order, for what `sort` ties (ADR 0232).
+    then: NotRequired[list[SortIn]]
     type: NotRequired[str | None]
     where: NotRequired[Condition | None]
 
@@ -5323,6 +5329,8 @@ class SearchCsvParams(TypedDict):
     run: NotRequired[str | None]
     #: A field to sort by.
     sort: NotRequired[str | None]
+    #: Further sorts, in order, for what `sort` ties: each a field, with `-` first for descending, as `-priority`.
+    then: NotRequired[list[str]]
     #: This type and its subtypes.
     type: NotRequired[str | None]
     #: Conditions on the type's fields, as JSON: what `POST /entities/search` takes as `where`.
@@ -5379,6 +5387,8 @@ class SearchIn(TypedDict):
     #: What this run (its ID or HRID) wrote, or found already written: a spreadsheet import's records, say.
     run: NotRequired[str | None]
     sort: NotRequired[SortIn | None]
+    #: Further sorts, in order, for what `sort` ties: a core's queue by its ranking, then priority, then when each is needed (ADR 0232). Blanks are last in each.
+    then: NotRequired[list[SortIn]]
     #: This type and its subtypes.
     type: NotRequired[str | None]
     where: NotRequired[Condition | None]
@@ -6083,7 +6093,7 @@ class SoftwareOut(TypedDict):
 
 class SortIn(TypedDict):
     descending: NotRequired[bool]
-    #: A field to sort by: text, numbers, dates or yes/no.
+    #: A field to sort by: text, numbers, dates or yes/no; or a request's `asked_by` or `sent_to`, by the project's name (ADR 0232).
     field: str
 
 
@@ -6532,7 +6542,7 @@ class TriggerFiredOut(TypedDict):
     enabled_by: PersonRef | None
     #: The visible entity whose change fired it.
     entity: str | None
-    event: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'schedule']
+    event: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'request.received', 'schedule']
     #: Its label, or its name once it's no longer installed.
     label: str
     #: The trigger's qualified name, such as `protein.weigh_new`.
@@ -6559,14 +6569,16 @@ class TriggerOut(TypedDict):
     label: str
     #: Its qualified name, such as `protein.weigh_new_proteins`.
     name: str
-    #: What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.
-    on: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'schedule']
+    #: What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, a request of its type sent to the project as a service (ADR 0232), or its schedule.
+    on: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'request.received', 'schedule']
     params: dict[str, Any]
     plugin: str
     #: Recheck an edited record on the editor’s authority.
     recheck: NotRequired[bool]
     #: Other inputs it gives the entities related to the one that fired it (ADR 0123), by input: each, every one of the input's type in the project that way of it. All of them or none: past the most an input takes, it fails.
     related: dict[str, RelatedOut]
+    #: Its runs are launched as a service account the Admin who turns it on chooses, on their authority: on a schedule, or as a request arrives, since nobody in the project made it happen (ADR 0081, ADR 0232).
+    runs_as_account: NotRequired[bool]
     #: On a schedule: when it runs, in cron's five fields. Empty otherwise.
     schedule: str
     #: For `entity.state_changed`: it fires only when the field is set to one of these. Empty for any of its states.

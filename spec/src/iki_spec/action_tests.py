@@ -289,6 +289,13 @@ class _Check:
                         )
                 self._files_named(entity["values"], files, (*at, index, "values"))
                 self._included(given, fields, entity, files, (*at, index, "included"))
+                if "request" in entity and not self._is_request(entity_type):
+                    self.add(
+                        "not-a-request",
+                        f"{type_name} isn't a request type, so it has no asking project or "
+                        "service.",
+                        (*at, index, "request"),
+                    )
         for name, given in action.inputs.items():
             if name not in inputs and not given.optional:
                 self.add("missing-input", f"Give {action.name}'s {name} input.", ("inputs",))
@@ -359,6 +366,14 @@ class _Check:
                     hint=_known("Its files", files),
                 )
 
+    def _is_request(self, entity_type: EntityType) -> bool:
+        current: EntityType | None = entity_type
+        while current is not None:
+            if current.request is not None:
+                return True
+            current = self.types.get(current.extends) if current.extends else None
+        return False
+
     def _is_a(self, entity_type: EntityType, wanted: str) -> bool:
         if wanted == naming.ENTITY:
             return True
@@ -428,7 +443,8 @@ def _known(what: str, names: Mapping[str, Any]) -> str:
 
 
 def _id(kind: int, n: int) -> str:
-    """A fixed UUID: kind 1 for the run, 2 the project, 3 entities, 4 files, 5 people."""
+    """A fixed UUID: kind 1 for the run, 2 the project, 3 entities, 4 files, 5 people, 6
+    other projects."""
     return str(uuid.UUID(f"00000000-0000-7000-8{kind:03d}-{n:012d}"))
 
 
@@ -473,6 +489,10 @@ def run_input(
         put = action.inputs[name]
         for entity in entities:
             document = made(entity, entity.get("type") or put.type)
+            if "request" in entity:
+                # A request's two sides, as the server gives them (ADR 0232): by default
+                # sent from another project to the test's, which serves it.
+                document["request"] = _request_sides(entity["request"])
             if put.include:
                 # What its references name: each given one gets an ID, which the reference
                 # holds, as the server gives them (ADR 0105).
@@ -535,6 +555,20 @@ def run_input(
         # job, as the server packs them, one run each.
         **({"pack": pack} if pack else {}),
     }
+
+
+#: The test run's project, which a request is sent to unless its fixture says otherwise.
+_TEST_PROJECT = {"slug": "service", "name": "Service"}
+
+
+def _request_sides(given: Mapping[str, Any]) -> dict[str, Any]:
+    def side(value: Mapping[str, Any] | None, n: int) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        return {"id": value.get("id") or _id(6, n), "slug": value["slug"], "name": value["name"]}
+
+    service = given["service"] if "service" in given else {**_TEST_PROJECT, "id": _id(2, 1)}
+    return {"asking_project": side(given["asking_project"], 1), "service": side(service, 2)}
 
 
 def _fixture_files(

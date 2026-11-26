@@ -5257,7 +5257,7 @@
                 "type": "null"
               }
             ],
-            "description": "For a scheduled trigger: the service account its runs are launched as, one of its `run_as_choices`.",
+            "description": "For a trigger whose runs are launched as a service account (on a schedule, or as a request arrives): the account, one of its `run_as_choices`.",
             "title": "Run As"
           }
         },
@@ -8732,6 +8732,7 @@
               "entity.registered",
               "entity.state_changed",
               "entity.updated",
+              "request.received",
               "schedule"
             ],
             "title": "Event",
@@ -11510,6 +11511,12 @@
               }
             ],
             "title": "Description"
+          },
+          "from_project": {
+            "default": false,
+            "description": "Not chosen: each run is given every record of its type the project owns and hasn't archived (ADR 0232). Launching it with any is refused.",
+            "title": "From Project",
+            "type": "boolean"
           },
           "label": {
             "title": "Label",
@@ -17931,7 +17938,7 @@
                 "type": "null"
               }
             ],
-            "description": "Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a scheduled one's are. Null if nobody ever has."
+            "description": "Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a service account's are. Null if nobody ever has."
           },
           "field": {
             "description": "For `entity.state_changed`: the state field it watches. Empty otherwise.",
@@ -17986,12 +17993,13 @@
             "title": "Next Run At"
           },
           "on": {
-            "description": "What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.",
+            "description": "What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, a request of its type sent to the project as a service (ADR 0232), or its schedule.",
             "enum": [
               "entity.created",
               "entity.registered",
               "entity.state_changed",
               "entity.updated",
+              "request.received",
               "schedule"
             ],
             "title": "On",
@@ -18029,15 +18037,21 @@
                 "type": "null"
               }
             ],
-            "description": "On a schedule: the service account its runs are launched as."
+            "description": "On a schedule or a request's arrival: the service account its runs are launched as."
           },
           "run_as_choices": {
-            "description": "On a schedule, for the project's Admins: the service accounts it may run as, members who can run its action here.",
+            "description": "For one whose runs are launched as a service account, for the project's Admins: the accounts it may run as, members who can run its action here.",
             "items": {
               "$ref": "#/components/schemas/PersonRef"
             },
             "title": "Run As Choices",
             "type": "array"
+          },
+          "runs_as_account": {
+            "default": false,
+            "description": "Its runs are launched as a service account the Admin who turns it on chooses, on their authority: on a schedule, or as a request arrives, since nobody in the project made it happen (ADR 0081, ADR 0232).",
+            "title": "Runs As Account",
+            "type": "boolean"
           },
           "schedule": {
             "description": "On a schedule: when it runs, in cron's five fields. Empty otherwise.",
@@ -18425,6 +18439,15 @@
                 "type": "null"
               }
             ]
+          },
+          "then": {
+            "description": "Further sorts, in order, for what `sort` ties (ADR 0232).",
+            "items": {
+              "$ref": "#/components/schemas/SortIn"
+            },
+            "maxItems": 3,
+            "title": "Then",
+            "type": "array"
           },
           "type": {
             "anyOf": [
@@ -24377,6 +24400,15 @@
             "description": "A field to sort by.",
             "title": "Sort"
           },
+          "then": {
+            "description": "Further sorts, in order, for what `sort` ties: each a field, with `-` first for descending, as `-priority`.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Then",
+            "type": "array"
+          },
           "type": {
             "anyOf": [
               {
@@ -24664,6 +24696,15 @@
                 "type": "null"
               }
             ]
+          },
+          "then": {
+            "description": "Further sorts, in order, for what `sort` ties: a core's queue by its ranking, then priority, then when each is needed (ADR 0232). Blanks are last in each.",
+            "items": {
+              "$ref": "#/components/schemas/SortIn"
+            },
+            "maxItems": 3,
+            "title": "Then",
+            "type": "array"
           },
           "type": {
             "anyOf": [
@@ -27959,7 +28000,7 @@
             "type": "boolean"
           },
           "field": {
-            "description": "A field to sort by: text, numbers, dates or yes/no.",
+            "description": "A field to sort by: text, numbers, dates or yes/no; or a request's `asked_by` or `sent_to`, by the project's name (ADR 0232).",
             "title": "Field",
             "type": "string"
           }
@@ -30000,6 +30041,7 @@
               "entity.registered",
               "entity.state_changed",
               "entity.updated",
+              "request.received",
               "schedule"
             ],
             "title": "Event",
@@ -30117,12 +30159,13 @@
             "type": "string"
           },
           "on": {
-            "description": "What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, or its schedule.",
+            "description": "What fires it: an entity of its type created, registered (ADR 0115), set to another state in one of its state fields (ADR 0125) or changed, a request of its type sent to the project as a service (ADR 0232), or its schedule.",
             "enum": [
               "entity.created",
               "entity.registered",
               "entity.state_changed",
               "entity.updated",
+              "request.received",
               "schedule"
             ],
             "title": "On",
@@ -30150,6 +30193,12 @@
             "description": "Other inputs it gives the entities related to the one that fired it (ADR 0123), by input: each, every one of the input's type in the project that way of it. All of them or none: past the most an input takes, it fails.",
             "title": "Related",
             "type": "object"
+          },
+          "runs_as_account": {
+            "default": false,
+            "description": "Its runs are launched as a service account the Admin who turns it on chooses, on their authority: on a schedule, or as a request arrives, since nobody in the project made it happen (ADR 0081, ADR 0232).",
+            "title": "Runs As Account",
+            "type": "boolean"
           },
           "schedule": {
             "description": "On a schedule: when it runs, in cron's five fields. Empty otherwise.",
@@ -36474,7 +36523,7 @@
     },
     "/api/v1/entities/search": {
       "post": {
-        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``\n(then by ID), oldest first without one.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case); a sequence\n  (a ``dna_sequence``, ``rna_sequence`` or ``protein_sequence``, its field's ``format``)\n  also ``motif`` (ADR 0175): its bases or residues in IUPAC codes, as ``GAATTY``, each\n  matching a residue it certainly is (Y matches C, T and Y; a record's N only N), found\n  on a duplex's other strand as its reverse complement, and across a circle's origin, as\n  the record's strands and topology say\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or in another by its UCUM code, as\n  ``{\"value\": 50, \"unit\": \"ku\"}`` for 50 kDa)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA state field (ADR 0125) is searched as an enum of its states, by name.\n``upstream`` and ``downstream`` (ADR 0123) take ``of``: what an entity (by ID or\nHRID) was derived from, or what was derived from it, through references and runs, as\n``{\"field\": \"downstream\", \"op\": \"of\", \"value\": \"TUB-000001\"}``, or with a ``depth``\nand ``edges``: ``{\"entity\": \"TUB-000001\", \"depth\": 5, \"edges\": [\"reference\"]}``; and\n``is_set``, whether anything you can read is that way.\n``held`` and ``breaks`` (ADR 0127) find what plugins' rules caught: records a rule holds\nfor review now, and records that break a rule they were saved before (one its plugin\nadded or changed since, or one a bundle brought). They take a rule's name with ``eq``,\n``ne`` and ``in``, as ``{\"field\": \"held\", \"op\": \"eq\", \"value\": \"mass_within_tolerance\"}``,\nand ``is_set``, held or breaking any rule. Each result's ``holds`` and ``breaches``\nsay which, and why.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
+        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``,\nthen by each of ``then`` (ADR 0232), then by ID; oldest first without one. Requests\nalso sort by ``asked_by`` and ``sent_to``: the projects on their two sides, by name.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case); a sequence\n  (a ``dna_sequence``, ``rna_sequence`` or ``protein_sequence``, its field's ``format``)\n  also ``motif`` (ADR 0175): its bases or residues in IUPAC codes, as ``GAATTY``, each\n  matching a residue it certainly is (Y matches C, T and Y; a record's N only N), found\n  on a duplex's other strand as its reverse complement, and across a circle's origin, as\n  the record's strands and topology say\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or in another by its UCUM code, as\n  ``{\"value\": 50, \"unit\": \"ku\"}`` for 50 kDa)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA state field (ADR 0125) is searched as an enum of its states, by name.\n``upstream`` and ``downstream`` (ADR 0123) take ``of``: what an entity (by ID or\nHRID) was derived from, or what was derived from it, through references and runs, as\n``{\"field\": \"downstream\", \"op\": \"of\", \"value\": \"TUB-000001\"}``, or with a ``depth``\nand ``edges``: ``{\"entity\": \"TUB-000001\", \"depth\": 5, \"edges\": [\"reference\"]}``; and\n``is_set``, whether anything you can read is that way.\n``held`` and ``breaks`` (ADR 0127) find what plugins' rules caught: records a rule holds\nfor review now, and records that break a rule they were saved before (one its plugin\nadded or changed since, or one a bundle brought). They take a rule's name with ``eq``,\n``ne`` and ``in``, as ``{\"field\": \"held\", \"op\": \"eq\", \"value\": \"mass_within_tolerance\"}``,\nand ``is_set``, held or breaking any rule. Each result's ``holds`` and ``breaches``\nsay which, and why.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
         "operationId": "iki_server_api_entities_search_entities",
         "parameters": [],
         "requestBody": {
@@ -36686,6 +36735,21 @@
               "default": false,
               "title": "Descending",
               "type": "boolean"
+            }
+          },
+          {
+            "description": "Further sorts, in order, for what `sort` ties: each a field, with `-` first for descending, as `-priority`.",
+            "in": "query",
+            "name": "then",
+            "required": false,
+            "schema": {
+              "description": "Further sorts, in order, for what `sort` ties: each a field, with `-` first for descending, as `-priority`.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 3,
+              "title": "Then",
+              "type": "array"
             }
           },
           {
@@ -45017,7 +45081,7 @@
     },
     "/api/v1/projects/{project_id}/triggers/{name}/enable": {
       "post": {
-        "description": "From now on an entity trigger's runs are launched as you, and a scheduled one's as the\nservice account you choose (`run_as`), on your authority: either way you must be able to\nrun its action here. Only in the web app: no token, and so no agent, can turn one on.",
+        "description": "From now on an entity trigger's runs are launched as you, and a scheduled one's, or one\non a request's arrival, as the service account you choose (`run_as`), on your authority:\neither way you must be able to run its action here. Only in the web app: no token, and so\nno agent, can turn one on.",
         "operationId": "iki_server_api_triggers_enable_trigger",
         "parameters": [
           {

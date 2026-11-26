@@ -2889,7 +2889,23 @@ request:
   service_fields: [status]
 """
     files = {**requests(), "types/urgent.yaml": sub}
-    assert "is a request type already" in only(make(tmp_path, files, ROLES), "request-redeclared")
+    # It adds service fields of its own (ADR 0232), not its parent's.
+    found = only(make(tmp_path, files, ROLES), "service-field-inherited")
+    assert found.startswith("`status` is ")
+    own = sub + "fields:\n  queue_rank: { type: int }\n"
+    files["types/urgent.yaml"] = own.replace("[status]", "[queue_rank]")
+    assert make(tmp_path, files, ROLES).problems == []
+    # Its parent says the rest.
+    files["types/urgent.yaml"] = own.replace("[status]", "[queue_rank]\n  sends: [samples]")
+    message = only(make(tmp_path, files, ROLES), "request-redeclared")
+    assert "can only add service fields of their own" in message
+    files["types/urgent.yaml"] = own.replace("[status]", "[]")
+    assert "request-redeclared" in codes(make(tmp_path, files, ROLES))
+    # A service field of its own is held to a service field's rules.
+    files["types/urgent.yaml"] = own.replace("[status]", "[queue_rank]").replace(
+        "{ type: int }", "{ type: int, required: true }"
+    )
+    assert only(make(tmp_path, files, ROLES), "service-field-required")
     files["types/urgent.yaml"] = sub.replace("request:\n  service_fields: [status]\n", "")
     assert make(tmp_path, files, ROLES).problems == []
 

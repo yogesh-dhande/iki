@@ -43,6 +43,7 @@ NIGHTLY = "acme/protein.fetch_hemoglobin_nightly"
 CHANGED = "acme/protein.weigh_changed_proteins"
 IN_TESTING = "acme/protein.measure_samples_in_testing"
 FLAG = "acme/protein.flag_samples_of_changed_proteins"
+RANK = "acme/protein.rank_received_requests"
 
 
 @pytest.fixture(autouse=True)
@@ -92,14 +93,15 @@ def weigh(pod: WorkerClient) -> dict[str, Any]:
 
 def test_lists_installed_triggers(world: World) -> None:
     found = api_as(world, "viewer").get("/triggers").json()
-    assert [t["name"] for t in found] == [NIGHTLY, FLAG, IN_TESTING, CHANGED, NEW]
+    assert [t["name"] for t in found] == [NIGHTLY, FLAG, IN_TESTING, RANK, CHANGED, NEW]
     assert found[2]["on"] == "entity.state_changed"
     assert (found[2]["field"], found[2]["states"]) == ("status", ["in_testing"])
     assert found[1]["related"] == {
         "samples": {"direction": "downstream", "depth": 2, "edges": ["reference"]},
         "structures": {"direction": "downstream", "depth": 10, "edges": []},
     }
-    assert found[4] == {
+    assert (found[0]["runs_as_account"], found[3]["runs_as_account"]) == (True, True)
+    assert found[5] == {
         "name": NEW,
         "plugin": "acme/protein",
         "label": "Weigh new proteins",
@@ -118,6 +120,7 @@ def test_lists_installed_triggers(world: World) -> None:
         "params": {},
         "tier": "backend",
         "recheck": False,
+        "runs_as_account": False,
     }
 
 

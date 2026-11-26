@@ -35,7 +35,7 @@ MAX_OWN = 100
 MAX_SHARED = 100
 
 #: What a saved search keeps: a search without its project (the saved search's) or paging.
-KEYS = ("type", "exact_type", "archived", "q", "where", "sort", "descending")
+KEYS = ("type", "exact_type", "archived", "q", "where", "sort", "descending", "then")
 
 
 class Refused(Exception):  # noqa: N818 - reads as "the change was refused"
@@ -100,13 +100,17 @@ def clean(user: User, project: Project | None, query: Mapping[str, Any]) -> dict
     kept = {
         k: query[k]
         for k in KEYS
-        if query.get(k) not in (None, "")
+        if query.get(k) not in (None, "", [])
         # Off is the default for these; archived=false means "current only".
         and not (k in ("exact_type", "descending") and query[k] is False)
     }
     try:
         search.queryset(
-            user, search.Search(project=project.pk if project is not None else None, **kept)
+            user,
+            search.Search(
+                project=project.pk if project is not None else None,
+                **{**kept, "then": search.then_of(kept.get("then"))},
+            ),
         )
     except search.SearchError as error:
         raise Refused(

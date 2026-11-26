@@ -298,7 +298,8 @@ main.app-main {
   margin-bottom: 1.25rem;
 }
 
-label {
+label,
+.field-label {
   display: block;
   font-weight: 600;
   margin-bottom: 0.3rem;
