@@ -4,16 +4,20 @@ kind: EntityType
 name: CalibrationImpact
 label: Calibration impact
 label_plural: Calibration impacts
-schema_version: 3
+schema_version: 4
 hrid: { prefix: EQI }
-description: A result that needs a separate disposition after a failed calibration. The signed original remains part of the evidence.
+description: >-
+  A result that needs a separate disposition after a failed calibration. The signed original
+  remains part of the evidence. A trace opens one for each result an instrument use puts in the
+  failure's window; Equipment QA opens one, with a reason, for a result no use was recorded for.
 fields:
   key:
     { type: string, max_length: 64, computed: true, immutable: true, unique: true, indexed: true }
   instrument: { type: ref, to: Instrument, required: true, immutable: true }
   failure: { type: ref, to: EquipmentService, required: true, immutable: true }
   failure_revision: { type: int, min: 1, computed: true, immutable: true }
-  use: { type: ref, to: InstrumentUse, required: true, immutable: true }
+  # A traced case's evidence. A case opened manually has none: no use was recorded.
+  use: { type: ref, to: InstrumentUse, immutable: true }
   result: { type: ref, to: iki/core.Entity, required: true, immutable: true }
   measurement_at: { type: datetime, required: true, immutable: true, indexed: true }
   review_flow:
@@ -21,6 +25,26 @@ fields:
     values: [research, regulated_qc]
     computed: true
     immutable: true
+  opened:
+    type: enum
+    values: [traced, manually]
+    computed: true
+    immutable: true
+    indexed: true
+    description: Traced from a recorded instrument use, or opened manually by Equipment QA.
+  opened_by:
+    type: person
+    role: qa
+    computed: true
+    immutable: true
+    description: The Equipment QA who opened the case manually.
+  opened_reason:
+    type: text
+    max_length: 2000
+    computed: true
+    immutable: true
+    label: Why it was opened
+    description: Why the result was affected though no instrument use was recorded for it.
   disposition:
     type: enum
     values: [unaffected, repeat_required, invalidated]
@@ -94,11 +118,29 @@ fields:
             message: A QA signer independent of the review and assessment must release the disposition.
 rules:
   traced_by_action:
-    label: The trace pins its source and review flow
-    check: record.key != null && record.failure_revision != null && record.review_flow != null
-    message: Trace failed calibrations with the action to identify the possible impact.
+    label: The case pins its source and review flow
+    check: >-
+      record.key != null && record.failure_revision != null && record.review_flow != null &&
+      record.opened != null
+    message: >-
+      Open impact cases with an action: the trace, or Open an impact case for a result no
+      instrument use was recorded for.
+  opened_as_recorded:
+    label: A traced case has its use, and a manual one says who opened it and why
+    check: >-
+      record.opened == "traced" ?
+      record.use != null && record.opened_by == null && record.opened_reason == null :
+      record.use == null && record.opened_by != null && record.opened_reason != null &&
+      size(record.opened_reason) > 0
+    message: A traced case names its instrument use; a manual one, who opened it and why.
+    fields: [use, opened_by, opened_reason]
+  one_case_per_result:
+    label: One case for each result a failed calibration affects
+    unique: [failure, result]
+    message: This result already has an impact case for this failed calibration.
   use_matches_failure:
     label: The result was in the review window
+    when: record.use != null
     check: >-
       record.failure.outcome == "out_of_tolerance" && record.failure.review in ["signed_off", "released"] &&
       record.failure.instrument == record.instrument.id && record.use.instrument == record.instrument.id &&
@@ -107,5 +149,16 @@ rules:
       record.failure.suspect_since <= record.measurement_at
     message: Only an instrument use in this failed calibration's review window can be assessed.
     fields: [instrument, failure, use, result, measurement_at]
+  measured_after_onset:
+    label: A manual case's measurement is after the suspected onset
+    when: record.use == null
+    check: >-
+      record.failure.outcome == "out_of_tolerance" && record.failure.review in ["signed_off", "released"] &&
+      record.failure.instrument == record.instrument.id &&
+      record.failure.suspect_since <= record.measurement_at && record.measurement_at <= now
+    message: >-
+      Open a case for a signed failed calibration of this instrument, measured at or after its
+      suspected onset and not in the future.
+    fields: [instrument, failure, measurement_at]
 display:
   title: "Calibration impact · {{ measurement_at }}"

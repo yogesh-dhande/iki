@@ -1,0 +1,33 @@
+apiVersion: iki/v1
+kind: Action
+name: open_impact_case
+label: Open an impact case
+description: >-
+  For a result a failed calibration may have affected, when no instrument use was recorded for it,
+  open its impact case with the time it was measured and why. It follows the same disposition,
+  signatures and independence as a traced case, and keeps that Equipment QA opened it manually.
+inputs:
+  failure: { type: EquipmentService, label: Failed calibration }
+  result: { type: iki/core.Entity, label: Affected result }
+params:
+  measurement_at:
+    type: string
+    max_length: 40
+    required: true
+    label: Measured at
+    description: Date, time and time zone of the measurement in RFC 3339 format, such as 2026-01-19T15:30:00Z.
+  reason:
+    type: text
+    max_length: 2000
+    required: true
+    label: Why it was affected
+    description: Why the result was measured on this instrument though no instrument use was recorded, and the evidence, such as a logbook entry.
+effects:
+  creates:
+    - type: CalibrationImpact
+      cardinality: one
+      derived_from: [failure, result]
+runs_on: { tier: backend, environment: equipment-tools }
+command: [python, ./scripts/equipment.py, open-case]
+deterministic: true
+timeout: 1m

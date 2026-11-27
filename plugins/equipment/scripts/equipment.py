@@ -113,7 +113,11 @@ def trace(run: Record) -> list[Record]:
         ((timestamp(use["values"]["measurement_at"]), use) for use in uses), key=lambda m: m[0]
     )
     already = {record["values"]["key"] for record in existing}
+    # One case for each result a failure affects, from its earliest use in the window: a result
+    # that already has one, traced or opened manually, gets no second.
+    covered = {(record["values"]["failure"], record["values"]["result"]) for record in existing}
     impacts = []
+    cased = 0
     for failure in failures:
         values = failure["values"]
         start = timestamp(values["suspect_since"])
@@ -138,6 +142,11 @@ def trace(run: Record) -> list[Record]:
             case = key(failure["id"], use["id"])
             if at < start or (cleared is not None and at >= cleared) or case in already:
                 continue
+            affected = (failure["id"], use["values"]["result"])
+            if affected in covered:
+                cased += 1
+                continue
+            covered.add(affected)
             impacts.append(
                 {
                     "type": PREFIX + "CalibrationImpact",
@@ -151,6 +160,7 @@ def trace(run: Record) -> list[Record]:
                         "result": use["values"]["result"],
                         "measurement_at": use["values"]["measurement_at"],
                         "review_flow": values["review_flow"],
+                        "opened": "traced",
                     },
                 }
             )
@@ -160,15 +170,72 @@ def trace(run: Record) -> list[Record]:
                 )
     print(
         f"Checked {len(measurements)} uses against {len(failures)} failures. "
-        f"{len(impacts)} new cases. Only the selected uses were checked: trace again with "
+        f"{len(impacts)} new cases"
+        + (
+            f", and {cased} uses of results that already have a case for the failure"
+            if cased
+            else ""
+        )
+        + ". Only the selected uses were checked: trace again with "
         "any other uses of this instrument in these intervals, from this project or others."
     )
     return impacts
 
 
+def open_case(run: Record) -> list[Record]:
+    """A case Equipment QA opens for a result no instrument use was recorded for."""
+    inputs = run["inputs"]
+    (failure,) = inputs["failure"]
+    (result,) = inputs["result"]
+    values = failure["values"]
+    if (
+        values["kind"] != "calibration"
+        or values["outcome"] != "out_of_tolerance"
+        or values["review"] not in SIGNED
+        or not values.get("suspect_since")
+    ):
+        raise ValueError(
+            "Select a signed out-of-tolerance calibration that says when the fault began."
+        )
+    if result["type"].startswith(PREFIX) or result["id"] == values["instrument"]:
+        raise ValueError("Select the actual measured result.")
+    reading_time = timestamp(run["params"]["measurement_at"])
+    if reading_time < timestamp(values["suspect_since"]):
+        raise ValueError("The measurement was before the failed calibration's suspected onset.")
+    reason = run["params"]["reason"].strip()
+    if not reason:
+        raise ValueError("Say why the result was affected though no instrument use was recorded.")
+    opener = run["run"].get("requested_by")
+    if not opener:
+        raise ValueError("Opening an impact case manually needs a signed-in person.")
+    return [
+        {
+            "type": PREFIX + "CalibrationImpact",
+            "derived_from": [failure["id"], result["id"]],
+            "values": {
+                "key": key(failure["id"], "opened manually", result["id"]),
+                "instrument": values["instrument"],
+                "failure": failure["id"],
+                "failure_revision": failure["revision"],
+                "result": result["id"],
+                "measurement_at": reading_time.isoformat(),
+                "review_flow": values["review_flow"],
+                "opened": "manually",
+                "opened_by": opener,
+                "opened_reason": reason,
+            },
+        }
+    ]
+
+
 def main() -> None:
     run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    action = {"schedule": schedule, "record-use": record_use, "trace": trace}[sys.argv[1]]
+    action = {
+        "schedule": schedule,
+        "record-use": record_use,
+        "trace": trace,
+        "open-case": open_case,
+    }[sys.argv[1]]
     try:
         creates = action(run)
     except (ValueError, KeyError) as error:

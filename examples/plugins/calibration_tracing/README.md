@@ -2,8 +2,10 @@
 
 Use this recipe if your facility opens an impact assessment whenever an engineer
 sets an instrument's **Calibration** state to **Failed**. Each new case links one
-signed out-of-tolerance check to one measured use in its suspect window. The
-service history, use records and QA dispositions all belong to Equipment.
+signed out-of-tolerance check to a measured result's first use in its suspect
+window: a result has one case for each failure, whether traced or opened by
+Equipment QA for a result no use was recorded for. The service history, use
+records and QA dispositions all belong to Equipment.
 Engineers can also run **Trace failed calibrations** directly from its Service
 schedule tab.
 
@@ -28,7 +30,8 @@ Review the event and its three downstream reference searches in
 in `scripts/trace.py` with the facility's quality team. The window starts at
 the earliest suspected time and ends just before the next signed passing
 calibration after the failure. The failure/use key is shared with Equipment's
-manual action so the two routes agree about which case to review. Keep the
+own trace so the two routes agree about which case to review, and a result
+that already has a case among the prior impacts gets no second. Keep the
 recovery-boundary and missing-signature cases in `tests/trace.yaml` and add
 examples from the procedure that your facility approves.
 

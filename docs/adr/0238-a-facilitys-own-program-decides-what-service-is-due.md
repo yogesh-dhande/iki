@@ -53,8 +53,8 @@ the procedure it was scheduled under. That stays.
 - The service kinds (calibration, maintenance), their outcomes and an impact's
   dispositions are fixed lists. A lab-defined vocabulary would need a general primitive
   for a deployment's own enum values, for every plugin, not one for equipment.
-- An impact case needs an instrument use. A case for a measurement recorded outside Iki
-  would need its own evidence model.
+- An impact case needed an instrument use. Equipment QA now opens one for a result no use
+  was recorded for ([ADR 0239](0239-qa-opens-an-impact-case-for-a-result-no-use-was-recorded-for.md)).
 - `record_instrument_use` checks the one calibration selected. Telling the person about a
   later failure whose window covers the measurement would need the action to read the
   instrument's later service records.

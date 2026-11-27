@@ -221,3 +221,47 @@ def test_an_instrument_outside_the_calibration_program_is_due_for_nothing(
         assert page.get_by_text("Maintenance due", exact=True).count() == 0
         # Its maintenance evidence: done when it was, and not due again.
         assert page.get_by_text(re.compile(r"^Completed .*2026")).is_visible()
+
+
+def test_a_case_opened_manually_says_who_opened_it_and_why(browser: Browser) -> None:
+    """A plate read on the failed reader with no use recorded: its case names no instrument
+    evidence, and says Equipment QA opened it, and why, beside a traced case."""
+    qa = "00000000-0000-0000-0000-000000000009"
+    reason = "Bench logbook, page 41: plate 7 read on this reader."
+    manual = {
+        "hrid": "EQI-000002",
+        "values": {
+            **IMPACT_ROW["values"],
+            "use": None,
+            "opened": "manually",
+            "opened_by": qa,
+            "opened_reason": reason,
+        },
+        "refs": {FAILURE: {"hrid": CALIBRATION["hrid"]}, RESULT: {"hrid": "QCD-000002"}},
+        "people": {qa: {"name": "Example QA"}},
+    }
+    traced = {**IMPACT_ROW, "values": {**IMPACT_ROW["values"], "opened": "traced"}}
+    with serving(PLUGINS / "equipment" / "components", {MODULE: IMPACT}) as origin:
+        page = open_frame(
+            browser,
+            origin,
+            MODULE,
+            {"values": {}},
+            viewport={"width": 390, "height": 844},
+            bypass_csp=True,
+        )
+        page.wait_for_function("(name) => document.querySelector(name) !== null", arg=IMPACT)
+        give(page, IMPACT, [traced, manual])
+        rows = page.get_by_role("listitem")
+        assert rows.nth(0).get_by_text(USE_ROW["hrid"], exact=True).is_visible()
+        assert rows.nth(0).get_by_text("Opened manually by").count() == 0
+        opened = rows.nth(1)
+        assert opened.get_by_text("None recorded", exact=True).is_visible()
+        assert opened.get_by_text("Example QA", exact=True).is_visible()
+        assert opened.get_by_text(reason, exact=True).is_visible()
+        assert page.get_by_text(qa, exact=True).count() == 0
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        page.evaluate(AXE.read_text())
+        assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
+        assert ERRORS[page] == []
+        page.context.close()

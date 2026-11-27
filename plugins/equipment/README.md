@@ -83,8 +83,11 @@ if there is a known calibration failure.
    schedule tab shows this flag and the as-found outcome. From that tab, run
    **Trace failed calibrations**. Include the signed calibration history,
    uses and prior impacts for this instrument. The action opens one case for
-   each use at or after the suspected onset and before the next signed
-   passing calibration. Until a recovery is available, the window stays
+   each result with a use at or after the suspected onset and before the next
+   signed passing calibration, from the result's first use in that window. A
+   result that already has a case for the failure gets no second: select its
+   case among the prior impacts, or the trace is refused, naming it. Until a
+   recovery is available, the window stays
    open. The run's log says, for each failure, the interval it reviewed, how
    many of the selected uses fell in it, and whether no recovery bounded it.
    Only the selected uses are checked: trace late evidence again. For a large
@@ -97,11 +100,19 @@ if there is a known calibration failure.
    a QA sign-off. Regulated QC uses engineer submission, independent review
    and independent QA release. The case keeps the original result, its
    signed revision and the failing report available for verification.
-4. If a result had already been delivered, QA communicates the disposition
+4. For a result measured on the instrument with no use recorded, such as a
+   plate the bench logbook shows was read on it, Equipment QA runs **Open an
+   impact case** from the failed service record. Select the affected result,
+   give when it was measured and say why it was affected, citing the
+   evidence. The case is marked as opened manually, with its opener and the
+   reason, and follows the same disposition, signatures and independence as a
+   traced case: in Regulated QC its opener can neither review nor release it.
+   Only people with the Equipment QA role can open one.
+5. If a result had already been delivered, QA communicates the disposition
    to the recipient through its quality process. The scope of a trace is
    the linked uses that were visible to its launcher in the instrument's
-   project. Reconcile untracked measurements and any other projects that
-   used the equipment before closing the investigation.
+   project. Open a case for each untracked measurement, and reconcile any
+   other projects that used the equipment, before closing the investigation.
 
 Facilities that open impact cases automatically when an engineer sets the
 failure flag can adapt the

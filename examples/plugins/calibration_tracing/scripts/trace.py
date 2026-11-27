@@ -54,8 +54,13 @@ def trace(run: Record) -> list[Record]:
         for record in signed
         if record["values"]["outcome"] == "in_tolerance"
     )
-    measurements = [(timestamp(use["values"]["measurement_at"]), use) for use in uses]
+    measurements = sorted(
+        ((timestamp(use["values"]["measurement_at"]), use) for use in uses), key=lambda m: m[0]
+    )
     already = {record["values"]["key"] for record in existing}
+    # Equipment keeps one case for each result a failure affects, from its earliest use in the
+    # window: a result that already has one, traced or opened manually, gets no second.
+    covered = {(record["values"]["failure"], record["values"]["result"]) for record in existing}
     impacts = []
     for failure in failures:
         values = failure["values"]
@@ -67,6 +72,10 @@ def trace(run: Record) -> list[Record]:
             case = key(failure["id"], use["id"])
             if at < start or (cleared is not None and at >= cleared) or case in already:
                 continue
+            affected = (failure["id"], use["values"]["result"])
+            if affected in covered:
+                continue
+            covered.add(affected)
             impacts.append(
                 {
                     "type": PREFIX + "CalibrationImpact",
@@ -80,6 +89,7 @@ def trace(run: Record) -> list[Record]:
                         "result": use["values"]["result"],
                         "measurement_at": use["values"]["measurement_at"],
                         "review_flow": values["review_flow"],
+                        "opened": "traced",
                     },
                 }
             )
