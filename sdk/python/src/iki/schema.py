@@ -810,6 +810,40 @@ class CheckpointOut(TypedDict):
     size: int
 
 
+class ChooseProjectProblem(TypedDict):
+    """`choose_project` (409): The HRID names a record in several projects you can read: say which, with `?project=`, or name it by its ID."""
+    code: Literal['choose_project']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    records: list[dict[str, Any]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[409]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class ClearReasonRequiredProblem(TypedDict):
+    """`clear_reason_required` (422): Clearing this flag needs a reason."""
+    code: Literal['clear_reason_required']
+    #: What went wrong, for people.
+    detail: str
+    errors: list[ProblemError]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[422]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
 class CollectionIn(TypedDict):
     description: NotRequired[str | None]
     #: `search`: a dynamic collection, holding whatever its search finds when it's read. `members`: a fixed list of what it finds for you now (at most 10,000).
@@ -969,6 +1003,24 @@ class ConsentOut(TypedDict):
     via: str
 
 
+class ConsentRequiredProblem(TypedDict):
+    """`consent_required` (409): The launch sends data to outside APIs: launch again with `consent` naming each `api` to agree (ADR 0130)."""
+    code: Literal['consent_required']
+    consent: list[ConsentStatementOut]
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[409]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
 class ConsentStatementOut(TypedDict):
     #: The API, by qualified name, such as `iki/protein.fold`.
     api: str
@@ -1080,6 +1132,26 @@ class CountScanEvidenceOut(TypedDict):
     position: str
     scanned_at: str
     scanned_by: UserOut
+
+
+class CountUnregisteredChoiceProblem(TypedDict):
+    """`count_unregistered_choice` (409): An unregistered tube may be one seen earlier in the count: choose one of `observations`, or say it's new."""
+    code: Literal['count_unregistered_choice']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    index: int
+    observations: list[dict[str, Any]]
+    position: str
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[409]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
 
 
 class CountsOut(TypedDict):
@@ -2216,6 +2288,25 @@ class GuardOut(TypedDict):
     when: NotRequired[str | None]
 
 
+class GuardRefusedProblem(TypedDict):
+    """`guard_refused` (409): A plugin's guard (ADR 0128) refused the state."""
+    code: Literal['guard_refused']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The guard that refused it.
+    guard: str
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[409]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
 class HandOverIn(TypedDict):
     reason: NotRequired[str]
     record: str
@@ -2403,6 +2494,22 @@ with a reason.
     rule: str
     #: Why you may not, when you may not.
     why_not: NotRequired[str | None]
+
+
+class HoldReasonRequiredProblem(TypedDict):
+    """`hold_reason_required` (422): A rule holds the record for review: save again with a `hold_reason` to keep it."""
+    code: Literal['hold_reason_required']
+    #: What went wrong, for people.
+    detail: str
+    errors: list[ProblemError]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[422]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
 
 
 class HoldReviewIn(TypedDict):
@@ -2702,6 +2809,24 @@ class InputOut(TypedDict):
     max: int | None
     name: str
     optional: bool
+    type: str
+
+
+class InputsOutsideProjectProblem(TypedDict):
+    """`inputs_outside_project` (409): Some inputs aren't in the run's project."""
+    code: Literal['inputs_outside_project']
+    #: What went wrong, for people.
+    detail: str
+    entities: list[dict[str, Any]]
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[409]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
     type: str
 
 
@@ -3181,6 +3306,24 @@ class MovesOut(TypedDict):
     plan: str | None
 
 
+class MovesPlanChangedProblem(TypedDict):
+    """`moves_plan_changed` (409): What the moves do changed since they were previewed: review `moves`, then confirm."""
+    code: Literal['moves_plan_changed']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    moves: MovesOut
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[409]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
 class MySigningOut(TypedDict):
     """Whether you can sign now, and what you agree to before your first signature."""
     #: You agreed to `acknowledgment` already.
@@ -3464,6 +3607,25 @@ class OutputErrorOut(TypedDict):
     detail: str
     #: Where in the run's output, as a JSON pointer.
     pointer: str
+
+
+class OutsideApiNotApprovedProblem(TypedDict):
+    """`outside_api_not_approved` (409): The action calls outside APIs this project hasn't approved (ADR 0130)."""
+    apis: list[str]
+    approvers: list[str]
+    code: Literal['outside_api_not_approved']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[409]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
 
 
 class OutsideApiOut(TypedDict):
@@ -4164,6 +4326,261 @@ class PlaceSearchIn(TypedDict):
     where: NotRequired[Condition | None]
 
 
+class Plain400Problem(TypedDict):
+    """A 400 problem that carries no more members: `bad_request`: The request couldn't be read.; `invalid_json`: The request body isn't valid JSON."""
+    code: Literal['bad_request', 'invalid_json']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[400]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class Plain401Problem(TypedDict):
+    """A 401 problem that carries no more members: `not_authenticated`: Sign in, or send a token.; `invalid_token`: The token is unknown, expired or revoked."""
+    code: Literal['not_authenticated', 'invalid_token']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[401]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class Plain403Problem(TypedDict):
+    """A 403 problem that carries no more members: `forbidden`: You don't have permission to do that.; `insufficient_scope`: The token's scopes don't allow it.; `token_limited_to_projects`: The token is limited to some projects, and this reaches beyond them.; `csrf_failed`: A request signed in with the session lacked its CSRF token.; `web_only`: Only a person in Iki's web app can do this; tokens can't.; `cannot_sign`: You can't sign this, as `detail` says.; `preflight_needs_every_project`: The preflight reads every project, so it needs an Org Admin."""
+    code: Literal['forbidden', 'insufficient_scope', 'token_limited_to_projects', 'csrf_failed', 'web_only', 'cannot_sign', 'preflight_needs_every_project']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[403]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class Plain404Problem(TypedDict):
+    """A 404 problem that carries no more members: `not_found`: There's nothing here, or you can't see it.; `no_export`: No installed plugin writes that format for this record.; `no_data`: The format holds none of this record's fields as data.; `no_field`: The type has no such field.; `no_sequence`: The record has no sequence to write.; `no_structure`: The record has no structure to write.; `sequence_unreadable`: The record's sequence can't be read for this format.; `report_not_issued`: The report hasn't been issued, so it isn't exported."""
+    code: Literal['not_found', 'no_export', 'no_data', 'no_field', 'no_sequence', 'no_structure', 'sequence_unreadable', 'report_not_issued']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[404]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class Plain405Problem(TypedDict):
+    """A 405 problem that carries no more members: `method_not_allowed`: This method isn't supported here."""
+    code: Literal['method_not_allowed']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[405]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class Plain406Problem(TypedDict):
+    """A 406 problem that carries no more members: `not_acceptable`: Iki can't answer in the format the request accepts."""
+    code: Literal['not_acceptable']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[406]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class Plain409Problem(TypedDict):
+    """A 409 problem that carries no more members: `conflict`: It conflicts with what's recorded now.; `signatures_required`: The state needs signatures it doesn't have yet.; `artifact_not_kept`: The artifact didn't finish uploading.; `file_scanning`: The file is being scanned: try again after `Retry-After`.; `file_quarantined`: The scanner found malware in the file, so it's held.; `file_not_scanned`: The scanner couldn't inspect the file, so it's held.; `scan_unavailable`: The scan can't be used here, as `detail` says.; `stale_plan`: The bundle's import plan changed since it was made: plan again.; `preflight_unavailable`: The upgrade's preflight can't run now."""
+    code: Literal['conflict', 'signatures_required', 'artifact_not_kept', 'file_scanning', 'file_quarantined', 'file_not_scanned', 'scan_unavailable', 'stale_plan', 'preflight_unavailable']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[409]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class Plain410Problem(TypedDict):
+    """A 410 problem that carries no more members: `artifact_deleted`: The artifact was deleted once its retention was over."""
+    code: Literal['artifact_deleted']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[410]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class Plain413Problem(TypedDict):
+    """A 413 problem that carries no more members: `too_large`: The request is larger than Iki takes."""
+    code: Literal['too_large']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[413]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class Plain415Problem(TypedDict):
+    """A 415 problem that carries no more members: `unsupported_media_type`: The body's content type isn't one Iki reads."""
+    code: Literal['unsupported_media_type']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[415]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class Plain422Problem(TypedDict):
+    """A 422 problem that carries no more members: `too_many`: It would reach more than Iki does at once: narrow it.; `search_too_slow`: The search took too long: narrow it.; `writer_refused`: The plugin's writer refused the record: `detail` says why.; `writer_failed`: The plugin's writer failed: tell whoever looks after it.; `invalid_manifest`: The plugin's manifest is invalid, as `detail` says.; `component_misdeclared`: The component's declaration doesn't work here: tell its plugin's maintainer.; `not_shown_here`: The component isn't shown in that place."""
+    code: Literal['too_many', 'search_too_slow', 'writer_refused', 'writer_failed', 'invalid_manifest', 'component_misdeclared', 'not_shown_here']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[422]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class Plain428Problem(TypedDict):
+    """A 428 problem that carries no more members: `precondition_required`: Send `If-Match` with the one ETag you read, or `If-None-Match: *`."""
+    code: Literal['precondition_required']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[428]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class Plain429Problem(TypedDict):
+    """A 429 problem that carries no more members: `rate_limited`: Too many requests: wait for `Retry-After` seconds."""
+    code: Literal['rate_limited']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[429]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class Plain500Problem(TypedDict):
+    """A 500 problem that carries no more members: `internal_error`: Something went wrong on Iki's side: the request ID finds it."""
+    code: Literal['internal_error']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[500]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class Plain503Problem(TypedDict):
+    """A 503 problem that carries no more members: `unavailable`: Iki can't do this right now: try again after `Retry-After`.; `sandbox_unavailable`: The export sandbox is busy or away: try again shortly.; `helm_unavailable`: HELM can't be read right now: try again shortly.; `storage_not_configured`: This deployment has no file storage set up.; `storage_unavailable`: Iki can't reach its file storage: try again shortly."""
+    code: Literal['unavailable', 'sandbox_unavailable', 'helm_unavailable', 'storage_not_configured', 'storage_unavailable']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[503]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
 class PlannedOut(TypedDict):
     #: Where it is now: null if nowhere.
     from_place: EndOut | None
@@ -4256,30 +4673,14 @@ class PreviewRowParams(TypedDict):
     outcome: NotRequired[list[Literal['create', 'register', 'add', 'reuse', 'same', 'problem']] | None]
 
 
-class Problem(TypedDict):
-    """An RFC 9457 problem: how every error is described (ADR 0027). `code` is stable, for programs; `detail` is for people. Some codes carry more members, which each operation's description names."""
-    #: Stable, for programs: `validation_failed`, `refused`, `insufficient_scope`, …
-    code: str
-    #: What went wrong, for people.
-    detail: str
-    #: For `validation_failed` and `hold_reason_required`: what's wrong, and where.
-    errors: NotRequired[list[ProblemError]]
-    #: The request's ID, which helps an administrator find it.
-    request_id: NotRequired[str]
-    #: The HTTP status.
-    status: int
-    #: The HTTP status's phrase.
-    title: str
-    #: `about:blank`.
-    type: str
-
-
 class ProblemError(TypedDict):
     """One thing wrong with the request: a body field, by its JSON Pointer, or a query or path parameter, by its name. Each has one of the two."""
     #: What's wrong there, for people.
     detail: str
     #: The rule holds the record for review rather than refusing it: saving with a `hold_reason` keeps it.
     hold: NotRequired[bool]
+    #: For a sheet's `sheet_problems`: what kind of problem it is.
+    kind: NotRequired[str]
     #: The query or path parameter: `cursor`, `project`.
     parameter: NotRequired[str]
     #: Where in the body, as a JSON Pointer: `#/values/sequence`.
@@ -4524,6 +4925,24 @@ class ProteinExportOut(TypedDict):
     formats: list[FileFormatOut]
     #: The protein sequence field it's written from.
     sequence: str
+
+
+class PurgedProblem(TypedDict):
+    """`purged` (410): The record was purged with its plugin's data (ADR 0092): its tombstone comes with it."""
+    code: Literal['purged']
+    #: What went wrong, for people.
+    detail: str
+    entity: dict[str, Any]
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[410]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
 
 
 class PutAwayIn(TypedDict):
@@ -4884,6 +5303,22 @@ class RefineIn(TypedDict):
     sort: NotRequired[SortIn | None]
     #: Conditions on the fields it reads (and `hrid`), added to the place's with `all`. At most 20, nested at most 4 deep.
     where: NotRequired[Condition | None]
+
+
+class RefusedProblem(TypedDict):
+    """`refused` (409): The change would break one of Iki's rules: `detail` says which. `errors` names the field it's about, when there's one."""
+    code: Literal['refused']
+    #: What went wrong, for people.
+    detail: str
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[409]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
 
 
 class RegistrarOut(TypedDict):
@@ -5724,6 +6159,26 @@ class SavedSearchPatch(TypedDict):
     shared: NotRequired[bool | None]
 
 
+class ScanAmbiguousProblem(TypedDict):
+    """`scan_ambiguous` (409): The scanned code names more than one thing: choose one of `candidates`."""
+    candidates: list[ScanCandidateOut]
+    code: Literal['scan_ambiguous']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: Which of a rack's scans needs the choice, from 0.
+    index: NotRequired[int]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[409]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
 class ScanCandidateBoxOut(TypedDict):
     hrid: str
     id: str
@@ -6344,6 +6799,22 @@ class SheetProblemOut(TypedDict):
     row: int | None
 
 
+class SheetProblemsProblem(TypedDict):
+    """`sheet_problems` (422): Some of a sheet's rows can't be saved: `errors` says which, and why. Nothing saved."""
+    code: Literal['sheet_problems']
+    #: What went wrong, for people.
+    detail: str
+    errors: list[ProblemError]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[422]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
 class SignCan(TypedDict):
     """Setting one of the record's state fields to a state that needs signatures (ADR
 0123): each of them, given or not. Give one with POST /entities/{ref}/signatures, in
@@ -6749,6 +7220,58 @@ class SpreadsheetPreviewOut(TypedDict):
     progress: float
 
 
+class StaleLine(TypedDict):
+    """A receipt's or count's line that changed, at its revision now."""
+    line_id: str
+    revision: int
+
+
+class StaleOption(TypedDict):
+    """A lab list's option a reorder named that changed, came or went since it was read: a revision is null where it wasn't, or isn't, in the list."""
+    code: str
+    current_revision: int | None
+    expected_revision: int | None
+
+
+class StaleProblem(TypedDict):
+    """`stale` (412): What the change named changed since it was read, and nothing changed. The current `ETag` comes with it when it names one thing; a change of many says which changed."""
+    #: A receipt's or count's lines that changed.
+    affected_lines: NotRequired[list[StaleLine]]
+    code: Literal['stale']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: A sheet's rows whose records changed.
+    rows: NotRequired[list[StaleRow]]
+    #: Each record or list option that changed since it was read.
+    stale: NotRequired[list[StaleRecord | StaleOption]]
+    #: The HTTP status.
+    status: Literal[412]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
+class StaleRecord(TypedDict):
+    """A record a change named that changed since it was read."""
+    current_revision: int
+    expected_revision: int
+    hrid: str
+    id: str
+
+
+class StaleRow(TypedDict):
+    """A sheet's row whose record changed since the sheet was read."""
+    entity: str
+    hrid: str
+    key: str
+    revision: int
+
+
 class StartedOut(TypedDict):
     created_at: str
     #: Why it failed, if you can still read the details.
@@ -6819,6 +7342,24 @@ class StarterOut(TypedDict):
     #: Qualified types the starter uses.
     types: list[str]
     version: str
+
+
+class StarterPlanChangedProblem(TypedDict):
+    """`starter_plan_changed` (409): What applying the starter does changed since it was previewed: review `plan`."""
+    code: Literal['starter_plan_changed']
+    #: What went wrong, for people.
+    detail: str
+    #: What's wrong, and where: a body field or a parameter.
+    errors: NotRequired[list[ProblemError]]
+    plan: StarterSetupOut
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[409]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
 
 
 class StarterRoleOut(TypedDict):
@@ -7372,6 +7913,22 @@ class UsingRunOut(TypedDict):
     status: Literal['awaiting_approval', 'queued', 'running', 'parked', 'succeeded', 'failed', 'cancelled', 'timed_out', 'rejected', 'declined']
 
 
+class ValidationFailedProblem(TypedDict):
+    """`validation_failed` (422): Some fields or parameters are invalid: `errors` says which, and why."""
+    code: Literal['validation_failed']
+    #: What went wrong, for people.
+    detail: str
+    errors: list[ProblemError]
+    #: The request's ID, which helps an administrator find it.
+    request_id: NotRequired[str]
+    #: The HTTP status.
+    status: Literal[422]
+    #: The HTTP status's phrase.
+    title: str
+    #: `about:blank`.
+    type: str
+
+
 class VersionOut(TypedDict):
     #: The setup build whose version runs get there now.
     build: str | None
@@ -7876,4 +8433,72 @@ class WorkflowStepRefOut(TypedDict):
     step: str
 
 
-__all__ = ['AcquiredOut', 'ActionApiOut', 'ActionFilters', 'ActionOut', 'ActionSecretOut', 'AdditionalUnregisteredIn', 'AdjustIn', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AliquotsOut', 'AmountIn', 'AmountMovedOut', 'AmountOut', 'ApiActionOut', 'ApiApprovalIn', 'ApiApprovalOut', 'ApiCallOut', 'ApiCredentialOut', 'ApiPriceOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'AppliedMappingOut', 'AppliedStarterOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptScanWaitOut', 'AttemptSlurmOut', 'AttemptVolumeOut', 'AvailableMapping', 'AwaitingPutAwayOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BreachOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'CancelReceiptIn', 'CancelReconciliationIn', 'CarriedSignatureOut', 'CellReadingOut', 'CertificationIn', 'CertificationOut', 'CertificationState', 'ChangedOut', 'ChangeOut', 'CheckedOutFilters', 'CheckedOutOut', 'CheckedReceiptOut', 'CheckInIn', 'CheckInItemIn', 'CheckOutIn', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ColumnReadingOut', 'CompleteReceiptIn', 'CompleteReconciliationIn', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'ComponentPersonOut', 'CompoundExportOut', 'Condition', 'ConditionOut', 'ConsentOut', 'ConsentStatementOut', 'ContainerCan', 'ContainerOut', 'ContentUrlOut', 'ContributorParams', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CountScanEvidenceOut', 'CountsOut', 'CreatedOut', 'CreatesOut', 'CustodyOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DisableIn', 'DraftEntityOut', 'DrawIn', 'DrawPurpose', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EnableIn', 'EndOut', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentImageOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventFilters', 'EventOut', 'EventsOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'ExportParams', 'ExportSearchIn', 'ExtraReasonIn', 'FacetParams', 'FieldOut', 'FieldTargetOut', 'FileCountOut', 'FileDetailOut', 'FileExportOut', 'FileFactsOut', 'FileFilters', 'FileFormatOut', 'FileOriginOut', 'FileOut', 'FilePageOut', 'FileRef', 'FileRowOut', 'FileScanOut', 'FileSignatureOut', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FlowFieldOut', 'FlowTransitionOut', 'FormatFacetParams', 'FormatOut', 'FreezeIn', 'GivenOut', 'GivenSignatureOut', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'GuardOut', 'HandOverIn', 'HeldCopyOut', 'HeldOut', 'HelmGroupMemberOut', 'HelmGroupOut', 'HelmIn', 'HelmLengthOut', 'HelmMonomerOut', 'HelmOut', 'HelmPolymerOut', 'HelmReadingOut', 'HoldingRecordOut', 'HoldOccurrenceOut', 'HoldOut', 'HoldReviewIn', 'HoldRuleOut', 'IdentityBasis', 'IkiIdConfirmationIn', 'ImageBindingOut', 'ImageBindingsOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportMemberParams', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportRunRef', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InstalledFormatOut', 'IntakeIn', 'IntakeOut', 'InventoryOut', 'JobState', 'KindOut', 'LabelOut', 'LabelsIn', 'LabelSizeOut', 'LabelSizesOut', 'LabelsOut', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'ListCan', 'ListCuratorOut', 'ListOut', 'ListsParams', 'LocationOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MappingFilters', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'MoveItemIn', 'MovementOut', 'MovementsOut', 'MovesIn', 'MovesOut', 'MoveUnregisteredIn', 'MySigningOut', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationAgent', 'NotificationOut', 'NotificationProject', 'NotificationRecordOut', 'ObservationEventOut', 'ObservationEventsOut', 'OccupantOut', 'OpenOrder', 'OptionFilters', 'OptionIn', 'OptionMovedOut', 'OptionMoveIn', 'OptionOut', 'OptionPatch', 'OptionReplacementOut', 'OptionSupersedeIn', 'OrderIn', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideApiOut', 'OutsideRef', 'OverlapOut', 'OverviewOut', 'PageActionOut', 'PageApiCallOut', 'PageAwaitingPutAwayOut', 'PageBatchOut', 'PageBudgetOut', 'PageBundleOriginOut', 'PageCheckedOutOut', 'PageComponentOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityAppOut', 'PageEntityOut', 'PageEntityProjectOut', 'PageEntityTypeOut', 'PageEnvironmentVolumesOut', 'PageEventTypeOut', 'PageExportOut', 'PageFiringOut', 'PageFormatOut', 'PageHoldingRecordOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInstalledFormatOut', 'PageInventoryOut', 'PageLabRoleOut', 'PageListOut', 'PageMakingOut', 'PageNameableOut', 'PageNotificationOut', 'PageOpenOrder', 'PageOptionOut', 'PageOriginOut', 'PageOutsideApiOut', 'PagePlaceOut', 'PagePreviewRowOut', 'PageProjectChangeOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageProjectRef', 'PageProjectRoleOut', 'PageProjectTriggerOut', 'PageQuarantineOut', 'PageQuotaOut', 'PageQuotaScopeOut', 'PageReconciliationOut', 'PageRecordExportOut', 'PageRegistrationLocationOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunArtifactOut', 'PageRunAttemptOut', 'PageRunOut', 'PageSavedMappingOut', 'PageSavedSearchOut', 'PageServiceAccountOut', 'PageServiceOut', 'PageSetupBuildOut', 'PageSlurmAccountOut', 'PageSlurmClusterOut', 'PageSpreadsheetImportOut', 'PageStarterOut', 'PageStockLot', 'PageStockSummary', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageTriggerOut', 'PageUploadOut', 'PageUserOut', 'PageUsingRunOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'ParkOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceFilters', 'PlaceOut', 'PlaceSearchIn', 'PlannedOut', 'PluginCandidateIn', 'PluginExportOut', 'PluginFindingOut', 'PluginPreflightOut', 'PluginTypePreflightOut', 'PolicyIn', 'PolicyOut', 'PreviewRowOut', 'PreviewRowParams', 'Problem', 'ProblemError', 'ProjectCan', 'ProjectChangeOut', 'ProjectChoiceIn', 'ProjectChoiceOut', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'ProteinExportOut', 'PutAwayIn', 'QuarantineFilters', 'QuarantineOut', 'QuarantineReleaseOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadGroupOut', 'ReadIn', 'Reason', 'ReassignOut', 'ReceiptIn', 'ReceiptLineIn', 'ReceiptLineOut', 'ReceiptOut', 'ReceiptPlacementIn', 'ReceiptScanIn', 'ReceiptScanOut', 'ReceiptsOut', 'ReconciliationLineOut', 'ReconciliationOut', 'RecordExportIn', 'RecordExportOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationLocationOut', 'RegistrationOut', 'RegistrationStatusOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'RelatedOut', 'ReleaseQuarantineIn', 'ReplacedMappingIn', 'ReproduceIn', 'ReproductionOut', 'RequestOut', 'RequestSidesOut', 'RequestTypeOut', 'RequestTypeRef', 'RerunIn', 'ResolveIn', 'ResultReleaseOut', 'ResultTypeOut', 'ReviewedCountLine', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RowOut', 'RowRoleOut', 'RuleOut', 'RunApiOut', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRef', 'RunRefOut', 'RunScanWaitOut', 'RunStatus', 'SampleOut', 'SavedMappingIn', 'SavedMappingMatch', 'SavedMappingOut', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScanCandidateBoxOut', 'ScanCandidateOut', 'ScanCandidateProjectOut', 'ScanIn', 'ScanMatchOut', 'ScanMode', 'ScanOut', 'ScanParams', 'ScanResolveIn', 'ScanResolveOut', 'ScansIn', 'ScanWaitFileOut', 'Scope', 'ScopeOut', 'ScopeSearch', 'SearchCsvParams', 'SearchEverythingOut', 'SearchEverythingParams', 'SearchGroupOut', 'SearchIn', 'SearchResultOut', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'ServiceOut', 'ServicesFilters', 'SettingsIn', 'SettingsOut', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'ShapeOut', 'SheetColumnIn', 'SheetColumnOut', 'SheetEditCheckIn', 'SheetEditCheckOut', 'SheetEditCheckRowIn', 'SheetEditLocaleIn', 'SheetEditPlaceIn', 'SheetEditPlaceOut', 'SheetEditProblemOut', 'SheetEditRowOut', 'SheetEditSavedRowOut', 'SheetEditSaveIn', 'SheetEditSaveOut', 'SheetEditSaveRowIn', 'SheetLocaleIn', 'SheetLocaleOut', 'SheetOut', 'SheetProblemOut', 'SignatureAuthenticationOut', 'SignatureCan', 'SignatureCheckOut', 'SignatureListParams', 'SignatureOut', 'SignaturesOut', 'SignatureVerificationOut', 'SignCan', 'SignedChangeOut', 'SignedReportExportOut', 'SigningIn', 'SigningKeyOut', 'SigningKeysOut', 'SigningOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SlurmAccountIn', 'SlurmAccountOut', 'SlurmClusterOut', 'SlurmTemplateOut', 'SlurmUsageOut', 'SoftwareOut', 'SortIn', 'SpanOut', 'SplitIn', 'SpreadsheetCommitIn', 'SpreadsheetImportChange', 'SpreadsheetImportIn', 'SpreadsheetImportOut', 'SpreadsheetPreviewOut', 'StartedOut', 'StarterApplyIn', 'StarterFilters', 'StarterFlowOut', 'StarterOut', 'StarterRoleOut', 'StarterSetupIn', 'StarterSetupOut', 'StateCan', 'StatedOut', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepOut', 'StepRunOut', 'StockFilters', 'StockLot', 'StockSummary', 'StructureViewerOut', 'SubmitIn', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TrailFilter', 'TransferIn', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'TypeAmountOut', 'TypeCountOut', 'TypeFlowOut', 'TypeGridOut', 'TypeNotificationOut', 'TypeStorageOut', 'UnitOption', 'UnusedImageBindingOut', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UploadStatusOut', 'UsedByCountOut', 'UserFilters', 'UserOut', 'UserPatch', 'UsingRunOut', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WantedSignatureOut', 'WatchIn', 'WatchOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WithdrawalIn', 'WorkbookRef', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']
+#: An RFC 9457 problem: how every error is described (ADR 0027). `code` is stable, for programs, and says which members it carries (ADR 0290); `detail` is for people.
+Problem = Plain400Problem | Plain401Problem | Plain403Problem | Plain404Problem | Plain405Problem | Plain406Problem | Plain413Problem | Plain415Problem | ValidationFailedProblem | Plain429Problem | Plain500Problem | Plain503Problem | Plain428Problem | StaleProblem | Plain409Problem | RefusedProblem | Plain422Problem | ChooseProjectProblem | PurgedProblem | HoldReasonRequiredProblem | ClearReasonRequiredProblem | GuardRefusedProblem | SheetProblemsProblem | InputsOutsideProjectProblem | OutsideApiNotApprovedProblem | ConsentRequiredProblem | Plain410Problem | ScanAmbiguousProblem | MovesPlanChangedProblem | CountUnregisteredChoiceProblem | StarterPlanChangedProblem
+
+
+#: A 400 problem: one of these codes.
+Problem400 = Plain400Problem
+
+
+#: A 401 problem: one of these codes.
+Problem401 = Plain401Problem
+
+
+#: A 403 problem: one of these codes.
+Problem403 = Plain403Problem
+
+
+#: A 404 problem: one of these codes.
+Problem404 = Plain404Problem
+
+
+#: A 405 problem: one of these codes.
+Problem405 = Plain405Problem
+
+
+#: A 406 problem: one of these codes.
+Problem406 = Plain406Problem
+
+
+#: A 409 problem: one of these codes.
+Problem409 = Plain409Problem | RefusedProblem | ChooseProjectProblem | GuardRefusedProblem | InputsOutsideProjectProblem | OutsideApiNotApprovedProblem | ConsentRequiredProblem | ScanAmbiguousProblem | MovesPlanChangedProblem | CountUnregisteredChoiceProblem | StarterPlanChangedProblem
+
+
+#: A 410 problem: one of these codes.
+Problem410 = PurgedProblem | Plain410Problem
+
+
+#: A 412 problem: one of these codes.
+Problem412 = StaleProblem
+
+
+#: A 413 problem: one of these codes.
+Problem413 = Plain413Problem
+
+
+#: A 415 problem: one of these codes.
+Problem415 = Plain415Problem
+
+
+#: A 422 problem: one of these codes.
+Problem422 = ValidationFailedProblem | Plain422Problem | HoldReasonRequiredProblem | ClearReasonRequiredProblem | SheetProblemsProblem
+
+
+#: A 428 problem: one of these codes.
+Problem428 = Plain428Problem
+
+
+#: A 429 problem: one of these codes.
+Problem429 = Plain429Problem
+
+
+#: A 500 problem: one of these codes.
+Problem500 = Plain500Problem
+
+
+#: A 503 problem: one of these codes.
+Problem503 = Plain503Problem
+
+
+__all__ = ['AcquiredOut', 'ActionApiOut', 'ActionFilters', 'ActionOut', 'ActionSecretOut', 'AdditionalUnregisteredIn', 'AdjustIn', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AliquotsOut', 'AmountIn', 'AmountMovedOut', 'AmountOut', 'ApiActionOut', 'ApiApprovalIn', 'ApiApprovalOut', 'ApiCallOut', 'ApiCredentialOut', 'ApiPriceOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'AppliedMappingOut', 'AppliedStarterOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptScanWaitOut', 'AttemptSlurmOut', 'AttemptVolumeOut', 'AvailableMapping', 'AwaitingPutAwayOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BreachOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'CancelReceiptIn', 'CancelReconciliationIn', 'CarriedSignatureOut', 'CellReadingOut', 'CertificationIn', 'CertificationOut', 'CertificationState', 'ChangedOut', 'ChangeOut', 'CheckedOutFilters', 'CheckedOutOut', 'CheckedReceiptOut', 'CheckInIn', 'CheckInItemIn', 'CheckOutIn', 'CheckpointOut', 'ChooseProjectProblem', 'ClearReasonRequiredProblem', 'CollectionIn', 'CollectionSearch', 'ColumnReadingOut', 'CompleteReceiptIn', 'CompleteReconciliationIn', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'ComponentPersonOut', 'CompoundExportOut', 'Condition', 'ConditionOut', 'ConsentOut', 'ConsentRequiredProblem', 'ConsentStatementOut', 'ContainerCan', 'ContainerOut', 'ContentUrlOut', 'ContributorParams', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CountScanEvidenceOut', 'CountsOut', 'CountUnregisteredChoiceProblem', 'CreatedOut', 'CreatesOut', 'CustodyOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DisableIn', 'DraftEntityOut', 'DrawIn', 'DrawPurpose', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EnableIn', 'EndOut', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentImageOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventFilters', 'EventOut', 'EventsOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'ExportParams', 'ExportSearchIn', 'ExtraReasonIn', 'FacetParams', 'FieldOut', 'FieldTargetOut', 'FileCountOut', 'FileDetailOut', 'FileExportOut', 'FileFactsOut', 'FileFilters', 'FileFormatOut', 'FileOriginOut', 'FileOut', 'FilePageOut', 'FileRef', 'FileRowOut', 'FileScanOut', 'FileSignatureOut', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FlowFieldOut', 'FlowTransitionOut', 'FormatFacetParams', 'FormatOut', 'FreezeIn', 'GivenOut', 'GivenSignatureOut', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'GuardOut', 'GuardRefusedProblem', 'HandOverIn', 'HeldCopyOut', 'HeldOut', 'HelmGroupMemberOut', 'HelmGroupOut', 'HelmIn', 'HelmLengthOut', 'HelmMonomerOut', 'HelmOut', 'HelmPolymerOut', 'HelmReadingOut', 'HoldingRecordOut', 'HoldOccurrenceOut', 'HoldOut', 'HoldReasonRequiredProblem', 'HoldReviewIn', 'HoldRuleOut', 'IdentityBasis', 'IkiIdConfirmationIn', 'ImageBindingOut', 'ImageBindingsOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportMemberParams', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportRunRef', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InputsOutsideProjectProblem', 'InstalledFormatOut', 'IntakeIn', 'IntakeOut', 'InventoryOut', 'JobState', 'KindOut', 'LabelOut', 'LabelsIn', 'LabelSizeOut', 'LabelSizesOut', 'LabelsOut', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'ListCan', 'ListCuratorOut', 'ListOut', 'ListsParams', 'LocationOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MappingFilters', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'MoveItemIn', 'MovementOut', 'MovementsOut', 'MovesIn', 'MovesOut', 'MovesPlanChangedProblem', 'MoveUnregisteredIn', 'MySigningOut', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationAgent', 'NotificationOut', 'NotificationProject', 'NotificationRecordOut', 'ObservationEventOut', 'ObservationEventsOut', 'OccupantOut', 'OpenOrder', 'OptionFilters', 'OptionIn', 'OptionMovedOut', 'OptionMoveIn', 'OptionOut', 'OptionPatch', 'OptionReplacementOut', 'OptionSupersedeIn', 'OrderIn', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideApiNotApprovedProblem', 'OutsideApiOut', 'OutsideRef', 'OverlapOut', 'OverviewOut', 'PageActionOut', 'PageApiCallOut', 'PageAwaitingPutAwayOut', 'PageBatchOut', 'PageBudgetOut', 'PageBundleOriginOut', 'PageCheckedOutOut', 'PageComponentOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityAppOut', 'PageEntityOut', 'PageEntityProjectOut', 'PageEntityTypeOut', 'PageEnvironmentVolumesOut', 'PageEventTypeOut', 'PageExportOut', 'PageFiringOut', 'PageFormatOut', 'PageHoldingRecordOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInstalledFormatOut', 'PageInventoryOut', 'PageLabRoleOut', 'PageListOut', 'PageMakingOut', 'PageNameableOut', 'PageNotificationOut', 'PageOpenOrder', 'PageOptionOut', 'PageOriginOut', 'PageOutsideApiOut', 'PagePlaceOut', 'PagePreviewRowOut', 'PageProjectChangeOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageProjectRef', 'PageProjectRoleOut', 'PageProjectTriggerOut', 'PageQuarantineOut', 'PageQuotaOut', 'PageQuotaScopeOut', 'PageReconciliationOut', 'PageRecordExportOut', 'PageRegistrationLocationOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunArtifactOut', 'PageRunAttemptOut', 'PageRunOut', 'PageSavedMappingOut', 'PageSavedSearchOut', 'PageServiceAccountOut', 'PageServiceOut', 'PageSetupBuildOut', 'PageSlurmAccountOut', 'PageSlurmClusterOut', 'PageSpreadsheetImportOut', 'PageStarterOut', 'PageStockLot', 'PageStockSummary', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageTriggerOut', 'PageUploadOut', 'PageUserOut', 'PageUsingRunOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'ParkOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceFilters', 'PlaceOut', 'PlaceSearchIn', 'Plain400Problem', 'Plain401Problem', 'Plain403Problem', 'Plain404Problem', 'Plain405Problem', 'Plain406Problem', 'Plain409Problem', 'Plain410Problem', 'Plain413Problem', 'Plain415Problem', 'Plain422Problem', 'Plain428Problem', 'Plain429Problem', 'Plain500Problem', 'Plain503Problem', 'PlannedOut', 'PluginCandidateIn', 'PluginExportOut', 'PluginFindingOut', 'PluginPreflightOut', 'PluginTypePreflightOut', 'PolicyIn', 'PolicyOut', 'PreviewRowOut', 'PreviewRowParams', 'Problem', 'Problem400', 'Problem401', 'Problem403', 'Problem404', 'Problem405', 'Problem406', 'Problem409', 'Problem410', 'Problem412', 'Problem413', 'Problem415', 'Problem422', 'Problem428', 'Problem429', 'Problem500', 'Problem503', 'ProblemError', 'ProjectCan', 'ProjectChangeOut', 'ProjectChoiceIn', 'ProjectChoiceOut', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'ProteinExportOut', 'PurgedProblem', 'PutAwayIn', 'QuarantineFilters', 'QuarantineOut', 'QuarantineReleaseOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadGroupOut', 'ReadIn', 'Reason', 'ReassignOut', 'ReceiptIn', 'ReceiptLineIn', 'ReceiptLineOut', 'ReceiptOut', 'ReceiptPlacementIn', 'ReceiptScanIn', 'ReceiptScanOut', 'ReceiptsOut', 'ReconciliationLineOut', 'ReconciliationOut', 'RecordExportIn', 'RecordExportOut', 'RefineIn', 'RefOut', 'RefusedProblem', 'RegistrarOut', 'RegistrationIn', 'RegistrationLocationOut', 'RegistrationOut', 'RegistrationStatusOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'RelatedOut', 'ReleaseQuarantineIn', 'ReplacedMappingIn', 'ReproduceIn', 'ReproductionOut', 'RequestOut', 'RequestSidesOut', 'RequestTypeOut', 'RequestTypeRef', 'RerunIn', 'ResolveIn', 'ResultReleaseOut', 'ResultTypeOut', 'ReviewedCountLine', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RowOut', 'RowRoleOut', 'RuleOut', 'RunApiOut', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRef', 'RunRefOut', 'RunScanWaitOut', 'RunStatus', 'SampleOut', 'SavedMappingIn', 'SavedMappingMatch', 'SavedMappingOut', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScanAmbiguousProblem', 'ScanCandidateBoxOut', 'ScanCandidateOut', 'ScanCandidateProjectOut', 'ScanIn', 'ScanMatchOut', 'ScanMode', 'ScanOut', 'ScanParams', 'ScanResolveIn', 'ScanResolveOut', 'ScansIn', 'ScanWaitFileOut', 'Scope', 'ScopeOut', 'ScopeSearch', 'SearchCsvParams', 'SearchEverythingOut', 'SearchEverythingParams', 'SearchGroupOut', 'SearchIn', 'SearchResultOut', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'ServiceOut', 'ServicesFilters', 'SettingsIn', 'SettingsOut', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'ShapeOut', 'SheetColumnIn', 'SheetColumnOut', 'SheetEditCheckIn', 'SheetEditCheckOut', 'SheetEditCheckRowIn', 'SheetEditLocaleIn', 'SheetEditPlaceIn', 'SheetEditPlaceOut', 'SheetEditProblemOut', 'SheetEditRowOut', 'SheetEditSavedRowOut', 'SheetEditSaveIn', 'SheetEditSaveOut', 'SheetEditSaveRowIn', 'SheetLocaleIn', 'SheetLocaleOut', 'SheetOut', 'SheetProblemOut', 'SheetProblemsProblem', 'SignatureAuthenticationOut', 'SignatureCan', 'SignatureCheckOut', 'SignatureListParams', 'SignatureOut', 'SignaturesOut', 'SignatureVerificationOut', 'SignCan', 'SignedChangeOut', 'SignedReportExportOut', 'SigningIn', 'SigningKeyOut', 'SigningKeysOut', 'SigningOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SlurmAccountIn', 'SlurmAccountOut', 'SlurmClusterOut', 'SlurmTemplateOut', 'SlurmUsageOut', 'SoftwareOut', 'SortIn', 'SpanOut', 'SplitIn', 'SpreadsheetCommitIn', 'SpreadsheetImportChange', 'SpreadsheetImportIn', 'SpreadsheetImportOut', 'SpreadsheetPreviewOut', 'StaleLine', 'StaleOption', 'StaleProblem', 'StaleRecord', 'StaleRow', 'StartedOut', 'StarterApplyIn', 'StarterFilters', 'StarterFlowOut', 'StarterOut', 'StarterPlanChangedProblem', 'StarterRoleOut', 'StarterSetupIn', 'StarterSetupOut', 'StateCan', 'StatedOut', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepOut', 'StepRunOut', 'StockFilters', 'StockLot', 'StockSummary', 'StructureViewerOut', 'SubmitIn', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TrailFilter', 'TransferIn', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'TypeAmountOut', 'TypeCountOut', 'TypeFlowOut', 'TypeGridOut', 'TypeNotificationOut', 'TypeStorageOut', 'UnitOption', 'UnusedImageBindingOut', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UploadStatusOut', 'UsedByCountOut', 'UserFilters', 'UserOut', 'UserPatch', 'UsingRunOut', 'ValidationFailedProblem', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WantedSignatureOut', 'WatchIn', 'WatchOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WithdrawalIn', 'WorkbookRef', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']

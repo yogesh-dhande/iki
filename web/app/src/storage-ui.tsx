@@ -5,7 +5,7 @@
  * hand them over.
  */
 
-import { ApiError, unwrap, type Problem } from "@ikisci/sdk";
+import { isApiError, unwrap, type Problem } from "@ikisci/sdk";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type SyntheticEvent } from "react";
@@ -1094,12 +1094,10 @@ export function MoveDialog({
                     onError: (error) => {
                       // Where they'd go changed: nothing moved. Show where they'd go now, and
                       // what changed, to review; moving them again makes that.
-                      const now = error instanceof ApiError ? error.problem.moves : undefined;
-                      if (
-                        error instanceof ApiError &&
-                        error.problem.code === "moves_plan_changed" &&
-                        now
-                      ) {
+                      const now = isApiError(error, "moves_plan_changed")
+                        ? error.problem.moves
+                        : undefined;
+                      if (now) {
                         move.reset();
                         setPlanned(now);
                         setStale(moveChanges(shown, now));

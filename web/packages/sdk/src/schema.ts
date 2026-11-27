@@ -7654,6 +7654,61 @@ export interface components {
              */
             size: number;
         };
+        /** @description `choose_project` (409): The HRID names a record in several projects you can read: say which, with `?project=`, or name it by its ID. */
+        ChooseProjectProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "choose_project";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            records: {
+                /** Format: uuid */
+                entity: string;
+                project: {
+                    /** Format: uuid */
+                    id: string;
+                    name: string;
+                    slug: string;
+                };
+            }[];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 409;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description `clear_reason_required` (422): Clearing this flag needs a reason. */
+        ClearReasonRequiredProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "clear_reason_required";
+            /** @description What went wrong, for people. */
+            detail: string;
+            errors: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 422;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
         /** CollectionIn */
         CollectionIn: {
             /** Description */
@@ -7989,6 +8044,30 @@ export interface components {
              */
             via: string;
         };
+        /** @description `consent_required` (409): The launch sends data to outside APIs: launch again with `consent` naming each `api` to agree (ADR 0130). */
+        ConsentRequiredProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "consent_required";
+            consent: components["schemas"]["ConsentStatementOut"][];
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 409;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
         /** ConsentStatementOut */
         ConsentStatementOut: {
             /**
@@ -8230,6 +8309,37 @@ export interface components {
              */
             scanned_at: string;
             scanned_by: components["schemas"]["UserOut"];
+        };
+        /** @description `count_unregistered_choice` (409): An unregistered tube may be one seen earlier in the count: choose one of `observations`, or say it's new. */
+        CountUnregisteredChoiceProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "count_unregistered_choice";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            index: number;
+            observations: {
+                /** Format: uuid */
+                line_id: string;
+                position: string;
+                revision: number;
+            }[];
+            position: string;
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 409;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
         };
         /** CountsOut */
         CountsOut: {
@@ -10612,6 +10722,31 @@ export interface components {
              */
             when?: string | null;
         };
+        /** @description `guard_refused` (409): A plugin's guard (ADR 0128) refused the state. */
+        GuardRefusedProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "guard_refused";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The guard that refused it. */
+            guard: string;
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 409;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
         /** HandOverIn */
         HandOverIn: {
             /**
@@ -11021,6 +11156,28 @@ export interface components {
              * @description Why you may not, when you may not.
              */
             why_not?: string | null;
+        };
+        /** @description `hold_reason_required` (422): A rule holds the record for review: save again with a `hold_reason` to keep it. */
+        HoldReasonRequiredProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "hold_reason_required";
+            /** @description What went wrong, for people. */
+            detail: string;
+            errors: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 422;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
         };
         /** HoldReviewIn */
         HoldReviewIn: {
@@ -11652,6 +11809,35 @@ export interface components {
             /** Optional */
             optional: boolean;
             /** Type */
+            type: string;
+        };
+        /** @description `inputs_outside_project` (409): Some inputs aren't in the run's project. */
+        InputsOutsideProjectProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "inputs_outside_project";
+            /** @description What went wrong, for people. */
+            detail: string;
+            entities: {
+                hrid: string;
+                /** Format: uuid */
+                id: string;
+                type: string;
+            }[];
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 409;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
             type: string;
         };
         /** InstalledFormatOut */
@@ -12651,6 +12837,30 @@ export interface components {
              */
             plan: string | null;
         };
+        /** @description `moves_plan_changed` (409): What the moves do changed since they were previewed: review `moves`, then confirm. */
+        MovesPlanChangedProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "moves_plan_changed";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            moves: components["schemas"]["MovesOut"];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 409;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
         /**
          * MySigningOut
          * @description Whether you can sign now, and what you agree to before your first signature.
@@ -13255,6 +13465,31 @@ export interface components {
              * @description Where in the run's output, as a JSON pointer.
              */
             pointer: string;
+        };
+        /** @description `outside_api_not_approved` (409): The action calls outside APIs this project hasn't approved (ADR 0130). */
+        OutsideApiNotApprovedProblem: {
+            apis: string[];
+            approvers: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "outside_api_not_approved";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 409;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
         };
         /** OutsideApiOut */
         OutsideApiOut: {
@@ -14532,6 +14767,351 @@ export interface components {
             type: string;
             where?: components["schemas"]["Condition"] | null;
         };
+        /** @description A 400 problem that carries no more members: `bad_request`: The request couldn't be read.; `invalid_json`: The request body isn't valid JSON. */
+        Plain400Problem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "bad_request" | "invalid_json";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 400;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description A 401 problem that carries no more members: `not_authenticated`: Sign in, or send a token.; `invalid_token`: The token is unknown, expired or revoked. */
+        Plain401Problem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "invalid_token" | "not_authenticated";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 401;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description A 403 problem that carries no more members: `forbidden`: You don't have permission to do that.; `insufficient_scope`: The token's scopes don't allow it.; `token_limited_to_projects`: The token is limited to some projects, and this reaches beyond them.; `csrf_failed`: A request signed in with the session lacked its CSRF token.; `web_only`: Only a person in Iki's web app can do this; tokens can't.; `cannot_sign`: You can't sign this, as `detail` says.; `preflight_needs_every_project`: The preflight reads every project, so it needs an Org Admin. */
+        Plain403Problem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "cannot_sign" | "csrf_failed" | "forbidden" | "insufficient_scope" | "preflight_needs_every_project" | "token_limited_to_projects" | "web_only";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 403;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description A 404 problem that carries no more members: `not_found`: There's nothing here, or you can't see it.; `no_export`: No installed plugin writes that format for this record.; `no_data`: The format holds none of this record's fields as data.; `no_field`: The type has no such field.; `no_sequence`: The record has no sequence to write.; `no_structure`: The record has no structure to write.; `sequence_unreadable`: The record's sequence can't be read for this format.; `report_not_issued`: The report hasn't been issued, so it isn't exported. */
+        Plain404Problem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "no_data" | "no_export" | "no_field" | "no_sequence" | "no_structure" | "not_found" | "report_not_issued" | "sequence_unreadable";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 404;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description A 405 problem that carries no more members: `method_not_allowed`: This method isn't supported here. */
+        Plain405Problem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "method_not_allowed";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 405;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description A 406 problem that carries no more members: `not_acceptable`: Iki can't answer in the format the request accepts. */
+        Plain406Problem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "not_acceptable";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 406;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description A 409 problem that carries no more members: `conflict`: It conflicts with what's recorded now.; `signatures_required`: The state needs signatures it doesn't have yet.; `artifact_not_kept`: The artifact didn't finish uploading.; `file_scanning`: The file is being scanned: try again after `Retry-After`.; `file_quarantined`: The scanner found malware in the file, so it's held.; `file_not_scanned`: The scanner couldn't inspect the file, so it's held.; `scan_unavailable`: The scan can't be used here, as `detail` says.; `stale_plan`: The bundle's import plan changed since it was made: plan again.; `preflight_unavailable`: The upgrade's preflight can't run now. */
+        Plain409Problem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "artifact_not_kept" | "conflict" | "file_not_scanned" | "file_quarantined" | "file_scanning" | "preflight_unavailable" | "scan_unavailable" | "signatures_required" | "stale_plan";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 409;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description A 410 problem that carries no more members: `artifact_deleted`: The artifact was deleted once its retention was over. */
+        Plain410Problem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "artifact_deleted";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 410;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description A 413 problem that carries no more members: `too_large`: The request is larger than Iki takes. */
+        Plain413Problem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "too_large";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 413;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description A 415 problem that carries no more members: `unsupported_media_type`: The body's content type isn't one Iki reads. */
+        Plain415Problem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "unsupported_media_type";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 415;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description A 422 problem that carries no more members: `too_many`: It would reach more than Iki does at once: narrow it.; `search_too_slow`: The search took too long: narrow it.; `writer_refused`: The plugin's writer refused the record: `detail` says why.; `writer_failed`: The plugin's writer failed: tell whoever looks after it.; `invalid_manifest`: The plugin's manifest is invalid, as `detail` says.; `component_misdeclared`: The component's declaration doesn't work here: tell its plugin's maintainer.; `not_shown_here`: The component isn't shown in that place. */
+        Plain422Problem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "component_misdeclared" | "invalid_manifest" | "not_shown_here" | "search_too_slow" | "too_many" | "writer_failed" | "writer_refused";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 422;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description A 428 problem that carries no more members: `precondition_required`: Send `If-Match` with the one ETag you read, or `If-None-Match: *`. */
+        Plain428Problem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "precondition_required";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 428;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description A 429 problem that carries no more members: `rate_limited`: Too many requests: wait for `Retry-After` seconds. */
+        Plain429Problem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "rate_limited";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 429;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description A 500 problem that carries no more members: `internal_error`: Something went wrong on Iki's side: the request ID finds it. */
+        Plain500Problem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "internal_error";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 500;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description A 503 problem that carries no more members: `unavailable`: Iki can't do this right now: try again after `Retry-After`.; `sandbox_unavailable`: The export sandbox is busy or away: try again shortly.; `helm_unavailable`: HELM can't be read right now: try again shortly.; `storage_not_configured`: This deployment has no file storage set up.; `storage_unavailable`: Iki can't reach its file storage: try again shortly. */
+        Plain503Problem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "helm_unavailable" | "sandbox_unavailable" | "storage_not_configured" | "storage_unavailable" | "unavailable";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 503;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
         /** PlannedOut */
         PlannedOut: {
             /** @description Where it is now: null if nowhere. */
@@ -14717,29 +15297,48 @@ export interface components {
              */
             outcome?: ("create" | "register" | "add" | "reuse" | "same" | "problem")[] | null;
         };
-        /** @description An RFC 9457 problem: how every error is described (ADR 0027). `code` is stable, for programs; `detail` is for people. Some codes carry more members, which each operation's description names. */
-        Problem: {
-            /** @description Stable, for programs: `validation_failed`, `refused`, `insufficient_scope`, … */
-            code: string;
-            /** @description What went wrong, for people. */
-            detail: string;
-            /** @description For `validation_failed` and `hold_reason_required`: what's wrong, and where. */
-            errors?: components["schemas"]["ProblemError"][];
-            /** @description The request's ID, which helps an administrator find it. */
-            request_id?: string;
-            /** @description The HTTP status. */
-            status: number;
-            /** @description The HTTP status's phrase. */
-            title: string;
-            /** @description `about:blank`. */
-            type: string;
-        };
+        /** @description An RFC 9457 problem: how every error is described (ADR 0027). `code` is stable, for programs, and says which members it carries (ADR 0290); `detail` is for people. */
+        Problem: components["schemas"]["Plain400Problem"] | components["schemas"]["Plain401Problem"] | components["schemas"]["Plain403Problem"] | components["schemas"]["Plain404Problem"] | components["schemas"]["Plain405Problem"] | components["schemas"]["Plain406Problem"] | components["schemas"]["Plain413Problem"] | components["schemas"]["Plain415Problem"] | components["schemas"]["ValidationFailedProblem"] | components["schemas"]["Plain429Problem"] | components["schemas"]["Plain500Problem"] | components["schemas"]["Plain503Problem"] | components["schemas"]["Plain428Problem"] | components["schemas"]["StaleProblem"] | components["schemas"]["Plain409Problem"] | components["schemas"]["RefusedProblem"] | components["schemas"]["Plain422Problem"] | components["schemas"]["ChooseProjectProblem"] | components["schemas"]["PurgedProblem"] | components["schemas"]["HoldReasonRequiredProblem"] | components["schemas"]["ClearReasonRequiredProblem"] | components["schemas"]["GuardRefusedProblem"] | components["schemas"]["SheetProblemsProblem"] | components["schemas"]["InputsOutsideProjectProblem"] | components["schemas"]["OutsideApiNotApprovedProblem"] | components["schemas"]["ConsentRequiredProblem"] | components["schemas"]["Plain410Problem"] | components["schemas"]["ScanAmbiguousProblem"] | components["schemas"]["MovesPlanChangedProblem"] | components["schemas"]["CountUnregisteredChoiceProblem"] | components["schemas"]["StarterPlanChangedProblem"];
+        /** @description A 400 problem: one of these codes. */
+        Problem400: components["schemas"]["Plain400Problem"];
+        /** @description A 401 problem: one of these codes. */
+        Problem401: components["schemas"]["Plain401Problem"];
+        /** @description A 403 problem: one of these codes. */
+        Problem403: components["schemas"]["Plain403Problem"];
+        /** @description A 404 problem: one of these codes. */
+        Problem404: components["schemas"]["Plain404Problem"];
+        /** @description A 405 problem: one of these codes. */
+        Problem405: components["schemas"]["Plain405Problem"];
+        /** @description A 406 problem: one of these codes. */
+        Problem406: components["schemas"]["Plain406Problem"];
+        /** @description A 409 problem: one of these codes. */
+        Problem409: components["schemas"]["Plain409Problem"] | components["schemas"]["RefusedProblem"] | components["schemas"]["ChooseProjectProblem"] | components["schemas"]["GuardRefusedProblem"] | components["schemas"]["InputsOutsideProjectProblem"] | components["schemas"]["OutsideApiNotApprovedProblem"] | components["schemas"]["ConsentRequiredProblem"] | components["schemas"]["ScanAmbiguousProblem"] | components["schemas"]["MovesPlanChangedProblem"] | components["schemas"]["CountUnregisteredChoiceProblem"] | components["schemas"]["StarterPlanChangedProblem"];
+        /** @description A 410 problem: one of these codes. */
+        Problem410: components["schemas"]["PurgedProblem"] | components["schemas"]["Plain410Problem"];
+        /** @description A 412 problem: one of these codes. */
+        Problem412: components["schemas"]["StaleProblem"];
+        /** @description A 413 problem: one of these codes. */
+        Problem413: components["schemas"]["Plain413Problem"];
+        /** @description A 415 problem: one of these codes. */
+        Problem415: components["schemas"]["Plain415Problem"];
+        /** @description A 422 problem: one of these codes. */
+        Problem422: components["schemas"]["ValidationFailedProblem"] | components["schemas"]["Plain422Problem"] | components["schemas"]["HoldReasonRequiredProblem"] | components["schemas"]["ClearReasonRequiredProblem"] | components["schemas"]["SheetProblemsProblem"];
+        /** @description A 428 problem: one of these codes. */
+        Problem428: components["schemas"]["Plain428Problem"];
+        /** @description A 429 problem: one of these codes. */
+        Problem429: components["schemas"]["Plain429Problem"];
+        /** @description A 500 problem: one of these codes. */
+        Problem500: components["schemas"]["Plain500Problem"];
+        /** @description A 503 problem: one of these codes. */
+        Problem503: components["schemas"]["Plain503Problem"];
         /** @description One thing wrong with the request: a body field, by its JSON Pointer, or a query or path parameter, by its name. Each has one of the two. */
         ProblemError: {
             /** @description What's wrong there, for people. */
             detail: string;
             /** @description The rule holds the record for review rather than refusing it: saving with a `hold_reason` keeps it. */
             hold?: boolean;
+            /** @description For a sheet's `sheet_problems`: what kind of problem it is. */
+            kind?: string;
             /** @description The query or path parameter: `cursor`, `project`. */
             parameter?: string;
             /** @description Where in the body, as a JSON Pointer: `#/values/sequence`. */
@@ -15262,6 +15861,38 @@ export interface components {
              * @description The protein sequence field it's written from.
              */
             sequence: string;
+        };
+        /** @description `purged` (410): The record was purged with its plugin's data (ADR 0092): its tombstone comes with it. */
+        PurgedProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "purged";
+            /** @description What went wrong, for people. */
+            detail: string;
+            entity: {
+                content_sha256: string | null;
+                hrid: string;
+                /** Format: uuid */
+                id: string;
+                /** Format: date-time */
+                purged_at: string;
+                type: string;
+            };
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 410;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
         };
         /** PutAwayIn */
         PutAwayIn: {
@@ -16021,6 +16652,28 @@ export interface components {
             sort?: components["schemas"]["SortIn"] | null;
             /** @description Conditions on the fields it reads (and `hrid`), added to the place's with `all`. At most 20, nested at most 4 deep. */
             where?: components["schemas"]["Condition"] | null;
+        };
+        /** @description `refused` (409): The change would break one of Iki's rules: `detail` says which. `errors` names the field it's about, when there's one. */
+        RefusedProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "refused";
+            /** @description What went wrong, for people. */
+            detail: string;
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 409;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
         };
         /** RegistrarOut */
         RegistrarOut: {
@@ -17792,6 +18445,32 @@ export interface components {
             /** Shared */
             shared?: boolean | null;
         };
+        /** @description `scan_ambiguous` (409): The scanned code names more than one thing: choose one of `candidates`. */
+        ScanAmbiguousProblem: {
+            candidates: components["schemas"]["ScanCandidateOut"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "scan_ambiguous";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description Which of a rack's scans needs the choice, from 0. */
+            index?: number;
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 409;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
         /** ScanCandidateBoxOut */
         ScanCandidateBoxOut: {
             /** Hrid */
@@ -19089,6 +19768,28 @@ export interface components {
             /** Row */
             row: number | null;
         };
+        /** @description `sheet_problems` (422): Some of a sheet's rows can't be saved: `errors` says which, and why. Nothing saved. */
+        SheetProblemsProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "sheet_problems";
+            /** @description What went wrong, for people. */
+            detail: string;
+            errors: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 422;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
         /**
          * SignCan
          * @description Setting one of the record's state fields to a state that needs signatures (ADR
@@ -19964,6 +20665,63 @@ export interface components {
             /** Progress */
             progress: number;
         };
+        /** @description A receipt's or count's line that changed, at its revision now. */
+        StaleLine: {
+            /** Format: uuid */
+            line_id: string;
+            revision: number;
+        };
+        /** @description A lab list's option a reorder named that changed, came or went since it was read: a revision is null where it wasn't, or isn't, in the list. */
+        StaleOption: {
+            code: string;
+            current_revision: number | null;
+            expected_revision: number | null;
+        };
+        /** @description `stale` (412): What the change named changed since it was read, and nothing changed. The current `ETag` comes with it when it names one thing; a change of many says which changed. */
+        StaleProblem: {
+            /** @description A receipt's or count's lines that changed. */
+            affected_lines?: components["schemas"]["StaleLine"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "stale";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /** @description A sheet's rows whose records changed. */
+            rows?: components["schemas"]["StaleRow"][];
+            /** @description Each record or list option that changed since it was read. */
+            stale?: (components["schemas"]["StaleRecord"] | components["schemas"]["StaleOption"])[];
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 412;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description A record a change named that changed since it was read. */
+        StaleRecord: {
+            current_revision: number;
+            expected_revision: number;
+            hrid: string;
+            /** Format: uuid */
+            id: string;
+        };
+        /** @description A sheet's row whose record changed since the sheet was read. */
+        StaleRow: {
+            /** Format: uuid */
+            entity: string;
+            hrid: string;
+            key: string;
+            revision: number;
+        };
         /** StartedOut */
         StartedOut: {
             /**
@@ -20128,6 +20886,30 @@ export interface components {
             types: string[];
             /** Version */
             version: string;
+        };
+        /** @description `starter_plan_changed` (409): What applying the starter does changed since it was previewed: review `plan`. */
+        StarterPlanChangedProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "starter_plan_changed";
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description What's wrong, and where: a body field or a parameter. */
+            errors?: components["schemas"]["ProblemError"][];
+            plan: components["schemas"]["StarterSetupOut"];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 409;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
         };
         /** StarterRoleOut */
         StarterRoleOut: {
@@ -21327,6 +22109,28 @@ export interface components {
              */
             status: "awaiting_approval" | "queued" | "running" | "parked" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "declined";
         };
+        /** @description `validation_failed` (422): Some fields or parameters are invalid: `errors` says which, and why. */
+        ValidationFailedProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "validation_failed";
+            /** @description What went wrong, for people. */
+            detail: string;
+            errors: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /**
+             * @description The HTTP status.
+             * @enum {integer}
+             */
+            status: 422;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
         /** VersionOut */
         VersionOut: {
             /**
@@ -22465,6 +23269,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ActionOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -22486,6 +23317,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ActionOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -22515,6 +23382,51 @@ export interface operations {
                     "application/json": components["schemas"]["RunOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -22542,6 +23454,51 @@ export interface operations {
                     "application/json": components["schemas"]["RunBatchOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -22565,6 +23522,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AppCheckOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -22592,6 +23585,42 @@ export interface operations {
                     "application/json": components["schemas"]["AppDraftOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -22615,6 +23644,42 @@ export interface operations {
                     "application/json": components["schemas"]["AppDraftOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -22634,6 +23699,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AppGuideOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -22666,6 +23749,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_BatchOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -22687,6 +23797,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BatchOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -22716,6 +23862,51 @@ export interface operations {
                     "application/json": components["schemas"]["BatchOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -22739,6 +23930,42 @@ export interface operations {
                     "application/json": components["schemas"]["ExportOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -22759,6 +23986,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -22783,6 +24046,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreatedOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -22817,6 +24116,42 @@ export interface operations {
                     "application/json": components["schemas"]["EntityOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -22825,7 +24160,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -22834,7 +24178,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -22861,6 +24205,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_ComponentOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -22890,6 +24261,51 @@ export interface operations {
                     "application/json": components["schemas"]["ComponentEntitiesOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -22914,6 +24330,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_BudgetOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -22941,6 +24384,42 @@ export interface operations {
                     "application/json": components["schemas"]["BudgetOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -22961,6 +24440,51 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -22987,6 +24511,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BudgetOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23016,6 +24585,33 @@ export interface operations {
                     "application/json": components["schemas"]["CostSummaryOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23042,6 +24638,33 @@ export interface operations {
                     "text/csv": unknown;
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23063,6 +24686,24 @@ export interface operations {
                     "application/json": components["schemas"]["ImageBindingsOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23082,6 +24723,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OverviewOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23115,6 +24774,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_QuotaScopeOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23139,6 +24825,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_QuotaOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23166,6 +24879,42 @@ export interface operations {
                     "application/json": components["schemas"]["QuotaOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23186,6 +24935,51 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -23214,6 +25008,51 @@ export interface operations {
                     "application/json": components["schemas"]["QuotaOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23238,6 +25077,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_WorkerRegistrationOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23265,6 +25131,42 @@ export interface operations {
                     "application/json": components["schemas"]["WorkerRegistrationCreatedOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23290,6 +25192,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkerRegistrationOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23321,6 +25268,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_SetupBuildOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23346,6 +25320,42 @@ export interface operations {
                     "application/json": components["schemas"]["SetupBuildOut"][];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23367,6 +25377,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SetupBuildOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23392,6 +25438,51 @@ export interface operations {
                     "application/json": components["schemas"]["SetupBuildOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23413,6 +25504,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SetupBuildOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23440,6 +25576,42 @@ export interface operations {
                     "application/json": components["schemas"]["SetupLogOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23461,6 +25633,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SetupBuildOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23487,6 +25704,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_SlurmClusterOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23517,6 +25761,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_SlurmAccountOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23545,6 +25825,51 @@ export interface operations {
                     "application/json": components["schemas"]["SlurmAccountOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23566,6 +25891,51 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -23591,6 +25961,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_EnvironmentVolumesOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23622,6 +26019,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_WorkerOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23649,6 +26073,51 @@ export interface operations {
                     "application/json": components["schemas"]["WorkerOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23670,6 +26139,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkerOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23711,6 +26225,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_EntityOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23745,6 +26286,42 @@ export interface operations {
                     "application/json": components["schemas"]["CreatedOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23770,6 +26347,33 @@ export interface operations {
                     "application/json": components["schemas"]["AssignOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -23778,7 +26382,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -23787,7 +26400,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23811,6 +26424,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CountsOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23846,6 +26486,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_EntityOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23869,6 +26536,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_EntityOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23915,6 +26618,33 @@ export interface operations {
                     "text/csv": unknown;
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23951,6 +26681,42 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23983,6 +26749,42 @@ export interface operations {
                     "application/json": components["schemas"]["EntityOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -23991,7 +26793,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -24000,7 +26811,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24030,6 +26841,51 @@ export interface operations {
                     "application/json": components["schemas"]["AliquotsOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -24053,6 +26909,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AmountOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24089,6 +26981,42 @@ export interface operations {
                     "application/json": components["schemas"]["AmountMovedOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -24097,7 +27025,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -24106,7 +27043,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24134,6 +27071,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AmountMovedOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24164,6 +27146,42 @@ export interface operations {
                     "application/json": components["schemas"]["MovementsOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -24189,6 +27207,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AmountMovedOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24219,6 +27282,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_EntityAppOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -24245,6 +27344,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_BundleOriginOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24275,6 +27410,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_UserOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24315,6 +27486,42 @@ export interface operations {
                     "application/json": components["schemas"]["WalkOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -24347,6 +27554,42 @@ export interface operations {
                 };
                 content: {
                     "text/csv": unknown;
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24389,13 +27632,40 @@ export interface operations {
                     "text/html": unknown;
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
             /** @description Its plugin's writer refused it, or failed (ADR 0230). */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description The export sandbox can't take it now: try again. */
@@ -24404,7 +27674,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem503"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24437,6 +27707,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GraphOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24474,6 +27780,42 @@ export interface operations {
                     "application/json": components["schemas"]["EntityOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -24482,7 +27824,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -24491,7 +27842,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24515,6 +27866,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LocationOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24545,6 +27932,42 @@ export interface operations {
                     "application/json": components["schemas"]["EventsOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -24571,6 +27994,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_MakingOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24605,6 +28064,42 @@ export interface operations {
                     "application/json": components["schemas"]["MovedOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -24613,7 +28108,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -24622,7 +28126,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24653,6 +28157,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_OriginOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -24679,6 +28219,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_EntityProjectOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24714,6 +28290,51 @@ export interface operations {
                     "application/json": components["schemas"]["EntityProjectOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -24735,6 +28356,51 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -24761,6 +28427,42 @@ export interface operations {
                     };
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -24782,6 +28484,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptsOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24807,6 +28545,51 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -24830,6 +28613,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RequestOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24865,6 +28684,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_RevisionOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -24888,6 +28743,42 @@ export interface operations {
                 };
                 content: {
                     "text/csv": unknown;
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24916,6 +28807,42 @@ export interface operations {
                     "application/json": components["schemas"]["RevisionDetailOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -24941,6 +28868,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SignaturesOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24975,6 +28938,42 @@ export interface operations {
                     "application/json": components["schemas"]["SigningOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -24983,7 +28982,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -24992,7 +29000,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25030,6 +29038,42 @@ export interface operations {
                     "application/json": components["schemas"]["EntityOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -25038,7 +29082,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -25047,7 +29100,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25084,6 +29137,42 @@ export interface operations {
                     "application/json": components["schemas"]["EntityOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -25092,7 +29181,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -25101,7 +29199,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25136,6 +29234,42 @@ export interface operations {
                     "application/json": components["schemas"]["EntityOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -25144,7 +29278,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -25153,7 +29296,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25194,6 +29337,42 @@ export interface operations {
                     "application/json": components["schemas"]["WalkOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -25228,6 +29407,42 @@ export interface operations {
                     "text/csv": unknown;
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -25251,6 +29466,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WatchOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25282,6 +29533,51 @@ export interface operations {
                     "application/json": components["schemas"]["WatchOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -25306,6 +29602,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_RecordExportOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25342,6 +29665,42 @@ export interface operations {
                     "application/json": components["schemas"]["RecordExportOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -25365,6 +29724,42 @@ export interface operations {
                     "application/json": components["schemas"]["RecordExportOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -25385,6 +29780,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -25407,6 +29838,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContentUrlOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25435,6 +29902,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_EntityTypeOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -25456,6 +29950,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EntityTypeOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25481,6 +30011,42 @@ export interface operations {
                     "application/json": components["schemas"]["TypeFlowOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -25502,6 +30068,42 @@ export interface operations {
                 };
                 content: {
                     "text/csv": unknown;
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25527,6 +30129,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EntryOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25561,6 +30199,42 @@ export interface operations {
                     "application/json": components["schemas"]["EntryOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -25569,7 +30243,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -25578,7 +30261,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25617,6 +30300,51 @@ export interface operations {
                     "application/json": components["schemas"]["CreatedOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -25649,6 +30377,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_RevisionOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -25671,6 +30435,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RevisionDetailOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25705,6 +30505,42 @@ export interface operations {
                     "application/json": components["schemas"]["EntryOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -25713,7 +30549,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -25722,7 +30567,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25771,6 +30616,33 @@ export interface operations {
                     "application/json": components["schemas"]["FilePageOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -25801,6 +30673,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FileCountOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25839,6 +30738,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_FormatOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -25862,6 +30788,42 @@ export interface operations {
                     "application/json": components["schemas"]["FileDetailOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -25882,6 +30844,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -25904,6 +30902,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContentUrlOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25934,6 +30968,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_HoldingRecordOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -25962,6 +31032,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_UsingRunOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -25986,6 +31092,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_InstalledFormatOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26013,6 +31146,42 @@ export interface operations {
                     "application/json": components["schemas"]["HelmOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -26036,6 +31205,42 @@ export interface operations {
                     "application/json": components["schemas"]["ImportOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -26056,6 +31261,51 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -26082,6 +31332,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImportOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26116,6 +31411,51 @@ export interface operations {
                     "application/json": components["schemas"]["ImportOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -26147,6 +31487,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ImportEntityOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -26172,6 +31548,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PartOut"][];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26204,6 +31625,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ImportPersonOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -26228,6 +31685,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_LabRoleOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26260,6 +31744,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ListOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -26286,6 +31797,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26324,6 +31871,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_OptionOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -26356,6 +31939,51 @@ export interface operations {
                     "application/json": components["schemas"]["OptionOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -26385,6 +32013,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OptionOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26425,6 +32089,42 @@ export interface operations {
                     "application/json": components["schemas"]["OptionOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -26433,7 +32133,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -26442,7 +32151,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26483,6 +32192,42 @@ export interface operations {
                     "application/json": components["schemas"]["OptionOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -26491,7 +32236,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -26500,7 +32254,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26529,6 +32283,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OptionMovedOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26569,6 +32368,42 @@ export interface operations {
                     "application/json": components["schemas"]["OptionOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -26577,7 +32412,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -26586,7 +32430,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26627,6 +32471,42 @@ export interface operations {
                     "application/json": components["schemas"]["OptionOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -26635,7 +32515,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -26644,7 +32533,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26679,6 +32568,42 @@ export interface operations {
                     "application/json": components["schemas"]["OptionOut"][];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -26687,7 +32612,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -26696,7 +32630,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26720,6 +32654,24 @@ export interface operations {
                     "application/json": components["schemas"]["MeOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -26739,6 +32691,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26764,6 +32734,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26800,6 +32806,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_WorkItemOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -26819,6 +32852,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MySigningOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26855,6 +32906,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_WorkItemOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -26883,6 +32961,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_NotificationOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -26908,6 +33013,42 @@ export interface operations {
                     "application/json": components["schemas"]["MarkAllOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -26927,6 +33068,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SummaryOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26956,6 +33115,51 @@ export interface operations {
                     "application/json": components["schemas"]["NotificationOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -26980,6 +33184,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_OutsideApiOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27009,6 +33240,51 @@ export interface operations {
                     "application/json": components["schemas"]["ApiApprovalOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27030,6 +33306,51 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -27058,6 +33379,51 @@ export interface operations {
                     "application/json": components["schemas"]["PluginPreflightOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27084,6 +33450,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ProjectRoleOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27108,6 +33501,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_InventoryOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27144,6 +33564,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ProjectOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27169,6 +33616,42 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27190,6 +33673,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27217,6 +33736,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27247,6 +33811,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ExportOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27272,6 +33872,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExportOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27300,6 +33945,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_ProjectChangeOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27331,6 +34012,42 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectCostSummaryOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27352,6 +34069,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DashboardOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27381,6 +34134,51 @@ export interface operations {
                     "application/json": components["schemas"]["DashboardOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27401,6 +34199,51 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -27428,6 +34271,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_EntityAppOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27458,6 +34337,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_TeamRef_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27484,6 +34399,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_ImportOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27513,6 +34464,51 @@ export interface operations {
                     "application/json": components["schemas"]["ImportStartedOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27534,6 +34530,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IntakeOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27561,6 +34593,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IntakeOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27591,6 +34668,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ProjectMemberOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27617,6 +34730,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectMemberOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27647,6 +34805,51 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectMemberOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27668,6 +34871,51 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -27697,6 +34945,51 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectMemberOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27723,6 +35016,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_OutsideApiOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27761,6 +35090,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_NameableOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27789,6 +35154,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ProjectRef_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27815,6 +35216,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_ProjectRef_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27847,6 +35284,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ServiceOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27874,6 +35347,42 @@ export interface operations {
                     "application/json": components["schemas"]["SheetEditSaveOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -27882,7 +35391,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -27891,7 +35409,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27919,6 +35437,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SheetEditCheckOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27949,6 +35512,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_SpreadsheetImportOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27974,6 +35573,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SpreadsheetImportOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28006,6 +35650,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_SavedMappingOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -28033,6 +35713,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_StockSummary_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28064,6 +35780,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_StockLot_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -28090,6 +35842,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_OpenOrder_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28121,6 +35909,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_FiringOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -28147,6 +35971,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_ProjectTriggerOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28177,6 +36037,51 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectTriggerOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -28203,6 +36108,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectTriggerOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28233,6 +36183,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_WebhookOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -28258,6 +36244,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebhookCreated"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28292,6 +36323,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_QuarantineOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -28313,6 +36371,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QuarantineOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28342,6 +36436,51 @@ export interface operations {
                     "application/json": components["schemas"]["QuarantineOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -28365,6 +36504,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28399,6 +36574,42 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -28407,7 +36618,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -28416,7 +36636,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28451,6 +36671,42 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -28459,7 +36715,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -28468,7 +36733,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28503,6 +36768,42 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -28511,7 +36812,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -28520,7 +36830,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28554,6 +36864,42 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -28562,7 +36908,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -28571,7 +36926,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28605,6 +36960,42 @@ export interface operations {
                     "application/json": components["schemas"]["CheckedReceiptOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -28613,7 +37004,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -28622,7 +37022,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28656,6 +37056,42 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -28664,7 +37100,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -28673,7 +37118,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28703,6 +37148,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ObservationEventsOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28735,6 +37216,42 @@ export interface operations {
                     "application/json": components["schemas"]["MovesOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -28743,7 +37260,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -28752,7 +37278,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28782,6 +37308,51 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptScanOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -28805,6 +37376,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReconciliationOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28839,6 +37446,42 @@ export interface operations {
                     "application/json": components["schemas"]["ReconciliationOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -28847,7 +37490,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -28856,7 +37508,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28891,6 +37543,42 @@ export interface operations {
                     "application/json": components["schemas"]["ReconciliationOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -28899,7 +37587,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -28908,7 +37605,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28942,6 +37639,42 @@ export interface operations {
                     "application/json": components["schemas"]["ReconciliationOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -28950,7 +37683,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -28959,7 +37701,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28991,6 +37733,42 @@ export interface operations {
                     "application/json": components["schemas"]["ObservationEventsOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29018,6 +37796,42 @@ export interface operations {
                     "application/json": components["schemas"]["ReconciliationOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -29026,7 +37840,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -29035,7 +37858,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29062,6 +37885,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_RegistrationOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29098,6 +37948,42 @@ export interface operations {
                     "application/json": components["schemas"]["RegistrationOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29124,6 +38010,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_RegistrationLocationOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29145,6 +38058,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RegistrationOut"] | components["schemas"]["RegistrationStatusOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29175,6 +38124,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_RegistryOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29200,6 +38176,42 @@ export interface operations {
                     "application/json": components["schemas"]["RegistryOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29221,6 +38233,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RegistryOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29248,6 +38296,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RegistryOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29283,6 +38376,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_RegistryEntryOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29304,6 +38433,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListCuratorOut"][];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29340,6 +38505,51 @@ export interface operations {
                     "application/json": components["schemas"]["ListCuratorOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29363,6 +38573,51 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29384,6 +38639,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RegistrarOut"][];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29419,6 +38710,51 @@ export interface operations {
                     "application/json": components["schemas"]["RegistrarOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29440,6 +38776,51 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -29464,6 +38845,42 @@ export interface operations {
                     "application/json": components["schemas"]["RunApprovalOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29485,6 +38902,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunApprovalOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29512,6 +38974,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunApprovalOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29549,6 +39056,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_RunOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29570,6 +39104,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29600,6 +39170,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ApiCallOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29628,6 +39234,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_RunArtifactOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29649,6 +39291,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -29678,6 +39356,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_RunAttemptOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29705,6 +39419,42 @@ export interface operations {
                     "application/json": components["schemas"]["AttemptLogOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29727,6 +39477,42 @@ export interface operations {
                 };
                 content: {
                     "text/plain": unknown;
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29754,6 +39540,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29785,6 +39616,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_EffectOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29810,6 +39677,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29842,6 +39754,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_SavedSearchOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29867,6 +39806,42 @@ export interface operations {
                     "application/json": components["schemas"]["SavedSearchOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29890,6 +39865,42 @@ export interface operations {
                     "application/json": components["schemas"]["SavedSearchOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29910,6 +39921,51 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -29936,6 +39992,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SavedSearchOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29966,6 +40067,33 @@ export interface operations {
                     "application/json": components["schemas"]["SearchEverythingOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29990,6 +40118,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_ServiceAccountOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30017,6 +40172,42 @@ export interface operations {
                     "application/json": components["schemas"]["ServiceAccountOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -30038,6 +40229,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServiceAccountOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30067,6 +40294,51 @@ export interface operations {
                     "application/json": components["schemas"]["ServiceAccountOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -30086,6 +40358,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CertificationState"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30113,6 +40403,42 @@ export interface operations {
                     "application/json": components["schemas"]["CertificationState"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -30136,6 +40462,42 @@ export interface operations {
                     "application/json": components["schemas"]["SignatureOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -30157,6 +40519,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SignatureVerificationOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30186,6 +40584,51 @@ export interface operations {
                     "application/json": components["schemas"]["SignatureOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -30205,6 +40648,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SigningKeysOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30228,6 +40689,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SigningOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30255,6 +40752,42 @@ export interface operations {
                     "application/json": components["schemas"]["SpreadsheetImportOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -30279,6 +40812,42 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -30287,7 +40856,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -30296,7 +40874,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30331,6 +40909,42 @@ export interface operations {
                     "application/json": components["schemas"]["SpreadsheetImportOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -30339,7 +40953,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -30348,7 +40971,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30383,6 +41006,42 @@ export interface operations {
                     "application/json": components["schemas"]["SpreadsheetImportOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -30391,7 +41050,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -30400,7 +41068,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30433,6 +41101,42 @@ export interface operations {
                     "application/json": components["schemas"]["SavedMappingOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -30441,7 +41145,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -30450,7 +41163,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30481,6 +41194,42 @@ export interface operations {
                     "application/json": components["schemas"]["SpreadsheetImportOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -30489,7 +41238,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -30498,7 +41256,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30534,6 +41292,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_PreviewRowOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
             /** @description `stale`: a newer revision replaced the one you're reading. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -30542,7 +41327,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30577,6 +41371,42 @@ export interface operations {
                     "application/json": components["schemas"]["SavedMappingOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -30585,7 +41415,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -30594,7 +41433,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30621,6 +41460,42 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
             /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
             412: {
                 headers: {
@@ -30629,7 +41504,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem412"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             /** @description `precondition_required`: send the ETag you read as If-Match. */
@@ -30638,7 +41522,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/problem+json": components["schemas"]["Problem"];
+                    "application/problem+json": components["schemas"]["Problem428"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30669,6 +41553,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_StarterOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -30694,6 +41605,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StarterSetupOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30723,6 +41679,51 @@ export interface operations {
                     "application/json": components["schemas"]["StarterSetupOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -30747,6 +41748,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_AwaitingPutAwayOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30774,6 +41802,42 @@ export interface operations {
                     "application/json": components["schemas"]["CustodyOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -30797,6 +41861,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CustodyOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30827,6 +41927,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_CheckedOutOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -30848,6 +41975,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContainerOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30878,6 +42041,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ReconciliationOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -30899,6 +42098,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReconciliationOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30926,6 +42170,42 @@ export interface operations {
                     "application/json": components["schemas"]["CustodyOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -30945,6 +42225,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LabelSizesOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -30972,6 +42270,42 @@ export interface operations {
                     "application/json": components["schemas"]["LabelsOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -30995,6 +42329,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MovesOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -31025,6 +42395,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_PlaceOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31047,6 +42444,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScanOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -31072,6 +42496,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScanResolveOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -31103,6 +42563,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_TeamOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31128,6 +42615,42 @@ export interface operations {
                     "application/json": components["schemas"]["TeamOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31149,6 +42672,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TeamOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -31176,6 +42735,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TeamOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -31206,6 +42810,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_TeamMemberOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31230,6 +42870,51 @@ export interface operations {
                     "application/json": components["schemas"]["TeamMemberOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31251,6 +42936,51 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -31276,6 +43006,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_TriggerOut_"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -31304,6 +43061,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_UploadOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31329,6 +43113,42 @@ export interface operations {
                     "application/json": components["schemas"]["StartedOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31352,6 +43172,42 @@ export interface operations {
                     "application/json": components["schemas"]["UploadOut"] | components["schemas"]["UploadStatusOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31372,6 +43228,51 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -31405,6 +43306,51 @@ export interface operations {
                     "application/json": components["schemas"]["UploadOut"] | components["schemas"]["UploadStatusOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31430,6 +43376,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PartOut"][];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -31462,6 +43453,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_UserOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31483,6 +43501,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -31512,6 +43566,51 @@ export interface operations {
                     "application/json": components["schemas"]["UserOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31533,6 +43632,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrgRolesOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -31562,6 +43697,51 @@ export interface operations {
                     "application/json": components["schemas"]["OrgRolesOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31583,6 +43763,51 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31603,6 +43828,51 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -31632,6 +43902,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_EventTypeOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31651,6 +43948,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -31676,6 +43991,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -31704,6 +44055,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_WebhookOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31729,6 +44107,42 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookCreated"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31752,6 +44166,42 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31772,6 +44222,51 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
             };
             default: components["responses"]["Problem"];
         };
@@ -31798,6 +44293,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebhookOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -31829,6 +44369,42 @@ export interface operations {
                     "application/json": components["schemas"]["Page_DeliverySummary_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31851,6 +44427,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeliveryOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -31877,6 +44489,51 @@ export interface operations {
                     "application/json": components["schemas"]["DeliveryOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31900,6 +44557,51 @@ export interface operations {
                     "application/json": components["schemas"]["DeliveryOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31921,6 +44623,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SecretOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -31954,6 +44701,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_WorkflowRunOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -31975,6 +44749,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkflowRunOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -32004,6 +44814,51 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowRunOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -32029,6 +44884,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkflowRunOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -32059,6 +44959,51 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowRunOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -32087,6 +45032,51 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowRunOut"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -32113,6 +45103,33 @@ export interface operations {
                     "application/json": components["schemas"]["Page_WorkflowOut_"];
                 };
             };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -32134,6 +45151,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkflowOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -32161,6 +45214,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkflowRunOut"];
+                };
+            };
+            /** @description Not signed in, or the token isn't one Iki gave. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem401"];
+                };
+            };
+            /** @description Signed in, but not allowed to: `code` says why. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem403"];
+                };
+            };
+            /** @description There's no such thing, or you can't see it. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem404"];
+                };
+            };
+            /** @description Refused by one of Iki's rules, or in conflict with what's recorded. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem409"];
+                };
+            };
+            /** @description Some fields or parameters are invalid: `errors` says which, and why. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem422"];
                 };
             };
             default: components["responses"]["Problem"];

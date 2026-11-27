@@ -675,7 +675,7 @@ def test_runs_that_send_data_outside_need_consent(fake: FakeIki, client: Client)
     )
     with pytest.raises(iki.ConsentRequired) as refused:
         client.runs.start("acme/hosted_models.predict_structure", project=PROJECT)
-    assert refused.value.statements == [statement]
+    assert [dict(s) for s in refused.value.statements] == [statement]
     assert refused.value.apis == ["acme/hosted_models.foldcloud"]
     assert isinstance(refused.value, iki.Conflict)
     fake.on("POST", path, run())

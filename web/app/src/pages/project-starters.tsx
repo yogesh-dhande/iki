@@ -6,7 +6,7 @@
  * and what's applied.
  */
 
-import { ApiError } from "@ikisci/sdk";
+import { isApiError } from "@ikisci/sdk";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useMemo, useState, type SubmitEvent } from "react";
@@ -241,8 +241,8 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
         onError: (error) => {
           // What applying does changed: nothing was applied. Show it as it is now, and what
           // changed, to review; applying again applies that.
-          const now = error instanceof ApiError ? error.problem.plan : undefined;
-          if (error instanceof ApiError && error.problem.code === "starter_plan_changed" && now) {
+          const now = isApiError(error, "starter_plan_changed") ? error.problem.plan : undefined;
+          if (now) {
             apply.reset();
             setPlan({ key, plan: now });
             setChanges(planChanges(shown, now, label, nameOf));

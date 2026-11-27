@@ -3,7 +3,14 @@
  * where a record is, its location history, receipts and reconciliations.
  */
 
-import { ifMatch, unwrap, type Problem, type Schemas } from "@ikisci/sdk";
+import {
+  ifMatch,
+  isProblem,
+  unwrap,
+  type Problem,
+  type ProblemOf,
+  type Schemas,
+} from "@ikisci/sdk";
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import { everyPage, iki } from "./api";
@@ -378,7 +385,7 @@ export type Reviewed = Schemas["ReviewedCountLine"];
 
 /** The lines a refused count or receipt change names: the ones to review, at their versions now. */
 export function affectedLines(problem: Problem | undefined): Reviewed[] | null {
-  return problem?.affected_lines ?? null;
+  return isProblem(problem, "stale") ? (problem.affected_lines ?? null) : null;
 }
 
 /**
@@ -489,7 +496,7 @@ export function scanRefusal(problem: Problem | undefined): ScanRefusal | null {
 export type UnregisteredIntent = NonNullable<Schemas["ScanIn"]["unregistered"]>;
 
 /** An earlier slot where a count saw the same unregistered label, at the version offered. */
-export type UnregisteredSource = NonNullable<Problem["observations"]>[number];
+export type UnregisteredSource = ProblemOf<"count_unregistered_choice">["observations"][number];
 
 /**
  * A count scan of an unregistered label already seen in another slot: nothing was saved,

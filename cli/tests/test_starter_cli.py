@@ -1,12 +1,13 @@
 """Assay administrators use the same starter contracts from the CLI and the web app."""
 
 import json
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
 
 from iki import Client, Conflict, Forbidden
+from iki.schema import Problem
 from iki_cli.main import main
 
 PROJECT = str(UUID(int=1))
@@ -191,7 +192,7 @@ def test_a_changed_plan_applies_nothing_and_shows_what_applying_does_now(
     def changed(*args: Any, **kwargs: Any) -> None:
         detail = "What applying does changed since it was previewed."
         problem = {"status": 409, "code": "starter_plan_changed", "detail": detail, "plan": now}
-        raise Conflict(409, detail, code="starter_plan_changed", problem=problem)
+        raise Conflict(409, detail, code="starter_plan_changed", problem=cast("Problem", problem))
 
     monkeypatch.setattr(Client, "request", changed)
     args = [

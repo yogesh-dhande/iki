@@ -1461,3 +1461,22 @@ def test_an_agent_is_told_which_parameter_was_wrong() -> None:
         "- parameter cursor: Not a cursor from this API.",
         "- #/values/name: Field required",
     ]
+
+
+def test_an_agent_reads_what_a_problems_code_carries() -> None:
+    """ADR 0290: what a code carries beyond its detail reaches an agent, to act on: here
+    which records changed since a reassignment read them."""
+    from iki_server.mcp.api import problem_text
+
+    stale = {"id": "01a2", "hrid": "SAM-000012", "expected_revision": 3, "current_revision": 4}
+    text = problem_text(
+        412,
+        {"status": 412, "code": "stale", "detail": "SAM-000012 changed.", "stale": [stale]},
+    )
+    assert text.splitlines() == [
+        "SAM-000012 changed. (412, stale)",
+        '- stale: [{"id": "01a2", "hrid": "SAM-000012", "expected_revision": 3, '
+        '"current_revision": 4}]',
+    ]
+    guarded = problem_text(409, {"code": "guard_refused", "detail": "No.", "guard": "needs_qc"})
+    assert guarded.splitlines()[1:] == ["- guard: needs_qc"]

@@ -321,13 +321,17 @@ def enable_trigger(
     if payload is not None and payload.run_as is not None:
         run_as = User.objects.filter(pk=payload.run_as).first()
         if run_as is None:
-            raise Problem(422, "No such service account.", code="invalid")
+            raise Problem(
+                422,
+                "Some fields are invalid.",
+                errors=[{"pointer": "#/run_as", "detail": "No such service account."}],
+            )
     try:
         triggers.enable(me, found, name, run_as=run_as)
     except PermissionDenied:
         raise Problem(403) from None
     except Refused as error:
-        raise Problem(409, str(error), code="not_allowed") from None
+        raise Problem(409, str(error), code="refused") from None
     return _one(me, found, name)
 
 
@@ -350,7 +354,9 @@ def disable_trigger(
     try:
         triggers.disable(me, found, name, reason=payload.reason if payload else "")
     except Refused as error:
-        raise Problem(422, str(error), code="invalid") from None
+        raise Problem(
+            422, "Some fields are invalid.", errors=[{"pointer": "#/reason", "detail": str(error)}]
+        ) from None
     return _one(me, found, name)
 
 

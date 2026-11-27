@@ -30,60 +30,53 @@ export type Schemas = components["schemas"];
 /** The REST API version this client speaks, matching the server's `/api/v1` prefix. */
 export const API_VERSION = "v1";
 
-type ProblemDocument = Schemas["Problem"];
+/** An RFC 9457 problem: how every error under `/api/` is described (ADR 0027). It's the
+ * OpenAPI document's `Problem`, a union discriminated by `code` (ADR 0290): narrow it with
+ * {@link isProblem} to read the members a code carries. */
+export type Problem = Schemas["Problem"] | ClientProblem;
 
-/** An RFC 9457 problem: how every error under `/api/` is described. Its members are the
- * OpenAPI document's `Problem` (ADR 0027); the rest are what particular codes carry. */
-export interface Problem extends ProblemDocument {
-  /** Readable alternatives when a scan needs an explicit choice (`scan_ambiguous`). */
-  candidates?: Schemas["ScanCandidateOut"][];
-  /** Zero-based index of the scan that needs a choice in a submitted rack. */
-  index?: number;
-  /** Destination slot when an unregistered tube may be an earlier observation. */
-  position?: string;
-  /** Previous slots offered by a `count_unregistered_choice` response. */
-  observations?: { line_id: string; revision: number; position: string }[];
-  /** For `guard_refused`: the plugin's guard (ADR 0128) that refused the state. */
-  guard?: string;
-  /** For a receipt's or count's `stale` (412): the lines that changed, at their revisions now. */
-  affected_lines?: { line_id: string; revision: number }[];
-  /** For `inputs_outside_project`: the inputs that aren't in the run's project. */
-  entities?: { id: string; hrid: string; type: string }[];
-  /**
-   * For `consent_required`: what the launch sends to outside APIs, and where (ADR 0130).
-   * Launch again with `consent` naming each `api` to agree.
-   */
-  consent?: Schemas["ConsentStatementOut"][];
-  /** For `outside_api_not_approved`: the APIs, and Org Admins who can approve them. */
-  apis?: string[];
-  approvers?: string[];
-  /** For `starter_plan_changed` (409): what applying the starter does now, to review. */
-  plan?: Schemas["StarterSetupOut"];
-  /** For `moves_plan_changed` (409): what the moves do now, to review. */
-  moves?: Schemas["MovesOut"];
-  /** For a change of many things' `stale` (412): each that changed since it was read. */
-  stale?: (StaleRecord | StaleOption)[];
+/** A problem the client describes, where Iki answered with none: `unexpected_response`
+ * for an answer that isn't a problem, such as a proxy's error page, with its status;
+ * `network_error` (status 0) for no answer at all. */
+export interface ClientProblem {
+  type: "about:blank";
+  title: string;
+  status: number;
+  detail: string;
+  code: "unexpected_response" | "network_error";
+  errors?: Schemas["ProblemError"][];
   request_id?: string;
 }
 
+/** Every code a problem may have. */
+export type ProblemCode = Problem["code"];
+
+/** The problem a code names, with the members it carries. */
+export type ProblemOf<C extends ProblemCode> = Problem extends infer P
+  ? P extends { code: infer K }
+    ? C extends K
+      ? Omit<P, "code"> & { code: C }
+      : never
+    : never
+  : never;
+
 /** A record a reassignment named that changed since it was read. */
-export interface StaleRecord {
-  id: string;
-  hrid: string;
-  expected_revision: number;
-  current_revision: number;
-}
+export type StaleRecord = Schemas["StaleRecord"];
 
 /** A lab list's option a reorder named that changed, came or went since it was read: a
  * revision is null where it wasn't, or isn't, in the list. */
-export interface StaleOption {
-  code: string;
-  expected_revision: number | null;
-  current_revision: number | null;
-}
+export type StaleOption = Schemas["StaleOption"];
 
-/** True when ``value`` has the shape of a problem the API answered with. */
-export function isProblem(value: unknown): value is Problem {
+/** True when `value` has the shape of a problem the API answered with, and, given a
+ * `code`, is that code's problem, whose members it then has:
+ *
+ * ```ts
+ * if (isProblem(body, "scan_ambiguous")) choose(body.candidates);
+ * ```
+ */
+export function isProblem(value: unknown): value is Problem;
+export function isProblem<C extends ProblemCode>(value: unknown, code: C): value is ProblemOf<C>;
+export function isProblem(value: unknown, code?: ProblemCode): boolean {
   if (typeof value !== "object" || value === null) {
     return false;
   }
@@ -91,15 +84,16 @@ export function isProblem(value: unknown): value is Problem {
   return (
     typeof candidate.status === "number" &&
     typeof candidate.code === "string" &&
-    typeof candidate.detail === "string"
+    typeof candidate.detail === "string" &&
+    (code === undefined || candidate.code === code)
   );
 }
 
 /** An API call that answered with a problem. */
-export class ApiError extends Error {
-  readonly problem: Problem;
+export class ApiError<P extends Problem = Problem> extends Error {
+  readonly problem: P;
 
-  constructor(problem: Problem) {
+  constructor(problem: P) {
     super(problem.detail);
     this.name = "ApiError";
     this.problem = problem;
@@ -109,9 +103,20 @@ export class ApiError extends Error {
     return this.problem.status;
   }
 
-  get code(): string {
+  get code(): P["code"] {
     return this.problem.code;
   }
+}
+
+/** Whether `error` is an API call's problem, and, given a `code`, that code's, whose
+ * members its `problem` then has. */
+export function isApiError(error: unknown): error is ApiError;
+export function isApiError<C extends ProblemCode>(
+  error: unknown,
+  code: C,
+): error is ApiError<ProblemOf<C>>;
+export function isApiError(error: unknown, code?: ProblemCode): boolean {
+  return error instanceof ApiError && (code === undefined || error.code === code);
 }
 
 /**
@@ -137,14 +142,16 @@ export function ifNoneMatchAny(): { "If-None-Match": "*" } {
 
 /** Whether a change was refused because what it named changed since it was read (412
  * `stale`): nothing changed. Read it again, then decide. */
-export function isStale(error: unknown): error is ApiError {
-  return error instanceof ApiError && error.status === 412;
+export function isStale(error: unknown): error is ApiError<ProblemOf<"stale">> {
+  return isApiError(error, "stale");
 }
 
 /** Whether a change was refused for not naming the revision it replaces (428
  * `precondition_required`). */
-export function isPreconditionRequired(error: unknown): error is ApiError {
-  return error instanceof ApiError && error.status === 428;
+export function isPreconditionRequired(
+  error: unknown,
+): error is ApiError<ProblemOf<"precondition_required">> {
+  return isApiError(error, "precondition_required");
 }
 
 export interface ClientOptions {
@@ -270,7 +277,7 @@ export function createIkiClient(options: ClientOptions = {}): IkiClient {
  */
 export function unwrap<T>(result: { data?: T; error?: unknown; response: Response }): T {
   if (result.error !== undefined || !result.response.ok) {
-    const problem = isProblem(result.error)
+    const problem: Problem = isProblem(result.error)
       ? result.error
       : {
           type: "about:blank",

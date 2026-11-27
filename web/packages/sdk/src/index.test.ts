@@ -6,9 +6,11 @@ import {
   encodeName,
   ifMatch,
   ifNoneMatchAny,
+  isApiError,
   isPreconditionRequired,
   isProblem,
   isStale,
+  type Problem,
   unwrap,
 } from "./index.js";
 
@@ -270,6 +272,33 @@ describe("isProblem", () => {
     expect(isProblem({ status: 500 })).toBe(false);
     expect(isProblem(null)).toBe(false);
   });
+
+  it("narrows a problem by its code to the members that code carries (ADR 0290)", () => {
+    const ambiguous: unknown = {
+      ...PROBLEM,
+      code: "scan_ambiguous",
+      detail: "Two tubes have this label.",
+      candidates: [],
+    };
+    expect(isProblem(ambiguous, "scan_ambiguous")).toBe(true);
+    expect(isProblem(ambiguous, "refused")).toBe(false);
+    if (isProblem(ambiguous, "scan_ambiguous")) {
+      // Typed: `candidates` is there because the code says so.
+      expect(ambiguous.candidates).toEqual([]);
+    }
+  });
+
+  it("narrows an API error by its problem's code", () => {
+    const error: unknown = new ApiError({
+      ...PROBLEM,
+      code: "guard_refused",
+      guard: "release_needs_qc",
+    } as Problem);
+    expect(isApiError(error)).toBe(true);
+    expect(isApiError(error, "refused")).toBe(false);
+    expect(isApiError(new Error("409"), "guard_refused")).toBe(false);
+    if (isApiError(error, "guard_refused")) expect(error.problem.guard).toBe("release_needs_qc");
+  });
 });
 
 describe("preconditions", () => {
@@ -290,8 +319,8 @@ describe("preconditions", () => {
   });
 
   it("tells a stale change (412) from one that named no revision (428)", () => {
-    const of = (status: number, code: string) =>
-      new ApiError({ type: "about:blank", title: "", status, detail: "", code });
+    const of = (status: number, code: "stale" | "precondition_required" | "refused") =>
+      new ApiError({ type: "about:blank", title: "", status, detail: "", code } as Problem);
     expect(isStale(of(412, "stale"))).toBe(true);
     expect(isStale(of(428, "precondition_required"))).toBe(false);
     expect(isStale(of(409, "refused"))).toBe(false);

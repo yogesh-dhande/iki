@@ -154,7 +154,7 @@ def test_a_request_arriving_is_ranked_as_the_services_account_on_the_admins_auth
         in (listed[ON_ARRIVAL]["why_not_enable"])
     )
     account = ranker(lab)
-    problem(admin.post(url, {}), 409, "not_allowed")
+    problem(admin.post(url, {}), 409, "refused")
     enabled = admin.post(url, {"run_as": str(account.pk)})
     assert enabled.status_code == 200, enabled.content
     assert enabled.json()["run_as"]["name"] == "Queue ranker"

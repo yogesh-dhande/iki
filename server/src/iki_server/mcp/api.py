@@ -18,6 +18,7 @@ from django.core.handlers.asgi import ASGIHandler
 from mcp.server.mcpserver.exceptions import ToolError
 from oauth2_provider.oauth2_validators import validate_resource_as_url_prefix
 
+from iki_server.api.problem_codes import CODES
 from iki_server.api.security import MCP_AGENT_KEY
 from iki_server.mcp import bridge
 
@@ -161,8 +162,14 @@ def problem_text(status: int, problem: Any) -> str:  # noqa: ANN401 - JSON
         for error in problem.get("errors") or []
         if isinstance(error, dict)
     ]
-    if problem.get("guard"):
-        lines.append(f"- guard: {problem['guard']}")
+    # What else its code carries (ADR 0290), for the agent to act on: a scan's candidates,
+    # what changed since it was read, the consent a launch needs.
+    declared = CODES.get(str(code or ""))
+    for member in declared.members if declared else ():
+        value = problem.get(member)
+        if member != "errors" and value is not None:
+            said = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+            lines.append(f"- {member}: {said}")
     return "\n".join(lines)
 
 
