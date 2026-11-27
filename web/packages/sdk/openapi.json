@@ -1346,7 +1346,8 @@
             "enum": [
               "author_signed",
               "research",
-              "regulated_qc"
+              "regulated_qc",
+              "record_only"
             ],
             "title": "Flow",
             "type": "string"
@@ -28804,7 +28805,8 @@
             "enum": [
               "author_signed",
               "research",
-              "regulated_qc"
+              "regulated_qc",
+              "record_only"
             ],
             "title": "Flow",
             "type": "string"
@@ -28856,7 +28858,8 @@
             "enum": [
               "author_signed",
               "research",
-              "regulated_qc"
+              "regulated_qc",
+              "record_only"
             ],
             "title": "Id",
             "type": "string"
@@ -29025,7 +29028,8 @@
             "enum": [
               "author_signed",
               "research",
-              "regulated_qc"
+              "regulated_qc",
+              "record_only"
             ],
             "title": "Flow",
             "type": "string"
@@ -29075,7 +29079,8 @@
             "enum": [
               "author_signed",
               "research",
-              "regulated_qc"
+              "regulated_qc",
+              "record_only"
             ],
             "title": "Flow",
             "type": "string"

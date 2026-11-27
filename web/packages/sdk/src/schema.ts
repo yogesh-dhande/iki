@@ -6393,7 +6393,7 @@ export interface components {
              * Flow
              * @enum {string}
              */
-            flow: "author_signed" | "research" | "regulated_qc";
+            flow: "author_signed" | "research" | "regulated_qc" | "record_only";
             /** Version */
             version: string;
         };
@@ -18783,7 +18783,7 @@ export interface components {
              * Flow
              * @enum {string}
              */
-            flow: "author_signed" | "research" | "regulated_qc";
+            flow: "author_signed" | "research" | "regulated_qc" | "record_only";
             /**
              * Plan
              * @description The `plan` its preview returned: what you reviewed. If what applying does has changed since, nothing is applied (409 `starter_plan_changed`, with the `plan` it would apply now).
@@ -18814,7 +18814,7 @@ export interface components {
              * Id
              * @enum {string}
              */
-            id: "author_signed" | "research" | "regulated_qc";
+            id: "author_signed" | "research" | "regulated_qc" | "record_only";
             /**
              * Independent Roles
              * @description Required roles whose signatures must come from different people: each group of them needs at least as many people as it has roles.
@@ -18892,7 +18892,7 @@ export interface components {
              * Flow
              * @enum {string}
              */
-            flow: "author_signed" | "research" | "regulated_qc";
+            flow: "author_signed" | "research" | "regulated_qc" | "record_only";
             /**
              * Project
              * Format: uuid
@@ -18923,7 +18923,7 @@ export interface components {
              * Flow
              * @enum {string}
              */
-            flow: "author_signed" | "research" | "regulated_qc";
+            flow: "author_signed" | "research" | "regulated_qc" | "record_only";
             /**
              * Grants To Add
              * @description Lab role grants missing when the setup was checked, by membership ID.

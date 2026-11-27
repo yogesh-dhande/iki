@@ -350,7 +350,7 @@ class AppliedMappingOut(TypedDict):
 
 
 class AppliedStarterOut(TypedDict):
-    flow: Literal['author_signed', 'research', 'regulated_qc']
+    flow: Literal['author_signed', 'research', 'regulated_qc', 'record_only']
     version: str
 
 
@@ -6262,7 +6262,7 @@ class StartedOut(TypedDict):
 
 
 class StarterApplyIn(TypedDict):
-    flow: Literal['author_signed', 'research', 'regulated_qc']
+    flow: Literal['author_signed', 'research', 'regulated_qc', 'record_only']
     #: The `plan` its preview returned: what you reviewed. If what applying does has changed since, nothing is applied (409 `starter_plan_changed`, with the `plan` it would apply now).
     plan: str
     #: The project to set up. Requires its Admin role.
@@ -6274,7 +6274,7 @@ class StarterApplyIn(TypedDict):
 
 
 class StarterFlowOut(TypedDict):
-    id: Literal['author_signed', 'research', 'regulated_qc']
+    id: Literal['author_signed', 'research', 'regulated_qc', 'record_only']
     #: Required roles whose signatures must come from different people: each group of them needs at least as many people as it has roles.
     independent_roles: list[str]
     label: str
@@ -6312,7 +6312,7 @@ class StarterRoleOut(TypedDict):
 
 
 class StarterSetupIn(TypedDict):
-    flow: Literal['author_signed', 'research', 'regulated_qc']
+    flow: Literal['author_signed', 'research', 'regulated_qc', 'record_only']
     #: The project to set up. Requires its Admin role.
     project: str
     #: Each qualified lab role and the project membership IDs receiving it.
@@ -6324,7 +6324,7 @@ class StarterSetupIn(TypedDict):
 class StarterSetupOut(TypedDict):
     #: Whether applying this choice would change anything (preview), or did (apply).
     changed: bool
-    flow: Literal['author_signed', 'research', 'regulated_qc']
+    flow: Literal['author_signed', 'research', 'regulated_qc', 'record_only']
     #: Lab role grants missing when the setup was checked, by membership ID.
     grants_to_add: dict[str, list[str]]
     #: Identifies this plan: what the setup was, and every change applying makes. Send it to apply what was reviewed.

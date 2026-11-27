@@ -1,11 +1,12 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/biologics_ms
-version: 0.2.0
+version: 0.3.0
 title: Biologics mass spectrometry
 description: Check deconvoluted mass and peptide maps against registered antibodies, ADCs and their lots.
 license: Apache-2.0
 iki: ">=0.1"
+starters: { biologics-ms-review: "1.0.0" }
 dependencies:
   iki/antibody:
     types: { Antibody: ">=2" }
@@ -24,7 +25,8 @@ settings:
     description: >-
       Research is one reviewer's sign-off. Regulated QC is a signed submission, an independent
       review and QA release. Record only keeps the comparison as evidence and offers no sign-off.
-      New results retain the chosen procedure.
+      A project's Admin can choose one for the project with its starter. New results retain
+      the chosen procedure.
 roles:
   analyst: { label: Mass spectrometry analyst }
   reviewer: { label: Mass spectrometry reviewer }

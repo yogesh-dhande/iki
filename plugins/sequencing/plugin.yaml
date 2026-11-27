@@ -1,11 +1,12 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/sequencing
-version: 0.2.0
+version: 0.3.0
 title: Sequencing runs
 description: Trace FASTQ files from a sequencing run to their libraries and samples, and summarize read quality on Iki compute.
 license: Apache-2.0
 iki: ">=0.1"
+starters: { sequencing-quality-review: "1.0.0" }
 homepage: https://ikisci.org/plugins/sequencing
 settings:
   review_flow:
@@ -16,7 +17,7 @@ settings:
     description: >-
       Research is one reviewer's sign-off. Regulated QC is a signed submission, an independent
       review and QA release. Record only keeps the summary as evidence and offers no sign-off.
-      New FASTQ summaries retain the chosen procedure.
+      A project's Admin can choose one for the project with its starter. New FASTQ summaries retain the chosen procedure.
 roles:
   analyst: { label: Sequencing analyst }
   reviewer: { label: Sequencing reviewer }

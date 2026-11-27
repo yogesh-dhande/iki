@@ -1,11 +1,12 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/sequencing_analysis
-version: 0.2.0
+version: 0.3.0
 title: Sequencing analysis
 description: Import one sample from a VCF, a raw RNA-seq count matrix or an AIRR rearrangement TSV, with the report and its provenance.
 license: Apache-2.0
 iki: ">=0.1"
+starters: { sequencing-analysis-review: "1.0.0" }
 dependencies:
   iki/sequencing:
     types: { SequencingLibrary: ">=1", SequencingRun: ">=1" }
@@ -18,7 +19,7 @@ settings:
     description: >-
       Research is one reviewer's sign-off. Regulated QC is a signed submission, an independent
       review and QA release. Record only keeps the result as evidence and offers no sign-off.
-      New results retain the chosen procedure.
+      A project's Admin can choose one for the project with its starter. New results retain the chosen procedure.
 roles:
   analyst: { label: Sequencing analysis analyst }
   reviewer: { label: Sequencing analysis reviewer }
