@@ -10,7 +10,7 @@ label: Biologic lot
 label_plural: Biologic lots
 extends: Lot
 abstract: true
-schema_version: 2
+schema_version: 3
 description: >-
   A lot of a protein, a complex such as an antibody, or a protein conjugate, in
   solution: its concentration, by A280 from its ε280 or by another assay, its purity
@@ -81,6 +81,22 @@ fields:
     description: >-
       The absorbance of 1 mg/mL over 1 cm its concentration was worked out with: its
       measured ε280, or its sequence's molar ε280 over its molecular weight.
+  a280_basis:
+    type: enum
+    label: ε280 basis
+    values: [measured, cystines, reduced]
+    computed: true
+    description: >-
+      What the ε280 used rests on: the lot's measured ε280, or its sequence's with its
+      cysteines as cystines or reduced.
+  a280_estimate:
+    type: bool
+    label: ε280 is an estimate
+    computed: true
+    description: >-
+      Its sequence's ε280 rests on an assumption: its cysteines weren't stated, so
+      they're taken as cystines, or its complex's disulfides may not all be counted.
+      State its cysteines, or give a measured ε280, to make it exact.
   a280_concentration:
     type: quantity
     label: Concentration by A280
