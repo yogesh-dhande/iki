@@ -67,6 +67,8 @@ inputs:
             values:
               carrier_heavy_copies: 2
               carrier_light_copies: 2
+        concentration_method:
+          - values: { code: a280, label: A280, calculation: a280 }
       values:
         dar_method: rp_hplc_reduced
         distribution_method: rp_hplc_reduced
@@ -74,7 +76,6 @@ inputs:
         dilution_factor: 10
         path_length: 1
         extinction_coefficient: 1.5
-        concentration_method: a280
         drug_loads:
           - { chain: light, drug_load: 0, area: 43.3 }
           - { chain: light, drug_load: 1, area: 56.7 }

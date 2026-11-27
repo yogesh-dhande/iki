@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: PurityMethod
+label: Purity method
+schema_version: 1
+description: >-
+  How a protein, complex or conjugate lot's purity is measured: the separation whose
+  main species' share of the area it is. A lab list (ADR 0270).
+hrid: { prefix: BPM }
+list:
+  options:
+    - code: sec
+      label: SEC-HPLC
+      description: Size-exclusion chromatography's main peak, at 280 nm.
+    - code: ce_sds_non_reduced
+      label: CE-SDS, non-reduced
+      description: Capillary electrophoresis in SDS, the intact molecule's peak.
+    - code: ce_sds_reduced
+      label: CE-SDS, reduced
+      description: Capillary electrophoresis in SDS after reduction, its chains' peaks together.
+    - code: rp_hplc
+      label: RP-HPLC
+      description: Reversed-phase HPLC's main peak.
+    - code: sds_page
+      label: SDS-PAGE densitometry
+      description: Its main band's share of a stained gel lane's.

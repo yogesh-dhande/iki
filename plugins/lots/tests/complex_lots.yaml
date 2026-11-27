@@ -14,8 +14,10 @@ description: >-
 action: compute_protein_lot
 inputs:
   lot:
-    - values: { a280: 1.2, dilution_factor: 10, path_length: 1, concentration_method: a280 }
+    - values: { a280: 1.2, dilution_factor: 10, path_length: 1 }
       included:
+        concentration_method:
+          - values: { code: a280, label: A280, calculation: a280 }
         protein:
           - type: iki/complex.ProteinComplex
             values:
@@ -207,8 +209,10 @@ description: >-
 action: compute_protein_lot
 inputs:
   lot:
-    - values: { a280: 1.2, dilution_factor: 10, path_length: 1, concentration_method: a280 }
+    - values: { a280: 1.2, dilution_factor: 10, path_length: 1 }
       included:
+        concentration_method:
+          - values: { code: a280, label: A280, calculation: a280 }
         protein:
           - type: iki/complex.ProteinComplex
             values:
@@ -407,15 +411,10 @@ description: >-
 action: compute_protein_lot
 inputs:
   lot:
-    - values:
-        {
-          a280: 1.2,
-          dilution_factor: 10,
-          path_length: 1,
-          concentration_method: a280,
-          cysteines: reduced,
-        }
+    - values: { a280: 1.2, dilution_factor: 10, path_length: 1, cysteines: reduced }
       included:
+        concentration_method:
+          - values: { code: a280, label: A280, calculation: a280 }
         protein:
           - type: iki/complex.ProteinComplex
             values:

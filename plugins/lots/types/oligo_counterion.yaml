@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: OligoCounterion
+label: Oligonucleotide counterion
+schema_version: 1
+description: >-
+  The cation an oligonucleotide lot's phosphates carry, such as sodium for a drug's. A
+  lab list (ADR 0270): its mass is compared as the free acid, whichever it is.
+hrid: { prefix: OCI }
+list:
+  options:
+    - { code: sodium, label: Sodium }
+    - { code: ammonium, label: Ammonium }
+    - { code: triethylammonium, label: Triethylammonium }

@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# How a biologic lot's concentration was measured: a lab list (ADR 0270), so a lab names
+# its own assays, once, and every project picks the same. Iki works a concentration out
+# only for an option whose calculation says it can.
+apiVersion: iki/v1
+kind: EntityType
+name: ProteinConcentrationMethod
+label: Protein concentration method
+schema_version: 1
+description: >-
+  How a protein, complex or conjugate lot's concentration is measured, such as by its
+  A280 or a BCA assay against a standard. Its calculation says which of Iki's
+  calculations gives the concentration; one with none is entered as measured.
+hrid: { prefix: PCM }
+list:
+  options:
+    - code: a280
+      label: A280
+      description: >-
+        Its absorbance at 280 nm, with its measured ε280 or its sequence's, as Iki
+        works it out.
+      calculation: a280
+    - code: bca
+      label: BCA assay
+      description: Bicinchoninic acid assay, against a protein standard such as BSA.
+    - code: bradford
+      label: Bradford assay
+      description: Coomassie dye binding, against a protein standard such as BSA or IgG.
+    - code: amino_acid_analysis
+      label: Amino acid analysis
+      description: >-
+        Acid hydrolysis and quantitation of its amino acids: absolute, with no standard of
+        the protein itself.
+fields:
+  calculation:
+    type: enum
+    label: Worked out by Iki from
+    values: [a280]
+    description: >-
+      Which of Iki's calculations gives a concentration by this method: a280, from the
+      lot's A280, dilution and path length, and its ε280. Empty for a method whose
+      concentration is entered as measured.

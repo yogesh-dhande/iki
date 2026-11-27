@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: PlasmidVerificationMethod
+label: Plasmid verification method
+schema_version: 1
+description: How a plasmid prep is checked to be its plasmid. A lab list (ADR 0270).
+hrid: { prefix: PVM }
+list:
+  options:
+    - code: whole_plasmid
+      label: Whole-plasmid sequencing
+      description: Its whole sequence, such as by nanopore reads, against its plasmid's.
+    - code: sanger
+      label: Sanger sequencing
+      description: Sanger reads of its insert and junctions.
+    - code: restriction_digest
+      label: Restriction digest
+      description: A digest's bands against the sizes its plasmid's map gives.

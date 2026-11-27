@@ -5,7 +5,7 @@ name: PolymerLot
 label: Polymer lot
 label_plural: Polymer lots
 extends: Lot
-schema_version: 3
+schema_version: 4
 description: >-
   A lot of a synthetic polymer: one synthesis's chains, whose lengths vary, so it has
   its own molecular weight distribution: its number-average (Mn) and weight-average
@@ -60,91 +60,48 @@ fields:
       masses vary. Chains of one length but different composition, such as a
       copolymer's, can have one above 1.
   mn_method:
-    type: enum
+    type: ref
+    to: MolarMassMethod
     label: Mn by
-    values:
-      [
-        sec_conventional,
-        sec_universal,
-        sec_mals,
-        maldi_tof,
-        nmr_end_group,
-        membrane_osmometry,
-        vapor_pressure_osmometry,
-        other,
-      ]
     description: >-
-      How Mn was measured: sec_conventional by SEC (GPC) against a calibration of
-      standards, sec_universal by universal calibration with a viscometer, sec_mals by
-      SEC with multi-angle light scattering, which needs no standards, maldi_tof by
-      MALDI-TOF MS, nmr_end_group by NMR end-group analysis, or by membrane or vapor
-      pressure osmometry, which count molecules (IUPAC, 2009); or another the lab names.
-  mn_method_other:
-    type: string
-    label: Other Mn method
-    max_length: 200
-    description: >-
-      The lab's own Mn method, such as asymmetric-flow field-flow fractionation with MALS.
+      How Mn was measured, from the lab's list of molar mass methods that give it: by SEC
+      (GPC) against standards, by universal calibration, or with multi-angle light
+      scattering, which needs none; by MALDI-TOF MS; by NMR end-group analysis; or by
+      membrane or vapour pressure osmometry, which count molecules (IUPAC, 2009).
   mw_method:
-    type: enum
+    type: ref
+    to: MolarMassMethod
     label: Mw by
-    values:
-      [
-        sec_conventional,
-        sec_universal,
-        sec_mals,
-        maldi_tof,
-        static_light_scattering,
-        sedimentation_equilibrium,
-        other,
-      ]
     description: >-
-      How Mw was measured: by SEC, as for Mn, or MALDI-TOF MS, or by static light
-      scattering of the whole sample (batch mode), or by sedimentation equilibrium in
-      an analytical ultracentrifuge, which weigh molecules by their mass; or another the
-      lab names.
-  mw_method_other:
-    type: string
-    label: Other Mw method
-    max_length: 200
-    description: >-
-      The lab's own Mw method, such as AF4-MALS.
+      How Mw was measured, from the lab's list of molar mass methods that give it: by
+      SEC, as for Mn, or MALDI-TOF MS, or by static light scattering of the whole sample
+      (batch mode), or by sedimentation equilibrium in an analytical ultracentrifuge,
+      which weigh molecules by their mass.
   calibration_standard:
-    type: enum
-    values: [polystyrene, poly_methyl_methacrylate, polyethylene_glycol, pullulan, other]
+    type: ref
+    to: SECCalibrationStandard
     description: >-
-      The standards a conventional SEC was calibrated with: the molecular weights it
-      gives are relative to theirs. For others, choose other and name them.
-  calibration_standard_other:
-    type: string
-    label: Other calibration standards
-    max_length: 200
-    description: >-
-      The standards, if not listed, such as polyethylene oxide, or dextran, with their
-      supplier and kit.
+      The standards a conventional SEC was calibrated with, from the lab's list: the
+      molecular weights it gives are relative to theirs.
   eluent:
     type: string
     max_length: 200
     description: The SEC's solvent, such as THF at 1 mL/min, 35 °C.
 rules:
-  mn_method_other_is_named:
-    label: Another Mn method is named
-    check: (record.mn_method == "other") == (record.mn_method_other != null)
+  mn_method_gives_mn:
+    label: Its Mn method gives Mn
+    check: '"mn" in record.mn_method.averages'
     message: >-
-      Name the Mn method when it's Other, and only then.
-    fields: [mn_method, mn_method_other]
-  mw_method_other_is_named:
-    label: Another Mw method is named
-    check: (record.mw_method == "other") == (record.mw_method_other != null)
+      {{ record.mn_method.label }} doesn't give a number average: choose a method that
+      counts molecules, or record it as Mw by.
+    fields: [mn_method]
+  mw_method_gives_mw:
+    label: Its Mw method gives Mw
+    check: '"mw" in record.mw_method.averages'
     message: >-
-      Name the Mw method when it's Other, and only then.
-    fields: [mw_method, mw_method_other]
-  calibration_standard_other_is_named:
-    label: Other calibration standards are named
-    check: (record.calibration_standard == "other") == (record.calibration_standard_other != null)
-    message: >-
-      Name the calibration standards when it's Other, and only then.
-    fields: [calibration_standard, calibration_standard_other]
+      {{ record.mw_method.label }} doesn't give a weight average: choose a method that
+      weighs molecules, or record it as Mn by.
+    fields: [mw_method]
   mw_is_at_least_mn:
     label: Mw is at least Mn
     check: record.mw >= record.mn

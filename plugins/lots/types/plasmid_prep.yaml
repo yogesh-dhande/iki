@@ -7,7 +7,7 @@ name: PlasmidPrep
 label: Plasmid prep
 label_plural: Plasmid preps
 extends: Lot
-schema_version: 2
+schema_version: 3
 description: >-
   A prep of a plasmid from its host: its scale and method, its concentration from its
   A260 (50 µg/mL of double-stranded DNA for each unit, over 1 cm), its purity by
@@ -37,20 +37,12 @@ fields:
     indexed: true
     description: How large a prep it was, from a miniprep's few mL of culture to a gigaprep's litres.
   method:
-    type: enum
+    type: ref
+    to: PlasmidPrepMethod
     label: Prep method
-    values: [silica_column, anion_exchange, endotoxin_free, cesium_chloride, other]
     description: >-
-      How it was purified: alkaline lysis then a silica spin column, or an anion
-      exchange column, with an endotoxin removal step for endotoxin_free, or by a
-      caesium chloride gradient. For one not listed, choose other and name it.
-  method_other:
-    type: string
-    label: Other prep method
-    max_length: 200
-    description: >-
-      The lab's own purification, such as PEG precipitation then anion exchange
-      (SOP-MB-031).
+      How it was purified, from the lab's list, such as alkaline lysis then a silica
+      spin column, or an endotoxin-free anion exchange kit.
   kit:
     type: string
     max_length: 200
@@ -106,20 +98,13 @@ fields:
       follows it when it's read again, and is emptied with it if it was what it gave;
       a pool's or one entered since is kept.
   concentration_method:
-    type: enum
+    type: ref
+    to: DNAConcentrationMethod
     label: Concentration by
-    values: [a260, fluorescence, other]
-    default: a260
     description: >-
-      How its concentration was measured: a260 from its absorbance at 260 nm, which
-      Iki works out; or by a fluorescent dye's assay (such as Qubit or PicoGreen), or
-      another, entered as measured, which other names.
-  concentration_method_other:
-    type: string
-    label: Other concentration method
-    max_length: 200
-    description: >-
-      The lab's own concentration method, such as droplet digital PCR of the backbone.
+      How its concentration was measured, from the lab's list: by its A260, which Iki
+      works out, or by a fluorescent dye's assay (such as Qubit or PicoGreen) or another,
+      entered as measured. Left empty, an A260 reading gives it, as by A260.
   a260_a280:
     type: float
     label: A260/A280
@@ -144,38 +129,14 @@ fields:
     min: 0
     description: Its endotoxin by LAL, in endotoxin units for each µg of DNA.
   verified_by:
-    type: enum
+    type: ref
+    to: PlasmidVerificationMethod
     label: Sequence verified by
-    values: [whole_plasmid, sanger, restriction_digest, other]
     description: >-
-      How it was checked to be its plasmid: whole-plasmid sequencing, Sanger
-      sequencing of its insert, a restriction digest's bands, or another way other
-      names. The Verification tab links each evidence record for this physical prep.
-  verified_by_other:
-    type: string
-    label: Verified another way
-    max_length: 200
-    description: >-
-      How it was checked, if not listed, such as diagnostic PCR across both junctions.
+      How it was checked to be its plasmid, from the lab's list, such as whole-plasmid
+      sequencing, Sanger sequencing of its insert or a restriction digest's bands. The
+      Verification tab links each evidence record for this physical prep.
 rules:
-  method_other_is_named:
-    label: Another prep method is named
-    check: (record.method == "other") == (record.method_other != null)
-    message: >-
-      Name the prep method when it's Other, and only then.
-    fields: [method, method_other]
-  concentration_method_other_is_named:
-    label: Another concentration method is named
-    check: (record.concentration_method == "other") == (record.concentration_method_other != null)
-    message: >-
-      Name the concentration method when it's Other, and only then.
-    fields: [concentration_method, concentration_method_other]
-  verified_by_other_is_named:
-    label: Another verification is named
-    check: (record.verified_by == "other") == (record.verified_by_other != null)
-    message: >-
-      Name the way it was verified when it's Other, and only then.
-    fields: [verified_by, verified_by_other]
   path_length_is_positive:
     label: Its path length is more than 0
     check: record.path_length > 0

@@ -12,15 +12,10 @@ description: >-
 action: compute_protein_lot
 inputs:
   lot:
-    - values:
-        {
-          a280: 0.53,
-          dilution_factor: 10,
-          path_length: 1,
-          cysteines: cystines,
-          concentration_method: a280,
-        }
+    - values: { a280: 0.53, dilution_factor: 10, path_length: 1, cysteines: cystines }
       included:
+        concentration_method:
+          - values: { code: a280, label: A280, calculation: a280 }
         protein:
           - type: iki/protein.Protein
             values:
@@ -50,15 +45,10 @@ description: >-
 action: compute_protein_lot
 inputs:
   lot:
-    - values:
-        {
-          a280: 0.53,
-          dilution_factor: 10,
-          path_length: 1,
-          cysteines: reduced,
-          concentration_method: a280,
-        }
+    - values: { a280: 0.53, dilution_factor: 10, path_length: 1, cysteines: reduced }
       included:
+        concentration_method:
+          - values: { code: a280, label: A280, calculation: a280 }
         protein:
           - type: iki/protein.Protein
             values:
@@ -84,15 +74,10 @@ description: Lysozyme's measured 2.64 mL/(mg·cm), given, is what its concentrat
 action: compute_protein_lot
 inputs:
   lot:
-    - values:
-        {
-          a280: 0.528,
-          dilution_factor: 10,
-          path_length: 1,
-          extinction_coefficient: 2.64,
-          concentration_method: a280,
-        }
+    - values: { a280: 0.528, dilution_factor: 10, path_length: 1, extinction_coefficient: 2.64 }
       included:
+        concentration_method:
+          - values: { code: a280, label: A280, calculation: a280 }
         protein:
           - type: iki/protein.Protein
             values: { molecular_weight: 14313.0, extinction_coefficient_oxidized: 37970 }
@@ -112,8 +97,10 @@ description: >-
 action: compute_protein_lot
 inputs:
   lot:
-    - values: { a280: 0.53, concentration: 1.9, concentration_method: bca }
+    - values: { a280: 0.53, concentration: 1.9 }
       included:
+        concentration_method:
+          - values: { code: bca, label: BCA assay }
         protein:
           - type: iki/protein.Protein
             values:
@@ -128,6 +115,58 @@ expect:
 ---
 apiVersion: iki/v1
 kind: ActionTest
+name: the_labs_own_a280_method_is_worked_out_too
+description: >-
+  A lab's own method on its list, an A280 by variable path length (SoloVPE), whose
+  option says it's an A280: Iki works lysozyme's out as any other, 0.53 × 10 / 2.6543
+  = 1.9967 mg/mL.
+action: compute_protein_lot
+inputs:
+  lot:
+    - values: { a280: 0.53, dilution_factor: 10, path_length: 1, cysteines: cystines }
+      included:
+        concentration_method:
+          - values:
+              code: slope_a280
+              label: Slope A280 (SoloVPE, SOP-AN-204)
+              calculation: a280
+        protein:
+          - type: iki/protein.Protein
+            values:
+              molecular_weight: 14313.0
+              extinction_coefficient_oxidized: 37970
+              extinction_coefficient_reduced: 37470
+expect:
+  output:
+    updates:
+      lot:
+        - values: { a280_concentration: 1.9967, concentration: 1.9967 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_lot_naming_no_method_is_by_its_a280
+description: >-
+  Its concentration method left empty, its A280 reading gives its concentration, as by
+  A280: 1.9967 mg/mL.
+action: compute_protein_lot
+inputs:
+  lot:
+    - values: { a280: 0.53, dilution_factor: 10, path_length: 1, cysteines: cystines }
+      included:
+        protein:
+          - type: iki/protein.Protein
+            values:
+              molecular_weight: 14313.0
+              extinction_coefficient_oxidized: 37970
+              extinction_coefficient_reduced: 37470
+expect:
+  output:
+    updates:
+      lot:
+        - values: { a280_concentration: 1.9967, concentration: 1.9967 }
+---
+apiVersion: iki/v1
+kind: ActionTest
 name: unstated_cysteines_make_its_e280_an_estimate
 description: >-
   Lysozyme again, its cysteines not stated: they're taken as cystines, as before, and the
@@ -137,8 +176,10 @@ action: compute_protein_lot
 inputs:
   lot:
     - hrid: PLOT-000001
-      values: { a280: 0.53, dilution_factor: 10, path_length: 1, concentration_method: a280 }
+      values: { a280: 0.53, dilution_factor: 10, path_length: 1 }
       included:
+        concentration_method:
+          - values: { code: a280, label: A280, calculation: a280 }
         protein:
           - type: iki/protein.Protein
             values:
@@ -171,8 +212,10 @@ description: >-
 action: compute_protein_lot
 inputs:
   lot:
-    - values: { a280: 0.5, path_length: 1, concentration_method: a280 }
+    - values: { a280: 0.5, path_length: 1 }
       included:
+        concentration_method:
+          - values: { code: a280, label: A280, calculation: a280 }
         protein:
           - type: iki/protein.Protein
             values:
@@ -198,8 +241,10 @@ description: >-
 action: compute_protein_lot
 inputs:
   lot:
-    - values: { a280: 1.039, dilution_factor: 30, path_length: 1, concentration_method: a280 }
+    - values: { a280: 1.039, dilution_factor: 30, path_length: 1 }
       included:
+        concentration_method:
+          - values: { code: a280, label: A280, calculation: a280 }
         protein:
           - type: iki/antibody.Antibody
             values:
@@ -370,15 +415,10 @@ description: >-
 action: compute_protein_lot
 inputs:
   lot:
-    - values:
-        {
-          a280: 1.039,
-          dilution_factor: 30,
-          path_length: 1,
-          cysteines: reduced,
-          concentration_method: a280,
-        }
+    - values: { a280: 1.039, dilution_factor: 30, path_length: 1, cysteines: reduced }
       included:
+        concentration_method:
+          - values: { code: a280, label: A280, calculation: a280 }
         protein:
           - type: iki/antibody.Antibody
             values:
@@ -549,8 +589,10 @@ action: compute_protein_lot
 inputs:
   lot:
     - hrid: PLOT-000001
-      values: { a280: 0.84, dilution_factor: 10, concentration_method: a280 }
+      values: { a280: 0.84, dilution_factor: 10 }
       included:
+        concentration_method:
+          - values: { code: a280, label: A280, calculation: a280 }
         protein:
           - type: iki/complex.ProteinComplex
             values:

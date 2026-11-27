@@ -5,7 +5,7 @@ name: ConjugateLot
 label: Conjugate lot
 label_plural: Conjugate lots
 extends: BiologicLot
-schema_version: 4
+schema_version: 5
 description: >-
   Physical material of a registered conjugate, with its measured concentration.
   An antibody–drug conjugate lot can record its drug load distribution, average

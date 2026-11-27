@@ -617,6 +617,18 @@ def entry_of(entity: dict[str, Any]) -> str:
     return str(entry["id"] if entry else entity["id"])
 
 
+def option(session: requests.Session, project: dict[str, Any], listed: str, code: str) -> str:
+    """The ID of a lab list's option (ADR 0270) a record names, found by its code among
+    the options the project's registry offers."""
+    got = api_call(session, "GET", f"/lists/{listed}/options?project={project['id']}")
+    if got.status_code != 200:
+        fail(f"reading {listed}'s options answered HTTP {got.status_code}: {got.text[:300]}")
+    found = [o for o in got.json() if o["code"] == code]
+    if not found:
+        fail(f"{listed} offers no option {code}")
+    return str(found[0]["id"])
+
+
 def record(session: requests.Session, entity_id: str) -> dict[str, Any]:
     """A record, by its own ID: an entry's HRID can name several projects' records."""
     got = api_call(session, "GET", f"/entities/{entity_id}")
@@ -4091,9 +4103,11 @@ def polymers(alice: requests.Session, project: dict[str, Any]) -> None:
             "supplier": "National Institute of Standards and Technology",
             "notes": "Demonstration lot. Certified values from NIST SRM 1478, July 1992.",
             "mn": 35800,
-            "mn_method": "membrane_osmometry",
+            "mn_method": option(alice, project, "iki/lots.MolarMassMethod", "membrane_osmometry"),
             "mw": 37400,
-            "mw_method": "sedimentation_equilibrium",
+            "mw_method": option(
+                alice, project, "iki/lots.MolarMassMethod", "sedimentation_equilibrium"
+            ),
         },
     )
     run = launch(alice, project, "iki/lots.compute_polymer_lot", {"lot": lot["id"]})
@@ -5574,7 +5588,7 @@ def lots(alice: requests.Session, project: dict[str, Any]) -> None:
             "oligonucleotide": oligo["entity"],
             "lot_number": f"TEG-{secrets.token_hex(3)}",
             "synthesis_scale": 1,
-            "purification": "ie_hplc",
+            "purification": option(alice, project, "iki/lots.OligoPurification", "ie_hplc"),
             "concentration": 100,
             "measured_mass": 7182.2,
             "mass_basis": "average",
@@ -5631,6 +5645,11 @@ def lots(alice: requests.Session, project: dict[str, Any]) -> None:
             "dilution_factor": 10,
             "path_length": 1,
             "cysteines": "cystines",
+            # The run reads the option of the lab's list it names, whose calculation is
+            # Iki's A280 (ADR 0270).
+            "concentration_method": option(
+                alice, project, "iki/lots.ProteinConcentrationMethod", "a280"
+            ),
         },
         {"value": 20, "unit": "mg"},
     )

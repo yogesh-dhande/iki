@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: OligoPurification
+label: Oligonucleotide purification
+schema_version: 1
+description: How an oligonucleotide lot is purified after synthesis. A lab list (ADR 0270).
+hrid: { prefix: OPU }
+list:
+  options:
+    - { code: desalted, label: Desalted, description: Desalted only. }
+    - { code: cartridge, label: Cartridge, description: On a reversed-phase cartridge. }
+    - { code: rp_hplc, label: RP-HPLC, description: Reversed-phase HPLC. }
+    - { code: ie_hplc, label: IE-HPLC, description: Ion-exchange HPLC. }
+    - { code: page, label: PAGE, description: Polyacrylamide gel electrophoresis. }

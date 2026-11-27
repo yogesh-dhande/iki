@@ -5,7 +5,7 @@ name: OligoLot
 label: Oligonucleotide lot
 label_plural: Oligonucleotide lots
 extends: Lot
-schema_version: 3
+schema_version: 4
 description: >-
   A synthesis lot of an oligonucleotide: its scale and purification, its yield in OD
   and in nmol, its purity, and its mass by ESI-MS checked against the one its HELM
@@ -35,16 +35,18 @@ fields:
     indexed: true
     description: The scale it was synthesised at, such as 0.2 or 1 µmol, or 10 mmol for a drug's batch.
   purification:
-    type: enum
-    values: [desalted, cartridge, rp_hplc, ie_hplc, page]
+    type: ref
+    to: OligoPurification
     indexed: true
     description: >-
-      How it was purified: desalted only, on a reverse-phase cartridge, by
-      reverse-phase or ion-exchange HPLC, or by PAGE.
+      How it was purified, from the lab's list, such as desalted only, on a reversed-phase
+      cartridge, by reversed-phase or ion-exchange HPLC, or by PAGE.
   counterion:
-    type: enum
-    values: [sodium, ammonium, triethylammonium]
-    description: The cation its phosphates carry, such as sodium for a drug's oligonucleotide.
+    type: ref
+    to: OligoCounterion
+    description: >-
+      The cation its phosphates carry, from the lab's list, such as sodium for a drug's
+      oligonucleotide.
   yield_od:
     type: float
     label: Yield (OD260)
@@ -82,12 +84,12 @@ fields:
     indexed: true
     description: Its full-length product's share of the peak area, such as by IP-RP HPLC or CE.
   purity_method:
-    type: enum
+    type: ref
+    to: OligoPurityMethod
     label: Purity by
-    values: [ip_rp_hplc, ae_hplc, ce, lc_ms]
     description: >-
-      How its purity was measured: ion-pair reverse-phase or anion-exchange HPLC,
-      capillary electrophoresis, or LC-MS.
+      How its purity was measured, from the lab's list, such as ion-pair reversed-phase
+      or anion-exchange HPLC, capillary electrophoresis, or LC-MS.
   measured_mass:
     type: quantity
     unit: u
