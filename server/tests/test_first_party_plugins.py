@@ -172,6 +172,9 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         other = make("iki/protein.Protein", sequence="EVQLVESG")
         format_rules = [
             refusal(components=parts(other, light), format="fv", isotype="igg1"),
+            refusal(components=parts(other), format="vhh", constant_species="mouse"),
+            refusal(components=parts(other, light, 2), format="igg", isotype="igg2a",
+                    constant_species="human"),
             refusal(components=parts(other, light, 2), format="igg", isotype="igm"),
             refusal(components=parts(other, copies=2), format="igg", isotype="igg1"),
             refusal(components=parts(other, light), format="scfv"),
@@ -279,9 +282,23 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             ]
         },
         {
+            "constant_species": [
+                "An Fv, scFv or VHH has no constant region, so no constant region species: "
+                "leave it out, or choose the format its chains are."
+            ]
+        },
+        {
             "isotype": [
-                "An IgG's isotype is one of its subclasses (igg1 to igg4), not igm: for a "
-                "whole antibody of another class, choose other."
+                "A human constant region has no igg2a: give the isotype as that species names it."
+            ],
+            "constant_species": [
+                "A human constant region has no igg2a: give the isotype as that species names it."
+            ],
+        },
+        {
+            "isotype": [
+                "An IgG's isotype is IgG or one of its subclasses, not igm: for a whole "
+                "antibody of another class, choose other."
             ]
         },
         {

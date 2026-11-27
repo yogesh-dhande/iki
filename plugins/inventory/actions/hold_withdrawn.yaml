@@ -2,10 +2,27 @@ apiVersion: iki/v1
 kind: Action
 name: hold_withdrawn
 label: Hold stock derived from a withdrawn container
-description: Applies the source container's hold to its downstream stock in this project.
+description: >-
+  Puts the selected containers made from a withdrawn container on hold. Each hold
+  names the source and gives the reason entered here, or the source's own reason.
+  Containers already on hold keep their own hold.
 inputs:
-  source: { type: Container }
-  tubes: { type: Container, cardinality: many, optional: true }
+  source: { type: Container, label: Withdrawn container }
+  tubes:
+    type: Container
+    cardinality: many
+    optional: true
+    label: Containers to hold
+    description: The containers made from the source, such as its aliquots, that this hold covers.
+params:
+  reason:
+    type: string
+    max_length: 500
+    pattern: "\\S"
+    pattern_help: a reason, not only spaces
+    description: >-
+      The reason recorded on each container's hold, after the source's HRID. Leave it
+      blank to give the source's hold reason.
 effects:
   updates:
     - { input: source, fields: [hold_reason] }

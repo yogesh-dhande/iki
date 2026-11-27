@@ -38,6 +38,10 @@ from typing import Any
 
 import pytest
 import yaml
+from first_party_dependencies import FIRST_PARTY, PLUGINS
+
+from iki_spec import rules
+from iki_spec.validate import load_plugin
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "plugins" / "antibody" / "scripts"
 DATA = Path(__file__).resolve().parent / "data"
@@ -295,12 +299,20 @@ def test_a_hybrid_may_be_given_as_either_subclass_and_isnt_guessed(tmp_path: Pat
     assert code == 1 and "give igg2 or igg4" in stdout
 
 
-def test_a_constant_region_no_human_reference_matches_is_unchecked(tmp_path: Path) -> None:
-    code, _, output = assemble(tmp_path, UNIPROT["P01868"], isotype="igg1")  # a mouse's IgG1
-    assert code == 0 and output["creates"][0]["values"]["isotype"] == "igg1"
+def test_a_constant_region_no_human_reference_matches_keeps_its_stated_species(
+    tmp_path: Path,
+) -> None:
+    mouse = UNIPROT["P01868"]  # a mouse's IgG1
+    code, stdout, _ = assemble(tmp_path, mouse, isotype="igg1")
+    assert code == 1
+    assert "Give its constant region species with its isotype, igg1" in stdout
+    code, _, output = assemble(tmp_path, mouse, isotype="igg1", constant_species="mouse")
+    assert code == 0
+    values = output["creates"][0]["values"]
+    assert (values["isotype"], values["constant_species"]) == ("igg1", "mouse")
     said, bonds = output["messages"]
     assert said["level"] == "warning"
-    assert said["text"].endswith("Its isotype, igg1, is as given, unchecked.")
+    assert said["text"].endswith("Its isotype, mouse igg1, is as given, unread.")
     # A human subclass's disulfides aren't placed on a mouse's chain: only its variable
     # domains' own and its human light chain's CL's, in each copy.
     placed = output["creates"][0]["values"]["bonds"]
@@ -664,7 +676,9 @@ def test_a_mouse_fabs_domains_are_read_off_the_nearest_human_one(tmp_path: Path)
     ) in stdout
     code, _, output = assemble(tmp_path, MOUSE_IGG1[:110], format="fab")
     assert code == 0 and output["creates"][0]["values"]["format"] == "fab"
-    code, _, output = assemble(tmp_path, MOUSE_IGG1, format="igg", isotype="igg1")
+    code, _, output = assemble(
+        tmp_path, MOUSE_IGG1, format="igg", isotype="igg1", constant_species="mouse"
+    )
     assert code == 0
 
 
@@ -705,3 +719,71 @@ def test_an_igm_is_one_subunit_of_its_pentamer(tmp_path: Path) -> None:
         and "iki/complex.ProteinComplex" in m["text"]
         for m in output["messages"]
     )
+
+
+def test_a_mouse_igg2a_is_recorded_as_its_species_names_it(tmp_path: Path) -> None:
+    """Mouse Ighg2a (UniProt P01863) is IgG2a, a subclass a human hasn't."""
+    mouse = UNIPROT["P01863"]
+    code, _, output = assemble(tmp_path, mouse, isotype="igg2a", constant_species="mouse")
+    assert code == 0
+    values = output["creates"][0]["values"]
+    assert (values["format"], values["isotype"], values["constant_species"]) == (
+        "igg",
+        "igg2a",
+        "mouse",
+    )
+    code, stdout, _ = assemble(tmp_path, mouse, isotype="igg4", constant_species="mouse")
+    assert code == 1
+    assert "A mouse constant region has no igg4: give one of igg1, igg2a, igg2b, igg2c, igg3." in (
+        stdout
+    )
+    code, stdout, _ = assemble(tmp_path, mouse, isotype="igg2a", constant_species="human")
+    assert code == 1
+    assert "A human constant region has no igg2a: give one of igg1, igg2, igg3, igg4." in stdout
+    code, stdout, _ = assemble(tmp_path, mouse, isotype="igg1", constant_species="human")
+    assert code == 1
+    assert "so it isn't a human constant region: give the species it is" in stdout
+    code, stdout, _ = assemble(tmp_path, mouse, isotype="igg", constant_species="rabbit")
+    assert code == 0  # the species is the registrant's statement; IgG is a rabbit's one IgG
+
+
+def test_a_human_constant_region_is_human_and_no_other_species(tmp_path: Path) -> None:
+    human = constant(HEAVY["D03257"])  # trastuzumab's IgG1
+    code, _, output = assemble(tmp_path, human)
+    values = output["creates"][0]["values"]
+    assert code == 0 and (values["isotype"], values["constant_species"]) == ("igg1", "human")
+    code, stdout, _ = assemble(tmp_path, human, constant_species="mouse")
+    assert code == 1
+    assert "a human constant region, not a mouse one: leave the species out" in stdout
+    code, stdout, _ = assemble(tmp_path, human, isotype="igg2a")
+    assert code == 1
+
+
+def test_the_species_rule_holds_at_every_save() -> None:
+    plugin = PLUGINS / "antibody"
+    loaded = load_plugin(plugin, dependencies=FIRST_PARTY[plugin])
+    assert loaded.plugin is not None, loaded.problems
+    antibody = loaded.plugin.types["iki/antibody.Antibody"]
+    schema = rules.rule_variables(rules.record_schema(antibody.label, antibody.fields, None))
+    named = ("an_iggs_isotype_is_a_subclass", "the_isotype_is_its_species")
+    checks = [antibody.rules[name] for name in named]
+    cases = [
+        ({"format": "igg", "isotype": "igg2a", "constant_species": "mouse"}, [True, True]),
+        ({"format": "igg", "isotype": "igg2a", "constant_species": "human"}, [True, False]),
+        ({"format": "igg", "isotype": "igg4", "constant_species": "mouse"}, [True, False]),
+        ({"format": "igg", "isotype": "igg", "constant_species": "rabbit"}, [True, True]),
+        ({"format": "igg", "isotype": "igm", "constant_species": "rabbit"}, [False, True]),
+        ({"format": "fab", "isotype": "igd", "constant_species": "rabbit"}, [True, False]),
+        ({"format": "igg", "isotype": "igg1", "constant_species": None}, [True, True]),
+    ]
+    for record, wanted in cases:
+        found = []
+        for rule in checks:
+            assert rule.check is not None
+            sources = [(rule.check, rules.CONDITION)]
+            if rule.when:
+                sources.append((rule.when, rules.CONDITION))
+            (outcomes,) = rules.evaluate(schema, sources, [{"record": record}])
+            applies = outcomes[1].value is True if rule.when else True
+            found.append(not applies or outcomes[0].value is True)
+        assert found == wanted, record

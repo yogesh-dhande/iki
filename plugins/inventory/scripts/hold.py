@@ -6,11 +6,13 @@ from pathlib import Path
 
 
 def main() -> None:
-    inputs = json.loads(Path(os.environ["IKI_INPUT"]).read_text())["inputs"]
+    given = json.loads(Path(os.environ["IKI_INPUT"]).read_text())
+    inputs = given["inputs"]
     (source,) = inputs["source"]
     changes = []
     if source["values"].get("on_hold"):
-        reason = f"Withdrawn stock {source['hrid']}: {source['values']['hold_reason']}"
+        why = (given.get("params") or {}).get("reason") or source["values"]["hold_reason"]
+        reason = f"Withdrawn stock {source['hrid']}: {why.strip()}"
         for tube in inputs.get("tubes", []):
             if tube["values"].get("on_hold"):
                 continue

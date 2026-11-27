@@ -39,9 +39,12 @@ Where the heavy chain has a constant region, it says the isotype: its residues a
 variable domain are compared with IMGT's human constant regions (constant_regions.py).
 An isotype given that isn't the one they are is refused; one left out is theirs. A
 hybrid's (an IgG2/IgG4, say) may be given as any of its domains' subclasses, and is
-left out otherwise, as is one as near two references as each other, saying so; one no
-human reference matches, such as a mouse's, keeps the isotype given, unchecked, saying
-so.
+left out otherwise, as is one as near two references as each other, saying so. A chain
+that matches a human reference has a human constant region (`constant_species`). One no
+human reference matches, such as a mouse's, keeps the isotype and the species given,
+which must name each other (a mouse has IgG2a, IgG2b and IgG2c, not IgG2 or IgG4): its
+isotype is then as given, unread, saying so. An isotype given for one without its species
+is refused, since a human subclass's name on another species' chain would be a guess.
 """
 
 from __future__ import annotations
@@ -62,13 +65,19 @@ SINGLE = {"vhh": "A VHH", "scfv": "An scFv"}
 #: Formats with no constant region, so no isotype.
 VARIABLE_ONLY = {"fv", "scfv", "vhh"}
 #: The isotypes each format with a constant region may have.
-#: IgG's subclasses, whose constant domains' own disulfides EU numbering places.
+#: Human IgG's subclasses, whose constant domains' own disulfides EU numbering places.
 IGG = ("igg1", "igg2", "igg3", "igg4")
-ISOTYPES = {
-    "igg": {"igg1", "igg2", "igg3", "igg4"},
-    "fab": {"igg1", "igg2", "igg3", "igg4", "iga1", "iga2", "igm", "ige", "igd"},
-    "other": {"igg1", "igg2", "igg3", "igg4", "iga1", "iga2", "igm", "ige", "igd"},
+#: The isotypes each species' constant regions have, as each names them.
+SPECIES = {
+    "human": ("igg1", "igg2", "igg3", "igg4", "iga1", "iga2", "igm", "ige", "igd"),
+    "mouse": ("igg1", "igg2a", "igg2b", "igg2c", "igg3", "iga", "igm", "ige", "igd"),
+    "rat": ("igg1", "igg2a", "igg2b", "igg2c", "iga", "igm", "ige", "igd"),
+    "rabbit": ("igg", "iga", "igm", "ige"),
 }
+#: IgG and its subclasses, in any species.
+IGG_CLASS = {"igg1", "igg2", "igg2a", "igg2b", "igg2c", "igg3", "igg4", "igg"}
+ALL_ISOTYPES = {isotype for found in SPECIES.values() for isotype in found}
+ISOTYPES = {"igg": IGG_CLASS, "fab": ALL_ISOTYPES, "other": ALL_ISOTYPES}
 #: Fewer residues than this after a variable domain aren't a constant domain.
 CONSTANT_DOMAIN = 90
 #: A heavy chain constant region's domains, in order; those of its Fc; and those an IgG's
@@ -268,6 +277,7 @@ def assembled(
     of its isotype. Raises :class:`RefusedError`."""
     form = params.get("format") or "igg"
     isotype = params.get("isotype")
+    species = params.get("constant_species")
     if light is not None and light["id"] == heavy["id"]:
         raise RefusedError(f"{_label(heavy)} can't be both its heavy and its light chain.")
     if form in PAIRED and light is None:
@@ -277,18 +287,25 @@ def assembled(
         )
     if form in SINGLE and light is not None:
         raise RefusedError(f"{SINGLE[form]} has one chain: leave out the light chain.")
-    if isotype and form in VARIABLE_ONLY:
+    if (isotype or species) and form in VARIABLE_ONLY:
         what = SINGLE.get(form) or PAIRED[form]
-        raise RefusedError(f"{what} has no constant region, so no isotype: leave it out.")
+        noun = "isotype" if isotype else "constant region species"
+        raise RefusedError(f"{what} has no constant region, so no {noun}: leave it out.")
     if isotype and isotype not in ISOTYPES[form]:
         raise RefusedError(
-            f"An IgG's isotype is one of its subclasses (igg1 to igg4), not {isotype}: for a "
-            "whole antibody of another class, choose other."
+            f"An IgG's isotype is IgG or one of its subclasses, not {isotype}: for a whole "
+            "antibody of another class, choose other."
+        )
+    if isotype and species and isotype not in SPECIES[species]:
+        raise RefusedError(
+            f"A {species} constant region has no {isotype}: give one of "
+            + ", ".join(i for i in SPECIES[species] if i in ISOTYPES[form])
+            + "."
         )
     _check_chains(form, heavy, light, isotype)
     region = _region(form, heavy)
     _check_domains(form, heavy, region)
-    isotype, messages = _isotype(form, heavy, isotype, region)
+    isotype, species, messages = _isotype(form, heavy, isotype, species, region)
     if isotype == "igm":
         messages.append(
             {
@@ -322,6 +339,8 @@ def assembled(
         values["bonds"] = bonds
     if isotype:
         values["isotype"] = isotype
+    if species:
+        values["constant_species"] = species
     if params.get("target"):
         values["target"] = params["target"]
     derived = [heavy["id"], *([light["id"]] if light is not None else [])]
@@ -486,12 +505,14 @@ def _isotype(
     form: str,
     heavy: dict[str, Any],
     isotype: str | None,
+    species: str | None,
     region: tuple[constant_regions.Call, bool] | None,
-) -> tuple[str | None, list[dict[str, str]]]:
-    """The isotype, as the heavy chain's constant region says, and what the run says of it.
-    Raises :class:`RefusedError` when the one given isn't what the chain is."""
+) -> tuple[str | None, str | None, list[dict[str, str]]]:
+    """The isotype and the constant region's species, as the heavy chain's constant region
+    says, and what the run says of them. Raises :class:`RefusedError` when the ones given
+    aren't what the chain is."""
     if region is None:
-        return isotype, []
+        return isotype, species, []
     found, whole = region
     what = (
         f"{_label(heavy)}, compared whole as it has no numbered variable domain,"
@@ -501,14 +522,33 @@ def _isotype(
     said = f"{what} {found.describe()}"
     names = constant_regions.NAMES
     if not found.isotypes:
+        if species == "human":
+            raise RefusedError(
+                f"{said}, so it isn't a human constant region: give the species it is, or "
+                "check the chain."
+            )
+        if isotype and not species:
+            raise RefusedError(
+                f"{said}. Give its constant region species with its isotype, {isotype}, "
+                "since a human subclass's name can't be read off it."
+            )
         if isotype:
-            return isotype, [
-                {
-                    "level": "warning",
-                    "text": f"{said}. Its isotype, {isotype}, is as given, unchecked.",
-                }
-            ]
-        return None, [{"level": "info", "text": f"{said}, so it says no isotype."}]
+            return (
+                isotype,
+                species,
+                [
+                    {
+                        "level": "warning",
+                        "text": f"{said}. Its isotype, {species} {isotype}, is as given, unread.",
+                    }
+                ],
+            )
+        return None, species, [{"level": "info", "text": f"{said}, so it says no isotype."}]
+    if species and species != "human":
+        raise RefusedError(
+            f"{said}, a human constant region, not a {species} one: leave the species out, or "
+            "check the chain."
+        )
     allowed = [i for i in found.isotypes if i in ISOTYPES[form]]
     if not allowed:
         raise RefusedError(
@@ -525,19 +565,29 @@ def _isotype(
         )
     if len(found.isotypes) > 1:
         if isotype:
-            return isotype, [{"level": "warning", "text": f"{said}. It's given as {isotype}."}]
-        return None, [
-            {
-                "level": "warning",
-                "text": f"{said}, so its isotype is left out: give "
-                + " or ".join(allowed)
-                + ", whichever it's called.",
-            }
-        ]
+            return (
+                isotype,
+                "human",
+                [{"level": "warning", "text": f"{said}. It's given as {isotype}."}],
+            )
+        return (
+            None,
+            "human",
+            [
+                {
+                    "level": "warning",
+                    "text": f"{said}, so its isotype is left out: give "
+                    + " or ".join(allowed)
+                    + ", whichever it's called.",
+                }
+            ],
+        )
     how = "as given" if isotype else "from its heavy chain"
-    return found.isotypes[0], [
-        {"level": "info", "text": f"Its isotype is {found.isotypes[0]}, {how}: {said}."}
-    ]
+    return (
+        found.isotypes[0],
+        "human",
+        [{"level": "info", "text": f"Its isotype is {found.isotypes[0]}, {how}: {said}."}],
+    )
 
 
 def assemble(run: dict[str, Any]) -> dict[str, Any]:

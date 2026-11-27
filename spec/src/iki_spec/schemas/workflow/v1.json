@@ -7,9 +7,11 @@
   "required": ["apiVersion", "kind", "name", "steps"],
   "properties": {
     "apiVersion": {
+      "description": "The spec version this manifest follows.",
       "const": "iki/v1"
     },
     "kind": {
+      "description": "What the manifest declares: `Workflow`.",
       "const": "Workflow"
     },
     "name": {
@@ -86,10 +88,22 @@
           "minItems": 1,
           "maxItems": 100
         },
-        "at_least": { "$ref": "#/$defs/bound" },
-        "at_most": { "$ref": "#/$defs/bound" },
-        "above": { "$ref": "#/$defs/bound" },
-        "below": { "$ref": "#/$defs/bound" }
+        "at_least": {
+          "description": "At least this: a number, or the workflow's param (`$params.<name>`).",
+          "$ref": "#/$defs/bound"
+        },
+        "at_most": {
+          "description": "At most this: a number, or the workflow's param.",
+          "$ref": "#/$defs/bound"
+        },
+        "above": {
+          "description": "More than this: a number, or the workflow's param.",
+          "$ref": "#/$defs/bound"
+        },
+        "below": {
+          "description": "Less than this: a number, or the workflow's param.",
+          "$ref": "#/$defs/bound"
+        }
       }
     },
     "bound": {
@@ -100,6 +114,7 @@
       ]
     },
     "step": {
+      "description": "One step: the action it runs, where its inputs come from, and when it runs.",
       "type": "object",
       "required": ["action"],
       "properties": {

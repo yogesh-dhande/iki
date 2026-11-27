@@ -44,3 +44,27 @@ action: hold_withdrawn
 inputs:
   source: [{ values: { on_hold: true, hold_reason: "Withdrawn" } }]
 expect: { output: { updates: {} } }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: withdraw_selected_stock_with_a_reason
+description: >-
+  An analyst holds the one aliquot taken before the source was mislabelled, with the
+  investigation's reason, and leaves the source's own reason unchanged.
+action: hold_withdrawn
+params: { reason: "Pending relabelling check" }
+inputs:
+  source: [{ hrid: TUB-000123, values: { on_hold: true, hold_reason: "Label mismatch" } }]
+  tubes: [{ values: { on_hold: false } }]
+expect:
+  output:
+    updates:
+      source:
+        - entity: 00000000-0000-7000-8003-000000000001
+          require_unchanged: true
+          values: { hold_reason: "Label mismatch" }
+      tubes:
+        - entity: 00000000-0000-7000-8003-000000000002
+          require_unchanged: true
+          values:
+            { on_hold: true, hold_reason: "Withdrawn stock TUB-000123: Pending relabelling check" }

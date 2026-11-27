@@ -1,7 +1,11 @@
 apiVersion: iki/v1
 kind: Trigger
 name: hold_derived_tubes
-label: Hold portions of withdrawn stock
+label: Hold all stock derived from withdrawn stock
+description: >-
+  When a container goes on hold, holds every container in the project split or
+  transferred from it, up to ten steps on, with the source's reason. Off until a
+  project admin turns it on.
 on: entity.updated
 type: Container
 fields: [on_hold]

@@ -6,8 +6,8 @@
   "type": "object",
   "required": ["apiVersion", "kind", "name", "version"],
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "Plugin" },
+    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
+    "kind": { "description": "What the manifest declares: `Plugin`.", "const": "Plugin" },
     "name": {
       "description": "The plugin's name, as `namespace/name`: your lab's or company's namespace, such as `acme/assays`. Its types are `acme/assays.Type`, and its tables start with `acme__assays_`. The `iki` namespace is Iki's own.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginRef"
@@ -17,7 +17,10 @@
       "type": "string",
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?(\\+[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
     },
-    "title": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+    "title": {
+      "description": "The plugin's name as people see it, such as `Protein tools`. Defaults to its name.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+    },
     "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
     "license": {
       "description": "The plugin's license, as an SPDX expression such as `Apache-2.0` or `LicenseRef-Acme-Internal`.",
@@ -42,13 +45,17 @@
       "type": "object",
       "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginRef" },
       "additionalProperties": {
+        "description": "A plugin this one needs, which a deployment must install with it. `types` pins the schema versions of the types this one uses; `{}` needs the plugin without pinning any, such as one whose lab roles it uses.",
         "type": "object",
         "properties": {
           "types": {
             "description": "Schema-version constraints, such as `DNASequence: \">=2,<4\"`.",
             "type": "object",
             "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeName" },
-            "additionalProperties": { "$ref": "#/$defs/versionConstraint" }
+            "additionalProperties": {
+              "description": "The schema versions of this type the plugin works with, such as `>=2,<4`.",
+              "$ref": "#/$defs/versionConstraint"
+            }
           }
         },
         "additionalProperties": false
@@ -97,6 +104,7 @@
   "additionalProperties": false,
   "$defs": {
     "writer": {
+      "description": "One writer: the format it writes, its Rust crate, and the fields of a record it reads, by role.",
       "type": "object",
       "required": ["label", "format", "module", "roles"],
       "additionalProperties": false,
@@ -141,6 +149,7 @@
       }
     },
     "writerRole": {
+      "description": "One role: the type of field a type maps to it, and whether every type that exports through the writer must.",
       "type": "object",
       "required": ["type"],
       "additionalProperties": false,
@@ -192,6 +201,7 @@
       ]
     },
     "fileFormat": {
+      "description": "One file format: the media types, filename extensions and leading bytes Iki recognizes it by, and the reader and viewer Iki uses for it.",
       "type": "object",
       "required": ["label", "media_types", "extensions"],
       "properties": {
@@ -226,13 +236,27 @@
             "type": "object",
             "required": ["hex"],
             "properties": {
-              "hex": { "type": "string", "pattern": "^([0-9a-fA-F]{2})+$", "maxLength": 512 },
-              "offset": { "type": "integer", "minimum": 0, "maximum": 4095, "default": 0 }
+              "hex": {
+                "description": "The bytes, in hexadecimal, such as `89504e47` for PNG.",
+                "type": "string",
+                "pattern": "^([0-9a-fA-F]{2})+$",
+                "maxLength": 512
+              },
+              "offset": {
+                "description": "Where in the file they start, in bytes: 0, its very start, unless given.",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4095,
+                "default": 0
+              }
             },
             "additionalProperties": false
           }
         },
-        "reader": { "enum": ["abif", "fcs", "mzml", "jcamp-dx", "image", "sam", "czi", "csv"] },
+        "reader": {
+          "description": "Iki's built-in reader for files of this format: it reads what a file says of itself, such as when its data was acquired (ADR 0177) and the instrument, operator and software that recorded it (ADR 0224).",
+          "enum": ["abif", "fcs", "mzml", "jcamp-dx", "image", "sam", "czi", "csv"]
+        },
         "viewer": {
           "description": "The Iki viewer that shows this format's contents: on a file's page and from the records and runs that hold it (ADR 0226), and, for structure and alignment, in a type's display.viewers.",
           "enum": [
@@ -254,6 +278,7 @@
       "additionalProperties": false
     },
     "role": {
+      "description": "One lab role: what people see it called, and what someone with it does.",
       "type": "object",
       "required": ["label"],
       "properties": {
@@ -274,6 +299,7 @@
       "pattern": "^\\s*(==|!=|>=|<=|>|<)\\s*[0-9]+(\\s*,\\s*(==|!=|>=|<=|>|<)\\s*[0-9]+)*\\s*$"
     },
     "api": {
+      "description": "One outside API: its host, what the plugin uses it for, and how its calls are authenticated and recorded.",
       "type": "object",
       "required": ["label", "host", "purpose"],
       "properties": {

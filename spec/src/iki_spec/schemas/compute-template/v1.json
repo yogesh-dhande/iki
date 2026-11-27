@@ -13,6 +13,7 @@
       "const": "ComputeTemplate"
     },
     "name": {
+      "description": "The template's name in kebab-case, which environment bindings give in their `templates`.",
       "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/name"
     },
     "label": {
@@ -40,6 +41,7 @@
           "maximum": 1024
         },
         "memory": {
+          "description": "The memory each machine gives a run, such as `64Gi`.",
           "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/quantity"
         },
         "gpu": {
@@ -64,6 +66,7 @@
           "additionalProperties": false
         },
         "scratch_disk": {
+          "description": "The local disk each machine gives a run for its working files.",
           "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/quantity"
         }
       },

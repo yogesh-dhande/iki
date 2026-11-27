@@ -389,7 +389,7 @@ inputs:
           - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
 params: { isotype: igm }
 expect:
-  error: "An IgG's isotype is one of its subclasses (igg1 to igg4), not igm"
+  error: "An IgG's isotype is IgG or one of its subclasses, not igm"
 ---
 apiVersion: iki/v1
 kind: ActionTest

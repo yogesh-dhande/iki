@@ -47,7 +47,10 @@
           "minProperties": 1,
           "maxProperties": 10,
           "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
-          "additionalProperties": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+          "additionalProperties": {
+            "description": "The integer field holding the revision of this reference's record that the check reads.",
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          }
         },
         "fields": {
           "description": "The fields a failure points at, in forms and the API's errors. Without it, the fields its check reads.",
@@ -66,6 +69,7 @@
           "required": ["reviewed_by"],
           "properties": {
             "reviewed_by": {
+              "description": "The lab roles that can review a held record, such as `qa`.",
               "type": "array",
               "minItems": 1,
               "maxItems": 10,
@@ -93,9 +97,11 @@
           "required": ["from", "to"],
           "properties": {
             "from": {
+              "description": "The field the range starts at.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "to": {
+              "description": "The field the range ends at.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "per": {
@@ -119,6 +125,7 @@
             "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
           },
           "additionalProperties": {
+            "description": "The values of this field that count, such as `[stored]`: states, an enum's values, or `true` or `false`.",
             "type": "array",
             "minItems": 1,
             "maxItems": 20,
@@ -143,6 +150,7 @@
       }
     },
     "guard": {
+      "description": "One guard: a `check` the operation must pass, and the `message` a person sees when it doesn't.",
       "type": "object",
       "additionalProperties": false,
       "required": ["check", "message"],
