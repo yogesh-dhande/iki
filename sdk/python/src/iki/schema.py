@@ -5884,8 +5884,8 @@ it's said, a cell that reads two ways (1,234; 03/04/2026) is a problem, never a 
 class SheetEditPlaceIn(TypedDict):
     #: The container it goes in.
     container: str
-    #: Its position, such as A1; none for the next free one.
-    position: NotRequired[str | None]
+    #: Its position, such as A1, as the check found it: a save takes this one, never another. Null only for a container without positions.
+    position: str | None
 
 
 class SheetEditPlaceOut(TypedDict):

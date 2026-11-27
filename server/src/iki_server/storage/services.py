@@ -380,6 +380,8 @@ class Planned:
     was_shape: Shape | None
     problems: list[str] = field(default_factory=list)
     confirmed: str = ""
+    #: The position it names holds a record that isn't moving: another placement's.
+    occupied: bool = False
 
     @property
     def position(self) -> str | None:
@@ -522,6 +524,7 @@ def plan(
         if was is not None and was.container_id == w.to.pk and (was.row, was.column) == position:
             problems.append(f"{record.hrid} is at {shape.label(row, column)} already.")
         elif position in staying[w.to.pk] or position in claimed[w.to.pk]:
+            planned.occupied = position in staying[w.to.pk]
             problems.append(f"{w.to.hrid} has something at {shape.label(row, column)} already.")
         else:
             claimed[w.to.pk].add(position)
@@ -623,8 +626,9 @@ def _confirmed(
     return verified, errors
 
 
-def _lock(ids: Iterable[Any]) -> None:
-    """Lock records and containers in ID order, so moves can't wait on each other."""
+def lock(ids: Iterable[Any]) -> None:
+    """Locks records and containers in ID order, as a move does, so moves can't wait on
+    each other, and what's in them can't change until the transaction ends."""
     list(
         Entity.objects.select_for_update(no_key=True)
         .filter(pk__in=list(set(ids)))
@@ -643,7 +647,7 @@ def _lock_moves(wanted: Sequence[Wanted]) -> None:
     places = Place.objects.filter(pk__in=ids, container__isnull=False)
     locked = {*ids, *(w.to.pk for w in wanted if w.to is not None)}
     locked.update(places.values_list("container_id", flat=True))
-    _lock(locked)
+    lock(locked)
     # Another move could have finished while we were acquiring these locks. A
     # newly introduced source box wasn't locked, so its occupancy could still change.
     if places.exclude(container_id__in=locked).exists():
@@ -844,7 +848,7 @@ def remove(
 
 
 def _custody(user: User, records: Sequence[Entity]) -> dict[Any, Place]:
-    _lock([r.pk for r in records])
+    lock([r.pk for r in records])
     return {
         p.pk: p for p in Place.objects.select_for_update().filter(pk__in=[r.pk for r in records])
     }
