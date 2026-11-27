@@ -2483,7 +2483,12 @@ def cell_bank_history(alice: requests.Session, project: dict[str, Any]) -> None:
             "parent": entry_of(parent),
             "parent_source": entry_of(sources["ATCC"]),
             "changes": [
-                {"kind": "stable_transfection", "description": "Synthetic reporter marker"}
+                {
+                    "kind": option(
+                        alice, project, plugin + "EngineeredChange", "stable_transfection"
+                    ),
+                    "description": "Synthetic reporter marker",
+                }
             ],
         },
     )

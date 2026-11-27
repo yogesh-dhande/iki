@@ -10,7 +10,7 @@ from scan_fixtures import clean_blob
 from test_plugin_migrations import database, iki, migrate, orm, sync
 from test_signatures import ready, signed
 
-from iki_server.entities import search, services, states
+from iki_server.entities import lists, search, services, states
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
 from iki_server.files.models import File, FileUse
@@ -40,6 +40,15 @@ def test_a_samples_graph_keeps_its_banks_thaw_passage_and_signed_checks(
         database,
         "from test_cell_line_banking import exercise_history\nresult = exercise_history()",
     )
+
+
+def change(record: Entity, code: str) -> str:
+    """A kind of change, from the lab's own list (ADR 0270): its option's ID, by its code,
+    in the record's project's registry."""
+    assert record.owner_project is not None
+    option = lists.find(record.owner_project.registry_id, PREFIX + "EngineeredChange", code)
+    assert option is not None
+    return str(option.entry.pk)
 
 
 def exercise_history() -> None:
@@ -88,7 +97,12 @@ def exercise_history() -> None:
         name="Synthetic reporter clone",
         parent=str(line.pk),
         parent_source=str(source.pk),
-        changes=[{"kind": "stable_transfection", "description": "Synthetic reporter label"}],
+        changes=[
+            {
+                "kind": change(line, "stable_transfection"),
+                "description": "Synthetic reporter label",
+            }
+        ],
     )
     master = make(
         "CellBank",
@@ -274,7 +288,9 @@ def local_history(
         "EngineeredLine",
         name="Donor 7 serum-free",
         parent=str(primary.pk),
-        changes=[{"kind": "adaptation", "description": "Weaned to a serum-free medium"}],
+        changes=[
+            {"kind": change(primary, "adaptation"), "description": "Weaned to a serum-free medium"}
+        ],
     )
 
     # A single-tier stock of the catalogued line from its supplier, and one of a local

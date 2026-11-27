@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: EngineeredChange
+label: Engineered change
+schema_version: 1
+description: >-
+  A kind of change an engineered cell line documents of its parent, such as a knock-out
+  or a stable transfection. A lab list (ADR 0270): the lab adds its own kinds.
+hrid: { prefix: ECK }
+list:
+  options:
+    - code: knock_out
+      label: Knock-out
+      description: A gene disrupted, such as by CRISPR-Cas9.
+    - code: knock_in
+      label: Knock-in
+      description: A sequence inserted at a chosen locus.
+    - code: stable_transfection
+      label: Stable transfection
+      description: A construct integrated by transfection and selected for.
+    - code: transduction
+      label: Transduction
+      description: A construct delivered by a viral vector.
+    - code: immortalization
+      label: Immortalization
+      description: Made to divide indefinitely, such as with hTERT.
+    - code: adaptation
+      label: Adaptation
+      description: Adapted to new culture conditions, such as suspension or serum-free growth.
+    - code: selection
+      label: Selection
+      description: Selected for a trait, such as drug resistance.
