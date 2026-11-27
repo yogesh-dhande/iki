@@ -68,6 +68,30 @@ def test_admin_checks_real_records() -> None:
     assert made.entity.hrid in finding["examples"]
 
 
+def test_the_built_manifest_is_checked_whole_by_its_types() -> None:
+    """A manifest.json as `iki deploy build` writes it carries its types' effective
+    declarations (ADR 0282) beside the plugin. The check takes the file as it is, and reads
+    what records would have from the plugin's types, not from what the file says of them."""
+    world = build_world()
+    api = Api(world.browser("org_admin"))
+    for project in (world.project, world.archived):
+        ProjectMembership.objects.create(
+            project=project, user=world.users["org_admin"], role=ProjectRole.VIEWER
+        )
+    made = services.create(
+        world.users["editor"], "acme/protein.Sample", world.project, {"label": "Specimen 18"}
+    )
+    built = candidate()
+    # What the build wrote of it before purity was made required.
+    stale = {"acme/protein.Sample": {"lineage": ["acme/protein.Sample", "iki/core.Entity"]}}
+    result = api.post(PATH, {**built, "effective": stale})
+    assert result.status_code == 200, result.content[:500]
+    row = next(r for r in result.json()["types"] if r["type"] == "acme/protein.Sample")
+    finding = next(f for f in row["findings"] if f["subject"] == "purity")
+    assert isinstance(made.entity, Entity)
+    assert made.entity.hrid in finding["examples"]
+
+
 def test_api_preserves_exact_counts_alongside_sampled_rules(
     world: World,
     monkeypatch: pytest.MonkeyPatch,

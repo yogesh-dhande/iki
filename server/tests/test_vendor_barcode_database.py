@@ -1,5 +1,6 @@
 """The storage barcode namespace survives bulk writes and overlapping application versions."""
 
+from collections.abc import Callable
 from dataclasses import replace
 
 import pytest
@@ -14,6 +15,7 @@ from iki_server.entities import registry, unique
 from iki_server.entities.models import UniqueValue
 from iki_server.entities.values import shape
 from iki_server.plugins import sync
+from iki_spec.model import EntityType
 
 pytestmark = pytest.mark.django_db
 
@@ -85,7 +87,7 @@ def test_sync_reports_existing_reserved_codes_without_rewriting_records_or_histo
 
 
 def test_a_shared_parent_column_is_guarded_only_on_types_that_use_it_as_their_barcode(
-    world: World, monkeypatch: pytest.MonkeyPatch
+    world: World, monkeypatch: pytest.MonkeyPatch, redeclare: Callable[[str, EntityType], None]
 ) -> None:
     api = Api(world.browser("editor"))
     inherits = made(api, world.project, RACK, {"name": "Inherits the tube barcode"})
@@ -93,8 +95,8 @@ def test_a_shared_parent_column_is_guarded_only_on_types_that_use_it_as_their_ba
     # Model a deployment with two subtypes of Tube, using existing physical fixture tables.
     # Rack inherits the declaration. Freezer replaces it with storage.barcode = asset_tag.
     types = registry.types()
-    monkeypatch.setitem(types, RACK, replace(types[RACK], extends=TUBE, storage=None))
-    monkeypatch.setitem(types, FREEZER, replace(types[FREEZER], extends=TUBE))
+    redeclare(RACK, replace(types[RACK], extends=TUBE, storage=None))
+    redeclare(FREEZER, replace(types[FREEZER], extends=TUBE))
     monkeypatch.setattr(sync, "shape", shape.__wrapped__)  # read these manifests afresh
     sync.sync()
     with connection.cursor() as cursor:

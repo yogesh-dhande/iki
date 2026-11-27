@@ -3874,6 +3874,8 @@ class PlannedOut(TypedDict):
 
 class PluginCandidateIn(TypedDict):
     apiVersion: Literal['iki/v1']
+    #: The effective declarations the build wrote beside it (ADR 0282). The check resolves them again from the plugin's types, so what's here isn't read.
+    effective: NotRequired[dict[str, Any] | None]
     #: The plugin object in the built manifest.json.
     plugin: dict[str, Any]
 

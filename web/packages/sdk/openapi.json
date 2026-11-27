@@ -17373,6 +17373,19 @@
             "title": "Apiversion",
             "type": "string"
           },
+          "effective": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The effective declarations the build wrote beside it (ADR 0282). The check resolves them again from the plugin's types, so what's here isn't read.",
+            "title": "Effective"
+          },
           "plugin": {
             "additionalProperties": true,
             "description": "The plugin object in the built manifest.json.",

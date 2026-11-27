@@ -19,6 +19,11 @@ class PluginCandidateIn(Schema):
     model_config = ConfigDict(extra="forbid")
     api_version: Literal["iki/v1"] = Field(alias="apiVersion")
     plugin: dict[str, Any] = Field(description="The plugin object in the built manifest.json.")
+    effective: dict[str, Any] | None = Field(
+        default=None,
+        description="The effective declarations the build wrote beside it (ADR 0282). "
+        "The check resolves them again from the plugin's types, so what's here isn't read.",
+    )
 
 
 class PluginFindingOut(Schema):

@@ -154,9 +154,9 @@ def composition(entity: dict[str, Any]) -> dict[str, Any]:
     }
     if carrier.get("components"):
         # Of the permitted carrier types, only antibodies have component rows.
-        for role in ("heavy", "light"):
-            values[f"carrier_{role}_copies"] = sum(
-                row["copies"] for row in carrier["components"] if row["role"] == role
+        for chain in ("heavy", "light"):
+            values[f"carrier_{chain}_copies"] = sum(
+                row["copies"] for row in carrier["components"] if row["role"] == chain
             )
     try:
         if not carrier:

@@ -13951,6 +13951,13 @@ export interface components {
              */
             apiVersion: "iki/v1";
             /**
+             * Effective
+             * @description The effective declarations the build wrote beside it (ADR 0282). The check resolves them again from the plugin's types, so what's here isn't read.
+             */
+            effective?: {
+                [key: string]: unknown;
+            } | null;
+            /**
              * Plugin
              * @description The plugin object in the built manifest.json.
              */

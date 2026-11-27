@@ -1035,6 +1035,38 @@ class Lot_inputs(models.Model):
         ]
 
 
+class GmpLot(Lot):
+    """GMP lot (acme/protein.GmpLot), schema version 1. A lot made under GMP, which names its protein and yields a weighable amount."""
+
+    IKI_TYPE = 'acme/protein.GmpLot'
+
+    lot_ptr = models.OneToOneField(
+        Lot,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+
+    class Meta:
+        db_table = 'acme__protein_gmplot'
+
+
+class GmpLot_History(models.Model):
+    """The history of acme__protein_gmplot: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'GmpLot'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = 'acme__protein_gmplot__history'
+
+
 class MethodCategory(Entity):
     """Method category (acme/protein.MethodCategory), schema version 1."""
 
