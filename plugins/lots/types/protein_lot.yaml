@@ -5,7 +5,7 @@ name: ProteinLot
 label: Protein lot
 label_plural: Protein lots
 extends: BiologicLot
-schema_version: 2
+schema_version: 3
 description: >-
   A lot of a protein, or of a complex of proteins such as an antibody, an Fc fusion
   or a multispecific, such as a purification's pooled fractions: its concentration
