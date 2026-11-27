@@ -63,6 +63,19 @@ export function problem(
   });
 }
 
+/** Iki's answer to a change sent with an old revision in If-Match (ADR 0035): 412, "stale",
+ * with the revision it's at now as its ETag. */
+export function stale(current: number): Response {
+  const response = problem(
+    412,
+    "stale",
+    `Someone changed it since you read it: it’s at revision ${String(current)} now. ` +
+      "Read it again, then make your change.",
+  );
+  response.headers.set("ETag", `"${String(current)}"`);
+  return response;
+}
+
 export function resetApi(): void {
   routes = new Map();
   sent = [];

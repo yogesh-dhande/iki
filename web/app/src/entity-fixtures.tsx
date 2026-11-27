@@ -71,6 +71,21 @@ export async function moreAction(
   await user.click(await screen.findByRole("menuitem", { name: action }));
 }
 
+/** What a record's ⋯ menu offers: its items' names, as the menu shows them. It's closed again
+ * after. */
+export async function moreActions(
+  user: ReturnType<typeof userEvent.setup>,
+  hrid: string,
+): Promise<string[]> {
+  await user.click(screen.getByRole("button", { name: `More actions for ${hrid}` }));
+  const menu = await screen.findByRole("menu", { name: `More actions for ${hrid}` });
+  const items = within(menu)
+    .getAllByRole("menuitem")
+    .map((item) => item.textContent);
+  await user.keyboard("{Escape}");
+  return items;
+}
+
 export type Field = Schemas["FieldOut"];
 
 export function field(overrides: Partial<Field> & Pick<Field, "name" | "label" | "type">): Field {
