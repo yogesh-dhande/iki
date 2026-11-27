@@ -107,6 +107,8 @@ COPY web/packages/ui/package.json web/packages/ui/
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter "@ikisci/app..."
 COPY web web
+# Weighs what the built app loads first against its budget (web/app/package.json).
+COPY scripts/check-web-app-size.js scripts/
 # The header's navigation, which the server's pages render too (iki_server.web.navigation).
 COPY server/src/iki_server/web/navigation.json server/src/iki_server/web/
 COPY --from=verified-wasm /artifacts/iki_wasm.wasm web/packages/science/wasm/
