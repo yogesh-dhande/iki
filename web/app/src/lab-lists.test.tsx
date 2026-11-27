@@ -780,7 +780,7 @@ describe("a list's page", () => {
     expect(rows()[0]).toHaveTextContent("Resin 101");
     await user.click(within(pages).getByRole("button", { name: "Next 50" }));
     expect(rows()).toHaveLength(50);
-    expect(within(pages).getByRole("button", { name: "Next 0" })).toHaveAttribute(
+    expect(within(pages).getByRole("button", { name: "Next" })).toHaveAttribute(
       "aria-disabled",
       "true",
     );
@@ -830,7 +830,7 @@ describe("a list's page", () => {
     const pages = screen.getByRole("navigation", { name: "Pages of the order" });
     await user.click(within(pages).getByRole("button", { name: "Next 100" }));
     await user.click(within(pages).getByRole("button", { name: "Next 50" }));
-    await user.click(screen.getByRole("button", { name: "Move Resin 240 to a position" }));
+    await user.click(screen.getByRole("button", { name: "Move Resin 240 to position…" }));
     const dialog = await screen.findByRole("dialog", { name: "Move Resin 240" });
     const position = within(dialog).getByRole("textbox", { name: "New position" });
     expect(position).toHaveValue("240");
@@ -846,7 +846,7 @@ describe("a list's page", () => {
     // Its page follows it, and focus stays with it.
     expect(within(order).getAllByRole("listitem")[0]).toHaveTextContent("Resin 240");
     expect(screen.getByText("Moved Resin 240 to position 1 of 250.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Move Resin 240 to a position" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Move Resin 240 to position…" })).toHaveFocus();
     // Its own form: the order isn't saved until it's asked to be.
     expect(calls("PUT", `/api/v1/lists/${METHOD}/order`)).toEqual([]);
     await user.type(screen.getByRole("textbox", { name: /^Reason/ }), "Most used first");

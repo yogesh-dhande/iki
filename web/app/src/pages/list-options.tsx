@@ -594,6 +594,7 @@ function Pager({
   const last = Math.ceil(count / size) - 1;
   const from = page * size + 1;
   const to = Math.min(count, (page + 1) * size);
+  const next = Math.min(size, count - to);
   return (
     <nav className="pager" aria-label={label}>
       <p className="pager-range" role="status">
@@ -617,7 +618,7 @@ function Pager({
             onPage(page + 1);
           }}
         >
-          Next {Math.min(size, count - to).toLocaleString()}
+          {next ? `Next ${next.toLocaleString()}` : "Next"}
           <span aria-hidden="true"> →</span>
         </Button>
       </div>
@@ -1594,12 +1595,12 @@ const ReorderItem = memo(function ReorderItem({
           className={buttonClass("quiet")}
           data-move="to"
           disabled={(index === 0 && last) || busy}
-          aria-label={`Move ${label} to a position`}
+          aria-label={`Move ${label} to position…`}
           onClick={() => {
             onPlace(code);
           }}
         >
-          Move to…
+          To position…
         </button>
       </span>
     </li>

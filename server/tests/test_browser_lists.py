@@ -217,7 +217,7 @@ def test_a_long_list_is_read_a_page_at_a_time_and_an_option_moved_to_a_position(
     page.get_by_role("navigation", name="Pages of the order").get_by_role(
         "button", name="Next 50"
     ).click()
-    move = page.get_by_role("button", name="Move Resin 147 to a position")
+    move = page.get_by_role("button", name="Move Resin 147 to position…")
     move.focus()
     page.keyboard.press("Enter")
     dialog = page.get_by_role("dialog", name="Move Resin 147")
@@ -247,11 +247,13 @@ def test_a_long_list_is_read_a_page_at_a_time_and_an_option_moved_to_a_position(
     expect(found).to_have_count(50)
     expect(found.first).to_contain_text("Resin 147")
     expect(page.get_by_text("Showing 50 of 150. Type to narrow them.")).to_be_visible()
-    checked(page)
     method.fill("Resin 14")
     expect(found).to_have_count(8)
     found.filter(has_text="Resin 145").click()
     expect(method).to_have_value("Resin 145")
+    # Checked once its list closes, as React Aria hides the rest of the page while it's open.
+    page.get_by_role("listbox").wait_for(state="hidden")
+    checked(page)
 
 
 def test_a_lists_members_read_it_and_cant_change_it(open_as: Any, world: World) -> None:
