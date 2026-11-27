@@ -19,7 +19,8 @@
         "Environment",
         "Workflow",
         "Trigger",
-        "Component"
+        "Component",
+        "ReviewProcedure"
       ]
     }
   },
@@ -58,6 +59,10 @@
     {
       "if": { "properties": { "kind": { "const": "Component" } }, "required": ["kind"] },
       "then": { "$ref": "https://ikisci.org/schemas/component/v1" }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "ReviewProcedure" } }, "required": ["kind"] },
+      "then": { "$ref": "https://ikisci.org/schemas/review-procedure/v1" }
     }
   ]
 }

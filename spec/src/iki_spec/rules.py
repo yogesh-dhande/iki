@@ -19,7 +19,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from iki_spec import wasm
+from iki_spec import procedures, wasm
 from iki_spec.model import (
     SIGNATURE_MEANINGS,
     EntityType,
@@ -564,12 +564,47 @@ class _Rules:
                     )
                     checked_states[state_name] = replace(state, guards=checked)
                 changed[name] = replace(f, states=checked_states)
+        review = entity_type.review
+        if (
+            review is not None
+            and (review.guards or review.independent_of)
+            and review.field in fields
+        ):
+            # A reviewed type's own guards read the review field as it names its states
+            # (ADR 0301); its procedure's flows are compiled and checked where it's paired.
+            f = fields[review.field]
+            states = {n: x for n, x in fields.items() if x.type == "state"}
+            variables = guard_variables(self.record(entity_type), states, self.roles(), f)
+            fixed = guard_variables(self.record(entity_type, fixed=True), states, self.roles(), f)
+            review_guards = {n: g.guard for n, g in review.guards.items()}
+            if review.independent_of:
+                # The people it adds to every independent state, with their conditions.
+                labels = {n: st.label for n, st in f.states.items()}
+                review_guards["independent"] = procedures.exclusion_guard(
+                    review.field,
+                    review.independent_of,
+                    open=review.needs.open,
+                    labels=labels,
+                    people=self.s.people_kind(entity_type),
+                )
+            checked = self.guards(
+                review_guards,
+                variables,
+                fields,
+                source,
+                ("review", "guards"),
+                fixed=(entity_type, fixed),
+            )
+            review = replace(
+                review,
+                guards={n: replace(g, guard=checked[n]) for n, g in review.guards.items()},
+            )
         draw = entity_type.draw_guards
         if draw:
             draw = self.guards(
                 draw, draw_variables(entity_type.label, fields), fields, source, ("draw_guards",)
             )
-        return replace(entity_type, rules=rules, fields=changed, draw_guards=draw)
+        return replace(entity_type, rules=rules, fields=changed, draw_guards=draw, review=review)
 
     def extension(self, extension: Extension, source: Document) -> Extension:
         target = self.s.types.get(extension.extends_type)
