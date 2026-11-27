@@ -36,7 +36,9 @@ within each domain, each from a copy's cysteine to another's.
     whole IgG and a half-antibody of the same two chains, one copy of each.
     The same chains and copies registered as another complex type, such as a
     protein complex, are this antibody: that registration is refused, saying
-    so.
+    so. An antibody registered as a protein complex by mistake is superseded
+    by a registrar with its chains registered as an antibody, which takes over
+    its identity; each project with it moves its record there (ADR 0165).
   - Its format and isotype are what its chains are, so they don't need to be
     in its identity: an IgG1 and an IgG4 of the same variable domains have
     different heavy chains (their constant regions differ), and an IgG and a

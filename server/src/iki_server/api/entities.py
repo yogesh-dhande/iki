@@ -20,7 +20,7 @@
 import json
 import re
 from collections import defaultdict
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime
@@ -917,6 +917,18 @@ class SupersededOut(Schema):
     by_id: UUID
     at: datetime
     reason: str
+    carries: list[str] | None = Field(
+        None,
+        description="For a replacement of another type (ADR 0165), which a record can't "
+        "become: the fields whose values a move gives the project's new record of it, those "
+        "the two types' records share. The rest stay with this record, which the move "
+        "archives. None for one of its own type, which the record moves to whole.",
+    )
+    held: bool = Field(
+        False,
+        description="The record's project has a record of the replacement, which a move "
+        "can't go onto: the one a move to an entry of another type made, say.",
+    )
 
 
 class EntryRefOut(Schema):
@@ -1913,6 +1925,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     # Read these versions before the values. A concurrent change may show newer values
     # alongside an older version, which the review or signature then refuses.
     entries = _entries_of(user, entities)
+    holding = _holding(user, entities, entries)
     held, breaches = _holds_of(user, entities, entries)
     recalculations: dict[UUID, list[str]] = defaultdict(list)
     for entity_id, action in (
@@ -2005,7 +2018,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 ]
                 if entity.owner_project_id in readers
                 else [],
-                "entry": entries.get(entity.entry_id) if entity.entry_id is not None else None,
+                "entry": _entry_of(entity, entries, holding),
                 "needs_recalculation": recalculations.get(entity.pk, []),
                 "holds": held.get(entity.pk, []),
                 "breaches": breaches.get(entity.pk, []),
@@ -2257,6 +2270,39 @@ def _slot_out(slot: Any) -> dict[str, Any]:  # noqa: ANN401 - a signatures.servi
     }
 
 
+def _holding(
+    user: User, entities: list[Entity], entries: Mapping[Any, Mapping[str, Any]]
+) -> set[tuple[Any, Any]]:
+    """Of these records whose entries were superseded, (replacement, project) for each whose
+    project has a record of its entry's replacement the user can read."""
+    wanted = {
+        (found["superseded"]["by_id"], e.owner_project_id)
+        for e in entities
+        if (found := entries.get(e.entry_id)) is not None and found["superseded"] is not None
+    }
+    if not wanted:
+        return set()
+    rows = access.visible(user).filter(
+        entry_id__in={r for r, _ in wanted}, owner_project_id__in={p for _, p in wanted}
+    )
+    return set(rows.values_list("entry_id", "owner_project_id")) & wanted
+
+
+def _entry_of(
+    entity: Entity, entries: Mapping[Any, Mapping[str, Any]], holding: set[tuple[Any, Any]]
+) -> dict[str, Any] | None:
+    """A record's entry, as ``EntryRefOut``: with whether its project has a record of the
+    entry's replacement, if it was superseded."""
+    found = entries.get(entity.entry_id) if entity.entry_id is not None else None
+    if found is None or found["superseded"] is None:
+        return dict(found) if found is not None else None
+    by = found["superseded"]["by_id"]
+    return {
+        **found,
+        "superseded": {**found["superseded"], "held": (by, entity.owner_project_id) in holding},
+    }
+
+
 def _entries_of(user: User, entities: list[Entity]) -> dict[Any, dict[str, Any]]:
     """The registry entries these records are of (ADR 0115), as ``EntryRefOut``."""
     ids = {e.entry_id for e in entities if e.entry_id is not None}
@@ -2269,6 +2315,7 @@ def _entries_of(user: User, entities: list[Entity]) -> dict[Any, dict[str, Any]]
     for row in rows:
         superseded = None
         if row.superseded_by_id is not None:
+            from iki_server.entities import entries
             from iki_server.entities.entries import supersession
 
             found = supersession(row)
@@ -2285,6 +2332,9 @@ def _entries_of(user: User, entities: list[Entity]) -> dict[Any, dict[str, Any]]
                 "by_id": row.superseded_by_id,
                 "at": found.at,
                 "reason": found.reason,
+                "carries": list(entries.carried(row.type, found.replacement.type))
+                if found.replacement.type != row.type
+                else None,
             }
         out[row.pk] = {
             "id": row.pk,
