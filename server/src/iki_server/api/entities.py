@@ -267,11 +267,47 @@ class FlowFieldOut(Schema):
     )
 
 
+class ReviewFlowOut(Schema):
+    procedure: str = Field(description="The review procedure, as `plugin.name@version`.")
+    procedure_label: str
+    flow: str = Field(description="The procedure's flow, such as `regulated_qc`.")
+    label: str
+    summary: str = Field(description="What the flow asks of people, in a sentence or two.")
+    starter: str | None = Field(description="The installed starter that offers it, if one does.")
+    suggested: bool = Field(description="Its starter's plugin suggests it.")
+    chosen: bool = Field(description="The project's current choice for the type.")
+    default: bool = Field(description="The deployment's default for the type.")
+    pinned: bool = Field(description="The pin asked for with `procedure` and `flow`.")
+    field: FlowFieldOut | None = Field(
+        description="The review field as a record pinned to it has it: its states, who sets "
+        "each, what they sign and who must be someone else, as the server enforces them. "
+        "Null for a type that only opens work for others."
+    )
+
+
+class TypeReviewOut(Schema):
+    field: str | None = Field(
+        description="The state field its procedure drives; null for a type that only opens "
+        "work for others."
+    )
+    follows: str | None = Field(
+        description="The reference whose record's procedure it follows, if it's pinned by one."
+    )
+    flows: list[ReviewFlowOut] = Field(
+        description="Each flow a record could be pinned to: offered by an installed starter, "
+        "the project's choice, the deployment's default, or the pin asked for."
+    )
+
+
 class TypeFlowOut(Schema):
     type: str = Field(description="Qualified entity type name.")
     label: str
     fields: list[FlowFieldOut] = Field(
-        description="The live state fields, including inherited ones."
+        description="The live state fields, including inherited ones, but not a reviewed "
+        "type's review field: that's each of `review.flows`."
+    )
+    review: TypeReviewOut | None = Field(
+        description="For a reviewed type (ADR 0306): the flows its records can follow."
     )
 
 
@@ -1822,14 +1858,54 @@ def _flow_field(f: Any) -> dict[str, Any]:  # noqa: ANN401 - a spec state field
     summary="A type's state fields and possible transitions",
     by_alias=True,
 )
-def get_type_flow(request: HttpRequest, name: str) -> dict[str, Any]:
-    """The declared flow, independent of any record or current assignment (ADR 0198)."""
-    caller(request)
+def get_type_flow(
+    request: HttpRequest,
+    name: str,
+    project_id: Annotated[UUID | None, Query(alias="project")] = None,
+    procedure: str | None = None,
+    flow: str | None = None,
+) -> dict[str, Any]:
+    """The declared flow, independent of any record or current assignment (ADR 0198). A
+    reviewed type's review field is drawn once for each flow its records can follow
+    (ADR 0306): with `project`, as that project binds its parts, and marking its choice;
+    with `procedure` and `flow`, such as a record's pin, that one too."""
+    from iki_server.reviews import drawn, pins
+    from iki_server.reviews.models import Flow
+
+    me = caller(request)
     found = registry.types().get(name)
     if found is None:
         raise Problem(404, f"There’s no entity type {name}.")
-    fields = [_flow_field(f) for f in states.state_fields(name).values()]
-    return {"type": name, "label": found.label or found.name, "fields": fields}
+    readable = project(me, project_id, Action.PROJECT_READ) if project_id else None
+    pin = None
+    if procedure is not None or flow is not None:
+        if not Flow.objects.filter(procedure_id=procedure, name=flow).exists():
+            raise Problem(404, f"There’s no flow {flow} of a review procedure {procedure}.")
+        pin = pins.Pin(str(procedure), str(flow))
+    review = drawn.drawn(name, readable, pin)
+    fields = [
+        _flow_field(f)
+        for n, f in states.state_fields(name).items()
+        if review is None or n != review.field
+    ]
+    return {
+        "type": name,
+        "label": found.label or found.name,
+        "fields": fields,
+        "review": None
+        if review is None
+        else {
+            "field": review.field,
+            "follows": review.follows,
+            "flows": [
+                {
+                    **{k: v for k, v in vars(f).items() if k != "field"},
+                    "field": _flow_field(f.field) if f.field is not None else None,
+                }
+                for f in review.flows
+            ],
+        },
+    }
 
 
 # --- Reading -------------------------------------------------------------------------------------

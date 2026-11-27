@@ -22177,6 +22177,91 @@
         "title": "ReviewClearIn",
         "type": "object"
       },
+      "ReviewFlowOut": {
+        "properties": {
+          "chosen": {
+            "description": "The project's current choice for the type.",
+            "title": "Chosen",
+            "type": "boolean"
+          },
+          "default": {
+            "description": "The deployment's default for the type.",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlowFieldOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The review field as a record pinned to it has it: its states, who sets each, what they sign and who must be someone else, as the server enforces them. Null for a type that only opens work for others."
+          },
+          "flow": {
+            "description": "The procedure's flow, such as `regulated_qc`.",
+            "title": "Flow",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "pinned": {
+            "description": "The pin asked for with `procedure` and `flow`.",
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "procedure": {
+            "description": "The review procedure, as `plugin.name@version`.",
+            "title": "Procedure",
+            "type": "string"
+          },
+          "procedure_label": {
+            "title": "Procedure Label",
+            "type": "string"
+          },
+          "starter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The installed starter that offers it, if one does.",
+            "title": "Starter"
+          },
+          "suggested": {
+            "description": "Its starter's plugin suggests it.",
+            "title": "Suggested",
+            "type": "boolean"
+          },
+          "summary": {
+            "description": "What the flow asks of people, in a sentence or two.",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "procedure",
+          "procedure_label",
+          "flow",
+          "label",
+          "summary",
+          "starter",
+          "suggested",
+          "chosen",
+          "default",
+          "pinned",
+          "field"
+        ],
+        "title": "ReviewFlowOut",
+        "type": "object"
+      },
       "ReviewedCountLine": {
         "properties": {
           "line_id": {
@@ -32053,7 +32138,7 @@
       "TypeFlowOut": {
         "properties": {
           "fields": {
-            "description": "The live state fields, including inherited ones.",
+            "description": "The live state fields, including inherited ones, but not a reviewed type's review field: that's each of `review.flows`.",
             "items": {
               "$ref": "#/components/schemas/FlowFieldOut"
             },
@@ -32064,6 +32149,17 @@
             "title": "Label",
             "type": "string"
           },
+          "review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TypeReviewOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a reviewed type (ADR 0306): the flows its records can follow."
+          },
           "type": {
             "description": "Qualified entity type name.",
             "title": "Type",
@@ -32073,7 +32169,8 @@
         "required": [
           "type",
           "label",
-          "fields"
+          "fields",
+          "review"
         ],
         "title": "TypeFlowOut",
         "type": "object"
@@ -32206,6 +32303,49 @@
           "required"
         ],
         "title": "TypeNotificationOut",
+        "type": "object"
+      },
+      "TypeReviewOut": {
+        "properties": {
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The state field its procedure drives; null for a type that only opens work for others.",
+            "title": "Field"
+          },
+          "flows": {
+            "description": "Each flow a record could be pinned to: offered by an installed starter, the project's choice, the deployment's default, or the pin asked for.",
+            "items": {
+              "$ref": "#/components/schemas/ReviewFlowOut"
+            },
+            "title": "Flows",
+            "type": "array"
+          },
+          "follows": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The reference whose record's procedure it follows, if it's pinned by one.",
+            "title": "Follows"
+          }
+        },
+        "required": [
+          "field",
+          "follows",
+          "flows"
+        ],
+        "title": "TypeReviewOut",
         "type": "object"
       },
       "TypeStorageOut": {
@@ -41616,7 +41756,7 @@
     },
     "/api/v1/entity-types/{name}/flow": {
       "get": {
-        "description": "The declared flow, independent of any record or current assignment (ADR 0198).",
+        "description": "The declared flow, independent of any record or current assignment (ADR 0198). A\nreviewed type's review field is drawn once for each flow its records can follow\n(ADR 0306): with `project`, as that project binds its parts, and marking its choice;\nwith `procedure` and `flow`, such as a record's pin, that one too.",
         "operationId": "iki_server_api_entities_get_type_flow",
         "parameters": [
           {
@@ -41626,6 +41766,55 @@
             "schema": {
               "title": "Name",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "procedure",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Procedure"
+            }
+          },
+          {
+            "in": "query",
+            "name": "flow",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Flow"
             }
           }
         ],

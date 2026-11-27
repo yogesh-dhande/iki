@@ -2016,7 +2016,10 @@ export interface paths {
         };
         /**
          * A type's state fields and possible transitions
-         * @description The declared flow, independent of any record or current assignment (ADR 0198).
+         * @description The declared flow, independent of any record or current assignment (ADR 0198). A
+         *     reviewed type's review field is drawn once for each flow its records can follow
+         *     (ADR 0306): with `project`, as that project binds its parts, and marking its choice;
+         *     with `procedure` and `flow`, such as a record's pin, that one too.
          */
         get: operations["iki_server_api_entities_get_type_flow"];
         put?: never;
@@ -16186,6 +16189,55 @@ export interface components {
              */
             reason: string;
         };
+        /** ReviewFlowOut */
+        ReviewFlowOut: {
+            /**
+             * Chosen
+             * @description The project's current choice for the type.
+             */
+            chosen: boolean;
+            /**
+             * Default
+             * @description The deployment's default for the type.
+             */
+            default: boolean;
+            /** @description The review field as a record pinned to it has it: its states, who sets each, what they sign and who must be someone else, as the server enforces them. Null for a type that only opens work for others. */
+            field: components["schemas"]["FlowFieldOut"] | null;
+            /**
+             * Flow
+             * @description The procedure's flow, such as `regulated_qc`.
+             */
+            flow: string;
+            /** Label */
+            label: string;
+            /**
+             * Pinned
+             * @description The pin asked for with `procedure` and `flow`.
+             */
+            pinned: boolean;
+            /**
+             * Procedure
+             * @description The review procedure, as `plugin.name@version`.
+             */
+            procedure: string;
+            /** Procedure Label */
+            procedure_label: string;
+            /**
+             * Starter
+             * @description The installed starter that offers it, if one does.
+             */
+            starter: string | null;
+            /**
+             * Suggested
+             * @description Its starter's plugin suggests it.
+             */
+            suggested: boolean;
+            /**
+             * Summary
+             * @description What the flow asks of people, in a sentence or two.
+             */
+            summary: string;
+        };
         /** ReviewedCountLine */
         ReviewedCountLine: {
             /**
@@ -20681,11 +20733,13 @@ export interface components {
         TypeFlowOut: {
             /**
              * Fields
-             * @description The live state fields, including inherited ones.
+             * @description The live state fields, including inherited ones, but not a reviewed type's review field: that's each of `review.flows`.
              */
             fields: components["schemas"]["FlowFieldOut"][];
             /** Label */
             label: string;
+            /** @description For a reviewed type (ADR 0306): the flows its records can follow. */
+            review: components["schemas"]["TypeReviewOut"] | null;
             /**
              * Type
              * @description Qualified entity type name.
@@ -20763,6 +20817,24 @@ export interface components {
              * @description When it's sent, in words.
              */
             when: string;
+        };
+        /** TypeReviewOut */
+        TypeReviewOut: {
+            /**
+             * Field
+             * @description The state field its procedure drives; null for a type that only opens work for others.
+             */
+            field: string | null;
+            /**
+             * Flows
+             * @description Each flow a record could be pinned to: offered by an installed starter, the project's choice, the deployment's default, or the pin asked for.
+             */
+            flows: components["schemas"]["ReviewFlowOut"][];
+            /**
+             * Follows
+             * @description The reference whose record's procedure it follows, if it's pinned by one.
+             */
+            follows: string | null;
         };
         /**
          * TypeStorageOut
@@ -24778,7 +24850,11 @@ export interface operations {
     };
     iki_server_api_entities_get_type_flow: {
         parameters: {
-            query?: never;
+            query?: {
+                project?: string | null;
+                procedure?: string | null;
+                flow?: string | null;
+            };
             header?: never;
             path: {
                 name: string;

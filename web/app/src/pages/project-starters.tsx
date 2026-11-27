@@ -158,6 +158,37 @@ function ResultFlow({ flow: chosen }: { flow: StarterFlow }) {
   );
 }
 
+/** A plugin starter's flow, drawn as the server compiles it for the governed type in this
+ * project (ADR 0306): its route, who sets each state and who must be someone else. */
+function ProcedureFlow({
+  starter,
+  flow: id,
+  project,
+}: {
+  starter: Starter;
+  flow: string;
+  project: Project;
+}) {
+  const type = starter.types[0] ?? "";
+  const drawn = useQuery(typeFlowQuery(type, { project: project.id }));
+  const roles = useRoleLabels();
+  if (drawn.isPending) return <Loading label="Loading its flow" />;
+  const found = drawn.data?.review?.flows.find(
+    (f) => f.procedure === starter.procedure && f.flow === id,
+  );
+  if (!found?.field) return null;
+  return (
+    <>
+      <FlowDiagram flow={found.field} roles={roles} words="hidden" />
+      <p className="starter-flow-more">
+        <Link to="/types/$/" params={{ _splat: type }} search={{ project: project.slug }}>
+          Every state and check of {drawn.data?.label ?? type}
+        </Link>
+      </p>
+    </>
+  );
+}
+
 function memberName(member: Member): string {
   const user = member.user;
   if (!user) return member.team?.name ?? "A team";
@@ -605,7 +636,7 @@ function ProcedureStarterCard({ starter, project }: { starter: Starter; project:
         {flow ? (
           <div className="starter-flow">
             <h3 className="starter-flow-title">How a {flow.label} record moves</h3>
-            <ResultFlow flow={flow} />
+            <ProcedureFlow starter={starter} flow={flow.id} project={project} />
           </div>
         ) : null}
         {applied && flow && applied.flow !== flow.id ? (

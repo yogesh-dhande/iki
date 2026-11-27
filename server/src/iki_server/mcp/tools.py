@@ -550,6 +550,36 @@ def build() -> MCPServer:
         Schema its values follow. A state's on_edit names the destination of a correction."""
         return answer(await call("GET", path("/entity-types/{name}", name=name)))
 
+    @server.tool(annotations=READ, title="Describe how a type's records move")
+    async def describe_entity_type_flow(
+        name: Annotated[str, Field(description="Its name, such as iki/proteomics.Result.")],
+        project: Annotated[
+            UUID | None,
+            Field(description="Drawn as this project binds its review's parts, with its choice."),
+        ] = None,
+        procedure: Annotated[
+            str | None,
+            Field(description="With flow: a record's review_procedure, to draw its pin too."),
+        ] = None,
+        flow: Annotated[str | None, Field(description="A record's review_flow.")] = None,
+    ) -> CallToolResult:
+        """Each state field's states, who sets each, what they sign, its guards and the
+        moves between states. A reviewed type's review is each flow its records can follow,
+        as the server enforces it, marking the project's choice and the deployment's
+        default: who must be someone else is in each state's guards."""
+        query = {
+            "project": str(project) if project else None,
+            "procedure": procedure,
+            "flow": flow,
+        }
+        return answer(
+            await call(
+                "GET",
+                path("/entity-types/{name}/flow", name=name),
+                query={k: v for k, v in query.items() if v is not None},
+            )
+        )
+
     @server.tool(annotations=READ, title="Search entities")
     async def search_entities(
         type: Annotated[
