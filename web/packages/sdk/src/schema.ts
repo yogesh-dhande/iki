@@ -1897,9 +1897,11 @@ export interface paths {
          *     those picked, in order, or every one a search finds, up to 10,000. Each is written at
          *     the revision it has now, read in one snapshot, so editing one afterwards doesn't change
          *     the file. Up to 100 are written at once (201, ready to download); more in the
-         *     background (202): read the export until it's ready. A record the format can't be
-         *     written for fails it, naming each such record, so no file holds fewer than asked for.
-         *     Asking and each download are in the audit log.
+         *     background (202): read the export until it's ready. You may have three waiting in
+         *     the background at once, and a project's records ten: past that, it's refused (429)
+         *     until one is written. A record the format can't be written for fails it, naming each
+         *     such record, so no file holds fewer than asked for. Asking and each download are in
+         *     the audit log.
          */
         post: operations["iki_server_api_record_exports_start_record_export"];
         delete?: never;

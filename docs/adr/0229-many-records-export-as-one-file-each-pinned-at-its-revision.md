@@ -151,6 +151,14 @@ would have: an export asked for with a token keeps the token's limits (its
 projects, its scopes and an agent's service account, ADR 0152), so what it
 reads, and what its notes and refusals name, is what the token could read.
 
+A person has at most three exports waiting in the background, queued or being
+written, and a project's records are in at most ten. Each spools a file and
+holds a writer while it's written, so nobody fills the task runners, the file
+store or the writers' sandbox for everyone else. Past that, asking is refused
+with 429 (`too_many_exports`), saying to export more once one is ready. One
+still waiting a day after it was asked for isn't counted, since its task gave
+up on it.
+
 The file is spooled to disk while it's hashed, then uploaded whole. Nothing is
 served until it's complete. A file past 512 MiB fails the export.
 

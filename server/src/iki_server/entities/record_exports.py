@@ -36,8 +36,8 @@ from pathlib import Path
 from typing import IO, Any, cast
 
 import structlog
-from django.db import transaction
-from django.db.models import QuerySet
+from django.db import connection, transaction
+from django.db.models import F, Func, IntegerField, QuerySet
 from django.tasks import TaskContext
 from django.utils import timezone
 
@@ -71,10 +71,23 @@ PROGRESS_EVERY = 100
 PAGE = 500
 #: Refusals a failed export names, of all its writer refused.
 NAMED = 10
+#: The most background exports a person may have waiting to be written, or being
+#: written, at once; and the most of a project's records. Each spools up to
+#: :data:`MAX_BYTES` and holds a writer while it's written, so nobody fills the task
+#: runners, the file store or the writers' sandbox for everyone else.
+MOST_WAITING = 3
+MOST_WAITING_IN_A_PROJECT = 10
+#: One still waiting after this long isn't counted: its task gave up on it.
+WAITING_FOR = timedelta(days=1)
 
 
 class NotReadable(Refused):
     """A record picked that isn't one its requester can read: answered as not found."""
+
+
+class TooMany(Refused):
+    """More background exports waiting than may be at once: answered 429, to try again
+    once one is written."""
 
 
 @dataclass(frozen=True)
@@ -121,6 +134,8 @@ def start(
     name = _file_name(pinned, chosen, list(projects))
     records = [[str(p.id), p.hrid, p.revision] for p in pinned]
     with transaction.atomic():
+        if len(pinned) > INLINE:
+            _room_for(by, list(projects))
         made = RecordExport.objects.create(
             requested_by=by,
             agent=audit.current_agent(),
@@ -157,6 +172,51 @@ def start(
         _write(made)
         made.refresh_from_db()
     return made
+
+
+def _waiting() -> QuerySet[RecordExport]:
+    """Background exports a task is still to write, or is writing."""
+    return RecordExport.objects.alias(
+        many=Func(F("records"), function="jsonb_array_length", output_field=IntegerField())
+    ).filter(
+        state__in=(RecordExportState.QUEUED, RecordExportState.WRITING),
+        many__gt=INLINE,
+        created_at__gte=timezone.now() - WAITING_FOR,
+    )
+
+
+def _room_for(by: User, projects: list[Project]) -> None:
+    """Refuses another background export past :data:`MOST_WAITING` of ``by``'s, or past
+    :data:`MOST_WAITING_IN_A_PROJECT` with records of one of ``projects``. Holds the
+    person's and the projects' locks until the transaction ends, so two at once can't both
+    take the last place."""
+    ordered = sorted(projects, key=lambda p: p.pk)
+    with connection.cursor() as cursor:
+        for key in [f"user:{by.pk}", *(f"project:{p.pk}" for p in ordered)]:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                [f"iki_record_exports:{key}"],
+            )
+    waiting = _waiting()
+    if waiting.filter(requested_by=by).count() >= MOST_WAITING:
+        raise TooMany(
+            f"You have {MOST_WAITING} exports waiting to be written. Export more once one of "
+            "them is ready.",
+            field="entities",
+        )
+    held: dict[uuid.UUID, int] = {}
+    for listed in waiting.filter(projects__overlap=[p.pk for p in ordered]).values_list(
+        "projects", flat=True
+    ):
+        for pk in listed:
+            held[pk] = held.get(pk, 0) + 1
+    for project in ordered:
+        if held.get(project.pk, 0) >= MOST_WAITING_IN_A_PROJECT:
+            raise TooMany(
+                f"{project.name} has {MOST_WAITING_IN_A_PROJECT} exports waiting to be "
+                "written. Export more once one of them is ready.",
+                field="entities",
+            )
 
 
 def _found(by: User, ref: str, project: Project | None) -> Pinned:

@@ -40721,7 +40721,7 @@
         ]
       },
       "post": {
-        "description": "Records you can read as one file of a format each of their types exports (ADR 0229):\nthose picked, in order, or every one a search finds, up to 10,000. Each is written at\nthe revision it has now, read in one snapshot, so editing one afterwards doesn't change\nthe file. Up to 100 are written at once (201, ready to download); more in the\nbackground (202): read the export until it's ready. A record the format can't be\nwritten for fails it, naming each such record, so no file holds fewer than asked for.\nAsking and each download are in the audit log.",
+        "description": "Records you can read as one file of a format each of their types exports (ADR 0229):\nthose picked, in order, or every one a search finds, up to 10,000. Each is written at\nthe revision it has now, read in one snapshot, so editing one afterwards doesn't change\nthe file. Up to 100 are written at once (201, ready to download); more in the\nbackground (202): read the export until it's ready. You may have three waiting in\nthe background at once, and a project's records ten: past that, it's refused (429)\nuntil one is written. A record the format can't be written for fails it, naming each\nsuch record, so no file holds fewer than asked for. Asking and each download are in\nthe audit log.",
         "operationId": "iki_server_api_record_exports_start_record_export",
         "parameters": [],
         "requestBody": {

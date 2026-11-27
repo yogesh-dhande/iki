@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 import pytest
 import requests
-from api_client import Api
+from api_client import Api, problem
 from Bio import SeqIO
 from django.core.management import call_command
 from django.utils import timezone
@@ -330,6 +330,42 @@ def test_a_large_export_is_written_in_the_background_from_the_revisions_asked_fo
     downloaded(api, made)
     assert AuditEvent.objects.filter(action="entities.exported").count() == 2
     assert [e["id"] for e in api.get("/entity-exports").json()["items"]] == [made["id"]]
+
+
+def test_a_person_and_a_project_have_a_few_exports_waiting_at_once(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each waiting export spools a file and holds a writer: a person has at most three in
+    the background, a project's records at most ten, and asks again once one's written."""
+    monkeypatch.setattr(record_exports, "INLINE", 0)
+    monkeypatch.setattr(record_exports, "MOST_WAITING_IN_A_PROJECT", 4)
+    first = plasmid(world, name="pWaiting")
+    body = {"format": "fasta", "entities": [first.hrid]}
+    viewer = api_as(world, "viewer")
+    for _ in range(3):
+        assert ask(viewer, body).status_code == 202
+    refused = ask(viewer, body)
+    said = problem(refused, 429, "too_many_exports")
+    assert said["detail"].startswith("You have 3 exports waiting to be written.")
+    assert refused["Retry-After"] == "60"
+    assert RecordExport.objects.filter(requested_by=world.users["viewer"]).count() == 3
+    # Someone else's are their own; but the project's records are in four at most.
+    editor = api_as(world, "editor")
+    assert ask(editor, body).status_code == 202
+    said = problem(ask(editor, body), 429, "too_many_exports")
+    assert said["detail"].startswith(f"{world.project.name} has 4 exports waiting")
+    # Once one is written, there's room again.
+    assert run_tasks() == 4
+    assert ask(viewer, body).status_code == 202
+    # One its task gave up on long ago doesn't count.
+    RecordExport.objects.filter(state="queued").update(
+        created_at=timezone.now() - timedelta(days=2)
+    )
+    for _ in range(3):
+        assert ask(viewer, body).status_code == 202
+    # A few records, written while the request waits, are never refused for it.
+    monkeypatch.setattr(record_exports, "INLINE", 100)
+    assert ask(viewer, body).status_code == 201
 
 
 def test_a_record_its_writer_refuses_fails_the_export_naming_it(world: World) -> None:
