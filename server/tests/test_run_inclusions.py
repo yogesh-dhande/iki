@@ -3,6 +3,7 @@ name, such as a structure's chains. A run reads them as of launch, as it reads i
 pinned at their revisions, checked readable and in its project, kept with the run, and
 counted in what makes two runs identical."""
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from test_workers import keep_connection, worker
 
 from iki_server.bundles import reading
 from iki_server.entities.models import Entity, ProjectLink
+from iki_server.entities.values import UNREADABLE_REFERENCE
 from iki_server.org.models import OrgRole, OrgRoleAssignment, ProjectMembership, ProjectRole
 from iki_server.runs import included, services
 from iki_server.runs.models import ActionRun, RunInclusion
@@ -31,6 +33,8 @@ pytestmark = pytest.mark.django_db
 __all__ = ["keep_connection", "world"]
 
 SHA = "a" * 40
+PREP, WEIGH = "acme/protein.Prep", "acme/protein.weigh_prep"
+PURITY, SAMPLE = "acme/protein.measure_purity", "acme/protein.Sample"
 
 
 @pytest.fixture(autouse=True)
@@ -492,3 +496,104 @@ def test_a_run_reads_the_lab_list_option_its_record_names(
     assert again["inputs"]["prep"][0]["included"]["method"][0]["values"]["label"] == (
         "Protein A affinity"
     )
+
+
+def runs_reading_everything(world: World) -> list[ActionRun]:
+    """Runs in two projects whose manifests read all a manifest reads: chains, one of them
+    since moved to another registry entry, and one each since unlinked from its project or
+    purged; a service request's masked references and its two sides; a lab list's option;
+    and files, one still being scanned and one since quarantined."""
+    from test_scan_gates import _file, _infected, _legacy_lot
+
+    from iki_server.entities import services as entities
+
+    editor = api_as(world, "editor")
+    runs = []
+
+    def launched(made: Any) -> None:
+        assert made.status_code == 201, made.content
+        runs.append(ActionRun.objects.get(pk=made.json()["id"]))
+
+    abl, src, lck = (protein(editor, world.project, name) for name in ("abl1", "src", "lck"))
+    launched(relax(world, structure(world, abl, src)))
+    # Moved, with its entry curated first: the run reads both pinned revisions.
+    original = protein(editor, world.project, "kit")
+    replacement = protein(editor, elsewhere(world), "met")
+    curator = registrar(world)
+    entry = f"/entries/{original['hrid']}"
+    curated = curator.patch(
+        entry,
+        {"values": {"synonyms": ["reference"]}, "reason": "Reference label"},
+        headers={"If-Match": curator.get(entry)["ETag"]},
+    )
+    assert curated.status_code == 200, curated.content
+    launched(relax(world, structure(world, original, lck)))
+    superseded = curator.post(
+        f"{entry}/supersede", {"replacement": replacement["hrid"], "reason": "Correction"}
+    )
+    assert superseded.status_code == 200, superseded.content
+    moved = editor.post(f"/entities/{original['id']}/move", {"reason": "Correction"})
+    assert moved.status_code == 200, moved.content
+    withdrawn, purged = protein(editor, world.project, "ret"), protein(editor, world.project, "alk")
+    launched(relax(world, structure(world, withdrawn)))
+    launched(relax(world, structure(world, purged, src)))
+    ProjectLink.objects.filter(entity_id=withdrawn["id"], project=world.project).delete()
+    Entity.objects.filter(pk=purged["id"]).update(purged_at="2026-01-01T00:00:00Z")
+
+    project = str(world.project.pk)
+    methods = editor.get("/lists/acme/protein.PurificationMethod/options", project=project)
+    assert methods.status_code == 200, methods.content
+    protein_a = next(o for o in methods.json() if o["code"] == "protein_a")
+    prep = create(
+        editor, world.project, {"name": "Anti-HER2 prep 12", "method": protein_a["id"]}, PREP
+    )
+    assert prep.status_code == 201, prep.content
+    launched(launch(editor, world.project, {"prep": prep.json()["id"]}, WEIGH))
+
+    scanning, quarantined = _file(world, "scanning.pdf"), _file(world, "quarantined.pdf")
+    for n, file in enumerate((scanning, quarantined)):
+        values = {"label": f"Purity sample {n}", "lot": _legacy_lot(world, file).pk}
+        sample = entities.create(world.users["editor"], SAMPLE, world.project, values).entity
+        launched(launch(editor, world.project, {"sample": str(sample.pk)}, PURITY))
+    _infected(quarantined)
+
+    lab = build_lab(world)
+    request, _, _ = request_with_private_sample(lab)
+    launched(schedule(lab, "tech", lab.core, request["id"]))
+    return runs
+
+
+def _read(found: included.Manifest | included.Unavailable) -> Any:
+    """What a manifest says, or why it's unavailable, comparably."""
+    if isinstance(found, included.WaitingForScan):
+        return ("waiting", str(found), sorted(found.pending), _read(found.found))
+    if isinstance(found, included.Unavailable):
+        return (type(found).__name__, str(found), found.ends_with)
+    return (found.inputs, sorted(found.input_files), sorted(found.param_files))
+
+
+def test_a_pack_reads_what_each_of_its_runs_would_read_alone(world: World) -> None:
+    """A lease reads a pack's manifests at once (ADR 0055): each run's is the one it reads
+    alone, whatever the others read, in its project or another."""
+    runs = runs_reading_everything(world)
+
+    together = included.manifests(runs)
+
+    alone = {run.pk: _read(included.manifests([run])[run.pk]) for run in runs}
+    assert {run.pk: _read(together[run.pk]) for run in runs} == alone
+    for run in runs:
+        found = together[run.pk]
+        if isinstance(found, included.Unavailable):
+            with pytest.raises(type(found), match=str(found)):
+                included.manifest(run)
+        else:
+            assert _read(included.manifest(run)) == _read(found)
+    # Each kind of reading is among them.
+    outcomes = [alone[run.pk] for run in runs]
+    read = json.dumps([o for o in outcomes if isinstance(o[0], dict)], default=str)
+    for word in ("entry_revision", "request", UNREADABLE_REFERENCE):
+        assert f'"{word}"' in read, word
+    (chain, _) = alone[runs[1].pk][0]["structure"][0]["included"]["chains"]
+    assert chain["entry_id"] != str(Entity.objects.get(pk=chain["id"]).entry_id)
+    ended = [o[0] if o[0] == "waiting" else o[2] for o in outcomes if isinstance(o[0], str)]
+    assert sorted(ended) == ["file_quarantined", "not_allowed", "not_allowed", "waiting"]

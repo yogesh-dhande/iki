@@ -28,13 +28,14 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 from datetime import datetime, timedelta
 from typing import Any, NamedTuple
 
 from django.conf import settings
 from django.core.exceptions import EmptyResultSet
-from django.db import connection, transaction
-from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
+from django.db import DatabaseError, InterfaceError, connection, transaction
+from django.db.models import Count, OuterRef, Q, QuerySet, Subquery, Value
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce, Now
 from django.utils import timezone
@@ -328,7 +329,15 @@ def _shortlist(
 
 
 def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
-    """Leases the best job this worker can run, with what it needs to run it; None if none."""
+    """Leases the best job this worker can run, with what it needs to run it; None if none.
+
+    The job, and the jobs packed with it, are claimed in a transaction of its own, which
+    holds the locks that keep limits exact (the tier's quotas', ADR 0045, and a Slurm
+    cluster's, ADR 0133) only while it counts and claims: every lease they cover waits for
+    them. Then, holding the pack, the lease reads what its runs read and starts them. If it
+    can't start after all, as when its launcher lost their role or a record it reads left
+    its project, the claim is undone, and the attempt ends or waits as it would have queued.
+    """
     now = timezone.now()
     active = (
         Job.objects.filter(project=OuterRef("project"), state__in=HELD, packed_into__isnull=True)
@@ -378,6 +387,68 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             return None
         labels = list(worker.labels)
         candidates = candidates.filter(project__in=scope, labels__contained_by=labels)
+    claim = _claim(worker, candidates, active, scope, labels, volumes, now)
+    if claim is None:
+        return None
+    try:
+        with transaction.atomic():
+            return _start(worker, claim)
+    except BaseException:
+        # Either all of it starts or none of it does: it waits again. Were this process to
+        # die first, its lease would run out, as a lost worker's does.
+        with suppress(DatabaseError, InterfaceError):
+            _unclaim(claim)
+        raise
+
+
+#: What claiming a job sets, and undoing the claim puts back.
+_CLAIMED = (
+    "state",
+    "worker_id",
+    "worker_labels",
+    "lease_token",
+    "lease_expires_at",
+    "started_at",
+    "environment_build",
+    "template",
+    "volumes",
+)
+#: What packing a job into a claimed one sets, and undoing the claim puts back.
+_PACKED = (
+    "state",
+    "worker_id",
+    "worker_labels",
+    "started_at",
+    "environment_build",
+    "template",
+    "volumes",
+    "packed_into_id",
+)
+
+
+class _Claim(NamedTuple):
+    """A job claimed for a worker, with the jobs packed into it, and what each was before."""
+
+    job: Job
+    before: dict[str, Any]
+    #: Each job packed into it, by its ID: what it was before.
+    packed: dict[uuid.UUID, dict[str, Any]]
+
+
+def _claim(
+    worker: Worker,
+    candidates: QuerySet[Job],
+    active: QuerySet[Any],
+    scope: list[uuid.UUID] | None,
+    labels: list[str] | None,
+    volumes: dict[str, Any],
+    now: datetime,
+) -> _Claim | None:
+    """Claims the best of `candidates` that the worker's limits leave it, and the queued
+    jobs of its batch the same command can run with it (ADR 0055), then commits: the
+    limits' locks are held for no longer. A pack is claimed whole, so no other lease takes
+    part of it, or skips it while it's read."""
+    cluster = worker.slurm_cluster
     with transaction.atomic():
         # It's still running, and an ephemeral machine's first job.
         if not launches.may_lease(worker):
@@ -416,8 +487,15 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         # of what a lateral join with limits costs sits above where it compiles plans.
         with connection.cursor() as cursor:
             cursor.execute("SELECT set_config('jit', 'off', true)")
+            # Read first, so choosing among a few dozen jobs is planned as that. Were the
+            # shortlist part of the choice, its estimate would dwarf the rest, and Postgres
+            # could read every queued run for each job it weighs.
+            cursor.execute(shortlist.sql, shortlist.params)
+            ids = [row[0] for row in cursor.fetchall()]
+        if not ids:
+            return None
         job = (
-            candidates.filter(pk__in=shortlist)
+            candidates.filter(pk__in=ids)
             .annotate(active=Coalesce(Subquery(active), 0))
             .order_by("active", "-priority", "queued_at", "id")
             .select_for_update(skip_locked=True, of=("self",))
@@ -425,100 +503,165 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         )
         if job is None:
             return None
-        run = (
-            ActionRun.objects.select_for_update(of=("self",))
-            .select_related("requested_by", "project__team")
-            .get(pk=job.run_id)
-        )
-        if not permissions.can(run.requested_by, TIER_ACTIONS[run.tier], run.project):
-            # Its launcher was removed, or lost the role it needs there, since: it doesn't
-            # start in their name. Nor does what's packed with it, until it's leased itself.
-            fail_queued(
-                job,
-                "not_allowed",
-                f"{run.requested_by.name} can no longer run actions on the {run.tier} tier in "
-                f"{run.project.name}, so it didn't start.",
-            )
-            return None
-        plugin = run.action.partition(".")[0]
-        if plugin in registry.detached():
-            # Queued before a deploy detached it, which the sweep hasn't reached yet.
-            _end_detached(job, plugin)
-            return None
-        try:
-            manifests = {run.pk: included.manifest(run)}
-        except included.Unavailable as why:
-            _unavailable(job, why)
-            return None
-        template = worker.launch.template if worker.launch is not None else ""
-        build = _build(worker, job.environment)
+        before = {name: getattr(job, name) for name in _CLAIMED}
+        run = ActionRun.objects.get(pk=job.run_id)
+        job.run = run
+        job.template = worker.launch.template if worker.launch is not None else ""
+        job.environment_build = _build(worker, job.environment)
         if cluster:
-            try:
-                slurm.place(job, worker)
-            except slurm.Unplaceable as why:
-                fail_queued(job, "unplaceable", str(why))
-                return None
-            template = job.template
+            # It counts against its template's `max_concurrent` from now on: placing it
+            # checks that it can go there.
+            first = slurm.first(job)
+            job.template = first.name if first is not None else ""
             # The image is the environment: its digest is the build it ran (ADR 0061).
             image = slurm.image_for(job)
-            build = launches.image_digest(image) if image else ""
-        members = []
-        for member in _pack(job, run):
-            try:
-                manifests[member.run_id] = included.manifest(member.run)
-            except included.Unavailable as why:
-                _unavailable(member, why)
-            else:
-                members.append(member)
+            job.environment_build = launches.image_digest(image) if image else ""
         job.state = JobState.LEASED
-        job.template = template
         job.worker = worker
         job.worker_labels = list(worker.labels)
         job.lease_token = uuid.uuid4()
         job.lease_expires_at = now + lease_ttl(worker)
         job.started_at = now
-        job.environment_build = build
         job.volumes = volumes
-        job.save(
-            update_fields=[
-                "state",
-                "worker",
-                "worker_labels",
-                "lease_token",
-                "lease_expires_at",
-                "started_at",
-                "environment_build",
-                "template",
-                "volumes",
-            ]
+        job.save(update_fields=list(_CLAIMED))
+        packed = {
+            member.pk: {name: getattr(member, name) for name in _PACKED}
+            for member in _pack(job, run)
+        }
+        if packed:
+            Job.objects.filter(pk__in=list(packed)).update(
+                state=JobState.LEASED,
+                worker=worker,
+                worker_labels=job.worker_labels,
+                started_at=now,
+                environment_build=job.environment_build,
+                template=job.template,
+                volumes=job.volumes,
+                packed_into=job,
+            )
+    return _Claim(job, before, packed)
+
+
+def _start(worker: Worker, claim: _Claim) -> tuple[Job, dict[str, Any]] | None:
+    """Starts a job claimed for `worker`, and the runs packed with it, with what their
+    command reads; or, if it can't start after all, undoes its claim and ends it as it
+    would have ended queued. Call inside a transaction."""
+    job = (
+        Job.objects.select_for_update()
+        .filter(pk=claim.job.pk, state=JobState.LEASED, lease_token=claim.job.lease_token)
+        .first()
+    )
+    if job is None or job.started_at is None:
+        # It ended since it was claimed, as when its worker is revoked.
+        return None
+    claim = claim._replace(job=job)
+    # As when claiming: what it reads would otherwise wait on JIT compiling its plans.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT set_config('jit', 'off', true)")
+    now = job.started_at
+    run = (
+        ActionRun.objects.select_for_update(of=("self",))
+        .select_related("requested_by", "project__team")
+        .get(pk=job.run_id)
+    )
+    if not permissions.can(run.requested_by, TIER_ACTIONS[run.tier], run.project):
+        # Its launcher was removed, or lost the role it needs there, since: it doesn't
+        # start in their name. Nor does what's packed with it, until it's leased itself.
+        _unclaim(claim)
+        fail_queued(
+            job,
+            "not_allowed",
+            f"{run.requested_by.name} can no longer run actions on the {run.tier} tier in "
+            f"{run.project.name}, so it didn't start.",
         )
-        Job.objects.filter(pk__in=[m.pk for m in members]).update(
-            state=JobState.LEASED,
-            worker=worker,
-            worker_labels=list(worker.labels),
-            started_at=now,
-            environment_build=build,
-            template=template,
-            volumes=volumes,
-            packed_into=job,
-        )
-        runs = [
-            run,
-            *ActionRun.objects.select_for_update()
-            .filter(pk__in=[m.run_id for m in members])
-            .order_by("id"),
-        ]
-        waits = [max((now - j.queued_at).total_seconds(), 0.0) for j in [job, *members]]
-        transaction.on_commit(lambda: _record_waits(job.tier, template, waits))
-        for each in runs:
-            each.status = RunStatus.RUNNING
-            each.started_at = each.started_at or now
-            # A packed command gets one seed, its first run's: each run records the seed
-            # it was run with, so a reproduction gets it again (ADR 0057).
-            each.seed = run.seed
-            each.save(update_fields=["status", "started_at", "seed"])
-            live.changed(each.pk, each.batch_id)
-        return job, payload(job, run, manifests)
+        return None
+    plugin = run.action.partition(".")[0]
+    if plugin in registry.detached():
+        # Queued before a deploy detached it, which the sweep hasn't reached yet.
+        _unclaim(claim)
+        _end_detached(job, plugin)
+        return None
+    # Those still packed into it: one whose run was cancelled since is already ended.
+    pack = list(
+        Job.objects.select_for_update(of=("self",))
+        .filter(pk__in=list(claim.packed), state=JobState.LEASED, packed_into=job)
+        .select_related("run__project")
+        .order_by("queued_at", "id")
+    )
+    # What every run of the pack reads, read at once; each is decided as it would be alone.
+    read = included.manifests([run, *(member.run for member in pack)])
+    lead = read[run.pk]
+    if isinstance(lead, included.Unavailable):
+        _unclaim(claim)
+        _unavailable(job, lead)
+        return None
+    if worker.slurm_cluster:
+        try:
+            slurm.place(job, worker)
+        except slurm.Unplaceable as why:
+            _unclaim(claim)
+            fail_queued(job, "unplaceable", str(why))
+            return None
+    manifests = {run.pk: lead}
+    members = []
+    unavailable = []
+    for member in pack:
+        found = read[member.run_id]
+        if isinstance(found, included.Unavailable):
+            unavailable.append((member, found))
+        else:
+            manifests[member.run_id] = found
+            members.append(member)
+    # A run that can't be given what it reads isn't packed after all: it ends, or waits,
+    # as it would have queued.
+    _unpack(job, {member.pk: claim.packed[member.pk] for member, _ in unavailable})
+    for member, unread in unavailable:
+        for name, value in claim.packed[member.pk].items():
+            setattr(member, name, value)
+        _unavailable(member, unread)
+    runs = [
+        run,
+        *ActionRun.objects.select_for_update()
+        .filter(pk__in=[m.run_id for m in members])
+        .order_by("id"),
+    ]
+    waits = [max((now - j.queued_at).total_seconds(), 0.0) for j in [job, *members]]
+    template = job.template
+    transaction.on_commit(lambda: _record_waits(job.tier, template, waits))
+    # A packed command gets one seed, its first run's: each run records the seed it was
+    # run with, so a reproduction gets it again (ADR 0057).
+    ActionRun.objects.filter(pk__in=[each.pk for each in runs]).update(
+        status=RunStatus.RUNNING, started_at=Coalesce("started_at", Value(now)), seed=run.seed
+    )
+    live.changed_each((each.pk, each.batch_id) for each in runs)
+    return job, payload(job, run, manifests)
+
+
+def _unclaim(claim: _Claim) -> None:
+    """Puts back what claiming a job changed, and packing others into it, while it's
+    claimed and its runs haven't started: each waits, or ends, as it would have queued."""
+    job = claim.job
+    _unpack(job, claim.packed)
+    Job.objects.filter(
+        pk=job.pk,
+        state=JobState.LEASED,
+        lease_token=job.lease_token,
+        run__status=RunStatus.QUEUED,
+    ).update(**claim.before)
+    for name, value in claim.before.items():
+        setattr(job, name, value)
+
+
+def _unpack(job: Job, packed: Mapping[uuid.UUID, dict[str, Any]]) -> None:
+    """Puts back what packing each of `packed` into `job` changed, while its run hasn't
+    started: one update for each way they were before, as a batch's jobs all were."""
+    alike: dict[str, tuple[dict[str, Any], list[uuid.UUID]]] = {}
+    for pk, was in packed.items():
+        alike.setdefault(repr(sorted(was.items())), (was, []))[1].append(pk)
+    for was, pks in alike.values():
+        Job.objects.filter(
+            pk__in=pks, state=JobState.LEASED, packed_into=job, run__status=RunStatus.QUEUED
+        ).update(**was)
 
 
 def _record_waits(tier: str, template: str, waits: list[float]) -> None:
@@ -561,7 +704,6 @@ def _pack(job: Job, run: ActionRun) -> list[Job]:
         .filter(not_waiting_for_scan())
         .exclude(pk=job.pk)
         .order_by("queued_at", "id")
-        .select_related("run__project")
         .select_for_update(skip_locked=True, of=("self",))[: size - 1]
     )
 
@@ -581,7 +723,13 @@ def payload(
     members = packed(job)
     runs = [run, *(m.run for m in members)]
     if manifests is None:
-        manifests = {r.pk: included.manifest(r) for r in runs}
+        manifests = {}
+        read = included.manifests(runs)
+        for each in runs:
+            found = read[each.pk]
+            if isinstance(found, included.Unavailable):
+                raise found
+            manifests[each.pk] = found
     inputs: dict[str, list[dict[str, Any]]] = {name: [] for name in run.spec["inputs"]}
     files: set[uuid.UUID] = set()
     pack: list[dict[str, str]] = []
