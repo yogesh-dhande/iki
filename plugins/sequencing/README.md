@@ -29,25 +29,23 @@ displays each mate separately. The report retains the source file IDs, names,
 checksums and the revisions of the read set and library that the run read. Iki
 keeps the action run and its input provenance.
 
-A project's Admin chooses the procedure for the project's new summaries with the
-`sequencing-quality-review` starter, in the project's settings under Starters, and picks who
-holds each lab role it asks for. A project that hasn't chosen uses the
-deployment setting `review_flow`
-([ADR 0266](../../docs/adr/0266-a-project-chooses-its-omics-results-review.md)):
+A project's Admin chooses how the project's new FASTQ summaries are reviewed with the
+`iki/sequencing.quality_review` starter, in Project settings → Starters, and picks who holds each
+shared lab role it asks for (`iki/lab_roles`). An Org Admin may set the
+deployment's default in Admin → Review procedures. Until one of them chooses,
+FASTQ summaries can't be recorded. Each summary is pinned to the procedure it was
+recorded under, so a change applies to new FASTQ summaries only
+([ADR 0302](../../docs/adr/0302-a-project-chooses-each-types-review-procedure-and-the-server-pins-it.md)).
+The flows are core's result review (`iki/core.result_review@1`):
 
-| Procedure                          | What a summary needs                                                                                                          | Lab roles                |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
-| **Research** (`research`, default) | A reviewer signs the recorded summary.                                                                                        | Reviewer                 |
-| **Regulated QC** (`regulated_qc`)  | An analyst signs submission, a reviewer independent of the creator, submitter and editors signs review, and QA signs release. | Analyst, reviewer and QA |
-| **Record only** (`record_only`)    | Nothing: the summary is kept as evidence and offers no sign-off.                                                              | None                     |
+| Flow                     | What a summary needs                                                                                                                  | Lab roles                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| **Research** (suggested) | A reviewer who didn't create or edit it signs it off.                                                                                 | Reviewer                 |
+| **Regulated QC**         | An analyst signs the submission, a reviewer independent of the creator, submitter and editors signs the review, and QA signs release. | Analyst, reviewer and QA |
+| **Record only**          | Nothing: the summary is kept as evidence and offers no sign-off.                                                                      | None                     |
 
-Each summary keeps the procedure it was recorded under, so a change to the
-procedure applies to new summaries only. To review a summary recorded under
-Record only, summarize the read set again once the project or the deployment
-names a review procedure.
-Changes to signed findings return the summary to Recorded. Give the relevant lab
-roles to project members before review. See [ADR 0255](../../docs/adr/0255-a-quality-summary-can-be-recorded-without-sign-off.md).
-
+To review a summary recorded under Record only, summarize the read set again once the project
+chooses a flow with review.
 When the files are in an INSDC archive, give the read set its run accession
 (SRR, ERR or DRR). An archived run belongs to one library, so each read set from a
 multiplexed instrument run names its own; read sets for the lanes of one library

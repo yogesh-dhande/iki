@@ -191,7 +191,6 @@ def summarize(run: dict[str, Any]) -> dict[str, Any]:
                             zip(files, summaries, strict=True), 1
                         )
                     ],
-                    "review_flow": run.get("settings", {}).get("review_flow", "research"),
                 },
             }
         ],

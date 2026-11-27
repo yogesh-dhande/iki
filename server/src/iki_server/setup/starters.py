@@ -198,85 +198,6 @@ PREP_VERIFICATION = Starter(
     governs="plasmid verifications",
     pinned_by=LOTS + "PlasmidVerification",
 )
-# Omics results pin their flow when the import records them (ADR 0266).
-# Record only keeps the report as evidence: its results stay recorded, and no one signs.
-RESULT_STATES = {
-    "research": ("recorded", "signed_off"),
-    "regulated_qc": ("recorded", "submitted", "reviewed", "released"),
-    "record_only": ("recorded",),
-}
-
-
-def _result_review(
-    plugin: str, result: str, *, id: str, label: str, description: str, governs: str
-) -> Starter:
-    analyst, reviewer, qa = (f"{plugin}.{r}" for r in ("analyst", "reviewer", "qa"))
-    return Starter(
-        version="1.0.0",
-        plugin=plugin,
-        setting="review_flow",
-        result_base=f"{plugin}.{result}",
-        flows=dict.fromkeys(RESULT_STATES, f"{plugin}.{result}"),
-        flow_states=RESULT_STATES,
-        roles={analyst: ProjectRole.EDITOR, reviewer: ProjectRole.VIEWER, qa: ProjectRole.VIEWER},
-        required_roles={
-            "research": (reviewer,),
-            "regulated_qc": (analyst, reviewer, qa),
-            "record_only": (),
-        },
-        independent_roles={"regulated_qc": (analyst, reviewer, qa)},
-        pinned_by=f"{plugin}.{result}",
-        id=id,
-        label=label,
-        description=description,
-        governs=governs,
-    )
-
-
-PROTEOMICS_REVIEW = _result_review(
-    "iki/proteomics",
-    "ProteomicsResult",
-    id="proteomics-search-review",
-    label="Proteomics search results",
-    description=(
-        "Choose how newly imported search results are reviewed, or recorded without sign-off, "
-        "and assign who submits, reviews and releases them."
-    ),
-    governs="proteomics search results",
-)
-BIOLOGICS_MS_REVIEW = _result_review(
-    "iki/biologics_ms",
-    "MSResult",
-    id="biologics-ms-review",
-    label="Biologics mass spectrometry",
-    description=(
-        "Choose how new intact mass and peptide map results are reviewed, or recorded without "
-        "sign-off, and assign who submits, reviews and releases them."
-    ),
-    governs="mass spectrometry results",
-)
-SEQUENCING_QUALITY_REVIEW = _result_review(
-    "iki/sequencing",
-    "FASTQSummary",
-    id="sequencing-quality-review",
-    label="FASTQ quality summaries",
-    description=(
-        "Choose how new FASTQ quality summaries are reviewed, or recorded without sign-off, and "
-        "assign who submits, reviews and releases them."
-    ),
-    governs="FASTQ quality summaries",
-)
-SEQUENCING_ANALYSIS_REVIEW = _result_review(
-    "iki/sequencing_analysis",
-    "SequencingAnalysisResult",
-    id="sequencing-analysis-review",
-    label="Sequencing analysis results",
-    description=(
-        "Choose how newly imported variant, count and repertoire results are reviewed, or "
-        "recorded without sign-off, and assign who submits, reviews and releases them."
-    ),
-    governs="sequencing analysis results",
-)
 EXPERIMENT = "iki/experiments."
 AUTHOR, WITNESS, EXPERIMENT_QA = (EXPERIMENT + r for r in ("author", "reviewer", "qa"))
 # Experiments are created by hand, so every flow's records are one type with a route per
@@ -332,10 +253,6 @@ CATALOG = (
     STABILITY_STUDY,
     PREP_VERIFICATION,
     EXPERIMENT_REVIEW,
-    PROTEOMICS_REVIEW,
-    BIOLOGICS_MS_REVIEW,
-    SEQUENCING_QUALITY_REVIEW,
-    SEQUENCING_ANALYSIS_REVIEW,
 )
 
 
