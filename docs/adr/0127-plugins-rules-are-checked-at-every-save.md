@@ -93,6 +93,12 @@ the changer's project's, and the changer isn't told of them, so for them, as at 
 deploy, a rule that holds holds the record for the change's reason, and any other
 is reported as a breach.
 
+Setting a state field (ADR 0125) is a write of its value, so the rules reading
+the field are checked as an edit of it checks them. One that refuses refuses
+the change, and the record's state controls say why. One that holds asks for
+the change's reason and holds the record for it, though not for a state that
+locks it, which a held record can't take (ADR 0128), nor for a signed state.
+
 **A rule can hold, not refuse** (`hold: {reviewed_by: [lab roles]}`), for
 `check` rules only. A save that breaks only rules that hold is refused with
 422 `hold_reason_required` unless it says why (`hold_reason`). With a reason,

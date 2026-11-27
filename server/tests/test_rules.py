@@ -13,7 +13,7 @@ from django.utils import timezone
 from org_world import World
 from test_api_entities import api_as, create, patch
 from test_runs import protein, world
-from test_states import ANALYST, QA, REVIEWER, roles, set_
+from test_states import ANALYST, QA, REVIEWER, put, roles, set_
 
 from iki_server.audit import log as audit
 from iki_server.audit.models import AuditEvent
@@ -640,6 +640,58 @@ def test_a_held_record_cant_be_set_to_a_state_that_locks_it(world: World) -> Non
     )
     assert review.status_code == 200, review.content
     assert set_(world, "admin", saved["id"], "status", "approved")["locked"]
+
+
+def _purity_rule(*, hold: bool = False, states: tuple[str, ...] = ("in_review",)) -> Rule:
+    return Rule(
+        name="reviewed_with_a_purity",
+        label="Reviewed with a purity",
+        plugin="acme/protein",
+        check="record.purity != null",
+        when=f"record.status in {list(states)!r}".replace("'", '"'),
+        message="Measure its purity before review.",
+        hold=(QA,) if hold else (),
+        fields=("purity",),
+        reads=("purity", "status"),
+    )
+
+
+def test_a_state_change_is_checked_against_the_rules_reading_its_field(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A state is a value the record saves (ADR 0125): the rules reading it are checked
+    as an edit of it checks them, and its controls say why not."""
+    roles(world, editor=(ANALYST,))
+    _with_rule(monkeypatch, BATCH, _purity_rule())
+    saved = made(world, {})
+    answer = api_as(world).get(f"/entities/{saved['id']}").json()
+    why = {s["name"]: s["why_not"] for s in answer["can"]["states"]["status"]}
+    assert why["in_review"] == "Measure its purity before review."
+    body = problem(
+        put(world, "editor", saved["id"], "status", "in_review"), 422, "validation_failed"
+    )
+    assert errors(body) == [("#/values/purity", "reviewed_with_a_purity", False)]
+    assert Entity.objects.get(pk=saved["id"]).revision == saved["revision"]
+    # Kept, it's set.
+    assert change(world, saved["id"], {"purity": 95.0}).status_code == 200
+    set_(world, "editor", saved["id"], "status", "in_review")
+
+
+def test_a_state_change_that_breaks_a_rule_that_holds_is_held_for_its_reason(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    roles(world, editor=(ANALYST,), admin=(REVIEWER,))
+    _with_rule(monkeypatch, BATCH, _purity_rule(hold=True, states=("in_review", "approved")))
+    saved = made(world, {})
+    body = problem(
+        put(world, "editor", saved["id"], "status", "in_review"), 422, "hold_reason_required"
+    )
+    assert errors(body) == [("#/values/purity", "reviewed_with_a_purity", True)]
+    done = set_(world, "editor", saved["id"], "status", "in_review", "Sent for a purity check.")
+    [hold] = done["holds"]
+    assert hold["rule"] == "reviewed_with_a_purity" and hold["reason"] == "Sent for a purity check."
+    # A state that locks it isn't set while it's held, nor so that it would be.
+    problem(put(world, "admin", saved["id"], "status", "approved", "Approved."), 409, "refused")
 
 
 def test_a_runs_results_are_held_with_a_reason_naming_the_run() -> None:

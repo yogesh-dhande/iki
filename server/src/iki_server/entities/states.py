@@ -29,7 +29,7 @@ be set to a state that locks it until its holds are reviewed.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -297,10 +297,12 @@ def _conditions(
     candidates: list[State],
     values: Mapping[str, Any],
     signatures: Sequence[Mapping[str, Any]] = (),
+    *,
+    rules: bool = True,
 ) -> dict[str, tuple[str, str | None]]:
     """Why the record can't be set to each of ``candidates`` now, as the record is, by
-    state: its holds (for a state that locks it, ADR 0127) or a guard (ADR 0128), with
-    the guard's name."""
+    state: its holds (for a state that locks it, ADR 0127), the plugins' rules reading
+    the field (unless not ``rules``), or a guard (ADR 0128), with the guard's name."""
     from iki_server.entities import checking, guards, holds, requests
 
     if not candidates:
@@ -326,10 +328,43 @@ def _conditions(
                     if st.signatures
                 }
             )
+    names = [st.name for st in candidates] if rules else []
+    for st, found in zip(
+        [st for st in candidates if st.name in names],
+        breaking(entity, field, names, values),
+        strict=True,
+    ):
+        refusing = [b for b in found if not b.held]
+        # A state that locks can't be set while a rule holds the record, nor one that's
+        # signed, whose signatures give no reason to hold it for.
+        shown = refusing or [b for b in found if b.held and (st.locks or st.signatures)]
+        if shown and st.name not in out:
+            out[st.name] = (shown[0].message, None)
     rest = [st for st in candidates if st.name not in out]
     for name, refusal in guards.refusals(user, entity, field, rest, values, signatures).items():
         out[name] = (refusal.message, refusal.guard.name)
     return out
+
+
+def breaking(
+    entity: Entity, field: str, states: Sequence[str], values: Mapping[str, Any]
+) -> list[list[Any]]:
+    """The plugins' rules (ADR 0127) the record would break in each of ``states``, as its
+    state field ``field`` is a value it saves: those reading the field, as an edit of it
+    checks them. Nothing for a type none of whose rules reads it."""
+    from iki_server.entities import checking
+
+    if not any(field in r.reads for r in checking.checks_of(entity.type)):
+        return [[] for _ in states]
+
+    def setting(state: str) -> Callable[[str], Any]:
+        return lambda n: state if n == field else values.get(n)
+
+    changed = frozenset({field})
+    savings = [
+        checking.Saving(setting(state), changed, id=entity.pk, hrid=entity.hrid) for state in states
+    ]
+    return checking.broken(entity.type, savings)
 
 
 def _why_not_who(user: User, entity: Entity, field: str, state: State) -> tuple[str, bool] | None:
@@ -396,9 +431,12 @@ def set_state(
     *,
     expected_revision: int,
     reason: str = "",
+    _edited: bool = False,
 ) -> Revision:
     """Sets the record's state field ``field`` to ``state``: checked, then a revision of
-    its own, told to webhooks and triggers, and in the audit log. Raises
+    its own, told to webhooks and triggers, and in the audit log. ``_edited``: it's an
+    edit's return (:func:`return_for_edit`), whose save checks the plugins' rules with the
+    state and the edit's values together. Raises
     :class:`PermissionDenied` when ``user`` may not, :class:`Refused` when the record
     can't take it now (:class:`NeedsSignatures` for a state its signatures set), and
     :class:`Invalid` for an unknown state or a missing reason."""
@@ -442,18 +480,55 @@ def set_state(
             why, forbidden = found
             raise PermissionDenied(why) if forbidden else Refused(why)
         record = services.current_values(services.specific(locked))
-        condition = _conditions(user, locked, field, [target], record).get(state)
+        reason = reason.strip()
+        broke: list[Any] = [] if _edited else breaking(locked, field, [state], record)[0]
+        holding = _rules_kept(broke, target, reason)
+        # Its rules are checked above, as a save checks them.
+        condition = _conditions(user, locked, field, [target], record, rules=False).get(state)
         if condition is not None:
             why, guard = condition
             raise GuardRefused(why, guard) if guard is not None else Refused(why)
-        reason = reason.strip()
         if target.reason == "required" and not reason:
             raise Invalid(
                 {"reason": [f"Setting its {f.label} to {target.label} needs a reason: say why."]}
             )
         if len(reason) > MAX_REASON:
             raise Invalid({"reason": [f"Say why in {MAX_REASON} characters or fewer."]})
-        return write(locked, f, state, user, reason)
+        revision = write(locked, f, state, user, reason)
+        _held(locked, f.name, broke, holding, user, reason, revision)
+        return revision
+
+
+def _rules_kept(found: Sequence[Any], target: State, reason: str) -> list[Any]:
+    """Raises for the rules a state change breaks (ADR 0127), as for a save: one that
+    refuses refuses it; one that holds asks for a reason, and holds the record for it.
+    A state that locks it isn't set while it would be held (ADR 0128). Returns what holds."""
+    from iki_server.entities import checking
+
+    if target.locks and any(b.held for b in found):
+        held = next(b for b in found if b.held)
+        raise Refused(
+            f"It would break “{held.rule.label}”, which holds records for review, so it isn't "
+            f"set to {target.label}: {held.message}"
+        )
+    return checking.raise_broken(found, hold_reason=reason)
+
+
+def _held(
+    locked: Entity,
+    field: str,
+    found: Sequence[Any],
+    holding: Sequence[Any],
+    user: User,
+    reason: str,
+    revision: Revision,
+) -> None:
+    from iki_server.entities import checking, holds
+
+    if holding:
+        record = Entity.objects.select_related("owner_project").get(pk=locked.pk)
+        holds.hold(record, holding, user=user, reason=reason, revision=revision.number)
+    checking.kept(locked, frozenset({field}), found)
 
 
 def return_for_edit(user: User, locked: Entity, targets: Mapping[str, str], reason: str) -> None:
@@ -466,7 +541,9 @@ def return_for_edit(user: User, locked: Entity, targets: Mapping[str, str], reas
         raise CorrectionReason({"reason": [f"Say why in {MAX_REASON} characters or fewer."]})
     number = locked.revision
     for name, target in targets.items():
-        change = set_state(user, locked, name, target, expected_revision=number, reason=reason)
+        change = set_state(
+            user, locked, name, target, expected_revision=number, reason=reason, _edited=True
+        )
         number = change.number
 
 
