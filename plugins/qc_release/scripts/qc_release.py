@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -15,16 +16,27 @@ PLUGIN = "iki/qc_release"
 MAX_ATTEMPTS = 250
 LOT_MATERIAL_FIELDS = ("of", "protein", "oligonucleotide", "conjugate", "polymer", "plasmid")
 SUCCESSOR_POLICIES = {"future", "same_day", "backdated"}
-FLOWS = {
+FLOWS: dict[str, dict[str, Any]] = {
     "research": {
         "investigation": "ResearchOOSInvestigation",
         "certificate": "ResearchCertificate",
         "investigation_final": "signed_off",
+        "certificate_final": "signed_off",
+        "issued": "issued",
+        "title": "Research certificate of analysis",
+        # Said on the certificate, so it is never mistaken for a quality unit's release.
+        "intended_use": (
+            "For research use. Issued on one reviewer's sign-off, not released by a quality unit."
+        ),
     },
     "regulated_qc": {
         "investigation": "QCOOSInvestigation",
         "certificate": "QCCertificate",
         "investigation_final": "released",
+        "certificate_final": "released",
+        "issued": "released",
+        "title": "Certificate of analysis",
+        "intended_use": None,
     },
 }
 
@@ -83,6 +95,11 @@ def number(value: object) -> Decimal:
     return amount
 
 
+def kind(criterion: dict[str, Any]) -> str:
+    """A criterion's kind of result: a number against limits, or conforms or not."""
+    return str(criterion.get("kind") or "numeric")
+
+
 def criteria(version: dict[str, Any]) -> dict[str, dict[str, Any]]:
     rows = version["values"].get("criteria") or []
     if not rows:
@@ -90,10 +107,19 @@ def criteria(version: dict[str, Any]) -> dict[str, dict[str, Any]]:
     by_attribute = {}
     for row in rows:
         attribute = row.get("attribute")
-        if not all(str(row.get(field) or "").strip() for field in ("attribute", "method", "unit")):
-            raise ValueError("Every criterion needs an attribute, a method and a unit.")
+        if not all(str(row.get(field) or "").strip() for field in ("attribute", "method")):
+            raise ValueError("Every criterion needs an attribute and a method.")
         if attribute in by_attribute:
             raise ValueError(f"The specification repeats the attribute {attribute}.")
+        if kind(row) == "conforms":
+            if not str(row.get("acceptance") or "").strip():
+                raise ValueError(f"The specification needs the requirement for {attribute}.")
+            if row.get("lower") is not None or row.get("upper") is not None:
+                raise ValueError(f"{attribute} conforms to a requirement: it has no limits.")
+            by_attribute[attribute] = row
+            continue
+        if not str(row.get("unit") or "").strip():
+            raise ValueError(f"The specification needs a reporting unit for {attribute}.")
         lower, upper = (
             number(row[name]) if row.get(name) is not None else None for name in ("lower", "upper")
         )
@@ -240,6 +266,11 @@ def receipt(case: dict[str, Any], test: dict[str, Any], investigation: dict[str,
         raise ValueError("The investigation must belong to this case and the original test.")
     if values.get("review") != final_state:
         raise ValueError("Finish signing the investigation before relying on its decision.")
+    if values.get("resolution") == "inconclusive":
+        raise ValueError(
+            "An inconclusive investigation leaves the original out-of-specification result "
+            "standing, which prevents a passing certificate."
+        )
     if values.get("resolution") != "invalidated":
         raise ValueError("A confirmed out-of-specification result prevents a passing certificate.")
     if not str(values.get("findings") or "").strip():
@@ -254,8 +285,7 @@ def repeat(
     test: dict[str, Any] | None,
     investigation: dict[str, Any] | None,
 ) -> None:
-    attempts = case["values"].get("attempts") or []
-    previous = next((row for row in reversed(attempts) if row["attribute"] == attribute), None)
+    previous = latest_reportable(case, attribute)
     if previous is None:
         if test is not None or investigation is not None:
             raise ValueError(
@@ -272,6 +302,59 @@ def repeat(
     if values.get("case") != case["id"] or any(values.get(k) != v for k, v in previous.items()):
         raise ValueError("The repeat must cite the most recent out-of-specification attempt.")
     receipt(case, test, investigation)
+
+
+def latest_reportable(case: dict[str, Any], attribute: str) -> dict[str, Any] | None:
+    """The attribute's most recent reportable attempt: investigational tests replace nothing."""
+    attempts = case["values"].get("attempts") or []
+    return next(
+        (
+            row
+            for row in reversed(attempts)
+            if row["attribute"] == attribute and row.get("purpose") != "investigational"
+        ),
+        None,
+    )
+
+
+def under_plan(
+    case: dict[str, Any],
+    attribute: str,
+    test: dict[str, Any] | None,
+    investigation: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """An investigational test is run under an open investigation's written plan, into the
+    attribute's most recent reportable result, which is out of specification. It replaces
+    nothing; only a signed invalidation permits a reportable repeat (FDA OOS guidance, §IV)."""
+    if test is not None:
+        raise ValueError("An investigational test repeats nothing. Leave the repeat empty.")
+    previous = latest_reportable(case, attribute)
+    if investigation is None or previous is None or previous["outcome"] != "oos":
+        raise ValueError(
+            "Run an investigational test under the open investigation of the attribute's "
+            "out-of-specification result."
+        )
+    values = investigation["values"]
+    investigated = next(iter(included(investigation, "test")), None)
+    if (
+        values.get("case") != case["id"]
+        or investigated is None
+        or investigated["id"] != values.get("test")
+        or investigated["values"].get("case") != case["id"]
+        or investigated["values"].get("sequence") != previous["sequence"]
+    ):
+        raise ValueError(
+            "Choose the investigation of this attribute's most recent out-of-specification result."
+        )
+    if values.get("review") != "recorded":
+        raise ValueError("The investigation has been submitted or signed: its testing is done.")
+    if not str(values.get("plan") or "").strip():
+        raise ValueError("Write the investigation's testing plan before testing under it.")
+    return {
+        "purpose": "investigational",
+        "investigation": investigation["id"],
+        "investigation_revision": investigation["revision"],
+    }
 
 
 def observation(
@@ -334,40 +417,66 @@ def record_test(run: dict[str, Any]) -> dict[str, Any]:
     if not operator:
         raise ValueError("Recording an observation requires an authenticated run requester.")
     params = run["params"]
-    attribute, method, unit = (params[field] for field in ("attribute", "method", "unit"))
+    attribute, method, unit = params["attribute"], params["method"], params.get("unit")
     criterion = criteria(specification).get(attribute)
     if criterion is None:
         raise ValueError("Choose an attribute named by the pinned specification.")
-    if criterion["method"] != method or criterion["unit"] != unit:
+    if criterion["method"] != method or (criterion.get("unit") or None) != (unit or None):
         raise ValueError("The observed unit and method must match the pinned specification.")
     assessor = optional_input(run, "assay")
     original = optional_input(run, "repeat_of")
     investigation = optional_input(run, "investigation")
-    repeat(case, attribute, original, investigation)
-    reading, evidence = observation(case, params, assessor, criterion)
-    measured = number(reading)
+    investigational = params.get("purpose") == "investigational"
+    if investigational:
+        purpose = under_plan(case, attribute, original, investigation)
+    else:
+        repeat(case, attribute, original, investigation)
+        purpose = {"purpose": "reportable"}
     lower, upper = criterion.get("lower"), criterion.get("upper")
-    # Stored specification bounds are inclusive. Compare the supplied value directly,
-    # without adding a tolerance, rounding across a boundary or averaging repeats.
-    is_outside = (lower is not None and measured < number(lower)) or (
-        upper is not None and measured > number(upper)
-    )
+    typed: dict[str, Any] = {"kind": kind(criterion)}
+    if typed["kind"] == "conforms":
+        # A requirement, such as an identification test's: the analyst says whether what
+        # they saw meets it. An assay's number or a value isn't such a result.
+        if assessor is not None or params.get("value") is not None:
+            raise ValueError(f"{attribute} conforms or doesn't: say which, without a value.")
+        result = params.get("result")
+        if result not in ("conforms", "does_not_conform"):
+            raise ValueError(f"Say whether {attribute} conforms to its requirement.")
+        is_outside = result == "does_not_conform"
+        reading: int | float | None = None
+        evidence: dict[str, Any] = {}
+        typed |= {"result": result, "acceptance": criterion["acceptance"]}
+    else:
+        if params.get("result") is not None:
+            raise ValueError(f"{attribute} is a number: give its observed value.")
+        reading, evidence = observation(case, params, assessor, criterion)
+        measured = number(reading)
+        # Stored specification bounds are inclusive. Compare the supplied value directly,
+        # without adding a tolerance, rounding across a boundary or averaging repeats.
+        is_outside = (lower is not None and measured < number(lower)) or (
+            upper is not None and measured > number(upper)
+        )
+    if seen := str(params.get("observation") or "").strip():
+        typed["observation"] = seen
     attempt = {
         "sequence": len(attempts) + 1,
         "attribute": attribute,
         "outcome": "oos" if is_outside else "pass",
+        **({"purpose": "investigational"} if investigational else {}),
     }
     values = {
         **attempt,
         "case": case["id"],
         "lot": case_values["lot"],
         "method": method,
-        "unit": unit,
+        "unit": unit or None,
         "value": reading,
         "lower": lower,
         "upper": upper,
         "observed_by": operator,
+        **typed,
         **evidence,
+        **purpose,
     }
     if original is not None:
         values["repeat_of"] = original["id"]
@@ -377,10 +486,11 @@ def record_test(run: dict[str, Any]) -> dict[str, Any]:
         values["lab_report"] = report
     parents = [row for row in (case, assessor, original, investigation) if row is not None]
     creates = [create("ReleaseTest", values, *parents, key="measurement")]
-    if is_outside:
-        kind = FLOWS[case_values["review_flow"]]["investigation"]
+    # The open investigation covers an investigational result outside the limits.
+    if is_outside and not investigational:
+        investigated = FLOWS[case_values["review_flow"]]["investigation"]
         creates.append(
-            create(kind, {"case": case["id"], "test": {"$create": "measurement"}}, *parents)
+            create(investigated, {"case": case["id"], "test": {"$create": "measurement"}}, *parents)
         )
     return output("case", case, {"attempts": [*attempts, attempt]}, *creates)
 
@@ -409,6 +519,7 @@ def review_attempts(
     if len(exceptions) != len(investigations):
         raise ValueError("Include exactly one investigation for each out-of-specification attempt.")
     previous: dict[str, dict[str, Any]] = {}
+    selected = {row["id"]: row for row in investigations}
     for test, attempt in zip(tests, expected, strict=True):
         values = test["values"]
         if (
@@ -419,6 +530,20 @@ def review_attempts(
             raise ValueError("The selected attempts do not match this case's recorded evidence.")
         attribute = attempt["attribute"]
         prior = previous.get(attribute)
+        if attempt.get("purpose") == "investigational":
+            # It informs the investigation of the reportable result before it, which the
+            # selection must hold, and stays out of the attribute's chain.
+            held = selected.get(values.get("investigation"))
+            if (
+                prior is None
+                or values.get("repeat_of") is not None
+                or held is None
+                or held["values"].get("test") != prior["id"]
+            ):
+                raise ValueError(
+                    "Include the investigation every investigational test was run under."
+                )
+            continue
         if values.get("repeat_of") != (prior["id"] if prior else None) or (
             prior and prior["values"]["outcome"] != "oos"
         ):
@@ -444,6 +569,92 @@ def review_attempts(
         )
 
 
+#: A final result's fields the certificate states, where the test has them.
+STATED = ("attribute", "method", "unit", "lower", "upper", "value", "kind", "acceptance", "result")
+
+
+def statement(
+    case: dict[str, Any],
+    lot: dict[str, Any],
+    specification: dict[str, Any],
+    tests: list[dict[str, Any]],
+    issuer: str | None,
+) -> dict[str, Any]:
+    """What the issued certificate states (ICH Q7 §11.4): its issuer, the lot and its
+    dates, the specification, and each criterion's limits and final reportable result.
+    Failed attempts, investigations and analysts stay in the evidence."""
+    values = case["values"]
+    flow = FLOWS[values["review_flow"]]
+    final: dict[str, dict[str, Any]] = {}
+    for test in tests:
+        if test["values"].get("purpose") != "investigational":
+            final[test["values"]["attribute"]] = test
+    lot_values = lot["values"]
+    return {
+        "format": "iki/coa/v2",
+        "title": flow["title"],
+        **({"intended_use": flow["intended_use"]} if flow["intended_use"] else {}),
+        **({"issuer": issuer} if issuer else {}),
+        "lot": {
+            "lot_number": values["lot_number"],
+            "hrid": lot["hrid"],
+            # Read when the certificate was prepared, from the lot's current revision.
+            "revision": lot["revision"],
+            **{
+                name: lot_values[name]
+                for name in ("made_on", "retest_on", "expires_on")
+                if lot_values.get(name)
+            },
+        },
+        "specification": {
+            "version": values["version"],
+            "hrid": specification["hrid"],
+            "revision": specification["revision"],
+            "effective_from": specification["values"]["effective_from"],
+            "source": specification["values"]["source"],
+        },
+        "testing_on": values["testing_on"],
+        # The results as stated, without the records they came from: those stay in the
+        # evidence, on the certificate record.
+        "results": [
+            {
+                k: final[name]["values"][k]
+                for k in STATED
+                if final[name]["values"].get(k) is not None
+            }
+            for name in criteria(specification)
+        ],
+        # The certificate of analysis's own issuing state, not its record's.
+        "issue": {"state": flow["issued"]},
+    }
+
+
+def digest(coa: dict[str, Any]) -> str:
+    """The SHA-256 of a certificate's canonical JSON, which links its record to it."""
+    text = json.dumps(coa, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def issue_certificate(run: dict[str, Any]) -> dict[str, Any]:
+    """The certificate of analysis a finally signed certificate record states, signed on its
+    own when it's issued: its export holds only what it states (ICH Q7 §11.4). The record
+    keeps the evidence, and names the certificate by its digest."""
+    record = run["inputs"]["certificate"][0]
+    values = record["values"]
+    flow = values.get("review_flow")
+    coa = values.get("coa")
+    if flow not in FLOWS or values.get("review") != FLOWS[flow]["certificate_final"]:
+        raise ValueError("Finish signing the certificate record before issuing its certificate.")
+    if not isinstance(coa, dict) or digest(coa) != values.get("coa_digest"):
+        raise ValueError("The certificate record's certificate doesn't match its digest.")
+    issued = {"coa": coa, "digest": values["coa_digest"], "review_flow": flow}
+    return {
+        "apiVersion": "iki/v1",
+        "kind": "RunOutput",
+        "creates": [create("CertificateOfAnalysis", issued, record)],
+    }
+
+
 def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
     case = run["inputs"]["case"][0]
     specification = check_case(case)
@@ -454,9 +665,17 @@ def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
     review_attempts(case, specification, tests, investigations)
     sequence = {test["id"]: test["values"]["sequence"] for test in tests}
     ordered_investigations = sorted(investigations, key=lambda row: sequence[row["values"]["test"]])
+    flow = values["review_flow"]
+    issuer = str(run.get("settings", {}).get("certificate_issuer") or "").strip() or None
+    if flow == "regulated_qc" and issuer is None:
+        raise ValueError(
+            "Set the certificate issuer in the release testing settings: a regulated "
+            "certificate states its manufacturer's name, address and telephone."
+        )
     report = {
-        "format": "iki/coa/v1",
-        "title": "Certificate of analysis",
+        "format": "iki/coa-evidence/v1",
+        "title": "Certificate evidence",
+        "issue": {"state": FLOWS[flow]["certificate_final"]},
         "testing_on": values["testing_on"],
         "case": pin_fields(case, ()),
         "lot": {
@@ -476,13 +695,20 @@ def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
                     "sequence",
                     "attribute",
                     "method",
+                    "kind",
                     "unit",
                     "value",
                     "lower",
                     "upper",
+                    "acceptance",
+                    "result",
+                    "observation",
                     "outcome",
                     "observed_by",
                     "repeat_of",
+                    "purpose",
+                    "investigation",
+                    "investigation_revision",
                     "evidence",
                     "evidence_revision",
                     "lab_report",
@@ -491,7 +717,7 @@ def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
             for test in tests
         ],
         "investigations": [
-            pin_fields(investigation, ("test", "resolution", "findings", "evidence"))
+            pin_fields(investigation, ("test", "resolution", "plan", "findings", "evidence"))
             for investigation in ordered_investigations
         ],
     }
@@ -505,7 +731,9 @@ def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
         "review_flow": values["review_flow"],
         "analysts": sorted({test["values"]["observed_by"] for test in tests}),
         "report": report,
+        "coa": statement(case, lot, specification, tests, issuer),
     }
+    certificate["coa_digest"] = digest(certificate["coa"])
     kind = FLOWS[values["review_flow"]]["certificate"]
     # The signed records above are permanently locked. A newly recorded test races this
     # seal on the case revision and either invalidates the preparation or is refused.
@@ -522,6 +750,7 @@ ACTIONS = {
     "open_release": open_release,
     "record_test": record_test,
     "prepare_certificate": prepare_certificate,
+    "issue_certificate": issue_certificate,
 }
 
 

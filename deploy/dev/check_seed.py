@@ -52,6 +52,7 @@ def check_seed(atlas: Project) -> None:
     require("iki/plate_assays.ResearchAssayResult", 2, signature="signed")
     require("iki/reagents.CountStockLot", 2)
     require("iki/qc_release.ResearchCertificate", signature="signed_off")
+    require("iki/qc_release.CertificateOfAnalysis", signature="issued")
     require("iki/sequencing.FASTQSummary", signature="signed_off")
     require("iki/sequencing_analysis.SequencingAnalysisResult")
     require("iki/proteomics.ProteomicsResult")

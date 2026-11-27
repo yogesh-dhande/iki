@@ -15,7 +15,16 @@ effects:
   updates:
     - input: lot
       fields:
-        [dar, distribution_dar, unconjugated, a280_extinction, a280_concentration, concentration]
+        [
+          dar,
+          distribution_dar,
+          unconjugated,
+          a280_extinction,
+          a280_basis,
+          a280_estimate,
+          a280_concentration,
+          concentration,
+        ]
 runs_on: { tier: backend, environment: lot-tools }
 command: [python, ./scripts/lots.py, conjugate]
 deterministic: true

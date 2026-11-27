@@ -3434,3 +3434,49 @@ fields:
         ("schema", ("fields", "label", "type")),
         ("unknown-type", ("fields", "unknown", "to")),
     ]
+
+
+#: A prepared draw target (ADR 0243): its planned amount a float in the unit its record names.
+DRAW_TARGET = """\
+draw_target:
+  from: tube
+  source: lot
+  state: { field: status, is: waiting }
+  by: [analyst]
+  ready: prepared
+  amount: amount
+  unit: amount_unit
+fields:
+  tube: { type: ref, to: iki/core.Entity, required: true, immutable: true }
+  lot: { type: ref, to: iki/core.Entity, required: true, immutable: true }
+  prepared: { type: int, computed: true }
+  amount: { type: float, min: 0.000001, required: true, immutable: true }
+  amount_unit: { type: enum, values: [uL, ug], required: true, immutable: true }
+  status:
+    type: state
+    initial: waiting
+    states:
+      waiting: { label: Waiting }
+      done: { label: Done, set_by: [analyst] }
+"""
+
+
+def test_a_draw_targets_planned_amount_can_name_its_unit(tmp_path: Path) -> None:
+    result = make(tmp_path, TYPE + DRAW_TARGET, ROLES)
+    assert codes(result) == []
+    assert result.plugin is not None
+    target = result.plugin.types["acme/lab.Assay"].draw_target
+    assert target is not None and (target.amount, target.unit) == ("amount", "amount_unit")
+    assert plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin)))) == result.plugin
+
+    def problems(old: str, new: str) -> list[str]:
+        return codes(make(tmp_path, TYPE + DRAW_TARGET.replace(old, new), ROLES))
+
+    # A unit beside a quantity, or a float without one, says two units or none.
+    quantity = "amount: { type: quantity, unit: uL,"
+    assert problems("amount: { type: float,", quantity) == ["invalid-draw-target"]
+    assert problems("  unit: amount_unit\n", "") == ["invalid-draw-target"]
+    # The unit is fixed with the plan, like the amount.
+    assert problems(
+        "required: true, immutable: true }\n  status", "required: true }\n  status"
+    ) == ["invalid-draw-target"]

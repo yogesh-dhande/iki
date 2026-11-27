@@ -14,7 +14,13 @@ description: >-
 inputs:
   lot: { type: ProteinLot, schema: ">=1", include: [protein] }
 effects:
-  updates: [{ input: lot, fields: [a280_extinction, a280_concentration, concentration] }]
+  updates:
+    [
+      {
+        input: lot,
+        fields: [a280_extinction, a280_basis, a280_estimate, a280_concentration, concentration],
+      },
+    ]
 runs_on: { tier: backend, environment: lot-tools }
 command: [python, ./scripts/lots.py, protein]
 deterministic: true

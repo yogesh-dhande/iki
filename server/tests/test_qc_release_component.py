@@ -28,8 +28,9 @@ SODIUM_CHLORIDE: dict[str, Any] = {
     "upper": 100.5,
 }
 REPORT: dict[str, Any] = {
-    "format": "iki/coa/v1",
-    "title": "Certificate of analysis",
+    "format": "iki/coa-evidence/v1",
+    "title": "Certificate evidence",
+    "issue": {"state": "released"},
     "testing_on": "2026-11-22",
     "lot": {"id": "lot", "hrid": "GLOT-000001", "revision": 2, "lot_number": "Synthetic lot A"},
     "specification": {
@@ -49,6 +50,18 @@ REPORT: dict[str, Any] = {
             "value": 98.8,
             "outcome": "oos",
         },
+        # Run under the open investigation's plan: it informs it and replaces nothing.
+        {
+            **SODIUM_CHLORIDE,
+            "id": "test-retest",
+            "hrid": "QRT-000003",
+            "revision": 1,
+            "value": 98.6,
+            "outcome": "oos",
+            "purpose": "investigational",
+            "investigation": "investigation",
+            "investigation_revision": 2,
+        },
         {
             **SODIUM_CHLORIDE,
             "id": "test-repeat",
@@ -58,6 +71,19 @@ REPORT: dict[str, Any] = {
             "outcome": "pass",
             "repeat_of": "test-failed",
         },
+        # USP Sodium Chloride's Identification A, a requirement it meets or doesn't.
+        {
+            "id": "test-identity",
+            "hrid": "QRT-000003",
+            "revision": 1,
+            "attribute": "Identification A (sodium)",
+            "method": "USP <191> Identification Tests—General, Sodium",
+            "kind": "conforms",
+            "acceptance": "Meets the requirements",
+            "result": "conforms",
+            "observation": "Synthetic: an intense yellow flame.",
+            "outcome": "pass",
+        },
     ],
     "investigations": [
         {
@@ -66,9 +92,30 @@ REPORT: dict[str, Any] = {
             "revision": 5,
             "test": "test-failed",
             "resolution": "invalidated",
+            "plan": "Retest the original preparation once on a second titrator.",
             "findings": "The recorded dilution factor came from a different sample.",
         }
     ],
+}
+
+
+#: What a research certificate states: the final result, and that it's for research.
+COA: dict[str, Any] = {
+    "format": "iki/coa/v2",
+    "title": "Research certificate of analysis",
+    "intended_use": "For research use. Issued on one reviewer's sign-off, not released by a "
+    "quality unit.",
+    "lot": {"lot_number": "Synthetic lot A", "hrid": "GLOT-000001", "revision": 3},
+    "specification": {
+        "version": "USP 2015",
+        "hrid": "QSV-000001",
+        "revision": 2,
+        "effective_from": "2015-12-01",
+        "source": USP,
+    },
+    "testing_on": "2026-11-22",
+    "results": [{**SODIUM_CHLORIDE, "value": 99.1}],
+    "issue": {"state": "issued"},
 }
 
 
@@ -89,7 +136,7 @@ def test_the_certificate_works_under_the_component_policy(browser: Browser) -> N
             {"values": {"report": REPORT, "review": "released"}},
             viewport=PHONE,
         )
-        expect(page.get_by_role("status")).to_have_text("Issued certificate")
+        expect(page.get_by_role("status")).to_have_text("Signed certificate record")
         assert page.evaluate("window.refused") == []
         assert ERRORS[page] == []
         page.context.close()
@@ -109,21 +156,65 @@ def test_certificate_preserves_the_original_result_and_investigation(
             color_scheme=scheme,
             bypass_csp=True,  # axe needs its own script in the frame.
         )
-        expect(page.get_by_role("status")).to_have_text("Draft awaiting signed issue")
+        expect(page.get_by_role("heading", level=2)).to_have_text("Certificate record")
+        expect(page.get_by_role("status")).to_have_text("Certificate record awaiting signatures")
         expect(page.get_by_text("USP 2015 · QSV-000001 · revision 2")).to_be_visible()
         expect(page.get_by_text("98.8 %")).to_be_visible()
-        expect(page.get_by_text("Out of specification")).to_be_visible()
-        expect(page.get_by_text("QOI-000001 · revision 5")).to_be_visible()
+        expect(page.get_by_text("Out of specification")).to_have_count(2)
+        expect(page.get_by_text("QOI-000001 · revision 5", exact=True)).to_be_visible()
         expect(page.get_by_text("99.1 %")).to_be_visible()
+        retest = page.get_by_role("listitem").filter(has_text="QRT-000003")
+        expect(retest.get_by_text("QOI-000001 · revision 5 · plan revision 2")).to_be_visible()
+        expect(page.get_by_text(REPORT["investigations"][0]["plan"])).to_be_visible()
         expect(page.get_by_text(REPORT["investigations"][0]["findings"])).to_be_visible()
+        identity = page.get_by_role("listitem").filter(has_text="Identification A (sodium)")
+        expect(identity.get_by_text("Meets the requirements", exact=True)).to_be_visible()
+        expect(identity.get_by_text("Conforms", exact=True)).to_be_visible()
+        expect(identity.get_by_text("Synthetic: an intense yellow flame.")).to_be_visible()
         accessible(page)
 
-        for state in ("signed_off", "released"):
+        # It's final in the state its procedure named, and no other.
+        for state, shown in (
+            ("signed_off", "Certificate record awaiting signatures"),
+            ("released", "Signed certificate record"),
+        ):
             page.evaluate(
                 "values => { document.querySelector('release-certificate').entity = {values}; }",
                 {"report": REPORT, "review": state},
             )
-            expect(page.get_by_role("status")).to_have_text("Issued certificate")
+            expect(page.get_by_role("status")).to_have_text(shown)
+        page.context.close()
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_a_certificate_states_its_final_results_apart_from_its_evidence(
+    browser: Browser, scheme: str
+) -> None:
+    with serving(COMPONENTS, {"certificate.js": "release-certificate"}) as origin:
+        page = open_frame(
+            browser,
+            origin,
+            "certificate.js",
+            {"values": {"coa": COA, "digest": "0" * 64, "review": "recorded"}},
+            viewport=PHONE,
+            color_scheme=scheme,
+            bypass_csp=True,  # axe needs its own script in the frame.
+        )
+        expect(page.get_by_role("heading", level=2)).to_have_text(COA["title"])
+        expect(page.get_by_role("status")).to_have_text("Draft awaiting signed issue")
+        expect(page.get_by_text(COA["intended_use"])).to_be_visible()
+        results = page.get_by_role("heading", name="Results")
+        expect(results).to_be_visible()
+        # A certificate of analysis holds no evidence to show.
+        expect(page.get_by_role("heading", name="Evidence")).to_have_count(0)
+        stated = page.get_by_role("listitem").filter(has_text="99.1 %").first
+        expect(stated.get_by_text("99–100.5 %")).to_be_visible()
+        accessible(page)
+        page.evaluate(
+            "values => { document.querySelector('release-certificate').entity = {values}; }",
+            {"coa": COA, "review": "issued"},
+        )
+        expect(page.get_by_role("status")).to_have_text("Issued certificate")
         page.context.close()
 
 
@@ -169,6 +260,24 @@ def test_certificate_preserves_the_original_result_and_investigation(
             "Invalidated",
             None,
             None,
+        ),
+        (
+            "test-investigations",
+            {
+                "hrid": "QOI-000002",
+                "title": "OOS investigation",
+                "values": {"resolution": "inconclusive"},
+            },
+            "Inconclusive",
+            None,
+            None,
+        ),
+        (
+            "release-tests",
+            {"hrid": "QRT-000003", "values": REPORT["tests"][1]},
+            "Out of specification · Investigational",
+            "iki/qc_release.record_test",
+            "Record a release test",
         ),
     ],
 )

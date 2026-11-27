@@ -1,0 +1,75 @@
+apiVersion: iki/v1
+kind: EntityType
+name: CertificateOfAnalysis
+label: Certificate of analysis
+label_plural: Certificates of analysis
+schema_version: 1
+hrid: { prefix: COA }
+description: >-
+  What the lab issues to a lot's recipient: the issuer, the lot and its dates, the
+  specification, and each criterion's limits and final result (ICH Q7 §11.4). It is signed
+  on its own, so its signed export carries nothing else. The evidence stays on the
+  certificate record it was issued from.
+exports: [{ export: signed_report, report: coa, review: review, issued: [issued, released] }]
+fields:
+  coa:
+    type: json
+    label: Certificate
+    computed: true
+    immutable: true
+    description: The certificate as its reviewed certificate record states it.
+  digest:
+    type: string
+    label: SHA-256
+    max_length: 64
+    computed: true
+    immutable: true
+    indexed: true
+    description: >-
+      The SHA-256 of the certificate's canonical JSON. Its certificate record holds the
+      same digest, which links the two inside Iki.
+  review_flow:
+    type: enum
+    label: Review procedure
+    values: [research, regulated_qc]
+    computed: true
+    immutable: true
+  review:
+    type: state
+    initial: recorded
+    states:
+      recorded: { label: Prepared }
+      issued:
+        label: Issued
+        set_by: [reviewer]
+        locks: true
+        signatures:
+          - meaning: approval
+            label: Issue
+            statement: I issue this certificate of analysis as its signed certificate record states it.
+        guards:
+          research:
+            check: state.from == "recorded" && record.review_flow == "research"
+            message: A research certificate is issued by its reviewer.
+      released:
+        label: Issued by QA
+        set_by: [qa]
+        locks: true
+        signatures:
+          - meaning: approval
+            label: QA issue
+            statement: I issue this certificate of analysis as its QA-approved certificate record states it.
+        guards:
+          regulated:
+            check: state.from == "recorded" && record.review_flow == "regulated_qc"
+            message: A regulated certificate is issued by Release Testing QA.
+rules:
+  issued_from_its_record:
+    label: The certificate is issued from its signed certificate record
+    check: record.coa != null && record.digest != null && record.review_flow != null
+    message: Issue the certificate from its signed certificate record.
+  issued_once:
+    label: A certificate is issued once
+    unique: [digest]
+    message: This certificate has been issued already. Export it again to send another copy.
+display: { title: "Certificate of analysis · {{ hrid }}" }

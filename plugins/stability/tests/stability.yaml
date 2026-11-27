@@ -20,9 +20,9 @@ inputs:
               humidity: 60,
               humidity_tolerance: 5,
             }
-        time_points: [{ month: 1, days_before: 2, days_after: 3 }]
+        time_points: [{ code: M1, interval: 1, unit: month, days_before: 2, days_after: 3 }]
         assignments:
-          - { condition: long_term, month: 1, volume_ul: 12 }
+          - { condition: long_term, time_point: M1, replicate: 1, amount: 12, amount_unit: uL }
         tests: [{ test: Demo peak area, method: Synthetic method v1, unit: AU }]
       included:
         lot:
@@ -40,9 +40,15 @@ expect:
     creates:
       - type: iki/stability.Pull
         values:
-          month: 1
+          time_point: M1
+          interval: 1
+          interval_unit: month
+          elapsed_days: 29
+          replicate: 1
+          tests: [Demo peak area]
           condition_label: Long term
-          volume_ul: 12
+          amount: 12
+          amount_unit: uL
           study_revision: 1
           opens_on: "2028-02-27"
           due_on: "2028-02-29"
@@ -71,7 +77,10 @@ inputs:
         study: 00000000-0000-7000-8003-000000000015
         condition: long_term
         condition_label: Long term
-        month: 1
+        time_point: M1
+        elapsed_days: 29
+        replicate: 1
+        tests: [Demo peak area]
         pulled_on: "2028-02-29"
       included:
         study:
@@ -85,9 +94,200 @@ expect:
       - type: iki/stability.Measurement
         values:
           pulled_on: "2028-02-29"
-          month: 1
+          time_point: M1
+          elapsed_days: 29
+          replicate: 1
           condition: long_term
           method: Synthetic method v1
           unit: AU
           value: 1.25
           review_flow: regulated_qc
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: schedule_a_matrixed_design_in_weeks_and_months
+description: >-
+  A reduced design (ICH Q1D) with the ICH Q1A(R2) §2.1.7.1 long-term and accelerated
+  conditions: long term at 0 and 3 months, in duplicate at 3; accelerated only at 2
+  weeks, by mass at the tube's concentration; appearance only at the start. It says why
+  in its design justification. Dates, tubes, amounts and tests are synthetic.
+action: schedule_pulls
+settings: { review_flow: research }
+inputs:
+  study:
+    - values:
+        name: Synthetic matrixed study
+        material: 00000000-0000-7000-8003-000000000011
+        starts_on: "2028-01-31"
+        owner: 00000000-0000-7000-8003-000000000013
+        conditions:
+          - { code: long_term, label: Long term, temperature: 25, humidity: 60 }
+          - { code: accelerated, label: Accelerated, temperature: 40, humidity: 75 }
+        time_points:
+          - { code: T0, interval: 0, unit: month, days_before: 0, days_after: 0 }
+          - { code: W2, interval: 2, unit: week, days_before: 1, days_after: 1 }
+          - { code: M3, interval: 3, unit: month, days_before: 7, days_after: 7 }
+        assignments:
+          - { condition: long_term, time_point: T0, replicate: 1, amount: 20, amount_unit: uL }
+          - { condition: long_term, time_point: M3, replicate: 1, amount: 20, amount_unit: uL }
+          - { condition: long_term, time_point: M3, replicate: 2, amount: 20, amount_unit: uL }
+          - { condition: accelerated, time_point: W2, replicate: 1, amount: 50, amount_unit: ug }
+        tests:
+          - { test: Assay, method: Synthetic HPLC v2, unit: "%" }
+          - { test: Appearance, method: Synthetic visual v1, unit: description }
+        test_plan:
+          - { condition: long_term, time_point: T0, test: Assay }
+          - { condition: long_term, time_point: T0, test: Appearance }
+          - { condition: long_term, time_point: M3, test: Assay }
+          - { condition: accelerated, time_point: W2, test: Assay }
+        design_justification: >-
+          Synthetic: matrixing per protocol section 4.2; appearance is stable from T0.
+      included:
+        lot:
+          - type: iki/lots.GenericLot
+            values: { of: 00000000-0000-7000-8003-000000000011 }
+        assignments.tube:
+          - values: { contents: 00000000-0000-7000-8003-000000000002 }
+          - values: { contents: 00000000-0000-7000-8003-000000000002 }
+          - values: { contents: 00000000-0000-7000-8003-000000000002 }
+          - values: { contents: 00000000-0000-7000-8003-000000000002 }
+expect:
+  output:
+    creates:
+      - type: iki/stability.Pull
+        values:
+          condition: accelerated
+          time_point: W2
+          interval_unit: week
+          elapsed_days: 14
+          amount: 50
+          amount_unit: ug
+          tests: [Assay]
+          due_on: "2028-02-14"
+      - type: iki/stability.Pull
+        values:
+          condition: long_term
+          time_point: T0
+          elapsed_days: 0
+          tests: [Assay, Appearance]
+          due_on: "2028-01-31"
+      - type: iki/stability.Pull
+        values:
+          condition: long_term
+          time_point: M3
+          replicate: 1
+          elapsed_days: 90
+          tests: [Assay]
+          due_on: "2028-04-30"
+      - type: iki/stability.Pull
+        values: { condition: long_term, time_point: M3, replicate: 2, due_on: "2028-04-30" }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: refuse_a_reduced_design_without_its_justification
+description: A design that skips the accelerated condition at month 3 says why first.
+action: schedule_pulls
+inputs:
+  study:
+    - values:
+        name: Synthetic unjustified study
+        material: 00000000-0000-7000-8003-000000000011
+        starts_on: "2028-01-31"
+        owner: 00000000-0000-7000-8003-000000000013
+        conditions:
+          - { code: long_term, label: Long term, temperature: 25 }
+          - { code: accelerated, label: Accelerated, temperature: 40 }
+        time_points:
+          - { code: T0, interval: 0, unit: month, days_before: 0, days_after: 0 }
+          - { code: M3, interval: 3, unit: month, days_before: 7, days_after: 7 }
+        assignments:
+          - { condition: long_term, time_point: T0, replicate: 1, amount: 20, amount_unit: uL }
+          - { condition: long_term, time_point: M3, replicate: 1, amount: 20, amount_unit: uL }
+          - { condition: accelerated, time_point: T0, replicate: 1, amount: 20, amount_unit: uL }
+        tests: [{ test: Assay, method: Synthetic HPLC v2, unit: "%" }]
+      included:
+        lot:
+          - type: iki/lots.GenericLot
+            values: { of: 00000000-0000-7000-8003-000000000011 }
+        assignments.tube:
+          - values: { contents: 00000000-0000-7000-8003-000000000002 }
+          - values: { contents: 00000000-0000-7000-8003-000000000002 }
+expect:
+  error: >-
+    This design doesn't pull or test every condition at every time point: say why in its
+    design justification, as its protocol does (ICH Q1D).
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: refuse_a_test_the_protocol_doesnt_plan_at_this_pull
+action: record_measurement
+params: { test: Appearance, value: 1 }
+inputs:
+  pull:
+    - values:
+        status: pulled
+        study_revision: 1
+        pulled_on: "2028-04-30"
+        tests: [Assay]
+      included:
+        study:
+          - values:
+              review_flow: research
+              scheduled: true
+              tests:
+                - { test: Assay, method: Synthetic HPLC v2, unit: "%" }
+                - { test: Appearance, method: Synthetic visual v1, unit: description }
+expect: { error: The protocol doesn't plan Appearance at this pull. }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: an_appearance_conforms_or_it_doesnt
+description: >-
+  A synthetic appearance test, which conforms to its description or doesn't (ICH Q6A
+  §3.2.1 a): recorded with what was seen and no value. A value for it is refused.
+action: record_measurement
+params: { test: Appearance, result: does_not_conform, observation: Synthetic yellow tint. }
+inputs:
+  pull:
+    - values:
+        status: pulled
+        study_revision: 1
+        study: 00000000-0000-7000-8003-000000000015
+        condition: accelerated
+        condition_label: Accelerated
+        time_point: M3
+        elapsed_days: 90
+        replicate: 1
+        tests: [Appearance]
+        pulled_on: "2028-04-30"
+      included:
+        study:
+          - values:
+              review_flow: research
+              scheduled: true
+              tests: [{ test: Appearance, method: Synthetic visual v1, kind: conforms }]
+expect:
+  output:
+    creates:
+      - type: iki/stability.Measurement
+        values:
+          test: Appearance
+          kind: conforms
+          result: does_not_conform
+          observation: Synthetic yellow tint.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: refuse_a_value_for_a_conforming_test
+action: record_measurement
+params: { test: Appearance, value: 1 }
+inputs:
+  pull:
+    - values: { status: pulled, study_revision: 1, pulled_on: "2028-04-30", tests: [Appearance] }
+      included:
+        study:
+          - values:
+              review_flow: research
+              scheduled: true
+              tests: [{ test: Appearance, method: Synthetic visual v1, kind: conforms }]
+expect: { error: "Appearance conforms or doesn't: say which, without a value." }

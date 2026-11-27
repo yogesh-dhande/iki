@@ -36,14 +36,27 @@ function summary(item) {
   const v = item.values;
   if (v.attribute) {
     const out = v.outcome === "pass" ? "Pass" : "Out of specification";
-    return [v.attribute, `${v.value} ${v.unit} · ${out} · ${v.method}`];
+    // A conforming result says whether it met its requirement; a number, its value.
+    const seen =
+      v.kind === "conforms"
+        ? v.result === "conforms"
+          ? "Conforms"
+          : "Does not conform"
+        : `${v.value} ${v.unit}`;
+    // An investigational test informs its investigation and replaces nothing.
+    const role = v.purpose === "investigational" ? " · Investigational" : "";
+    return [v.attribute, `${seen} · ${out}${role} · ${v.method}`];
   }
   if (v.version) {
     const state = v.sealed == null ? "" : v.sealed ? " · Certificate prepared" : " · Testing open";
     return [item.title, `Specification ${v.version} · ${v.testing_on}${state}`];
   }
-  const resolution = v.resolution === "invalidated" ? "Invalidated" : "Confirmed";
-  return [item.title, v.resolution ? resolution : "Investigation open"];
+  const decisions = {
+    invalidated: "Invalidated",
+    confirmed: "Confirmed",
+    inconclusive: "Inconclusive",
+  };
+  return [item.title, decisions[v.resolution] ?? "Investigation open"];
 }
 
 class ReleaseRecords extends HTMLElement {

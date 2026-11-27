@@ -99,8 +99,8 @@ def test_a_tube_can_supply_repeated_pulls_only_under_one_storage_condition(
     schedule = runpy.run_path(str(PLUGIN / "scripts" / "stability.py"))["schedule"]
     study = schedule_input["inputs"]["study"][0]
     values = study["values"]
-    values["time_points"].append({**values["time_points"][0], "month": 2})
-    values["assignments"].append({**values["assignments"][0], "month": 2})
+    values["time_points"].append({**values["time_points"][0], "code": "M2", "interval": 2})
+    values["assignments"].append({**values["assignments"][0], "time_point": "M2"})
     assert len(schedule(schedule_input)["creates"]) == 2
     values["conditions"].append(
         {**values["conditions"][0], "code": "accelerated", "temperature": 40}
@@ -163,7 +163,7 @@ def exercise_stability() -> None:
         inchikey="BSYNRYMUTXBXSQ-UHFFFAOYSA-N",
     )
     lot = make("iki/lots.GenericLot", lot_number="Synthetic lot", of=str(compound.pk))
-    container = make("iki/inventory.Box", name="Stability box", rows=1, columns=2)
+    container = make("iki/inventory.Box", name="Stability box", rows=1, columns=3)
     tube = make("iki/inventory.Tube", barcode="STUDY-001", contents=str(lot.pk))
     wrong_tube = make("iki/inventory.Tube", barcode="STUDY-002", contents=str(lot.pk))
     for item in [tube, wrong_tube]:
@@ -218,9 +218,18 @@ def exercise_stability() -> None:
                     "humidity_tolerance": 5,
                 }
             ],
-            time_points=[{"month": 0, "days_before": 0, "days_after": 0}],
+            time_points=[
+                {"code": "T0", "interval": 0, "unit": "month", "days_before": 0, "days_after": 0}
+            ],
             assignments=[
-                {"condition": "long_term", "month": 0, "tube": str(tube.pk), "volume_ul": 12}
+                {
+                    "condition": "long_term",
+                    "time_point": "T0",
+                    "replicate": 1,
+                    "tube": str(tube.pk),
+                    "amount": 12,
+                    "amount_unit": "uL",
+                }
             ],
             tests=[{"test": "Demo peak area", "method": "Synthetic method v1", "unit": "AU"}],
         )
@@ -371,3 +380,83 @@ def exercise_stability() -> None:
     set_status(missed, "missed", "Illustrative missing sample")
     with pytest.raises(amounts.Wrong, match="not awaiting a draw"):
         draw(missed)
+
+    # A reduced design (ADR 0243): accelerated at the start and after a week, long term
+    # only at the start, its accelerated pulls planned by mass from a 2 mg/mL tube, so
+    # 50 ug is 25 uL. The ICH Q1A(R2) condition is public; the rest is synthetic.
+    solution = make(
+        "iki/inventory.Tube", barcode="STUDY-003", contents=str(lot.pk), concentration=2
+    )
+    amounts.adjust(
+        editor,
+        solution,
+        amounts.Given.of({"value": 100, "unit": "uL"}),
+        reason="Fixture",
+        expected_revision=amounts.UNRECORDED_REVISION,
+    )
+    storage.move(editor, [storage.Wanted(solution, container, "A3")], reason="Place it")
+    accelerated = {"code": "accelerated", "label": "Accelerated", "temperature": 40}
+    point = {"days_before": 0, "days_after": 7}
+    reduced = {
+        "name": "Illustrative reduced study",
+        "material": str(compound.pk),
+        "lot": str(lot.pk),
+        "protocol": "Stability protocol",
+        "protocol_revision": "04",
+        "starts_on": today.isoformat(),
+        "owner": str(editor.pk),
+        "conditions": [{"code": "long_term", "label": "Long term", "temperature": 25}, accelerated],
+        "time_points": [
+            {"code": "T0", "interval": 0, "unit": "month", **point},
+            {"code": "W1", "interval": 1, "unit": "week", **point},
+        ],
+        "assignments": [
+            {
+                "condition": "long_term",
+                "time_point": "T0",
+                "replicate": 1,
+                "tube": str(tube.pk),
+                "amount": 12,
+                "amount_unit": "uL",
+            },
+            *(
+                {
+                    "condition": "accelerated",
+                    "time_point": code,
+                    "replicate": 1,
+                    "tube": str(solution.pk),
+                    "amount": 50,
+                    "amount_unit": "ug",
+                }
+                for code in ("T0", "W1")
+            ),
+        ],
+        "tests": [{"test": "Demo peak area", "method": "Synthetic method v1", "unit": "AU"}],
+    }
+    unjustified = make(PREFIX + "Study", **reduced)
+    run, doc = start("schedule_pulls", "study", unjustified)
+    with pytest.raises(ValueError, match="design justification"):
+        workflow.schedule(doc)
+    sparse = make(
+        PREFIX + "Study",
+        **reduced,
+        design_justification="Synthetic: matrixed per protocol section 4.2.",
+    )
+    run, doc = start("schedule_pulls", "study", sparse)
+    commit(run, workflow.schedule(doc))
+    pulls = list(Entity.objects.filter(type=PREFIX + "Pull"))
+    current = services.current_values_of(pulls)
+    planned = {
+        (current[p.pk]["condition"], current[p.pk]["time_point"]): p
+        for p in pulls
+        if current[p.pk]["study"] == sparse.pk
+    }
+    assert sorted(planned) == [("accelerated", "T0"), ("accelerated", "W1"), ("long_term", "T0")]
+    week = current[planned[("accelerated", "W1")].pk]
+    assert week["elapsed_days"] == 7
+    assert str(week["due_on"]) == (today + dt.timedelta(days=7)).isoformat()
+    by_mass = planned[("accelerated", "T0")]
+    with pytest.raises(amounts.Wrong, match="planned amount of 50 ug"):
+        draw(by_mass, source=solution, volume=50, confirm="STUDY-003")
+    taken = draw(by_mass, source=solution, volume=25, confirm="STUDY-003")
+    assert taken.change == -25 and Amount.objects.get(entity=solution).value == 75

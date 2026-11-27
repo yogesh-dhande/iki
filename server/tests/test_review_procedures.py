@@ -270,8 +270,14 @@ def exercise_procedures() -> None:
     )
     assert flow_of(certificate) == "research"
     sign("runner", certificate, "signed_off")
+    # Its certificate of analysis is issued under the research procedure too.
+    coa = made(
+        execute("issue_certificate", {"certificate": [certificate.pk]}), "CertificateOfAnalysis"
+    )
+    assert flow_of(coa) == "research"
+    sign("runner", coa, "issued")
     issued = Api(world.browser("viewer")).get(
-        f"/entities/{certificate.pk}/export", format="signed-report-json"
+        f"/entities/{coa.pk}/export", format="signed-report-json"
     )
     assert issued.status_code == 200, issued.content
     assert len(issued.json()["signatures"]) == 1
