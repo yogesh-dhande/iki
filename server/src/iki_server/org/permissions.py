@@ -221,6 +221,34 @@ class TokenLimits:
         # new ones, nor curate a registry, whose entries are every project's.
         return action is not Action.PROJECT_CREATE and action not in REGISTRY_ACTIONS
 
+    def stored(self) -> dict[str, Any]:
+        """As JSON, for work a task does later for the request (ADR 0152)."""
+        return {
+            "scopes": sorted(self.scopes),
+            "projects": None if self.projects is None else sorted(map(str, self.projects)),
+            "alongside": None if self.alongside is None else str(self.alongside.pk),
+            "only_projects": self.only_projects,
+        }
+
+    @classmethod
+    def restored(cls, data: dict[str, Any]) -> "TokenLimits | None":
+        """The limits :meth:`stored` kept; None when the agent's service account they held
+        to is gone or deactivated, so nothing may be done under them."""
+        from iki_server.accounts.models import User
+
+        alongside = None
+        if data["alongside"] is not None:
+            alongside = User.objects.filter(pk=data["alongside"], is_active=True).first()
+            if alongside is None:
+                return None
+        projects = data["projects"]
+        return cls(
+            scopes=frozenset(data["scopes"]),
+            projects=None if projects is None else frozenset(UUID(p) for p in projects),
+            alongside=alongside,
+            only_projects=data["only_projects"],
+        )
+
     def beyond_projects(self, action: Action) -> bool:
         """Whether it's refused `action` for acting beyond the projects it was given,
         rather than for its scopes."""

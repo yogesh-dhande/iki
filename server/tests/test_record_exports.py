@@ -468,6 +468,50 @@ def test_a_read_only_token_exports(world: World) -> None:
     assert bearer(tokens["access_token"], "GET", f"/entity-exports/{made['id']}").status_code == 200
 
 
+@pytest.mark.parametrize("background", [False, True], ids=["inline", "background"])
+def test_a_token_given_some_projects_exports_only_what_they_hold(
+    world: World, monkeypatch: pytest.MonkeyPatch, *, background: bool
+) -> None:
+    """ADR 0152: a token given some projects reads only what they hold, whether its export
+    is written while the request waits or by a task afterwards. A record its records refer
+    to in another project its person reads isn't read for it."""
+    elsewhere = Project.objects.create(team=world.team, name="Supplier records")
+    for principal in ("editor", "viewer"):
+        ProjectMembership.objects.create(
+            project=elsewhere, user=world.users[principal], role=ProjectRole.EDITOR
+        )
+    supplier: Any = services.create(
+        world.users["editor"],
+        "acme/protein.Protein",
+        elsewhere,
+        {"sequence": HBB, "name": "Haemoglobin beta, the supplier's"},
+    ).entity
+    # Referred to from Kinase Atlas while it was linked there, then unlinked.
+    ProjectLink.objects.create(entity_id=supplier.pk, project=world.project)
+    aspirin = compound(world, *COMPOUNDS[0], supplier=str(supplier.pk))
+    ProjectLink.objects.filter(entity_id=supplier.pk, project=world.project).delete()
+    if background:
+        monkeypatch.setattr(record_exports, "INLINE", 0)
+    _, tokens = signed_in_token(world, "viewer", scope="read", projects=[world.project])
+    token = tokens["access_token"]
+    response = bearer(
+        token,
+        "POST",
+        "/entity-exports",
+        {"format": "sdf", "entities": [aspirin.hrid], "fields": ["supplier"]},
+    )
+    assert response.status_code == (202 if background else 201), response.content
+    if background:
+        assert run_tasks() == 1
+    made = RecordExport.objects.get(pk=response.json()["id"])
+    assert made.state == "ready", made.error
+    read = {str(r) for r in made.references or []}
+    assert not {str(supplier.pk), str(supplier.entry_id)} & read
+    shown = bearer(token, "GET", f"/entity-exports/{made.pk}").json()
+    assert supplier.hrid not in json.dumps(shown)
+    assert bearer(token, "GET", f"/entity-exports/{made.pk}/content").status_code == 302
+
+
 # --- SDF of compounds -----------------------------------------------------------------------------
 
 

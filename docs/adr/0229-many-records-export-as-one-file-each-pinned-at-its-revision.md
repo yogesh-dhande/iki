@@ -146,7 +146,10 @@ ones every type can carry. By default they're the fields all the types share.
 Up to 100 records are written during the request, which answers 201 with the
 export ready. More are written by a task, and the request answers 202. Reading
 the export shows `done` of `count` as the task goes, updated every hundred
-records, and the page shows a progress bar.
+records, and the page shows a progress bar. The task reads as the request
+would have: an export asked for with a token keeps the token's limits (its
+projects, its scopes and an agent's service account, ADR 0152), so what it
+reads, and what its notes and refusals name, is what the token could read.
 
 The file is spooled to disk while it's hashed, then uploaded whole. Nothing is
 served until it's complete. A file past 512 MiB fails the export.

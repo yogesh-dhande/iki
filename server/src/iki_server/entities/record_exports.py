@@ -48,7 +48,7 @@ from iki_server.entities import access, exports, plugin_writers, registry, searc
 from iki_server.entities.models import Entity, ProjectLink, RecordExport, RecordExportState
 from iki_server.entities.sequence_files import Written
 from iki_server.files import storage
-from iki_server.org import holds
+from iki_server.org import holds, permissions
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
 from iki_server.tasks import task
@@ -133,6 +133,7 @@ def start(
             projects=[p.pk for p in projects],
             read_in=sorted(read_in),
             name=name,
+            limits=limits.stored() if (limits := permissions.token_limits(by)) else None,
         )
         audit.record(
             "entities.export_requested",
@@ -316,6 +317,14 @@ def write_record_export(context: TaskContext[Any, Any], export_id: str) -> str:
     # Again if a runner stopped partway: the file is written afresh, to the same key.
     if made.state not in (RecordExportState.QUEUED, RecordExportState.WRITING):
         return str(made.state)
+    # It reads as the request would have: within the token's projects, scopes and agent.
+    if made.limits is not None:
+        limits = permissions.TokenLimits.restored(made.limits)
+        if limits is None:
+            return _failed(
+                made, "The app it was asked for through can no longer read records. Export again."
+            )
+        permissions.limit_to(made.requested_by, limits)
     return _write(made, background=True, last=context.attempt >= ATTEMPTS)
 
 
