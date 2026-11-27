@@ -386,10 +386,16 @@ expect:
   output:
     updates:
       lot:
-        - values: { a280_extinction: 1.2003, concentration: 9.9977 }
+        - values:
+            {
+              a280_extinction: 1.2003,
+              a280_basis: cystines,
+              a280_estimate: true,
+              concentration: 9.9977,
+            }
     messages:
       - level: warning
-        text: "PLOT-000001: its complex's disulfides may not all be counted (its Composition tab says which), so its concentration from its A280 may be off by a cystine's 125 L/(mol·cm) for each."
+        text: "PLOT-000001: its ε280 is an estimate: its complex's disulfides may not all be counted (its Composition tab says which), so its concentration from its A280 may be off by a cystine's 125 L/(mol·cm) for each."
 ---
 apiVersion: iki/v1
 kind: ActionTest

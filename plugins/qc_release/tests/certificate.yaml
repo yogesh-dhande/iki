@@ -2,7 +2,11 @@ apiVersion: iki/v1
 kind: ActionTest
 name: retain_invalidated_evidence_and_pin_the_accepted_repeat
 action: prepare_certificate
-description: Build a regulated certificate from a synthetic out-of-specification observation, its signed invalidation and its passing authorized repeat. Keep both observations.
+description: >-
+  Build a regulated certificate from a synthetic out-of-specification observation, its
+  signed invalidation and its passing authorized repeat. The evidence keeps both
+  observations; the certificate states the repeat, and its synthetic issuer.
+settings: { certificate_issuer: "Synthetic Example Chemicals, 1 Example Way · +1 555 0100" }
 inputs:
   case:
     - values:
@@ -89,9 +93,16 @@ expect:
           version: USP-2015-example
           testing_on: 2024-12-31
           review_flow: regulated_qc
-          report:
-            format: iki/coa/v1
+          coa:
+            format: iki/coa/v2
             title: Certificate of analysis
+            issuer: "Synthetic Example Chemicals, 1 Example Way · +1 555 0100"
+            lot: { lot_number: SYNTHETIC-NACL-01 }
+            results: [{ value: 99.8 }]
+            issue: { state: released }
+          report:
+            format: iki/coa-evidence/v1
+            title: Certificate evidence
             testing_on: 2024-12-31
             lot: { lot_number: SYNTHETIC-NACL-01, revision: 1 }
             tests:
@@ -160,3 +171,65 @@ inputs:
         outcome: pass
         observed_by: 00000000-0000-7000-8005-000000000001
 expect: { error: every attempt }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: issue_a_signed_research_certificate_holding_only_what_it_states
+action: issue_certificate
+description: >-
+  Issue the certificate of analysis a signed-off synthetic research certificate record
+  states. It holds the stated results and the record's digest, and none of the evidence.
+inputs:
+  certificate:
+    - type: iki/qc_release.ResearchCertificate
+      values:
+        review_flow: research
+        review: signed_off
+        coa_digest: 01405d83ff227703ff9eb3efe7ac751ef0276dc00ef436a88b14ac32530ab0c8
+        coa:
+          format: iki/coa/v2
+          title: Research certificate of analysis
+          intended_use: For research use. Issued on one reviewer's sign-off, not released by a quality unit.
+          lot: { lot_number: SYNTHETIC-NACL-01, hrid: LOT-000001, revision: 1 }
+          specification:
+            version: USP-2015-example
+            hrid: QSV-000001
+            revision: 1
+            effective_from: "2024-01-01"
+            source: Synthetic method fixture
+          testing_on: "2024-12-31"
+          results:
+            - attribute: NaCl assay
+              method: USP Sodium Chloride assay (2015)
+              unit: "% NaCl, dried basis"
+              lower: 99.1
+              upper: 100.5
+              value: 99.8
+              result: pass
+          issue: { state: issued }
+        report:
+          format: iki/coa-evidence/v1
+          tests: [{ sequence: 1, value: 98.9, outcome: oos }]
+expect:
+  output:
+    creates:
+      - type: iki/qc_release.CertificateOfAnalysis
+        values:
+          digest: 01405d83ff227703ff9eb3efe7ac751ef0276dc00ef436a88b14ac32530ab0c8
+          review_flow: research
+          coa: { title: Research certificate of analysis, results: [{ value: 99.8 }] }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: refuse_to_issue_from_an_unsigned_certificate_record
+action: issue_certificate
+description: A certificate record awaiting its sign-off can't issue its certificate.
+inputs:
+  certificate:
+    - type: iki/qc_release.ResearchCertificate
+      values:
+        review_flow: research
+        review: recorded
+        coa_digest: 01405d83ff227703ff9eb3efe7ac751ef0276dc00ef436a88b14ac32530ab0c8
+        coa: { format: iki/coa/v2 }
+expect: { error: Finish signing the certificate record }
