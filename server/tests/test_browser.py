@@ -3993,10 +3993,7 @@ def test_a_witness_opens_a_pinned_revision_as_iki_shows_it(open_as: Any, world: 
     assert page.get_by_role("navigation", name="Record").count() == 0
     json = note.get_by_role("link", name="Revision 1 as JSON")
     assert json.get_attribute("href") == f"/api/v1/entities/{dna.pk}/revisions/1"
-    # Its sections are named by their headings, with `aria-labelledby`: Playwright's
-    # Firefox crashes in axe on such a page (see assert_clean), so Chromium and WebKit
-    # check it, and the DOM is the same in every browser.
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
     # Its JSON is the API's answer for the same person, and so is the record as it is now.
     answer = page.request.get(f"/api/v1/entities/{dna.pk}/revisions/1")
     assert answer.ok and answer.json()["values"]["name"] == "abl.dna"
@@ -4018,7 +4015,7 @@ def test_a_witness_opens_a_pinned_revision_as_iki_shows_it(open_as: Any, world: 
         f"/api/v1/entries/{dna_entry}/revisions/1"
     )
     page.get_by_role("region", name="Values at revision 1").get_by_text("ATGGCC").wait_for()
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
     page.context.close()
 
     # Each, at a phone's width, in the light and the dark, fits and passes axe.
@@ -4028,7 +4025,7 @@ def test_a_witness_opens_a_pinned_revision_as_iki_shows_it(open_as: Any, world: 
             phone.set_viewport_size({"width": 390, "height": 844})
             phone.get_by_role("region", name="Values at revision 1").wait_for()
             assert phone.evaluate(NO_SIDEWAYS_SCROLL), (path, scheme)
-            assert_clean(phone, axe_in_firefox=False)
+            assert_clean(phone)
             phone.context.close()
 
     # Someone who can't read the record finds nothing there, as its revision API answers.
