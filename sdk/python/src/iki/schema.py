@@ -350,7 +350,7 @@ class AppliedMappingOut(TypedDict):
 
 
 class AppliedStarterOut(TypedDict):
-    flow: Literal['research', 'regulated_qc']
+    flow: Literal['author_signed', 'research', 'regulated_qc']
     version: str
 
 
@@ -6262,19 +6262,21 @@ class StartedOut(TypedDict):
 
 
 class StarterApplyIn(TypedDict):
-    flow: Literal['research', 'regulated_qc']
+    flow: Literal['author_signed', 'research', 'regulated_qc']
     #: The `plan` its preview returned: what you reviewed. If what applying does has changed since, nothing is applied (409 `starter_plan_changed`, with the `plan` it would apply now).
     plan: str
-    #: The assay project. Requires its Admin role.
+    #: The project to set up. Requires its Admin role.
     project: str
-    #: Each qualified lab role and the assay project membership IDs receiving it.
+    #: Each qualified lab role and the project membership IDs receiving it.
     role_assignments: dict[str, list[str]]
     #: Installed starter version shown at setup.
     version: str
 
 
 class StarterFlowOut(TypedDict):
-    id: Literal['research', 'regulated_qc']
+    id: Literal['author_signed', 'research', 'regulated_qc']
+    #: Required roles whose signatures must come from different people: each group of them needs at least as many people as it has roles.
+    independent_roles: list[str]
     label: str
     #: Qualified lab roles needed to run this flow.
     required_roles: list[str]
@@ -6282,6 +6284,8 @@ class StarterFlowOut(TypedDict):
     result_type: str
     #: The result type's states in this flow, where its one state field has a route per flow. Null: all of them.
     states: NotRequired[list[str] | None]
+    #: What the flow asks of people, in a sentence or two.
+    summary: str
 
 
 class StarterOut(TypedDict):
@@ -6308,10 +6312,10 @@ class StarterRoleOut(TypedDict):
 
 
 class StarterSetupIn(TypedDict):
-    flow: Literal['research', 'regulated_qc']
-    #: The assay project. Requires its Admin role.
+    flow: Literal['author_signed', 'research', 'regulated_qc']
+    #: The project to set up. Requires its Admin role.
     project: str
-    #: Each qualified lab role and the assay project membership IDs receiving it.
+    #: Each qualified lab role and the project membership IDs receiving it.
     role_assignments: dict[str, list[str]]
     #: Installed starter version shown at setup.
     version: str
@@ -6320,7 +6324,7 @@ class StarterSetupIn(TypedDict):
 class StarterSetupOut(TypedDict):
     #: Whether applying this choice would change anything (preview), or did (apply).
     changed: bool
-    flow: Literal['research', 'regulated_qc']
+    flow: Literal['author_signed', 'research', 'regulated_qc']
     #: Lab role grants missing when the setup was checked, by membership ID.
     grants_to_add: dict[str, list[str]]
     #: Identifies this plan: what the setup was, and every change applying makes. Send it to apply what was reviewed.

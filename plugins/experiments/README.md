@@ -6,8 +6,10 @@ notebook in the ELN.
 
 ## Record the work
 
-1. Create an **Experiment**. Enter its title, the ELN entry ID or URL, and
-   its revision. Record the external protocol ID and the exact revision used.
+1. Create an **Experiment** and enter its title. Enter the ELN entry ID or URL
+   and its revision, and the external protocol ID and the exact revision used.
+   Research and Regulated QC need both. Author sign-off needs neither, but a
+   cited entry or protocol needs its revision.
 2. Select the samples, add dated observations and attach the raw evidence
    or a rendition exported from the ELN.
 3. From a lot's amount ledger, choose **Draw**, enter the amount and unit, and
@@ -20,9 +22,11 @@ notebook in the ELN.
    or attachment can be closed without a separate result record. Repeat capture
    after a value edit or additional draw so the signer sees the current evidence.
 5. Inspect the experiment's evidence and sign using the project's assigned
-   roles. A research witness signs once. In regulated QC, the author submits,
-   an independent reviewer signs, then QA releases. A correction to a
-   submitted or reviewed QC record needs a reason and a new round of signatures.
+   roles. With author sign-off, the author who created or edited the record
+   signs it. A research witness, someone who didn't create or edit the record,
+   signs once. In regulated QC, the author submits, an independent reviewer
+   signs, then QA releases. A correction to a submitted or reviewed QC record
+   needs a reason and a new round of signatures.
 
 A later change to a result or registry entry leaves the captured revision
 available for review. Keep the external ELN revision accessible to witnesses
@@ -30,7 +34,14 @@ or attach a rendition to the experiment. [Evidence and sign-off](../../docs/adr/
 
 ## Set up
 
-Set the plugin's `review_flow` to `research` (default) or `regulated_qc`
-in the deployment settings. Assign the author, reviewer and QA lab roles in the
-project that owns the experiment. Bind the plugin's backend environment to a
-worker for the capture action.
+Choose each project's review flow under **Settings → Starters → Experiment
+review**: Author sign-off, Research or Regulated QC. Applying it grants the
+author, reviewer and QA lab roles the flow needs to the members you choose.
+Research and Regulated QC need different people for each signature.
+A project with no flow applied uses the plugin's `review_flow` deployment
+setting: `research` (default), `author_signed` or `regulated_qc`. Each record
+keeps the flow it was captured under, and signed records keep theirs when the
+project changes its flow.
+[Review flows per project](../../docs/adr/0247-a-project-chooses-how-its-experiments-are-signed.md)
+
+Bind the plugin's backend environment to a worker for the capture action.

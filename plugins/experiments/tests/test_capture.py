@@ -68,3 +68,18 @@ def test_refuses_self_reference(capture: Any) -> None:
 def test_direct_attachment_clears_an_old_selection(capture: Any) -> None:
     doc = run(attachments=["file-id"], result_pins=[{"result": "old"}])
     assert capture(doc)["updates"]["experiment"][0]["values"]["result_pins"] == []
+
+
+@pytest.mark.parametrize("flow", ["author_signed", "research", "regulated_qc"])
+def test_pins_each_projects_flow(capture: Any, flow: str) -> None:
+    doc = run(observations=[{"observed_at": "2025-07-01T09:30:00Z", "note": "Synthetic"}])
+    doc["settings"] = {"review_flow": flow}
+    [update] = capture(doc)["updates"]["experiment"]
+    assert update["values"]["review_flow"] == flow
+
+
+def test_refuses_an_unknown_flow(capture: Any) -> None:
+    doc = run({"id": "a", "revision": 1})
+    doc["settings"] = {"review_flow": "two_person"}
+    with pytest.raises(ValueError, match="supported experiment review flow"):
+        capture(doc)

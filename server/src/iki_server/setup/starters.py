@@ -1,4 +1,4 @@
-"""Recipes installed with active plugins configure individual projects (ADRs 0198, 0223, 0240)."""
+"""Recipes installed with active plugins configure projects (ADRs 0198, 0223, 0240, 0247)."""
 
 import hashlib
 import json
@@ -46,6 +46,11 @@ class Starter:
     #: The states each flow's records pass through, where the result type has one route
     #: per flow in a single state field. Without them, a flow is its result type's.
     flow_states: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: What each flow asks of people, where it differs from the general sentence for it.
+    summaries: dict[str, str] = field(default_factory=dict)
+
+    def summary(self, flow: str) -> str:
+        return self.summaries.get(flow) or FLOW_SUMMARIES[flow]
 
     @property
     def types(self) -> tuple[str, ...]:
@@ -54,7 +59,20 @@ class Starter:
 
 PLATE = "iki/plate_assays."
 ANALYST, REVIEWER, QA = PLATE + "analyst", PLATE + "reviewer", PLATE + "qa"
-FLOW_LABELS = {"research": "Research", "regulated_qc": "Regulated QC"}
+FLOW_LABELS = {
+    "author_signed": "Author sign-off",
+    "research": "Research",
+    "regulated_qc": "Regulated QC",
+}
+#: What a flow asks of people, in a sentence, unless a starter says it for its records.
+FLOW_SUMMARIES = {
+    "author_signed": "The author signs the record. For work the author's own signature closes.",
+    "research": "A result is recorded, then one reviewer signs it off. For discovery work, "
+    "where one check is enough.",
+    "regulated_qc": "The analyst signs the submission, an independent reviewer signs the "
+    "review, and QA signs the release: three different people, each signing in again. "
+    "For GxP and QC work.",
+}
 
 DOSE_RESPONSE = Starter(
     id="dose-response",
@@ -177,7 +195,62 @@ PREP_VERIFICATION = Starter(
     governs="plasmid verifications",
     pinned_by=LOTS + "PlasmidVerification",
 )
-CATALOG = (DOSE_RESPONSE, LOT_RELEASE_TESTING, STABILITY_STUDY, PREP_VERIFICATION)
+EXPERIMENT = "iki/experiments."
+AUTHOR, WITNESS, EXPERIMENT_QA = (EXPERIMENT + r for r in ("author", "reviewer", "qa"))
+# Experiments are created by hand, so every flow's records are one type with a route per
+# flow. Each record pins its flow when its evidence is captured (ADR 0247).
+EXPERIMENT_REVIEW = Starter(
+    id="experiment-review",
+    version="1.0.0",
+    label="Experiment review",
+    description="Choose how experiment records are signed in this project and assign the roles.",
+    plugin="iki/experiments",
+    setting="review_flow",
+    result_base=EXPERIMENT + "Experiment",
+    flows={
+        "author_signed": EXPERIMENT + "Experiment",
+        "research": EXPERIMENT + "Experiment",
+        "regulated_qc": EXPERIMENT + "Experiment",
+    },
+    flow_states={
+        "author_signed": ("recorded", "signed"),
+        "research": ("recorded", "witnessed"),
+        "regulated_qc": ("recorded", "submitted", "reviewed", "released"),
+    },
+    roles={
+        AUTHOR: ProjectRole.EDITOR,
+        WITNESS: ProjectRole.VIEWER,
+        EXPERIMENT_QA: ProjectRole.VIEWER,
+    },
+    required_roles={
+        "author_signed": (AUTHOR,),
+        "research": (AUTHOR, WITNESS),
+        "regulated_qc": (AUTHOR, WITNESS, EXPERIMENT_QA),
+    },
+    independent_roles={
+        "research": (AUTHOR, WITNESS),
+        "regulated_qc": (AUTHOR, WITNESS, EXPERIMENT_QA),
+    },
+    summaries={
+        "author_signed": "The author captures the evidence and signs the record. A notebook "
+        "entry or protocol is optional; one that's cited names its revision. For records the "
+        "author's signature closes.",
+        "research": "The author records the notebook entry and protocol revisions, then a "
+        "witness who didn't create or edit the record signs it.",
+        "regulated_qc": "The author signs the submission, an independent reviewer signs the "
+        "review, and QA signs the release: three different people, each signing in again. "
+        "For GxP work.",
+    },
+    governs="experiment captures",
+    pinned_by=EXPERIMENT + "Experiment",
+)
+CATALOG = (
+    DOSE_RESPONSE,
+    LOT_RELEASE_TESTING,
+    STABILITY_STUDY,
+    PREP_VERIFICATION,
+    EXPERIMENT_REVIEW,
+)
 
 
 @cache
@@ -228,6 +301,8 @@ def list_starters(project: Project | None = None) -> list[dict[str, Any]]:
                     "result_type": t,
                     "states": list(s.flow_states[f]) if f in s.flow_states else None,
                     "required_roles": list(s.required_roles[f]),
+                    "independent_roles": list(s.independent_roles.get(f, ())),
+                    "summary": s.summary(f),
                 }
                 for f, t in s.flows.items()
             ],
@@ -243,6 +318,7 @@ def list_starters(project: Project | None = None) -> list[dict[str, Any]]:
 
 
 RoleAssignments = Mapping[str, Sequence[UUID]]
+NUMBERS = {2: "two", 3: "three"}
 
 
 def _members(
@@ -267,7 +343,7 @@ def _members(
     )
     if memberships.keys() != member_ids:
         raise Refused(
-            "Choose active people with a direct membership in the assay project.",
+            "Choose active people with a direct membership in the project.",
             field="role_assignments",
         )
     for role, group in assignments.items():
@@ -283,18 +359,20 @@ def _members(
                     f"{lab_roles.label(role)} requires {minimum.label} or higher.",
                     field="role_assignments",
                 )
-    # For these three signatures, each group of roles needs at least as many distinct
+    # For these independent signatures, each group of roles needs at least as many distinct
     # people as there are roles in the group (Hall's marriage theorem). Seven checks
-    # suffice however many members an administrator selects.
+    # suffice for three roles however many members an administrator selects.
     independent = starter.independent_roles.get(flow, ())
     if any(
         len(set().union(*(assignments[r] for r in group))) < count
         for count in range(1, len(independent) + 1)
         for group in combinations(independent, count)
     ):
+        names = [lab_roles.label(r) for r in independent]
         raise Refused(
-            "Choose three different people who can submit, independently review and release "
-            "the result.",
+            f"Choose {NUMBERS.get(len(independent), str(len(independent)))} different people, "
+            f"one each for {', '.join(names[:-1])} and {names[-1]}: each signs independently "
+            "of the others.",
             field="role_assignments",
         )
     return memberships
@@ -337,7 +415,7 @@ def _plan(
 ) -> _Plan:
     permissions.require(by, Action.PROJECT_MANAGE, project)
     if project.is_archived:
-        raise Refused("Restore the assay project before applying a starter.", field="project")
+        raise Refused("Restore the project before applying a starter.", field="project")
     recipe = installed_starters().get(starter)
     if recipe is None:
         raise Http404("This starter is not installed.")
