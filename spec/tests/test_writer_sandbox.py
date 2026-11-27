@@ -49,6 +49,7 @@ from iki_spec.writers.runtime import (
     FUEL_PER_BYTE,
     MAX_MEMORY,
     Instance,
+    Limits,
     WriterFailed,
     engine,
 )
@@ -195,6 +196,87 @@ def test_a_request_over_its_limit_is_refused_before_its_written() -> None:
     with pytest.raises(WriterFailed) as failed:
         writer.call("record", b" " * (64 * MiB + 1))
     assert failed.value.code == "request_limit"
+
+
+def test_a_deployment_may_lower_a_writers_limits_or_raise_its_fuel() -> None:
+    """ADR 0230: a deployment's limits, within Iki's: lowered, a writer meets them sooner;
+    fuel raised, a writer gets more of it; any other limit raised is refused."""
+    module = wasmtime.Module(ENGINE, compiled(wat.ECHO))
+    lowered = Instance(module, ENGINE, 16 * MiB, Limits(max_output=len(RECORD) + 2))
+    with pytest.raises(WriterFailed) as failed:
+        lowered.call("record", RECORD)
+    assert failed.value.code == "output_limit"
+    assert f"{len(RECORD) + 2:,} bytes" in str(failed.value)
+    with pytest.raises(WriterFailed) as failed:
+        Instance(module, ENGINE, 16 * MiB, Limits(max_request=10)).call("record", RECORD)
+    assert failed.value.code == "request_limit"
+    with pytest.raises(WriterFailed) as failed:
+        Instance(module, ENGINE, 16 * MiB, Limits(max_note_chars=10)).call("record", RECORD)
+    assert failed.value.code == "notes"
+    # One memory.fill over 48 MiB costs millions of fuel: within Iki's, not within less.
+    fills = wasmtime.Module(ENGINE, compiled(wat.FILLS))
+    needs = Instance(fills, ENGINE, 64 * MiB).call("record", RECORD).fuel
+    short = Instance(fills, ENGINE, 64 * MiB, Limits(fuel_base=needs // 2, fuel_per_byte=0))
+    with pytest.raises(WriterFailed) as failed:
+        short.call("record", RECORD)
+    assert failed.value.code == "out_of_fuel"
+    raised = Limits(fuel_base=FUEL_BASE * 4, fuel_per_byte=FUEL_PER_BYTE * 4)
+    assert Instance(fills, ENGINE, 64 * MiB, raised).call("record", RECORD).fuel == needs
+    for too_much in (
+        {"max_output": 64 * MiB + 1},
+        {"max_request": 64 * MiB + 1},
+        {"max_notes": 1_001},
+        {"max_note_chars": 501},
+        {"fuel_base": 0},
+        {"fuel_per_byte": -1},
+    ):
+        with pytest.raises(ValueError, match=r"A writer.s"):
+            Limits(**too_much)
+    assert Limits.of(None) == Limits()
+    assert Limits.of({"fuel_base": 5}).header() == {"fuel_base": 5}
+    with pytest.raises(ValueError):
+        Limits.of({"wall_clock": 5})
+
+
+def test_a_child_runs_a_writer_under_the_limits_its_header_gives(
+    module_file: tuple[Path, str],
+) -> None:
+    path, sha256 = module_file
+    started = writer_sandbox.start_child(None)
+    assert started.stdout is not None and started.stdin is not None
+    talk = Session(started.stdout, started.stdin)
+    talk.open(
+        {
+            "writer": "acme/x.echo",
+            "sha256": sha256,
+            "memory": 16 * MiB,
+            "deadline": 30,
+            "path": str(path),
+            "limits": {"max_output": 4},
+        }
+    )
+    talk.call("begin", canonical({"abi": 1}))
+    with pytest.raises(SessionFailed) as failed:
+        talk.call("record", RECORD)
+    assert failed.value.code == "output_limit"
+    finish(started)
+    # A header that raises a limit past Iki's isn't served.
+    started = writer_sandbox.start_child(None)
+    assert started.stdout is not None and started.stdin is not None
+    talk = Session(started.stdout, started.stdin)
+    with pytest.raises(Unavailable) as refused:
+        talk.open(
+            {
+                "writer": "acme/x.echo",
+                "sha256": sha256,
+                "memory": 16 * MiB,
+                "deadline": 30,
+                "path": str(path),
+                "limits": {"max_output": 65 * MiB},
+            }
+        )
+    assert refused.value.code == "malformed"
+    finish(started)
 
 
 # --- One export's process ------------------------------------------------------------------------

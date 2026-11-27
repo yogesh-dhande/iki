@@ -7176,7 +7176,8 @@
         "type": "object"
       },
       "ExportSearchIn": {
-        "description": "The records a table shows, as ``POST /entities/search`` finds them.",
+        "additionalProperties": false,
+        "description": "The records a table shows, as ``POST /entities/search`` finds them, in its order.",
         "properties": {
           "archived": {
             "anyOf": [
@@ -7253,6 +7254,15 @@
                 "type": "null"
               }
             ]
+          },
+          "then": {
+            "description": "Further sorts, in order, for what `sort` ties, as the table sorts them.",
+            "items": {
+              "$ref": "#/components/schemas/SortIn"
+            },
+            "maxItems": 3,
+            "title": "Then",
+            "type": "array"
           },
           "type": {
             "anyOf": [

@@ -2388,7 +2388,16 @@ def test_the_sandbox_runs_the_deployments_image_as_the_writer_launcher() -> None
         "-m",
         "iki_spec.writer_sandbox",
     ]
-    assert sandbox["args"] == ["--port", "8090", "--health-port", "8091", "--concurrency", "4"]
+    assert sandbox["args"] == [
+        "--port",
+        "8090",
+        "--health-port",
+        "8091",
+        "--concurrency",
+        "4",
+        "--max-deadline",
+        "1800",
+    ]
     assert {p["name"]: p["containerPort"] for p in sandbox["ports"]} == {
         "export": 8090,
         "health": 8091,
@@ -2402,7 +2411,50 @@ def test_the_sandbox_runs_the_deployments_image_as_the_writer_launcher() -> None
     assert sandbox["resources"]["requests"] == {"cpu": "100m", "memory": "256Mi"}
     assert sandbox["resources"]["limits"] == {"memory": "768Mi"}
     eight = manifests(merged(SANDBOX, {"sandbox": {"concurrency": 8}}))
-    assert sandbox_spec(eight)["containers"][0]["args"][-1] == "8"
+    assert sandbox_spec(eight)["containers"][0]["args"][5] == "8"
+
+
+def test_a_deployment_sets_its_writers_limits_for_the_server_and_the_sandbox() -> None:
+    """ADR 0230: Iki's limits unless set; the server says them in each export's header, and
+    the sandbox lets no export run past the longest deadline the server gives."""
+    docs = manifests(SANDBOX)
+    for name in ("iki-web", "iki-tasks"):
+        env = env_names(docs, "Deployment", name)
+        assert (env["IKI_EXPORT_INLINE_DEADLINE"], env["IKI_EXPORT_BACKGROUND_DEADLINE"]) == (
+            "120",
+            "1800",
+        )
+        assert not [n for n in env if n.startswith(("IKI_EXPORT_FUEL", "IKI_EXPORT_MAX"))]
+    tuned = manifests(
+        merged(
+            SANDBOX,
+            {
+                "sandbox": {
+                    "limits": {
+                        "fuelBase": 4_000_000_000,
+                        "outputBytes": 16 * 1024 * 1024,
+                        "backgroundSeconds": 7200,
+                    }
+                }
+            },
+        )
+    )
+    for name in ("iki-web", "iki-tasks"):
+        env = env_names(tuned, "Deployment", name)
+        assert env["IKI_EXPORT_FUEL_BASE"] == "4000000000", name
+        assert env["IKI_EXPORT_MAX_OUTPUT"] == "16777216", name
+        assert env["IKI_EXPORT_BACKGROUND_DEADLINE"] == "7200", name
+        assert "IKI_EXPORT_MAX_REQUEST" not in env, name
+    assert sandbox_spec(tuned)["containers"][0]["args"][-2:] == ["--max-deadline", "7200"]
+
+
+@pytest.mark.parametrize(
+    ("limit", "value"),
+    [("outputBytes", 128 * 1024 * 1024), ("notes", 1001), ("noteCharacters", 0), ("bogus", 1)],
+)
+def test_a_writer_limit_can_be_lowered_but_not_raised_past_iki_s(limit: str, value: int) -> None:
+    rendered = str(render(merged(SANDBOX, {"sandbox": {"limits": {limit: value}}}), ok=False))
+    assert "/sandbox/limits" in rendered
 
 
 @pytest.mark.parametrize("concurrency", [0, 33, "4"])

@@ -620,6 +620,20 @@
           "minimum": 1,
           "maximum": 32
         },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fuelBase": { "type": ["integer", "null"], "minimum": 1 },
+            "fuelPerByte": { "type": ["integer", "null"], "minimum": 0 },
+            "outputBytes": { "type": ["integer", "null"], "minimum": 1, "maximum": 67108864 },
+            "requestBytes": { "type": ["integer", "null"], "minimum": 1, "maximum": 67108864 },
+            "notes": { "type": ["integer", "null"], "minimum": 1, "maximum": 1000 },
+            "noteCharacters": { "type": ["integer", "null"], "minimum": 1, "maximum": 500 },
+            "inlineSeconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+            "backgroundSeconds": { "type": "integer", "minimum": 1, "maximum": 604800 }
+          }
+        },
         "podDisruptionBudget": {
           "type": "object",
           "properties": {
