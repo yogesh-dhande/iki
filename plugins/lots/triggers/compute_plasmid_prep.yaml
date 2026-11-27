@@ -8,7 +8,7 @@ description: >-
   such as from its form.
 on: entity.created
 type: PlasmidPrep
-run: compute_plasmid_prep
+action: compute_plasmid_prep
 ---
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 apiVersion: iki/v1
@@ -21,4 +21,4 @@ description: >-
 on: entity.updated
 type: PlasmidPrep
 fields: [a260, path_length, dilution_factor, concentration_method]
-run: compute_plasmid_prep
+action: compute_plasmid_prep

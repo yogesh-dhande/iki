@@ -5,7 +5,7 @@ label: Flag a changed protein's samples
 on: entity.updated
 type: Protein
 fields: [summary]
-run: flag_samples
+action: flag_samples
 related:
   samples: { direction: downstream, depth: 2, edges: [reference] }
   structures: { direction: downstream }

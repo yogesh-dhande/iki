@@ -101,7 +101,7 @@ def rules_of(type_name: str) -> tuple[Rule, ...]:
     names = {t.qualified_name for t in chain}
     out = [r for t in chain for r in t.rules.values()]
     for extension in registry.extensions():
-        if extension.extends_type in names:
+        if extension.adds_to in names:
             out.extend(extension.rules.values())
     return tuple(out)
 

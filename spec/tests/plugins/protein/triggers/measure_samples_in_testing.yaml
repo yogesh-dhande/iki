@@ -6,4 +6,4 @@ on: entity.state_changed
 type: Sample
 field: status
 states: [in_testing]
-run: measure_purity
+action: measure_purity

@@ -10,4 +10,4 @@ description: >-
   entry's, so a run fills that only where it's still empty.
 on: entity.created
 type: Plasmid
-run: annotate_plasmid
+action: annotate_plasmid

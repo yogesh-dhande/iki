@@ -383,7 +383,7 @@ class _Check:
     def _is_request(self, entity_type: EntityType) -> bool:
         current: EntityType | None = entity_type
         while current is not None:
-            if current.request is not None:
+            if current.service.request is not None:
                 return True
             current = self.types.get(current.extends) if current.extends else None
         return False
@@ -409,7 +409,7 @@ class _Check:
             if current is not None:
                 chain.add(current.qualified_name)
         for extension in self.plugin.extensions:
-            if extension.extends_type in chain:
+            if extension.adds_to in chain:
                 out.update(extension.fields)
         return out
 

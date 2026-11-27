@@ -91,7 +91,7 @@ is Iki's bug, so the module panics: a trap, under `panic = "abort"`.
   "abi": 1,
   "format": "acme/liquid_handling.gwl",
   "records": 96,
-  "writer": "acme/liquid_handling.tecan-worklist"
+  "writer": "acme/liquid_handling.tecan_worklist"
 }
 ```
 

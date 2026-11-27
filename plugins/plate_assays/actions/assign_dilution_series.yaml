@@ -6,8 +6,8 @@ description: >-
   Lay out decreasing concentrations of one sample along a row or column. Replicates
   occupy parallel rows or columns. All wells must be free and on the plate.
 inputs:
-  plate: { type: AssayPlate, schema: ">=1" }
-  sample: { type: iki/core.Entity, schema: ">=1" }
+  plate: { type: AssayPlate, schema_version: ">=1" }
+  sample: { type: iki/core.Entity, schema_version: ">=1" }
 params:
   start_well: { type: string, required: true, label: First well }
   direction: { type: enum, values: [across, down], default: across }
@@ -17,7 +17,7 @@ params:
   steps: { type: int, min: 1, max: 24, required: true, label: Number of concentrations }
   replicates: { type: int, min: 1, max: 24, default: 1 }
 effects:
-  updates: [{ input: plate, fields: [assignments, preview] }]
+  updates: { plate: { fields: [assignments, preview] } }
 runs_on: { tier: backend, environment: assay-tools }
 command: [python, ./scripts/dilution_series.py]
 deterministic: true

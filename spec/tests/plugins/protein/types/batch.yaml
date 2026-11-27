@@ -114,7 +114,7 @@ rules:
   one_per_well:
     label: One batch per well
     unique: [plate, well]
-    while: { stored: [true] }
+    while: { field: stored, states: [true] }
     message: Well {{ record.well }} of {{ record.plate }} has a batch already.
   one_at_a_time:
     label: One at a time

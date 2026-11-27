@@ -24,8 +24,9 @@ description: >-
   constant region no human reference matches, such as a mouse's, keeps the
   isotype and species given, which must be one that species has.
 inputs:
-  heavy_chain: { type: iki/protein.Protein, schema: ">=2", label: Heavy chain }
-  light_chain: { type: iki/protein.Protein, schema: ">=2", label: Light chain, optional: true }
+  heavy_chain: { type: iki/protein.Protein, schema_version: ">=2", label: Heavy chain }
+  light_chain:
+    { type: iki/protein.Protein, schema_version: ">=2", label: Light chain, optional: true }
 params:
   name:
     type: string

@@ -20,7 +20,7 @@ effects:
   creates:
     - { type: ResearchCertificate, derived_from: [case] }
     - { type: QCCertificate, derived_from: [case] }
-  updates: [{ input: case, fields: [sealed] }]
+  updates: { case: { fields: [sealed] } }
 runs_on: { tier: backend, environment: qc-tools }
 command: [python, ./scripts/qc_release.py, prepare_certificate]
 timeout: 1m

@@ -8,4 +8,4 @@ description: >-
   UTC, as the service account a project's Admin picks.
 on: schedule
 schedule: 0 2 * * *
-run: import_from_lims
+action: import_from_lims

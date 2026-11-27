@@ -8,7 +8,8 @@ sample: true
 hrid: { prefix: SMP }
 # How much of it there is (ADR 0139): drawn by volume, or by mass at its concentration.
 amount: { unit: uL, label: Volume, concentration: concentration }
-draw_purposes: { qa_sampling: { by: [qa] } }
+draws:
+  purposes: { qa_sampling: { drawn_by: [qa] } }
 fields:
   label: { type: string, required: true, unique: true, indexed: true, max_length: 200 }
   protein: { type: ref, to: Protein }
@@ -69,7 +70,7 @@ notifications:
     label: Ready for review
     description: Reviewers hear when an analyst submits a sample's results for review.
     when: { field: status, to: in_review }
-    tell: { roles: [reviewer], watchers: true }
+    notify: { roles: [reviewer], watchers: true }
     message:
       title: "{{ label }} is ready for review"
       body: "Purity {{ purity or 'not measured' }}, by {{ analyst or 'nobody' }}, on {{ protein or 'no protein' }}."
@@ -77,19 +78,19 @@ notifications:
     label: Released
     description: Its analyst and whoever logged it hear when QA releases it.
     when: { field: status, from: [reviewed], to: [released] }
-    tell: { fields: [analyst], creator: true }
+    notify: { fields: [analyst], creator: true }
     required: true
   quarantined:
     label: Quarantined
     when: { field: custody, to: quarantined }
     where: { field: due_on, op: gte, value: "{{ now }}" }
-    tell: { fields: [received_by, helpers] }
+    notify: { fields: [received_by, helpers] }
     email: false
   relabelled:
     label: Its protein's LIMS ID changed
     when: { field: protein.lims_id }
-    tell: { fields: [received_by] }
+    notify: { fields: [received_by] }
   logged:
     label: Logged
     when: { created: true }
-    tell: { fields: [received_by] }
+    notify: { fields: [received_by] }

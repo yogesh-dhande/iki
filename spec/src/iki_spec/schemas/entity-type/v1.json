@@ -269,98 +269,110 @@
     "rules": {
       "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/rules"
     },
-    "draws_received": {
-      "description": "An optional computed JSON field on a record, inherited by its subtypes. Iki appends each material draw into the record here, in the ledger transaction, so reviews sign the quantities and source revisions used.",
-      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-    },
-    "draw_guards": {
-      "description": "Conditions on taking an amount, including transfers and splits. Each subtype also keeps its ancestors' guards. CEL reads record, now, today (midnight UTC), operation (draw, transfer, split) and purpose (routine or qa_sampling).",
-      "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/guards"
-    },
-    "draw_purposes": {
-      "description": "The lab roles allowed to draw for each purpose in the record's project. Routine draws are open to Editors unless restricted. QA sampling requires a declaration. Subtypes inherit each purpose and may narrow its allowed roles.",
-      "type": "object",
-      "propertyNames": {
-        "enum": ["routine", "qa_sampling"]
-      },
-      "additionalProperties": {
-        "description": "The lab roles that may draw for this purpose, `routine` or `qa_sampling`.",
-        "type": "object",
-        "required": ["by"],
-        "additionalProperties": false,
-        "properties": {
-          "by": {
-            "description": "One of these project lab roles is required in addition to permission to draw.",
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 10,
-            "uniqueItems": true,
-            "items": {
-              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef"
-            }
-          }
-        }
-      }
-    },
-    "draw_target": {
-      "description": "Accept one ledger draw from the assigned record while in the designated state. A prepared draw also fixes the upstream source, quantity and authorized roles.",
+    "draws": {
+      "description": "Its records' draws (ADR 0139, 0180): the guards and purposes a draw from it meets, and, for a record that receives one, the draw it awaits and where the ones it received are kept. Each is inherited on its own: guards accumulate, purposes may narrow, and `target` and `received` are inherited.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["from", "state"],
-      "dependentRequired": {
-        "source": ["by", "ready", "amount"],
-        "ready": ["by", "source", "amount"],
-        "amount": ["by", "source", "ready"],
-        "unit": ["amount"]
-      },
+      "minProperties": 1,
       "properties": {
-        "from": {
-          "description": "The required, immutable reference naming the container the draw is taken from.",
-          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        "guards": {
+          "description": "Conditions on taking an amount, including transfers and splits. Each subtype also keeps its ancestors' guards. CEL reads record, now, today (midnight UTC), operation (draw, transfer, split) and purpose (routine or qa_sampling).",
+          "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/guards"
         },
-        "source": {
-          "description": "The required, immutable reference naming the material's upstream source, such as a lot: the draw must come from it.",
-          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-        },
-        "state": {
-          "description": "The state field, and its state, in which the record awaits its draw. A draw into it in any other state is refused.",
+        "purposes": {
+          "description": "The lab roles allowed to draw for each purpose in the record's project. Routine draws are open to Editors unless restricted. QA sampling requires a declaration. Subtypes inherit each purpose and may narrow its allowed roles.",
           "type": "object",
-          "additionalProperties": false,
-          "required": ["field", "is"],
-          "properties": {
-            "field": {
-              "description": "The record's state field.",
-              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-            },
-            "is": {
-              "description": "The state, such as `pending`.",
-              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/enumValue"
+          "propertyNames": {
+            "enum": ["routine", "qa_sampling"]
+          },
+          "additionalProperties": {
+            "description": "The lab roles that may draw for this purpose, `routine` or `qa_sampling`.",
+            "type": "object",
+            "required": ["drawn_by"],
+            "additionalProperties": false,
+            "properties": {
+              "drawn_by": {
+                "description": "One of these project lab roles is required in addition to permission to draw.",
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef"
+                }
+              }
             }
           }
         },
-        "by": {
-          "description": "The lab roles, one of which whoever records the draw must hold in the record's project.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 10,
-          "uniqueItems": true,
-          "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef" }
+        "target": {
+          "description": "Accept one ledger draw from the assigned record while in one of the designated states. A prepared draw also fixes the upstream source, quantity and the lab roles that may draw it.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from", "state"],
+          "dependentRequired": {
+            "source": ["drawn_by", "ready", "amount"],
+            "ready": ["drawn_by", "source", "amount"],
+            "amount": ["drawn_by", "source", "ready"],
+            "unit": ["amount"]
+          },
+          "properties": {
+            "from": {
+              "description": "The required, immutable reference naming the container the draw is taken from.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "source": {
+              "description": "The required, immutable reference naming the material's upstream source, such as a lot: the draw must come from it.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "state": {
+              "description": "The state field, and its states, in which the record awaits its draw. A draw into it in any other state is refused.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["field", "states"],
+              "properties": {
+                "field": {
+                  "description": "The record's state field.",
+                  "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+                },
+                "states": {
+                  "description": "The states of `field` in which it awaits its draw, such as `[pending]`.",
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 20,
+                  "uniqueItems": true,
+                  "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+                }
+              }
+            },
+            "drawn_by": {
+              "description": "The lab roles, one of which whoever records the draw must hold in the record's project.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 10,
+              "uniqueItems": true,
+              "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef" }
+            },
+            "ready": {
+              "description": "A computed field set when the record is prepared: until it has a value, the record takes no draw.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "amount": {
+              "description": "The required, immutable field holding the planned amount, a quantity or a float with `unit`: the draw must be exactly it.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "unit": {
+              "description": "An enum or string field holding the planned amount's UCUM unit, when the amount is a float rather than a quantity in one fixed unit.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "stored": {
+              "description": "The container must be in its storage position before it's drawn from.",
+              "type": "boolean"
+            }
+          }
         },
-        "ready": {
-          "description": "A computed field set when the record is prepared: until it has a value, the record takes no draw.",
+        "received": {
+          "description": "An optional computed JSON field on a record, inherited by its subtypes. Iki appends each material draw into the record here, in the ledger transaction, so reviews sign the quantities and source revisions used.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-        },
-        "amount": {
-          "description": "The required, immutable field holding the planned amount, a quantity or a float with `unit`: the draw must be exactly it.",
-          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-        },
-        "unit": {
-          "description": "An enum or string field holding the planned amount's UCUM unit, when the amount is a float rather than a quantity in one fixed unit.",
-          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-        },
-        "stored": {
-          "description": "The container must be in its storage position before it's drawn from.",
-          "type": "boolean"
         }
       }
     },
@@ -379,126 +391,138 @@
         "$ref": "#/$defs/notification"
       }
     },
-    "request": {
-      "description": "Its records are requests a project sends to another project's service, such as a core facility (ADR 0132). The asking project owns each request; the service it's sent to may change only the fields named here, and set only the state fields named here, while the rest stay the asking project's. Its subtypes are requests too; a subtype may declare `request` with only `service_fields`, naming more of its own fields the service writes, such as a ranking a lab's core keeps (ADR 0232).",
+    "service": {
+      "description": "Its part in a request a project sends to another project's service, such as a core facility (ADR 0132): the request itself, a result made for it, or internal work for it. One of the three.",
       "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
       "properties": {
-        "service_fields": {
-          "description": "The fields the service writes, such as its status, schedule and priority: state fields it sets with the lab roles its own people hold, and other fields its Editors change. They can't be references or files, required without a default, unique or immutable.",
-          "type": "array",
-          "maxItems": 100,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-          }
-        },
-        "sends": {
-          "description": "References (or lists of them) whose records go to the service with the request, such as its samples: the service can read them, and only them, as long as the request is there.",
-          "type": "array",
-          "maxItems": 20,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-          }
-        },
-        "completed": {
-          "description": "The service state that completes delivery. Each commissioned material needs a signed, returned result, and every recorded result must be signed and returned.",
+        "request": {
+          "description": "Its records are requests a project sends to another project's service, such as a core facility (ADR 0132). The asking project owns each request; the service it's sent to may change only the fields named here, and set only the state fields named here, while the rest stay the asking project's. Its subtypes are requests too; a subtype may declare `request` with only `service_fields`, naming more of its own fields the service writes, such as a ranking a lab's core keeps (ADR 0232).",
           "type": "object",
-          "additionalProperties": false,
-          "required": ["field", "state"],
           "properties": {
-            "field": {
-              "description": "The state field, one the service writes, whose state completes delivery.",
-              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-            },
-            "state": {
-              "description": "The state of that field that completes delivery: not its initial state.",
-              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-            }
-          }
-        },
-        "materials": {
-          "description": "Fields in sends that identify individual physical records. A result may cover those records and their recorded aliquots. A registry entry shared by several records cannot identify the tested material.",
-          "type": "array",
-          "maxItems": 20,
-          "uniqueItems": true,
-          "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
-        },
-        "receives": {
-          "description": "What the service receives against the request (ADR 0180): a list of references it `sends`, to a type with `storage`, such as its tubes. The service checks each in with a receipt, as matched, missing, damaged or rejected, with what's extra.",
-          "type": "object",
-          "required": ["field"],
-          "additionalProperties": false,
-          "properties": {
-            "field": {
-              "description": "The list of references the request `sends` that the service checks in.",
-              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-            },
-            "by": {
-              "description": "The lab roles, held in the service's project, that receive them. Any Editor of the service, if none are named.",
+            "service_fields": {
+              "description": "The fields the service writes, such as its status, schedule and priority: state fields it sets with the lab roles its own people hold, and other fields its Editors change. They can't be references or files, required without a default, unique or immutable.",
               "type": "array",
-              "maxItems": 10,
+              "maxItems": 100,
               "uniqueItems": true,
               "items": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
               }
-            }
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    "work_item": {
-      "description": "Its records are internal work for a request (ADR 0132). Only the service project creates and keeps them.",
-      "type": "object",
-      "required": ["of"],
-      "properties": {
-        "of": {
-          "description": "The name of the required, immutable reference to the request.",
-          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-        }
-      },
-      "additionalProperties": false
-    },
-    "result": {
-      "description": "Its records are what a service makes for a request (ADR 0132): made in the service's project, which owns them, and sent back to the asking project once the service's own state field says it's released.",
-      "type": "object",
-      "required": ["of", "released"],
-      "properties": {
-        "of": {
-          "description": "Its reference to the request it's a result of: a required, immutable `ref` to a request type.",
-          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-        },
-        "material": {
-          "description": "An immutable reference to material covered by the request. It may be empty only when the request specifies no physical material.",
-          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-        },
-        "released": {
-          "description": "The state field, and its states, in which it goes back to the asking project. It stays there after, as a correction shows in its state and history.",
-          "type": "object",
-          "required": ["field", "states"],
-          "properties": {
-            "field": {
-              "description": "The result's state field.",
-              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
-            "states": {
-              "description": "The states of `field` in which a result goes back to the asking project, such as `released`.",
+            "sends": {
+              "description": "References (or lists of them) whose records go to the service with the request, such as its samples: the service can read them, and only them, as long as the request is there.",
               "type": "array",
-              "minItems": 1,
               "maxItems": 20,
               "uniqueItems": true,
               "items": {
                 "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
               }
+            },
+            "completed": {
+              "description": "The service's state field, and its states, that complete delivery. Each commissioned material needs a signed, returned result, and every recorded result must be signed and returned.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["field", "states"],
+              "properties": {
+                "field": {
+                  "description": "The state field, one the service writes, whose states complete delivery.",
+                  "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+                },
+                "states": {
+                  "description": "The states of that field that complete delivery, such as `[delivered]`: none its initial state.",
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 20,
+                  "uniqueItems": true,
+                  "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+                }
+              }
+            },
+            "materials": {
+              "description": "Fields in sends that identify individual physical records. A result may cover those records and their recorded aliquots. A registry entry shared by several records cannot identify the tested material.",
+              "type": "array",
+              "maxItems": 20,
+              "uniqueItems": true,
+              "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+            },
+            "receives": {
+              "description": "What the service receives against the request (ADR 0180): a list of references it `sends`, to a type with `storage`, such as its tubes. The service checks each in with a receipt, as matched, missing, damaged or rejected, with what's extra.",
+              "type": "object",
+              "required": ["field"],
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "description": "The list of references the request `sends` that the service checks in.",
+                  "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+                },
+                "received_by": {
+                  "description": "The lab roles, held in the service's project, that receive them. Any Editor of the service, if none are named.",
+                  "type": "array",
+                  "maxItems": 10,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "result": {
+          "description": "Its records are what a service makes for a request (ADR 0132): made in the service's project, which owns them, and sent back to the asking project once the service's own state field says it's released.",
+          "type": "object",
+          "required": ["of", "released"],
+          "properties": {
+            "of": {
+              "description": "Its reference to the request it's a result of: a required, immutable `ref` to a request type.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "material": {
+              "description": "An immutable reference to material covered by the request. It may be empty only when the request specifies no physical material.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "released": {
+              "description": "The state field, and its states, in which it goes back to the asking project. It stays there after, as a correction shows in its state and history.",
+              "type": "object",
+              "required": ["field", "states"],
+              "properties": {
+                "field": {
+                  "description": "The result's state field.",
+                  "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+                },
+                "states": {
+                  "description": "The states of `field` in which a result goes back to the asking project, such as `released`.",
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 20,
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "work_item": {
+          "description": "Its records are internal work for a request (ADR 0132). Only the service project creates and keeps them.",
+          "type": "object",
+          "required": ["of"],
+          "properties": {
+            "of": {
+              "description": "The name of the required, immutable reference to the request.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             }
           },
           "additionalProperties": false
         }
-      },
-      "additionalProperties": false
+      }
     },
     "display": {
       "description": "How its records are shown: their title in lists and links, and Iki's viewers on their pages.",
@@ -541,9 +565,7 @@
           "maxItems": 20,
           "uniqueItems": true,
           "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
           }
         },
         "grid": {
@@ -610,12 +632,12 @@
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "notify": {
-          "description": "The lab roles whose holders in the item's project are told, once each time, when its available stock falls to its reorder threshold or below.",
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef"
+          "description": "Whom it tells, once each time, when its available stock falls to its reorder threshold or below: a notification's `notify`, of which a stock alert takes `roles`, whose holders in the item's project are told.",
+          "type": "object",
+          "required": ["roles"],
+          "additionalProperties": false,
+          "properties": {
+            "roles": { "$ref": "#/$defs/notify/properties/roles" }
           }
         },
         "lots": {
@@ -734,9 +756,7 @@
           "properties": {
             "type": {
               "description": "The aliquots' type, which has an amount of its own.",
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 200
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
             },
             "of": {
               "description": "That type's reference to the record each was split from.",
@@ -780,7 +800,7 @@
       "additionalProperties": false,
       "properties": {
         "export": {
-          "description": "The plugin's writer, qualified (`acme/lab.tecan-worklist`) or, for this plugin's own, its local name.",
+          "description": "The plugin's writer, qualified (`acme/lab.tecan_worklist`) or, for this plugin's own, its local name.",
           "type": "string"
         },
         "fields": {
@@ -806,13 +826,13 @@
       "required": ["export"],
       "properties": {
         "export": {
-          "description": "What it writes: one of Iki's (`sequence`, `protein`, `compound`, `signed_report`), or a plugin's writer (ADR 0230), such as `acme/lab.tecan-worklist`, with `fields`.",
+          "description": "What it writes: one of Iki's (`sequence`, `protein`, `compound`, `signed_report`), or a plugin's writer (ADR 0230), such as `acme/lab.tecan_worklist`, with `fields`.",
           "anyOf": [
             { "enum": ["sequence", "protein", "compound", "signed_report"] },
             {
               "type": "string",
               "maxLength": 125,
-              "pattern": "^([a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.)?[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+              "pattern": "^([a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.)?[a-z][a-z0-9]*(_[a-z0-9]+)*$"
             }
           ]
         }
@@ -1055,10 +1075,50 @@
         }
       ]
     },
-    "notification": {
-      "description": "One notification: what sends it (`when`), whom it tells (`tell`), and what people's settings call it.",
+    "notify": {
+      "description": "Whom it tells. Each must be able to read the record when it's sent; whoever made the change isn't told unless `actor` says so, or an agent, a run or a trigger made it for them.",
       "type": "object",
-      "required": ["label", "when", "tell"],
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "fields": {
+          "description": "The people these fields of the record name (`type: person`, or lists of them).",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          }
+        },
+        "roles": {
+          "description": "Whoever holds one of these lab roles in the record's project, such as `qa`.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef"
+          }
+        },
+        "creator": {
+          "description": "Whoever made the record.",
+          "type": "boolean"
+        },
+        "watchers": {
+          "description": "Whoever watches the record.",
+          "type": "boolean"
+        },
+        "actor": {
+          "description": "Whoever made the change, even with their own hands.",
+          "type": "boolean"
+        }
+      }
+    },
+    "notification": {
+      "description": "One notification: what sends it (`when`), whom it tells (`notify`), and what people's settings call it.",
+      "type": "object",
+      "required": ["label", "when", "notify"],
       "additionalProperties": false,
       "properties": {
         "label": {
@@ -1079,7 +1139,7 @@
               "const": true
             },
             "sent": {
-              "description": "A request's: when it's sent to a service. It tells the service, by the lab roles its people hold there (`tell.roles`), and nobody of the project asking.",
+              "description": "A request's: when it's sent to a service. It tells the service, by the lab roles its people hold there (`notify.roles`), and nobody of the project asking.",
               "const": true
             },
             "material": {
@@ -1138,46 +1198,7 @@
           "description": "Only for records these conditions find, as the search API takes them: the type's fields compared with values, or with `{{ now }}` for a date or a time, such as bookings that haven't ended.",
           "$ref": "https://ikisci.org/schemas/component/v1#/$defs/condition"
         },
-        "tell": {
-          "description": "Whom it tells. Each must be able to read the record when it's sent; whoever made the change isn't told unless `actor` says so, or an agent, a run or a trigger made it for them.",
-          "type": "object",
-          "additionalProperties": false,
-          "minProperties": 1,
-          "properties": {
-            "fields": {
-              "description": "The people these fields of the record name (`type: person`, or lists of them).",
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 20,
-              "uniqueItems": true,
-              "items": {
-                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-              }
-            },
-            "roles": {
-              "description": "Whoever holds one of these lab roles in the record's project, such as `qa`.",
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 20,
-              "uniqueItems": true,
-              "items": {
-                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef"
-              }
-            },
-            "creator": {
-              "description": "Whoever made the record.",
-              "type": "boolean"
-            },
-            "watchers": {
-              "description": "Whoever watches the record.",
-              "type": "boolean"
-            },
-            "actor": {
-              "description": "Whoever made the change, even with their own hands.",
-              "type": "boolean"
-            }
-          }
-        },
+        "notify": { "$ref": "#/$defs/notify" },
         "message": {
           "description": "What it says in Iki, written as a display title is: text with `{{ field or \"text\" }}` parts naming the record's fields or `hrid`. Emails never carry it: only what it is, the record's HRID and a link.",
           "type": "object",

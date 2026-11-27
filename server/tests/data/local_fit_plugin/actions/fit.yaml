@@ -6,7 +6,7 @@ description: >-
   The lab's own method. Each result records fit_version acme/5PL-WLS/1 and the review flow
   matching the class it creates.
 inputs:
-  read: { type: iki/plate_assays.PlateRead, schema: ">=4", include: [measurements] }
+  read: { type: iki/plate_assays.PlateRead, schema_version: ">=4", include: [measurements] }
   sample: { type: iki/core.Entity }
 effects:
   creates:

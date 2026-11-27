@@ -3,7 +3,7 @@ kind: Action
 name: predict_with_colabfold
 label: Predict structure with ColabFold
 inputs:
-  protein: { type: acme/protein.Protein, schema: ">=1" }
+  protein: { type: acme/protein.Protein, schema_version: ">=1" }
 effects:
   creates: [{ type: acme/protein.ProteinStructure, cardinality: one, derived_from: [protein] }]
 runs_on: { tier: container, environment: colabfold, lifecycle: ephemeral }

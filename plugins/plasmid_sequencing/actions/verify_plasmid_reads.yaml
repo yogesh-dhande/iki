@@ -15,12 +15,12 @@ description: >-
 inputs:
   plasmid:
     type: iki/plasmid.Plasmid
-    schema: ">=4"
+    schema_version: ">=4"
     include: [sequence]
     description: The plasmid the prep should be. Its registered sequence is the reference.
   reads:
     type: iki/sequencing.ReadSet
-    schema: ">=1"
+    schema_version: ">=1"
     include: [library]
     label: Read set
     description: The prep's reads, as basecalled FASTQ. Its library's sample is the prep.

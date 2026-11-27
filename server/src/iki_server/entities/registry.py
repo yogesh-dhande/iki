@@ -58,7 +58,7 @@ def types() -> dict[str, EntityType]:
 def draws_received(type_name: str) -> str | None:
     """The record field its amounts ledger maintains, including an inherited declaration."""
     t = types()[type_name]
-    return next((x.draws_received for x in [t, *ancestors(t)] if x.draws_received), None)
+    return next((x.draws.received for x in [t, *ancestors(t)] if x.draws.received), None)
 
 
 def extensions() -> list[Extension]:

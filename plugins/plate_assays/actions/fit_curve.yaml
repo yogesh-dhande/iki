@@ -7,7 +7,7 @@ description: >-
   keeps its method and version, measurements, raw responses, exclusions and the selected
   review flow.
 inputs:
-  read: { type: PlateRead, schema: ">=1", include: [measurements, request] }
+  read: { type: PlateRead, schema_version: ">=1", include: [measurements, request] }
   sample: { type: iki/core.Entity, description: The sample assigned to the dilution series. }
 params:
   method:

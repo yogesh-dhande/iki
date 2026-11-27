@@ -557,8 +557,8 @@ def _plugins(found: _Found) -> list[dict[str, Any]]:
             }
     extensions: dict[str, dict[str, Any]] = {}
     for e in registry.extensions():
-        if e.extends_type in types:
-            extensions.setdefault(e.plugin, {})[e.extends_type] = {"units": _units(e.fields)}
+        if e.adds_to in types:
+            extensions.setdefault(e.plugin, {})[e.adds_to] = {"units": _units(e.fields)}
     entries = {e["name"]: e for e in (registry.installed() or {}).get("plugins", ())}
     out = []
     for name, plugin in registry.plugins().items():

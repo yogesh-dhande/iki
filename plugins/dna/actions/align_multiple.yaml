@@ -15,13 +15,13 @@ description: >-
 inputs:
   sequences:
     type: DNASequence
-    schema: ">=1"
+    schema_version: ">=1"
     cardinality: many
     max: 2000
     description: The sequences to align, in the order their rows should be.
   reference:
     type: DNASequence
-    schema: ">=1"
+    schema_version: ">=1"
     optional: true
     description: >-
       The sequence the others are compared with, such as the plasmid as

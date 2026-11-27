@@ -51,7 +51,7 @@ rules:
       The database refuses two bookings of an instrument whose times overlap,
       unless one is cancelled. One can start as another ends.
     no_overlap: { from: starts_at, to: ends_at, per: [instrument] }
-    while: { cancelled: [false] }
+    while: { field: cancelled, states: [false] }
     message: "{{ record.instrument.name }} is booked then already."
   instrument_in_service:
     label: Its instrument is in service
@@ -74,7 +74,7 @@ notifications:
       all:
         - { field: ends_at, op: gte, value: "{{ now }}" }
         - { field: cancelled, op: eq, value: false }
-    tell: { fields: [booked_by], creator: true }
+    notify: { fields: [booked_by], creator: true }
     message:
       title: "{{ instrument }} is out of service"
       body: "The booking “{{ purpose }}” starts {{ starts_at }}."

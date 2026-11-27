@@ -68,7 +68,7 @@ params:
   mode: { type: enum, values: [fast, slow], required: true }
   tag: { type: string, default: x }
 effects:
-  updates: [{ input: assay, fields: [score] }]
+  updates: { assay: { fields: [score] } }
 runs_on: { tier: backend, environment: tools }
 command: [python, ./run.py]
 ---
@@ -90,7 +90,7 @@ inputs:
   left: { type: Assay }
   right: { type: Assay }
 effects:
-  updates: [{ input: left, fields: [score] }]
+  updates: { left: { fields: [score] } }
 runs_on: { tier: backend, environment: tools }
 command: [python, ./run.py]
 ---
@@ -101,7 +101,7 @@ inputs:
   assay: { type: Assay }
   readout: { type: Readout }
 effects:
-  updates: [{ input: readout, fields: [total] }]
+  updates: { readout: { fields: [total] } }
 runs_on: { tier: backend, environment: tools }
 command: [python, ./run.py]
 ---
@@ -113,7 +113,7 @@ inputs:
   readouts: { type: Readout, cardinality: many }
   other: { type: Readout, optional: true }
 effects:
-  updates: [{ input: readouts, fields: [total] }]
+  updates: { readouts: { fields: [total] } }
 runs_on: { tier: backend, environment: tools }
 command: [python, ./run.py]
 ---
@@ -123,7 +123,7 @@ name: view
 inputs:
   assay: { type: Assay }
 effects:
-  updates: [{ input: assay, fields: [score] }]
+  updates: { assay: { fields: [score] } }
 runs_on: { tier: self_hosted, environment: tools }
 command: [python, ./run.py]
 """
@@ -170,7 +170,7 @@ GOOD = trigger("""\
 label: Measure new assays
 on: entity.created
 type: Assay
-run: measure
+action: measure
 params: { mode: fast }
 """)
 
@@ -186,7 +186,7 @@ def test_a_good_trigger(tmp_path: Path) -> None:
         label="Measure new assays",
         on="entity.created",
         type="acme/lab.Assay",
-        run="measure",
+        action="measure",
         # Left out, and the only input that takes an Assay.
         input="assay",
         params={"mode": "fast"},
@@ -211,21 +211,21 @@ def test_plugins_built_before_triggers_have_none(tmp_path: Path) -> None:
 
 
 def test_a_label_defaults_to_the_name(tmp_path: Path) -> None:
-    result = make(tmp_path, trigger("on: entity.created\ntype: Assay\nrun: describe\n"))
+    result = make(tmp_path, trigger("on: entity.created\ntype: Assay\naction: describe\n"))
     assert result.plugin is not None
     assert result.plugin.triggers["on_assay"].label == "On assay"
 
 
 def test_subtypes_fire_a_parents_input(tmp_path: Path) -> None:
     # describe takes any Base, and an Assay is one.
-    result = make(tmp_path, trigger("on: entity.created\ntype: Assay\nrun: describe\n"))
+    result = make(tmp_path, trigger("on: entity.created\ntype: Assay\naction: describe\n"))
     assert result.problems == []
     assert result.plugin is not None
     assert result.plugin.triggers["on_assay"].input == "thing"
 
 
 def test_updates_can_watch_fields_of_the_type_and_its_parents(tmp_path: Path) -> None:
-    body = "on: entity.updated\ntype: Assay\nfields: [plate, note]\nrun: describe\n"
+    body = "on: entity.updated\ntype: Assay\nfields: [plate, note]\naction: describe\n"
     result = make(tmp_path, trigger(body))
     assert result.problems == []
     assert result.plugin is not None
@@ -233,30 +233,30 @@ def test_updates_can_watch_fields_of_the_type_and_its_parents(tmp_path: Path) ->
 
 
 def test_watched_fields_must_be_the_types(tmp_path: Path) -> None:
-    body = "on: entity.updated\ntype: Assay\nfields: [plat]\nrun: describe\n"
+    body = "on: entity.updated\ntype: Assay\nfields: [plat]\naction: describe\n"
     message = only(make(tmp_path, trigger(body)), "unknown-field")
     assert message == "`acme/lab.Assay` has no field `plat`."
 
 
 def test_a_new_entity_has_no_changed_fields(tmp_path: Path) -> None:
-    body = "on: entity.created\ntype: Assay\nfields: [plate]\nrun: describe\n"
+    body = "on: entity.created\ntype: Assay\nfields: [plate]\naction: describe\n"
     message = only(make(tmp_path, trigger(body)), "trigger-fields-not-updated")
     assert "`on: entity.updated`" in message
 
 
 def test_the_event_is_one_it_knows(tmp_path: Path) -> None:
-    result = make(tmp_path, trigger("on: entity.deleted\ntype: Assay\nrun: describe\n"))
+    result = make(tmp_path, trigger("on: entity.deleted\ntype: Assay\naction: describe\n"))
     assert codes(result) == ["schema"]
 
 
 def test_the_type_must_exist(tmp_path: Path) -> None:
-    result = make(tmp_path, trigger("on: entity.created\ntype: Asay\nrun: describe\n"))
+    result = make(tmp_path, trigger("on: entity.created\ntype: Asay\naction: describe\n"))
     assert "unknown-type" in codes(result)
 
 
 def test_the_action_must_be_the_plugins(tmp_path: Path) -> None:
     message = only(
-        make(tmp_path, trigger("on: entity.created\ntype: Assay\nrun: measur\n")),
+        make(tmp_path, trigger("on: entity.created\ntype: Assay\naction: measur\n")),
         "trigger-unknown-action",
     )
     assert message == "This plugin has no action `measur`."
@@ -264,14 +264,14 @@ def test_the_action_must_be_the_plugins(tmp_path: Path) -> None:
 
 def test_it_can_run_on_a_self_hosted_machine(tmp_path: Path) -> None:
     # A team's machine is there when the trigger fires, as a person's laptop may not be.
-    assert make(tmp_path, trigger("on: entity.created\ntype: Assay\nrun: view\n")).problems == []
+    assert make(tmp_path, trigger("on: entity.created\ntype: Assay\naction: view\n")).problems == []
 
 
 def test_some_input_must_take_the_type(tmp_path: Path) -> None:
     message = only(
         make(
             tmp_path,
-            trigger("on: entity.created\ntype: Readout\nrun: measure\nparams: { mode: fast }\n"),
+            trigger("on: entity.created\ntype: Readout\naction: measure\nparams: { mode: fast }\n"),
         ),
         "trigger-wrong-type",
     )
@@ -281,7 +281,7 @@ def test_some_input_must_take_the_type(tmp_path: Path) -> None:
 
 
 def test_a_named_input_must_take_the_type(tmp_path: Path) -> None:
-    body = "on: entity.created\ntype: Readout\nrun: describe\ninput: thing\n"
+    body = "on: entity.created\ntype: Readout\naction: describe\ninput: thing\n"
     message = only(make(tmp_path, trigger(body)), "trigger-wrong-type")
     assert message == (
         "The trigger fires for `acme/lab.Readout`, and `describe`'s `thing` takes `acme/lab.Base`."
@@ -289,23 +289,25 @@ def test_a_named_input_must_take_the_type(tmp_path: Path) -> None:
 
 
 def test_a_named_input_must_exist(tmp_path: Path) -> None:
-    body = "on: entity.created\ntype: Assay\nrun: describe\ninput: thng\n"
+    body = "on: entity.created\ntype: Assay\naction: describe\ninput: thng\n"
     message = only(make(tmp_path, trigger(body)), "trigger-unknown-input")
     assert message == "`describe` has no input `thng`."
 
 
 def test_two_inputs_that_fit_need_one_named(tmp_path: Path) -> None:
-    result = make(tmp_path, trigger("on: entity.created\ntype: Assay\nrun: compare\n"))
+    result = make(tmp_path, trigger("on: entity.created\ntype: Assay\naction: compare\n"))
     assert codes(result) == ["trigger-input-ambiguous"]
     # Naming one leaves the other, which a trigger can't give.
-    named = make(tmp_path, trigger("on: entity.created\ntype: Assay\nrun: compare\ninput: left\n"))
+    named = make(
+        tmp_path, trigger("on: entity.created\ntype: Assay\naction: compare\ninput: left\n")
+    )
     message = only(named, "trigger-input-missing")
     assert message.startswith("`compare` also needs `right`")
 
 
 def test_it_gives_only_the_entity(tmp_path: Path) -> None:
     message = only(
-        make(tmp_path, trigger("on: entity.created\ntype: Assay\nrun: pair\n")),
+        make(tmp_path, trigger("on: entity.created\ntype: Assay\naction: pair\n")),
         "trigger-input-missing",
     )
     assert "a trigger gives it only the entity that changed" in message
@@ -313,7 +315,7 @@ def test_it_gives_only_the_entity(tmp_path: Path) -> None:
 
 def test_optional_inputs_can_be_left(tmp_path: Path) -> None:
     # describe's note is optional.
-    result = make(tmp_path, trigger("on: entity.created\ntype: Assay\nrun: describe\n"))
+    result = make(tmp_path, trigger("on: entity.created\ntype: Assay\naction: describe\n"))
     assert result.problems == []
 
 
@@ -323,7 +325,7 @@ REVIEW = """\
 on: entity.updated
 type: Assay
 fields: [plate]
-run: review
+action: review
 related:
   readouts: { direction: downstream, depth: 3, edges: [reference, run] }
   other: { direction: upstream }
@@ -333,7 +335,7 @@ related:
 def test_inputs_can_be_given_what_is_related(tmp_path: Path) -> None:
     # `other` takes one, so it's in the next test; here, it's left out.
     body = REVIEW.replace("  other: { direction: upstream }\n", "")
-    body = body.replace("run: review\n", "run: review\ninput: assay\n")
+    body = body.replace("action: review\n", "action: review\ninput: assay\n")
     result = make(tmp_path, trigger(body))
     assert result.problems == []
     assert result.plugin is not None
@@ -352,7 +354,7 @@ def test_an_input_given_what_is_related_is_not_the_entitys(tmp_path: Path) -> No
     body = """\
 on: entity.created
 type: Assay
-run: compare_many
+action: compare_many
 related:
   earlier: { direction: upstream }
 """
@@ -369,7 +371,7 @@ inputs:
   assay: { type: Assay }
   earlier: { type: Assay, cardinality: many }
 effects:
-  updates: [{ input: assay, fields: [score] }]
+  updates: { assay: { fields: [score] } }
 runs_on: { tier: backend, environment: tools }
 command: [python, ./run.py]
 """
@@ -405,7 +407,9 @@ def test_related_inputs_are_checked(tmp_path: Path, change: tuple[str, str], cod
 
 
 def test_a_schedule_has_nothing_related(tmp_path: Path) -> None:
-    body = "on: schedule\nschedule: 0 6 * * *\nrun: sync\nrelated: { x: { direction: upstream } }\n"
+    body = (
+        "on: schedule\nschedule: 0 6 * * *\naction: sync\nrelated: { x: { direction: upstream } }\n"
+    )
     assert "trigger-schedule-entity" in codes(scheduled(tmp_path, body))
 
 
@@ -419,12 +423,12 @@ def test_a_schedule_has_nothing_related(tmp_path: Path) -> None:
     ],
 )
 def test_params_fit_the_action(tmp_path: Path, params: str, code: str) -> None:
-    body = f"on: entity.created\ntype: Assay\nrun: measure\nparams: {params}\n"
+    body = f"on: entity.created\ntype: Assay\naction: measure\nparams: {params}\n"
     assert codes(make(tmp_path, trigger(body))) == [code]
 
 
 def test_a_dollar_is_written_twice(tmp_path: Path) -> None:
-    body = "on: entity.created\ntype: Assay\nrun: measure\nparams: { mode: fast, tag: $$x }\n"
+    body = "on: entity.created\ntype: Assay\naction: measure\nparams: { mode: fast, tag: $$x }\n"
     result = make(tmp_path, trigger(body))
     assert result.problems == []
 
@@ -435,7 +439,7 @@ def test_names_are_unique(tmp_path: Path) -> None:
 
 
 def test_a_state_change_names_its_field_and_states(tmp_path: Path) -> None:
-    body = "on: entity.state_changed\ntype: Assay\nfield: stage\nstates: [read]\nrun: describe\n"
+    body = "on: entity.state_changed\ntype: Assay\nfield: stage\nstates: [read]\naction: describe\n"
     result = make(tmp_path, trigger(body))
     assert result.problems == []
     assert result.plugin is not None
@@ -447,7 +451,7 @@ def test_a_state_change_names_its_field_and_states(tmp_path: Path) -> None:
     )
     assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
     # Without states, any of the field's.
-    body = "on: entity.state_changed\ntype: Assay\nfield: stage\nrun: describe\n"
+    body = "on: entity.state_changed\ntype: Assay\nfield: stage\naction: describe\n"
     assert make(tmp_path, trigger(body)).problems == []
 
 
@@ -455,27 +459,28 @@ def test_a_state_change_names_its_field_and_states(tmp_path: Path) -> None:
     ("body", "code", "message"),
     [
         (
-            "on: entity.state_changed\ntype: Assay\nstates: [read]\nrun: describe\n",
+            "on: entity.state_changed\ntype: Assay\nstates: [read]\naction: describe\n",
             "trigger-state-field-missing",
             "",
         ),
         (
-            "on: entity.state_changed\ntype: Assay\nfield: plate\nrun: describe\n",
+            "on: entity.state_changed\ntype: Assay\nfield: plate\naction: describe\n",
             "trigger-not-a-state-field",
             "`plate`",
         ),
         (
-            "on: entity.state_changed\ntype: Assay\nfield: stage\nstates: [done]\nrun: describe\n",
+            "on: entity.state_changed\ntype: Assay\nfield: stage\nstates: [done]\n"
+            "action: describe\n",
             "unknown-state",
             "`done`",
         ),
         (
-            "on: entity.updated\ntype: Assay\nfield: stage\nrun: describe\n",
+            "on: entity.updated\ntype: Assay\nfield: stage\naction: describe\n",
             "trigger-state-not-state-changed",
             "",
         ),
         (
-            "on: entity.updated\ntype: Assay\nfields: [stage]\nrun: describe\n",
+            "on: entity.updated\ntype: Assay\nfields: [stage]\naction: describe\n",
             "trigger-field-is-state",
             "`stage`",
         ),
@@ -522,7 +527,7 @@ def scheduled(tmp_path: Path, body: str) -> Result:
 
 
 def test_a_scheduled_trigger(tmp_path: Path) -> None:
-    body = "on: schedule\nschedule: 0 6 * * MON-FRI\ntimezone: Europe/Zurich\nrun: sync\n"
+    body = "on: schedule\nschedule: 0 6 * * MON-FRI\ntimezone: Europe/Zurich\naction: sync\n"
     result = scheduled(tmp_path, body)
     assert result.problems == []
     assert result.plugin is not None
@@ -540,19 +545,22 @@ def test_a_scheduled_trigger(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("body", "code"),
     [
-        ("on: schedule\nrun: sync\n", "trigger-schedule-missing"),
-        ("on: schedule\nschedule: '* * * * *'\nrun: sync\n", "trigger-schedule-invalid"),
-        ("on: schedule\nschedule: 0 6 * * * *\nrun: sync\n", "trigger-schedule-invalid"),
-        ("on: schedule\nschedule: 0 6 31 2 *\nrun: sync\n", "trigger-schedule-never"),
+        ("on: schedule\naction: sync\n", "trigger-schedule-missing"),
+        ("on: schedule\nschedule: '* * * * *'\naction: sync\n", "trigger-schedule-invalid"),
+        ("on: schedule\nschedule: 0 6 * * * *\naction: sync\n", "trigger-schedule-invalid"),
+        ("on: schedule\nschedule: 0 6 31 2 *\naction: sync\n", "trigger-schedule-never"),
         (
-            "on: schedule\nschedule: 0 6 * * *\ntimezone: Mars/Olympus\nrun: sync\n",
+            "on: schedule\nschedule: 0 6 * * *\ntimezone: Mars/Olympus\naction: sync\n",
             "trigger-timezone-unknown",
         ),
-        ("on: schedule\nschedule: 0 6 * * *\ntype: Assay\nrun: sync\n", "trigger-schedule-entity"),
-        ("on: schedule\nschedule: 0 6 * * *\nrun: describe\n", "trigger-input-missing"),
-        ("on: entity.created\nrun: describe\n", "trigger-type-missing"),
         (
-            "on: entity.created\ntype: Assay\nschedule: 0 6 * * *\nrun: describe\n",
+            "on: schedule\nschedule: 0 6 * * *\ntype: Assay\naction: sync\n",
+            "trigger-schedule-entity",
+        ),
+        ("on: schedule\nschedule: 0 6 * * *\naction: describe\n", "trigger-input-missing"),
+        ("on: entity.created\naction: describe\n", "trigger-type-missing"),
+        (
+            "on: entity.created\ntype: Assay\nschedule: 0 6 * * *\naction: describe\n",
             "trigger-schedule-not-scheduled",
         ),
     ],
@@ -562,7 +570,7 @@ def test_schedules_are_checked(tmp_path: Path, body: str, code: str) -> None:
 
 
 def test_a_schedules_problem_says_why(tmp_path: Path) -> None:
-    result = scheduled(tmp_path, "on: schedule\nschedule: '*/2 * * * *'\nrun: sync\n")
+    result = scheduled(tmp_path, "on: schedule\nschedule: '*/2 * * * *'\naction: sync\n")
     assert only(result, "trigger-schedule-invalid") == (
         "It runs 2 minutes apart, and a schedule runs at most every 5 minutes."
     )
@@ -577,8 +585,9 @@ kind: EntityType
 name: Ask
 schema_version: 1
 hrid: { prefix: ASK }
-request:
-  service_fields: [rank]
+service:
+  request:
+    service_fields: [rank]
 fields:
   title: { type: string }
   rank: { type: int }
@@ -593,7 +602,7 @@ inputs:
   asks: { type: Ask, cardinality: many }
   ranking: { type: Readout, cardinality: many, from_project: true }
 effects:
-  updates: [{ input: asks, fields: [rank] }]
+  updates: { asks: { fields: [rank] } }
 runs_on: { tier: backend, environment: tools }
 command: [python, ./run.py]
 """
@@ -610,7 +619,7 @@ def received(tmp_path: Path, body: str) -> Result:
 
 
 def test_a_request_arriving_fires_its_services_trigger(tmp_path: Path) -> None:
-    result = received(tmp_path, "on: request.received\ntype: Ask\nrun: rank\n")
+    result = received(tmp_path, "on: request.received\ntype: Ask\naction: rank\n")
     assert result.problems == []
     assert result.plugin is not None
     found = result.plugin.triggers["on_assay"]
@@ -624,15 +633,15 @@ def test_a_request_arriving_fires_its_services_trigger(tmp_path: Path) -> None:
     ("body", "code"),
     [
         (
-            "on: request.received\ntype: Assay\nrun: measure\nparams: { mode: fast }\n",
+            "on: request.received\ntype: Assay\naction: measure\nparams: { mode: fast }\n",
             "trigger-received-not-a-request",
         ),
         (
-            "on: request.received\ntype: Ask\nrun: rank\ninput: ranking\n",
+            "on: request.received\ntype: Ask\naction: rank\ninput: ranking\n",
             "trigger-input-from-project",
         ),
         (
-            "on: request.received\ntype: Ask\nrun: rank\n"
+            "on: request.received\ntype: Ask\naction: rank\n"
             "related:\n  ranking: { direction: downstream }\n",
             "trigger-input-from-project",
         ),
@@ -648,7 +657,7 @@ def test_an_input_from_the_project_takes_many(tmp_path: Path) -> None:
     saved = RANK
     RANK = saved.replace("cardinality: many, from_project", "from_project")
     try:
-        result = received(tmp_path, "on: request.received\ntype: Ask\nrun: rank\n")
+        result = received(tmp_path, "on: request.received\ntype: Ask\naction: rank\n")
     finally:
         RANK = saved
     assert "from-project-one" in codes(result), result.problems

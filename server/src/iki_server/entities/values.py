@@ -190,11 +190,11 @@ def shape(qualified: str) -> Shape:
             )
     names = {t.qualified_name for t in chain}
     for e in registry.extensions():
-        if e.extends_type not in names:
+        if e.adds_to not in names:
             continue
         label = naming.app_label(e.plugin)
         record, entry = split_entry(e.fields)
-        name = naming.extension_model(e.extends_type)
+        name = naming.extension_model(e.adds_to)
         if record:
             model = apps.get_model(label, name)
             parts.append(
@@ -204,7 +204,7 @@ def shape(qualified: str) -> Shape:
                     history=apps.get_model(label, naming.history_model(model.__name__)),
                     fields=record,
                     extension=True,
-                    name=f"{e.plugin}:{e.extends_type}",
+                    name=f"{e.plugin}:{e.adds_to}",
                 )
             )
         if entry:
@@ -216,7 +216,7 @@ def shape(qualified: str) -> Shape:
                     history=apps.get_model(label, naming.history_model(model.__name__)),
                     fields=entry,
                     extension=True,
-                    name=f"{e.plugin}:{e.extends_type}#entry",
+                    name=f"{e.plugin}:{e.adds_to}#entry",
                     entry=True,
                 )
             )

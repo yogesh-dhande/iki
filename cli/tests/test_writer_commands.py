@@ -29,7 +29,7 @@ def test_it_lists_each_writer_with_its_digest_and_crates() -> None:
     code, shown = run(EXAMPLE)
     assert code == 0
     tracked = (EXAMPLE / "writers" / "tecan-worklist.wasm.sha256").read_text().split()[0]
-    assert "acme/liquid_handling.tecan-worklist: Tecan worklist" in shown
+    assert "acme/liquid_handling.tecan_worklist: Tecan worklist" in shown
     assert f"sha256 {tracked}" in shown
     assert "iki-writer 0.1.0-dev.0" in shown and "serde_json " in shown
 
@@ -52,12 +52,12 @@ def test_the_builder_stages_a_context_as_a_deployments_build_does(tmp_path: Path
     assert loaded.plugin is not None
     writers = list(loaded.plugin.writers.values())
     crates = writer_build.stage(loaded.plugin.name, EXAMPLE, writers, tmp_path)
-    assert crates == {"acme/liquid_handling.tecan-worklist": "acme__liquid_handling/tecan-worklist"}
+    assert crates == {"acme/liquid_handling.tecan_worklist": "acme__liquid_handling/tecan_worklist"}
     staged = tmp_path / "plugins" / "iki_installed_plugins" / "writers"
-    assert (staged / "writers.txt").read_text() == "acme__liquid_handling/tecan-worklist\n"
+    assert (staged / "writers.txt").read_text() == "acme__liquid_handling/tecan_worklist\n"
     assert (
         not list(staged.rglob("*.wasm"))
-        and not (staged / "acme__liquid_handling" / "tecan-worklist" / "target").exists()
+        and not (staged / "acme__liquid_handling" / "tecan_worklist" / "target").exists()
     )
     assert (tmp_path / "Dockerfile").read_text() == writer_build.dockerfile()
 
@@ -84,7 +84,7 @@ def test_both_worker_distributions_leave_the_writers_to_the_server(tmp_path: Pat
     assert archived == {p.relative_to(staged).as_posix() for p in staged.rglob("*") if p.is_file()}
     assert "plugin.yaml" in archived
     assert not [name for name in archived if name.startswith("writers/")]
-    crate = registry / "writers" / "acme__liquid_handling" / "tecan-worklist"
+    crate = registry / "writers" / "acme__liquid_handling" / "tecan_worklist"
     assert (crate / "src" / "lib.rs").read_bytes() == (
         copy / "writers" / "tecan-worklist" / "src" / "lib.rs"
     ).read_bytes()

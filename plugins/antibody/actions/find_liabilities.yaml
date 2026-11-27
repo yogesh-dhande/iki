@@ -15,7 +15,7 @@ description: >-
   potential site, predicted from sequence by the rule set chosen, which the
   chain records with the numbering it read; measuring it is another record.
 inputs:
-  protein: { type: iki/protein.Protein, schema: ">=2", label: Chain }
+  protein: { type: iki/protein.Protein, schema_version: ">=2", label: Chain }
 params:
   rule_set:
     type: enum
@@ -29,7 +29,7 @@ params:
       2011).
 effects:
   updates:
-    - input: protein
+    protein:
       fields: [liability_screen, liabilities, liability_counts, liability_count]
 runs_on: { tier: backend, environment: antibody-tools }
 command: [python, ./scripts/liabilities.py]

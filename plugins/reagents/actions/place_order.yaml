@@ -4,7 +4,7 @@ name: place_order
 label: Add reorder line
 description: Record an outstanding order in catalogue packs. The order reference identifies this line in the project.
 inputs:
-  item: { type: StockItem, schema: ">=1" }
+  item: { type: StockItem, schema_version: ">=1" }
 params:
   order_reference: { type: string, required: true, max_length: 100, label: Order line reference }
   ordered_packs: { type: int, min: 1, max: 1000000000, required: true }

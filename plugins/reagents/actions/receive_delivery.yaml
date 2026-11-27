@@ -4,8 +4,8 @@ name: receive_delivery
 label: Receive delivery
 description: Receive a supplier delivery line as a lot at the selected storage location and update the order's outstanding pack count.
 inputs:
-  order: { type: ReorderLine, schema: ">=1", include: [item] }
-  storage: { type: StockStore, schema: ">=1" }
+  order: { type: ReorderLine, schema_version: ">=1", include: [item] }
+  storage: { type: StockStore, schema_version: ">=1" }
 params:
   packs: { type: int, min: 1, max: 1000000000, required: true, label: Packs delivered }
   delivery_note: { type: string, required: true, max_length: 160, label: Supplier delivery note }
@@ -31,7 +31,7 @@ effects:
     - { type: MassStockLot, cardinality: many, receive_into: storage, derived_from: [order] }
     - { type: VolumeStockLot, cardinality: many, receive_into: storage, derived_from: [order] }
     - { type: CountStockLot, cardinality: many, receive_into: storage, derived_from: [order] }
-  updates: [{ input: order, fields: [received_packs] }]
+  updates: { order: { fields: [received_packs] } }
 runs_on: { tier: backend, environment: reagent-tools }
 command: [python, ./scripts/replenishment.py, receive]
 timeout: 2m

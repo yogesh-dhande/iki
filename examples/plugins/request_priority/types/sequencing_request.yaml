@@ -10,8 +10,9 @@ schema_version: 1
 extends: iki/requests.PlainRequest
 description: Work sent to the sequencing core, ranked by the project that asked.
 hrid: { prefix: SEQ }
-request:
-  service_fields: [project_rank]
+service:
+  request:
+    service_fields: [project_rank]
 fields:
   project_rank:
     type: int

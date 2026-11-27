@@ -448,7 +448,7 @@ describe("starting a run", () => {
     answer("GET /api/v1/files/count", { total: 1, more_than_total: false });
     answer("GET /api/v1/files/formats", [
       {
-        id: "iki/core.protein-fasta",
+        id: "iki/core.protein_fasta",
         label: "protein FASTA",
         media_type: "chemical/seq-aa-fasta",
         count: 1,

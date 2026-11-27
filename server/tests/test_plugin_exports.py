@@ -41,7 +41,7 @@ pytestmark = pytest.mark.django_db
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = ROOT / "examples" / "plugins" / "liquid_handling" / "writers" / "tecan-worklist.wasm"
-WRITER = "acme/liquid_handling.tecan-worklist"
+WRITER = "acme/liquid_handling.tecan_worklist"
 PLATE = "acme/liquid_handling.Plate"
 TRANSFER = "acme/liquid_handling.Transfer"
 

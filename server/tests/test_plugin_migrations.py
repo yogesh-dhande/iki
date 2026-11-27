@@ -161,8 +161,8 @@ def test_lab_defined_material_and_aliquot_fields(plugins: Path, database: str) -
     request.write_text(
         request.read_text()
         .replace(
-            "  sends: [samples, protein, tubes]",
-            "  sends: [samples, protein, tubes, specimens]\n  materials: [specimens]",
+            "    sends: [samples, protein, tubes]",
+            "    sends: [samples, protein, tubes, specimens]\n    materials: [specimens]",
         )
         .replace(
             "fields:\n",
@@ -179,7 +179,7 @@ def test_lab_defined_material_and_aliquot_fields(plugins: Path, database: str) -
     result = types / "assay_result.yaml"
     result.write_text(
         result.read_text()
-        .replace("result:\n", "result:\n  material: sample\n")
+        .replace("  result:\n", "  result:\n    material: sample\n")
         .replace(
             "sample: { type: ref, to: Sample }",
             "sample: { type: ref, to: Sample, required: true, immutable: true }",
@@ -2058,9 +2058,9 @@ apiVersion: iki/v1
 kind: Action
 name: weigh
 inputs:
-  sample: { type: Sample, schema: ">=1" }
+  sample: { type: Sample, schema_version: ">=1" }
 effects:
-  updates: [{ input: sample, fields: [mass] }]
+  updates: { sample: { fields: [mass] } }
 runs_on: { tier: backend, environment: tools }
 command: [python, ./weigh.py]
 """
@@ -2168,7 +2168,7 @@ fields:
         "  count: { type: int }\n  material: { type: ref, to: Material, required: true }",
     )
     write_sample(lab, material_ref, ("schema_version: 1", "schema_version: 2"))
-    action = WEIGH.replace('schema: ">=1"', 'schema: ">=1", include: [material]')
+    action = WEIGH.replace('schema_version: ">=1"', 'schema_version: ">=1", include: [material]')
     earlier = (
         WEIGHED
         + """

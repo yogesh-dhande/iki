@@ -275,7 +275,7 @@ def _type_model(t: EntityType) -> type[models.Model]:
 
 
 def _extension_model(e: Extension) -> type[models.Model]:
-    return apps.get_model(naming.app_label(e.plugin), naming.extension_model(e.extends_type))
+    return apps.get_model(naming.app_label(e.plugin), naming.extension_model(e.adds_to))
 
 
 def _entry_model(plugin: str, model_name: str) -> type[models.Model]:
@@ -331,16 +331,16 @@ def _tables() -> Iterable[tuple[str, type[models.Model], dict[str, Field], str]]
             )
     for e in registry.extensions():
         record, entry = split_entry(e.fields)
-        described = f"Fields the {e.plugin} plugin adds to {e.extends_type}."
+        described = f"Fields the {e.plugin} plugin adds to {e.adds_to}."
         if record or not entry:
             yield e.plugin, _extension_model(e), record, _sentence(described, e.description)
         if entry:
             yield (
                 e.plugin,
-                _entry_model(e.plugin, naming.extension_model(e.extends_type)),
+                _entry_model(e.plugin, naming.extension_model(e.adds_to)),
                 entry,
                 _sentence(
-                    f"Registry fields the {e.plugin} plugin adds to {e.extends_type}'s "
+                    f"Registry fields the {e.plugin} plugin adds to {e.adds_to}'s "
                     "entries (ADR 0115).",
                     e.description,
                 ),

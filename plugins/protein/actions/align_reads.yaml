@@ -16,7 +16,7 @@ description: >-
 inputs:
   reference:
     type: Protein
-    schema: ">=1"
+    schema_version: ">=1"
     description: The protein the reads should code for, such as the protein as designed.
 params:
   reads:

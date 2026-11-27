@@ -8,7 +8,7 @@ description: >-
   such as from its form.
 on: entity.created
 type: PolymerLot
-run: compute_polymer_lot
+action: compute_polymer_lot
 ---
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 apiVersion: iki/v1
@@ -21,4 +21,4 @@ description: >-
 on: entity.updated
 type: PolymerLot
 fields: [mn, mw]
-run: compute_polymer_lot
+action: compute_polymer_lot

@@ -6,12 +6,12 @@ description: >-
   Validate the current export and layout against their clean preview, then
   create a read and a measurement record per well in one transaction. Each export is
   its own read of the plate, and fixes the plate's layout.
-inputs: { plate: { type: AssayPlate, schema: ">=1" } }
+inputs: { plate: { type: AssayPlate, schema_version: ">=1" } }
 effects:
   creates:
     - { type: WellMeasurement, cardinality: many, derived_from: [plate] }
     - { type: PlateRead, derived_from: [plate] }
-  updates: [{ input: plate, fields: [committed, committed_layout, committed_reads] }]
+  updates: { plate: { fields: [committed, committed_layout, committed_reads] } }
 runs_on: { tier: backend, environment: assay-tools }
 command: [python, ./scripts/assays.py, commit]
 timeout: 5m

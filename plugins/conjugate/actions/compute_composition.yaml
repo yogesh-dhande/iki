@@ -9,10 +9,11 @@ description: >-
   carrier basis or missing information. An antibody's chain copies also let
   its physical lots interpret a measured distribution from reduced chains.
 inputs:
-  conjugate: { type: Conjugate, schema: ">=1", include: [carrier.molecule, attachments.part] }
+  conjugate:
+    { type: Conjugate, schema_version: ">=1", include: [carrier.molecule, attachments.part] }
 effects:
   updates:
-    - input: conjugate
+    conjugate:
       fields:
         [
           molecular_formula,

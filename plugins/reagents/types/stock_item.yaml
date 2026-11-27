@@ -9,7 +9,7 @@ stock_catalogue:
   name: name
   unit: stock_unit
   threshold: low_stock_at
-  notify: [stock_manager]
+  notify: { roles: [stock_manager] }
   lots: { type: StockLot, item: item, number: lot_number, expiry: expires_on }
   orders:
     {

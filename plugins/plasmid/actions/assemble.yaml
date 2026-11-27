@@ -14,7 +14,7 @@ description: >-
   only join end to end, and for a digest, what the plan makes is linear. A plan that could
   make more than one molecule makes none, and says which they are.
 inputs:
-  assembly: { type: Assembly, schema: ">=2", include: [backbone, inserts] }
+  assembly: { type: Assembly, schema_version: ">=2", include: [backbone, inserts] }
 params:
   min_overlap:
     type: int
@@ -37,7 +37,7 @@ effects:
     - { type: iki/dna.DNASequence, derived_from: [assembly] }
     - { type: Plasmid, derived_from: [assembly] }
   updates:
-    - input: assembly
+    assembly:
       fields: [simulated_length, simulated_topology, junctions]
 software:
   - { name: Biopython, version: "1.88", url: https://biopython.org }

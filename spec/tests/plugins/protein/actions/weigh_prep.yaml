@@ -4,9 +4,9 @@ name: weigh_prep
 label: Weigh a prep
 description: Reads the purification method its prep names, an option of a lab list (ADR 0270).
 inputs:
-  prep: { type: Prep, schema: ">=1", include: [method] }
+  prep: { type: Prep, schema_version: ">=1", include: [method] }
 effects:
-  updates: [{ input: prep, fields: [name] }]
+  updates: { prep: { fields: [name] } }
 runs_on: { tier: backend, environment: protein-tools }
 command: [python, ./scripts/relax.py]
 deterministic: true

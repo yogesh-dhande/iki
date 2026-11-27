@@ -4,9 +4,9 @@ name: schedule_request
 label: Schedule a request
 description: A core's planning of an assay request sent to it (ADR 0132), in its own fields.
 inputs:
-  request: { type: AssayRequest, schema: ">=1" }
+  request: { type: AssayRequest, schema_version: ">=1" }
 effects:
-  updates: [{ input: request, fields: [scheduled_on, core_notes] }]
+  updates: { request: { fields: [scheduled_on, core_notes] } }
 runs_on: { tier: backend, environment: protein-tools }
 command: [python, ./scripts/schedule.py]
 timeout: 5m

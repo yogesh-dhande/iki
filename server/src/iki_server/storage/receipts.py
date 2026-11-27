@@ -59,7 +59,7 @@ def receives(entity: Entity) -> tuple[str, tuple[str, ...]] | None:
     spec = requests.spec_of(entity.type)
     if spec is None or spec.receives is None:
         return None
-    return spec.receives, spec.receives_by
+    return spec.receives, spec.received_by
 
 
 def why_not_receiver(user: User, entity: Entity) -> str | None:

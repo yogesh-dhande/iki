@@ -3,9 +3,9 @@ kind: Action
 name: compute_properties
 label: Compute properties
 inputs:
-  protein: { type: Protein, schema: ">=1" }
+  protein: { type: Protein, schema_version: ">=1" }
 effects:
-  updates: [{ input: protein, fields: [molecular_weight] }]
+  updates: { protein: { fields: [molecular_weight] } }
 runs_on: { tier: backend, environment: protein-tools }
 command: [python, ./scripts/properties.py]
 deterministic: true

@@ -9,7 +9,7 @@ on: entity.state_changed
 type: iki/equipment.Instrument
 field: calibration
 states: [failed]
-run: trace_failed_calibrations
+action: trace_failed_calibrations
 input: instrument
 related:
   calibrations: { direction: downstream, depth: 1, edges: [reference] }

@@ -39,10 +39,11 @@
           "items": { "$ref": "#/$defs/creates" }
         },
         "updates": {
-          "description": "The fields a run may set on its inputs' entities, by input.",
-          "type": "array",
-          "maxItems": 20,
-          "items": { "$ref": "#/$defs/updates" }
+          "description": "The fields a run may set on its inputs' entities, by input name, as its output's `updates` are keyed.",
+          "type": "object",
+          "maxProperties": 20,
+          "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+          "additionalProperties": { "$ref": "#/$defs/updates" }
         }
       },
       "additionalProperties": false
@@ -297,11 +298,6 @@
       "type": "string",
       "pattern": "^[1-9][0-9]{0,5}(s|m|h|d)$"
     },
-    "constraint": {
-      "description": "The schema versions it works with, such as `>=2` or `>=2,<4`.",
-      "type": "string",
-      "pattern": "^(==|>=|<=|>|<|!=)[0-9]+(,(==|>=|<=|>|<|!=)[0-9]+)*$"
-    },
     "input": {
       "description": "An input: the type of entity it takes, how many, and whether a run needs it.",
       "type": "object",
@@ -311,7 +307,10 @@
           "description": "The type of entity it takes; its subtypes are taken too.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
         },
-        "schema": { "$ref": "#/$defs/constraint" },
+        "schema_version": {
+          "description": "The schema versions of its type it works with, such as `>=2` or `>=2,<4`.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/versionConstraint"
+        },
         "cardinality": {
           "description": "`one` entity (the default), or `many`.",
           "enum": ["one", "many"]
@@ -417,13 +416,10 @@
       "additionalProperties": false
     },
     "updates": {
+      "description": "What a run may change on the entities given to this input.",
       "type": "object",
-      "required": ["input", "fields"],
+      "required": ["fields"],
       "properties": {
-        "input": {
-          "description": "The input whose entities it changes.",
-          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-        },
         "fields": {
           "description": "The fields it sets on them.",
           "type": "array",

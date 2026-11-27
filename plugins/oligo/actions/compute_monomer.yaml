@@ -9,10 +9,10 @@ description: >-
   at. Computes its structure key, attachment points, formula and molecular weight.
   One that fails is named, and nothing of it is computed.
 inputs:
-  monomer: { type: Monomer, schema: ">=1" }
+  monomer: { type: Monomer, schema_version: ">=1" }
 effects:
   updates:
-    - input: monomer
+    monomer:
       fields: [structure, attachments, molecular_formula, molecular_weight]
 software:
   - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }

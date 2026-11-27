@@ -103,7 +103,7 @@ def test_rules_and_guards_are_checked_and_say_what_they_read(tmp_path: Path) -> 
     fields: [result]
   one_per_well:
     unique: [plate, well]
-    while: { stored: [true] }
+    while: { field: stored, states: [true] }
     message: "{{ record.well }} is taken."
   one_at_a_time:
     no_overlap: { from: starts_at, to: ends_at, per: [plate] }
@@ -189,18 +189,19 @@ fields:
   plate: { type: string, max_length: 20 }
   result: { type: enum, values: [pass, fail] }
   source: { type: ref, to: Assay }
-draw_guards:
-  needs_a_result:
-    when: operation == "draw" && purpose == "routine"
-    check: record.result == "pass"
-    message: "Plate {{ record.plate }} hasn't passed."
+draws:
+  guards:
+    needs_a_result:
+      when: operation == "draw" && purpose == "routine"
+      check: record.result == "pass"
+      message: "Plate {{ record.plate }} hasn't passed."
 """
     )
     result = make(tmp_path, body, ROLES)
     assert result.problems == [], [(p.code, p.message) for p in result.problems]
     assert result.plugin is not None
     built = plugin_from_dict(plugin_to_dict(result.plugin))
-    guard = built.types["acme/lab.Assay"].draw_guards["needs_a_result"]
+    guard = built.types["acme/lab.Assay"].draws.guards["needs_a_result"]
     assert guard.reads == ("plate", "result")
     bad = make(tmp_path, body.replace("record.result", "record.reslt"), ROLES)
     assert "reslt" in only(bad, "invalid-expression")
@@ -224,11 +225,13 @@ draw_guards:
         ("  x:\n    no_overlap: { from: starts_at, to: plate }\n    message: No.\n", "rule-field"),
         # `while` is an enum, state or bool field's, and one of its values.
         (
-            "  x:\n    unique: [plate, well]\n    while: { plate: [a] }\n    message: No.\n",
+            "  x:\n    unique: [plate, well]\n"
+            "    while: { field: plate, states: [a] }\n    message: No.\n",
             "rule-field",
         ),
         (
-            "  x:\n    unique: [plate, well]\n    while: { stored: [maybe] }\n    message: No.\n",
+            "  x:\n    unique: [plate, well]\n"
+            "    while: { field: stored, states: [maybe] }\n    message: No.\n",
             "rule-while",
         ),
         (

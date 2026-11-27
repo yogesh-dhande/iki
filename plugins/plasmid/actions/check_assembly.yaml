@@ -12,7 +12,7 @@ description: >-
   here, since the clone's sequence says which was made; one Iki can't work out leaves no
   result, and the old one is cleared rather than left to be read as current.
 inputs:
-  assembly: { type: Assembly, schema: ">=2", include: [backbone, inserts, product] }
+  assembly: { type: Assembly, schema_version: ">=2", include: [backbone, inserts, product] }
 params:
   min_overlap:
     type: int
@@ -32,7 +32,7 @@ params:
       every fragment of it, for a plan that keeps another one.
 effects:
   updates:
-    - input: assembly
+    assembly:
       fields: [simulated_length, simulated_topology, matches_product, junctions, verification_note]
 software:
   - { name: Biopython, version: "1.88", url: https://biopython.org }

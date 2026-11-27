@@ -233,7 +233,9 @@ def checked(run: ActionRun, document: Mapping[str, Any]) -> Checked:
     ):
         check.error(problem.pointer, problem.detail)
     updates = _updates(check, document.get("updates") or {})
-    creates = _creates(check, document.get("creates") or [])
+    creates = _creates(
+        check, [outputs.qualified(check.action, c) for c in document.get("creates") or []]
+    )
     creates_file = _creates_file(check, document.get("creates_file"))
     _messages(check, document.get("messages") or [])
     if check.errors:
@@ -470,6 +472,7 @@ def check_line(
     point at ``#/creates_file/<line>``. Its values are checked as it's written. ``keys``:
     the keys of the output's ``creates``, which a line may refer to (ADR 0140)."""
     at = ("creates_file", line)
+    item = outputs.qualified(check.action, item)
     found = outputs.creates_line(check.action, item, at, keys, INSTALLED, check.error)
     if found is None:
         return None
@@ -597,7 +600,7 @@ def _current_calculation_inputs(check: Check) -> set[UUID]:
         for t in triggers.triggers().values()
         if (t.recheck or t.watch_included)
         and t.plugin == check.action.plugin
-        and t.run == check.action.name
+        and t.action == check.action.name
     }
     if not names:
         return set()

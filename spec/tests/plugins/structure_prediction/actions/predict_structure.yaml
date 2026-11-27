@@ -3,7 +3,7 @@ kind: Action
 name: predict_structure
 label: Predict structure
 inputs:
-  protein: { type: acme/protein.Protein, schema: ">=1" }
+  protein: { type: acme/protein.Protein, schema_version: ">=1" }
 params:
   model_preset: { type: enum, values: [monomer, multimer], default: monomer }
   seed: { type: int, default: 0, min: 0 }

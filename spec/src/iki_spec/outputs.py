@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from iki_spec import schemas
-from iki_spec.model import Action, Creates, EntityType, Extension, Field, split_entry
+from iki_spec.model import Action, Creates, EntityType, Extension, Field, qualify, split_entry
 
 __all__ = [
     "Problem",
@@ -36,6 +36,7 @@ __all__ = [
     "fills",
     "keys",
     "pointer",
+    "qualified",
 ]
 
 #: Says what's wrong, and where: a JSON pointer and a detail.
@@ -67,6 +68,15 @@ class Types(Protocol):
 def pointer(*parts: object) -> str:
     """A JSON pointer into the output, as problems name where they are."""
     return "#/" + "/".join(str(p).replace("~", "~0").replace("/", "~1") for p in parts)
+
+
+def qualified(action: Action, item: Mapping[str, Any]) -> Mapping[str, Any]:
+    """A create as it's checked and written: a bare type name, such as ``BufferPrep``, is
+    of the action's own plugin, as its manifests name it; a qualified one is as given."""
+    name = item.get("type")
+    if isinstance(name, str) and "." not in name:
+        return {**item, "type": qualify(name, action.plugin)}
+    return item
 
 
 def _is_created_ref(value: object) -> bool:
@@ -234,10 +244,11 @@ def check_creates(
 
     counts: dict[int, int] = {}
     seen: set[str] = set()
-    for index, item in enumerate(creates):
+    for index, given in enumerate(creates):
         at = ("creates", index)
-        if not isinstance(item.get("type"), str) or not isinstance(item.get("values"), dict):
+        if not isinstance(given.get("type"), str) or not isinstance(given.get("values"), dict):
             continue  # the output's schema says so
+        item = qualified(action, given)
         keys(item, at, seen, types, report)
         if declared(action, item, at, counts, types, report) is not None:
             fills(item, at, types, report)
@@ -310,7 +321,7 @@ def check_creates_file(
         for issue in issues:
             report(pointer(*at, *issue.path), issue.message)
         if not issues:
-            creates_line(action, item, at, keys, types, report)
+            creates_line(action, qualified(action, item), at, keys, types, report)
     return out
 
 
@@ -340,7 +351,7 @@ class SpecTypes:
         chain = self._chain(type_name)
         names = {t.qualified_name for t in chain}
         own = [(t.fields, t.identity) for t in chain]
-        return own + [(e.fields, ()) for e in self.extensions if e.extends_type in names]
+        return own + [(e.fields, ()) for e in self.extensions if e.adds_to in names]
 
     def ref_fields(self, type_name: str) -> frozenset[str]:
         return frozenset(

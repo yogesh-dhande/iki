@@ -182,7 +182,7 @@ describe("exporting a record", () => {
 
   it("downloads a plugin's format, saying which plugin writes it", async () => {
     const worklist = {
-      format: "acme/liquid_handling.tecan-worklist",
+      format: "acme/liquid_handling.tecan_worklist",
       label: "Tecan worklist",
       extension: "gwl",
       media_type: "text/x-tecan-gwl",
@@ -215,7 +215,7 @@ describe("exporting a record", () => {
       ),
     ).toBeInTheDocument();
     const [sent] = calls("GET", `/api/v1/entities/${ID}/export`);
-    expect(sent?.query.get("format")).toBe("acme/liquid_handling.tecan-worklist");
+    expect(sent?.query.get("format")).toBe("acme/liquid_handling.tecan_worklist");
     expect(saved.map((s) => s.name)).toEqual(["pTest.gwl"]);
   });
 

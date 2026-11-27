@@ -8,8 +8,8 @@ description: >-
   strands in the same roles are found again, whichever is given first. Its duplex
   region, overhangs and mismatches are found from their bases, antiparallel.
 inputs:
-  sense: { type: Oligonucleotide, schema: ">=1", label: Sense strand }
-  antisense: { type: Oligonucleotide, schema: ">=1", label: Antisense strand }
+  sense: { type: Oligonucleotide, schema_version: ">=1", label: Sense strand }
+  antisense: { type: Oligonucleotide, schema_version: ">=1", label: Antisense strand }
 params:
   name: { type: string, max_length: 255, label: Name }
   description: { type: text, max_length: 10000, label: Description }

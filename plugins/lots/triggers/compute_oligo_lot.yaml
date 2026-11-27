@@ -8,7 +8,7 @@ description: >-
   such as from its form.
 on: entity.created
 type: OligoLot
-run: compute_oligo_lot
+action: compute_oligo_lot
 ---
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 apiVersion: iki/v1
@@ -23,4 +23,4 @@ type: OligoLot
 fields: [measured_mass, mass_basis, yield_od, extinction_260]
 watch_included:
   oligonucleotide: [molecular_weight, monoisotopic_mass, extinction_260]
-run: compute_oligo_lot
+action: compute_oligo_lot

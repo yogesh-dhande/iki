@@ -5,9 +5,9 @@ name: assign_storage
 label: Assign default storage
 description: Records where a sample is stored as the fixture's default, if nobody said.
 inputs:
-  sample: { type: ExecutionSample, schema: ">=1" }
+  sample: { type: ExecutionSample, schema_version: ">=1" }
 effects:
-  updates: [{ input: sample, fields: [storage] }]
+  updates: { sample: { fields: [storage] } }
 runs_on: { tier: container, environment: tools }
 command: [python, ./scripts/storage.py]
 deterministic: true

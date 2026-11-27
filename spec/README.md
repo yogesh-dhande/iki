@@ -108,13 +108,14 @@ See the [author examples](../examples/plugins/README.md).
 
 Declare a file format once under `formats` in `plugin.yaml`. A format's ID
 is the plugin's full name, a dot, and the local format name. Local names
-start with a lowercase letter and use lowercase letters, digits and hyphens.
+are snake_case, as every name under `plugin.yaml`'s keys is: lowercase letters and
+digits, words joined by underscores, starting with a letter.
 The [storage labels example](../examples/plugins/storage_labels/plugin.yaml) declares
-`acme/storage_labels.tube-scan` for the tabular files a rack scanner writes.
+`acme/storage_labels.tube_scan` for the tabular files a rack scanner writes.
 
 ```yaml
 formats:
-  tube-scan:
+  tube_scan:
     label: Tube scanner export
     media_types: [application/x-tube-scan]
     extensions: [.tubescan]
@@ -146,7 +147,7 @@ parameter sets its own size limit.
 
 ```yaml
 fields:
-  scan: { type: file, media_types: [acme/storage_labels.tube-scan], max_size: 20MiB }
+  scan: { type: file, media_types: [acme/storage_labels.tube_scan], max_size: 20MiB }
 ```
 
 Exact media types and wildcards such as `image/*` also work. Iki derives the
@@ -507,11 +508,11 @@ rules:
     message: "{{ record.instrument }} isn't in service."
   one_per_position:
     unique: [box, position]
-    while: { status: [stored] }
+    while: { field: status, states: [stored] }
     message: Another tube is stored at {{ record.position }} in this box.
   one_at_a_time:
     no_overlap: { from: starts_at, to: ends_at, per: [instrument] }
-    while: { cancelled: [false] }
+    while: { field: cancelled, states: [false] }
     message: The instrument is booked then.
 ```
 
@@ -546,9 +547,9 @@ rules:
   values of other fields. A range includes where it starts but not where it
   ends, so a booking can end as the next starts; a date range includes both.
   The database keeps these two, whatever writes, so two saves at once can't
-  both win. `while` counts only records whose enum, state or bool fields have
-  one of its values (`rule-while`). A record with any of their fields empty
-  doesn't count.
+  both win. `while: {field, states}` counts only records whose enum, state or
+  bool `field` has one of its `states`: states, an enum's values, or `true` or
+  `false` (`rule-while`). A record with the field empty doesn't count.
 - An edit is checked only against the rules that read a field it changes,
   so a record saved before a rule was added can still change elsewhere.
   When a plugin is deployed with new or changed rules, its records are
@@ -682,28 +683,28 @@ slots:
   reviewer: { label: Second-person reviewer }
   qa: { label: QA }
 states:
-  recorded: { label: In progress, by: [analyst, reviewer], reason: required }
+  recorded: { label: In progress, set_by: [analyst, reviewer], reason: required }
   submitted:
     label: Submitted
-    by: analyst
+    set_by: analyst
     locks: true
     signature: { meaning: authorship }
     maker: true
   first_review:
     label: First review
-    by: reviewer
+    set_by: reviewer
     locks: true
     signature: { meaning: review }
     independent_of: [creator, editors, signers: [submitted]]
   second_review:
     label: Second review
-    by: reviewer
+    set_by: reviewer
     locks: true
     signature: { meaning: review }
     independent_of: [creator, editors, signers: [submitted, first_review]]
   released:
     label: Approved
-    by: qa
+    set_by: qa
     locks: true
     signature: { meaning: approval }
     independent_of: [creator, editors, signers: [submitted, first_review, second_review]]
@@ -723,12 +724,12 @@ flows:
 - `slots` are the parts people play. A starter binds each to a lab role, by
   default the `iki/lab_roles` role of its name
   ([ADR 0304](../docs/adr/0304-lab-roles-are-shared-and-a-procedures-slots-are-bound-at-setup.md)).
-  A state's `by` names the slots whose holders set it.
+  A state's `set_by` names the slots whose holders set it.
 - A flow's `route` is its states in order. Records start in the first, where
   the work is recorded and edited, which can't lock. Each later state is set
   from the one before; `moves` adds others, such as a return for correction.
   The last is the flow's final state.
-- A state has `label`, `description`, `by`, `locks`, `reason`, `on_edit`
+- A state has `label`, `description`, `set_by`, `locks`, `reason`, `on_edit`
   and at most one `signature`. A signed state declares exactly one of
   `maker: true` (whoever created the record or edited it since it entered
   the flow's first state) and `independent_of` (`creator`, `editors`,
@@ -798,14 +799,14 @@ notifications:
     label: Submitted for review
     description: QA hears when an analyst submits a sample's results.
     when: { field: status, to: in_review }
-    tell: { roles: [qa], watchers: true }
+    notify: { roles: [qa], watchers: true }
     message:
       title: "{{ hrid }} is in review"
       body: "{{ protein }}, lot {{ lot or 'not given' }}."
   rejected:
     label: Rejected
     when: { field: status, from: [approved, released], to: rejected }
-    tell: { fields: [analyst] }
+    notify: { fields: [analyst] }
     required: true
 ```
 
@@ -815,7 +816,7 @@ notifications:
   referenced record's, `ref.field` (`instrument.service`): every record
   referring to the one that changed is told of, up to 1000. A request type
   ([Requests between projects](#requests-between-projects)) can also say
-  `sent: true`, as it's sent, which tells only `roles`, held in the
+  `sent: true`, as it's sent, which notifies only `roles`, held in the
   service's project; or `released: true`, as each result of it is released
   back, which tells whom it names in the project that asked, of the
   request and the result, if they can read both
@@ -824,7 +825,7 @@ notifications:
   type's own fields, as a component's `search` takes them
   ([Components that show many entities](#components-that-show-many-entities));
   `{{ now }}` is the moment it's sent, for date and datetime fields.
-- `tell` names at least one of: `fields`, its person fields
+- `notify` names at least one of: `fields`, its person fields
   (`notification-recipients`); `roles`, lab roles whose holders in the
   record's project are told (`unknown-role`); `creator`; `watchers`, those
   who watch the record; and `actor`, the person who made the change, who
@@ -860,17 +861,18 @@ reads those, and nothing else of the asking project's. A service's Admins
 choose which request types it takes, and from which projects in its
 registry.
 
-A type with `result` is a request's results: the service makes and owns
+A type with `service.result` is a request's results: the service makes and owns
 them, and setting `released.field` to one of `released.states` sends one
 back to the asking project, for good. Until then that project can't see it.
 
 ```yaml
 # types/analysis_request.yaml
-request:
-  service_fields: [status, priority, analyst, core_notes]
-  sends: [samples]
-  materials: [samples]
-  completed: { field: status, state: delivered }
+service:
+  request:
+    service_fields: [status, priority, analyst, core_notes]
+    sends: [samples]
+    materials: [samples]
+    completed: { field: status, states: [delivered] }
 fields:
   title: { type: string, required: true, max_length: 200 }
   samples: { type: list, items: { type: ref, to: Sample }, max_items: 50 }
@@ -886,10 +888,11 @@ fields:
       delivered: { label: Delivered, set_by: [qa], locks: true }
 
 # types/analysis_result.yaml
-result:
-  of: request
-  material: sample
-  released: { field: review, states: [released] }
+service:
+  result:
+    of: request
+    material: sample
+    released: { field: review, states: [released] }
 fields:
   request: { type: ref, to: AnalysisRequest, required: true, immutable: true }
   sample: { type: ref, to: Sample, immutable: true }
@@ -912,6 +915,9 @@ fields:
 - `sends` names references, or lists of them (`unknown-field`,
   `request-sends-not-a-reference`), and none of the service's
   (`request-sends-service-field`).
+- `request.receives: {field, received_by}` names a list of references it sends,
+  to a type with `storage`, that the service checks in with a receipt, and the
+  lab roles in the service that do (ADR 0180): any of its Editors, if none.
 - `request.materials` names the sent fields that identify the subjects of the work.
   A result's `material` names the immutable reference to its subject. Iki checks
   the subject when the result is recorded and again when it is released.
@@ -919,17 +925,19 @@ fields:
   by this result's material through any depth of recorded aliquots. For example,
   `covered_subjects.exists(id, id in record.request.tubes)` checks sequencing
   evidence against the tubes currently requested.
-- `request.completed` names the service state that closes the request. Completing
-  it requires at least one returned result, all recorded results returned, and
+- `request.completed` names the service's state field and the states that close
+  the request, as `{field, states}`. Completing it requires at least one returned result, all recorded results returned, and
   coverage of every commissioned subject by a returned result for that subject
   or its recorded aliquot. Repeated results for one subject count toward that subject.
 - A request or a result is one project's record, so it has no `identity`
   (`request-with-identity`, `result-with-identity`), and a type isn't both
   (`result-is-a-request`). A subtype of a request type is one, with its
-  service. It may declare `request` with `service_fields` alone, naming
+  service. It may declare `service.request` with `service_fields` alone, naming
   more of its own fields the service writes, such as a core's ranking of
   the project that asked (ADR 0232); anything else it says of `request` is
   its parent's to say (`request-redeclared`).
+- `service` holds a type's part in a request, one of `request`, `result` and
+  `work_item`: each is inherited by its subtypes as described here.
 
 A lab's own result type can answer only its own request type: it refines its
 request reference to that type, and its rules read the request type's fields
@@ -943,8 +951,9 @@ A lab's own request type adds what its service keeps of each request:
 ```yaml
 # types/sequencing_request.yaml
 extends: iki/requests.PlainRequest
-request:
-  service_fields: [project_rank] # the service's, besides its parent's
+service:
+  request:
+    service_fields: [project_rank] # the service's, besides its parent's
 fields:
   project_rank: { type: int, computed: true }
 ```
@@ -960,7 +969,7 @@ fields:
   It releases the revision that completed review. The requester receives the
   result with those reviewed values.
 
-Declare `work_item: { of: request }` for work the service keeps in its own
+Declare `service: { work_item: { of: request } }` for work the service keeps in its own
 project. The named field is a required, immutable reference to a request sent
 to that project. Other projects cannot link or reference the work item.
 A work item cannot also declare or inherit a request, result, or registry identity.
@@ -1039,15 +1048,19 @@ fields:
 - A transfer into a record that a state locks, such as a released lot,
   takes only material from a record in that same state, so nothing that
   wasn't released becomes part of what was.
-- A destination can declare `draw_target: {from: source, state: {field: status, is: pending}}`.
-  One draw can be recorded against the assigned source while the destination is pending.
-  The debit and the destination receipt commit together. A prepared draw can additionally
-  pin the upstream material, planned quantity, readiness field and authorized roles.
+- A record's draws are one block, `draws`, of `guards`, `purposes`, `target` and
+  `received`, each inherited on its own as described here. A record that receives
+  a draw needs no amount of its own.
+- A destination can declare `draws: { target: {from: source, state: {field: status, states: [pending]}} }`.
+  One draw can be recorded against the assigned source while the destination is in one
+  of those states. The debit and the destination receipt commit together. A prepared
+  draw can additionally pin the upstream material, planned quantity, readiness field and
+  the lab roles that may draw it (`drawn_by`).
   The planned quantity (`amount`) is a quantity field in its own unit, or a float field
   with `unit` naming an enum or string field that holds its UCUM unit, so one type plans
   some draws by volume and others by mass (ADR 0243). The draw is any amount that
   converts to it, such as a volume at the container's concentration.
-- A destination type can declare `draws_received: material_draws` with
+- A destination type can declare `draws: { received: material_draws }` with
   `material_draws: { type: json, computed: true }` among its fields.
   Each draw with this destination as `used_in` appends the movement ID,
   the drawn record ID and revision, the positive quantity in the ledger's
@@ -1072,25 +1085,26 @@ fields:
   `/entities/{ref}/aliquots` splits it. Each change is in the audit log,
   and the webhook event `entity.amount_moved` says so.
 
-A type says when material may be taken with `draw_guards`, and who may
-draw it for each purpose with `draw_purposes` (ADR 0139):
+A type says when material may be taken with `draws.guards`, and who may
+draw it for each purpose with `draws.purposes` (ADR 0139):
 
 ```yaml
-draw_purposes:
-  qa_sampling: { by: [qa] } # QA sampling needs the QA lab role in the record's project
-draw_guards:
-  not_expired:
-    check: record.expires_on == null || record.expires_on > today
-    message: This lot has reached its expiry date. No material can be taken.
-  sampling_only_in_quarantine:
-    when: operation == "draw"
-    check: record.disposition != "quarantined" || purpose == "qa_sampling"
-    message: This lot is quarantined. Only a QA sampling draw is allowed.
+draws:
+  purposes:
+    qa_sampling: { drawn_by: [qa] } # QA sampling needs the QA lab role in the record's project
+  guards:
+    not_expired:
+      check: record.expires_on == null || record.expires_on > today
+      message: This lot has reached its expiry date. No material can be taken.
+    sampling_only_in_quarantine:
+      when: operation == "draw"
+      check: record.disposition != "quarantined" || purpose == "qa_sampling"
+      message: This lot is quarantined. Only a QA sampling draw is allowed.
 ```
 
 - Each draw has a purpose: `routine`, the default, or `qa_sampling`. A
   routine draw is open to whoever may draw from the record, unless
-  `draw_purposes` names roles for it. QA sampling is refused unless the type
+  `draws.purposes` names roles for it (`drawn_by`). QA sampling is refused unless the type
   or an ancestor names the roles for it. One of the roles is needed, in the
   record's own project, as well as permission to draw. A subtype inherits
   each purpose's roles and may narrow them.
@@ -1110,7 +1124,7 @@ stock_catalogue:
   name: name
   unit: stock_unit
   threshold: low_stock_at
-  notify: [stock_manager]
+  notify: { roles: [stock_manager] } # a notification's `notify`: a stock alert takes `roles`
   lots: { type: StockLot, item: item, number: lot_number, expiry: expires_on }
   orders:
     type: ReorderLine
@@ -1209,15 +1223,16 @@ method: { type: ref, to: PurificationMethod }
 
 ### Extensions
 
-A plugin adds fields to another plugin's type with an extension. The fields
-live in the extending plugin's own table
+A plugin adds fields to another plugin's type with an extension: `adds_to`
+names the type, whose records get the fields (it isn't a subtype, which
+`extends` makes). The fields live in the extending plugin's own table
 (`acme__prediction__iki__protein_proteinstructure`, for `acme/prediction`'s fields
 on `iki/protein.ProteinStructure`).
 
 ```yaml
 apiVersion: iki/v1
 kind: EntityTypeExtension
-extends_type: iki/protein.ProteinStructure
+adds_to: iki/protein.ProteinStructure
 fields:
   plddt_mean: { type: float, computed: true, indexed: true, min: 0, max: 100 }
 ```
@@ -1519,14 +1534,14 @@ apiVersion: iki/v1
 kind: Action
 name: predict_structure_with_alphafold
 inputs: # leave out for actions that import or fetch
-  protein: { type: iki/protein.Protein, schema: ">=2" } # cardinality: one (default) or many
+  protein: { type: iki/protein.Protein, schema_version: ">=2" } # cardinality: one (default) or many
   # include: [encoded_by] # references whose entities the run reads too (ADR 0105)
   # ranking: { type: ServedProject, cardinality: many, from_project: true } # not chosen
 params:
   model_preset: { type: enum, values: [monomer, multimer], default: monomer }
 effects: # what a run may write; anything else is refused
   creates: [{ type: iki/protein.ProteinStructure, cardinality: many, derived_from: [protein] }]
-  updates: [] # e.g. [{ input: protein, fields: [molecular_weight] }]
+  updates: {} # by input, as its output's are: { protein: { fields: [molecular_weight] } }
 runs_on: { tier: vm, environment: alphafold-gpu, lifecycle: ephemeral, resources: { memory: 96Gi } }
 command: [python, /app/run.py] # a list of arguments, no shell; ./path is a file in the plugin
 deterministic: true # the same inputs give the same results, so runs can be reused
@@ -1565,6 +1580,8 @@ on it. The validator checks that:
   removed or `immutable`; updates reach inherited fields and fields this
   plugin adds to the type
 - every `derived_from` and `updates` names an input
+- an input's `schema_version` (`>=2`, `>=2,<4`, spaces allowed) admits its type's
+  `schema_version`, as a dependency's `types:` constraint does (`input-schema-unsatisfied`)
 - an input's `include` names references of its type, its own or a parent's
 - a create's `match_on` is a unique field of the type, its own, a parent's,
   or one this plugin's extension adds
@@ -1776,7 +1793,7 @@ kind: Workflow
 name: translate_and_characterize # acme/protein_translation.translate_and_characterize
 label: Translate and characterize
 inputs:
-  sequence: { type: iki/dna.DNASequence, schema: ">=1" } # as an action's inputs
+  sequence: { type: iki/dna.DNASequence, schema_version: ">=1" } # as an action's inputs
 params:
   frame: { type: int, min: 1, max: 3, default: 1 } # as an action's params
 steps:
@@ -1878,7 +1895,7 @@ name: compute_new_protein_properties
 label: Compute each new protein's properties
 on: entity.registered
 type: Protein
-run: compute_properties # the plugin's action
+action: compute_properties # the plugin's action
 input: protein # which input takes the entity; left out when only one can
 params: {} # values; a string starting with `$` is written `$$`
 ```
@@ -1907,7 +1924,7 @@ on: entity.updated
 type: Assembly
 fields: [product, method, enzymes, backbone, inserts]
 recheck: verification_note # a computed text field the action updates
-run: check_assembly
+action: check_assembly
 ```
 
 An edit of one of the `fields` clears the action's computed outputs on the
@@ -1928,7 +1945,7 @@ type: OligoLot
 fields: [measured_mass, yield_od]
 watch_included:
   oligonucleotide: [molecular_weight, extinction_260] # the input's included reference
-run: compute_oligo_lot
+action: compute_oligo_lot
 ```
 
 When one of those fields of the referenced record changes, each record that
@@ -1973,7 +1990,7 @@ on: entity.state_changed
 type: Donor
 field: consent
 states: [withdrawn]
-run: hold_withdrawn
+action: hold_withdrawn
 related:
   aliquots: { direction: downstream }
   results: { direction: downstream, depth: 5, edges: [reference, run] }
@@ -2003,7 +2020,7 @@ account the Admin who turns it on chooses, on their authority.
 ```yaml
 on: request.received
 type: SequencingRequest
-run: rank_requests
+action: rank_requests
 input: requests
 ```
 
@@ -2024,7 +2041,7 @@ name: fetch_hemoglobin_nightly
 on: schedule
 schedule: 0 3 * * * # 03:00 each day
 timezone: Europe/Zurich
-run: fetch_proteins
+action: fetch_proteins
 params: { accession: P69905 }
 ```
 
@@ -2130,14 +2147,14 @@ transfers as a Tecan worklist:
 ```yaml
 # plugin.yaml
 formats:
-  tecan-gwl:
+  tecan_gwl:
     label: Tecan worklist
     media_types: [text/x-tecan-gwl]
     extensions: [.gwl]
 writers:
-  tecan-worklist:
+  tecan_worklist:
     label: Tecan worklist
-    format: tecan-gwl
+    format: tecan_gwl
     module: writers/tecan-worklist
     many: file
     memory: 16MiB
@@ -2151,7 +2168,7 @@ writers:
 ```yaml
 # types/transfer.yaml
 exports:
-  - export: tecan-worklist
+  - export: tecan_worklist
     fields:
       { source_plate: source, source_well: source_well, volume: volume, liquid_class: liquid_class }
 ```
@@ -2881,8 +2898,11 @@ operator gives the reason at launch. Iki puts it on the revision even when
 the action omits `reason` from the update. An explicit `reason` must match
 the operator’s launch text.
 
-`creates` may make only the declared types. Leave out
-`derived_from` when the inputs the type is derived from hold one entity.
+`creates` may make only the declared types. A create names its type as the
+action's manifest does: bare (`ProteinStructure`) for one of the action's own
+plugin, or qualified (`iki/protein.ProteinStructure`) for another plugin's. An
+action's `effects.updates` are keyed by input name too, as its output's
+`updates` are. Leave out `derived_from` when the inputs the type is derived from hold one entity.
 An imported entity says where it came from in `origin`: a database's record
 (its `version`, an `https` `url`, when it was `retrieved_at`, and the
 `sha256` of what was read), or a record in a file the run was given (`file`,
@@ -3223,7 +3243,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `setting-policy`, `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`, `setting-needed` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Settings                        |
 | `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `test-only-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                                                                                                                     | Lockfiles                       |
 | `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`, `from-project-one`                                                                                                                                                                                                                                                                                                                                                                                               | Actions                         |
-| `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `updates-state`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | What actions write              |
+| `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `updates-immutable`, `updates-state`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | What actions write              |
 | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `self-hosted-secrets`, `self-hosted-network`, `reserved-secret`, `absolute-path-on-backend`, `missing-file`                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Where actions run               |
 | `network-unknown-setting`, `network-setting-not-hostname`, `requires-unknown-setting`, `requires-setting-always-set` (warning), `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                                                              | Reuse and retries               |
 | `self-hosted-apis`, `api-in-network`, `api-credential-is-secret`, `api-credential-header`, `webhook-needs-header`, `webhook-header`, `webhook-secret-is-credential`, `api-status-twice`, `api-polls-too-often`, `api-job-timeout`, `unknown-api`, `batch-parks`, `deterministic-with-api`; `unused-api` (warning)                                                                                                                                                                                                                                                                                                                                     | Outside APIs                    |

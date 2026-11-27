@@ -97,11 +97,11 @@ def conflicts(plugins: Sequence[Plugin]) -> list[str]:
                     problems.append(f"{other} and {t.qualified_name} both need the table {table}")
         for e in plugin.extensions:
             for name in e.fields:
-                key = (e.extends_type, name)
+                key = (e.adds_to, name)
                 other = added.setdefault(key, plugin.name)
                 if other != plugin.name:
                     problems.append(
-                        f"{other} and {plugin.name} both add the field `{name}` to {e.extends_type}"
+                        f"{other} and {plugin.name} both add the field `{name}` to {e.adds_to}"
                     )
     return problems
 

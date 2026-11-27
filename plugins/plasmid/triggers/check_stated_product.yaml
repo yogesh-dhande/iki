@@ -11,4 +11,4 @@ on: entity.updated
 type: Assembly
 fields: [product, method, enzymes, backbone, inserts]
 recheck: verification_note
-run: check_assembly
+action: check_assembly

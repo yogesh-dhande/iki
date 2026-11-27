@@ -75,7 +75,7 @@ def _check(project: Project, ids: list[UUID]) -> int:
     for pk in low:
         item = by_id[pk]
         due[pk] = {}
-        for role in stock.catalogues()[item.type].notify:
+        for role in stock.catalogues()[item.type].notify_roles:
             if role not in holders:
                 holders[role] = list(permissions.holders_of(project, role))
             due[pk].update({u.pk: u for u in holders[role] if u.pk not in notified[pk]})

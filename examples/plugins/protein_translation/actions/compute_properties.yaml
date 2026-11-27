@@ -12,10 +12,10 @@ description: >-
   extinction coefficients also J. For others the run says which residue left
   which properties out.
 inputs:
-  protein: { type: iki/protein.Protein, schema: ">=2" }
+  protein: { type: iki/protein.Protein, schema_version: ">=2" }
 effects:
   updates:
-    - input: protein
+    protein:
       fields:
         - length
         - molecular_weight

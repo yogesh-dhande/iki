@@ -104,12 +104,14 @@ def spec_of(type_name: str) -> RequestSpec | None:
         return None
     found: RequestSpec | None = None
     for t in [*reversed(registry.ancestors(entity_type)), entity_type]:
-        if t.request is None:
+        if t.service.request is None:
             continue
         if found is None:
-            found = t.request
+            found = t.service.request
         else:
-            added = tuple(n for n in t.request.service_fields if n not in found.service_fields)
+            added = tuple(
+                n for n in t.service.request.service_fields if n not in found.service_fields
+            )
             found = replace(found, service_fields=(*found.service_fields, *added))
     return found
 
@@ -121,8 +123,8 @@ def result_spec(type_name: str) -> ResultSpec | None:
     if entity_type is None:
         return None
     for t in [entity_type, *registry.ancestors(entity_type)]:
-        if t.result is not None:
-            return t.result
+        if t.service.result is not None:
+            return t.service.result
     return None
 
 
@@ -133,7 +135,11 @@ def work_item_spec(type_name: str) -> WorkItemSpec | None:
     if entity_type is None:
         return None
     return next(
-        (t.work_item for t in [entity_type, *registry.ancestors(entity_type)] if t.work_item),
+        (
+            t.service.work_item
+            for t in [entity_type, *registry.ancestors(entity_type)]
+            if t.service.work_item
+        ),
         None,
     )
 
@@ -844,7 +850,7 @@ def check_result(
             request
             and request.completed_field
             and states.values_of(found.entity).get(request.completed_field)
-            == request.completed_state
+            in request.completed_states
         ):
             return {spec.of: ["This request has already been delivered."]}
         answering = answered_by(found.entity.type)

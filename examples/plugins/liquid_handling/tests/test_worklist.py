@@ -20,7 +20,7 @@ from iki_spec.writers.runtime import Instance, engine
 
 EXAMPLE = Path(__file__).resolve().parents[1]
 MODULE = EXAMPLE / "writers" / "tecan-worklist.wasm"
-WRITER = "acme/liquid_handling.tecan-worklist"
+WRITER = "acme/liquid_handling.tecan_worklist"
 
 pytestmark = pytest.mark.skipif(not MODULE.is_file(), reason="build the writer's module first")
 
@@ -66,7 +66,7 @@ def written(*records: dict[str, Any]) -> list[tuple[int, bytes, list[dict[str, A
     writer = Instance(wasmtime.Module(compiler, MODULE.read_bytes()), compiler, 16 * 1024 * 1024)
     begin = {
         "abi": 1,
-        "format": "acme/liquid_handling.tecan-gwl",
+        "format": "acme/liquid_handling.tecan_gwl",
         "records": len(records),
         "writer": WRITER,
     }

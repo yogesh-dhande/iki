@@ -66,7 +66,7 @@
       "properties": {
         "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
         "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
-        "by": {
+        "set_by": {
           "description": "The slots whose holders may set it: one, or a list. Without it, no one sets it: records only start in it.",
           "oneOf": [
             { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleName" },

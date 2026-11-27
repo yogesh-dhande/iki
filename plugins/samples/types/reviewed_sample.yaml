@@ -9,7 +9,8 @@ hrid: { prefix: SAM }
 description: >-
   A sample whose measurements an analyst signs and an independent reviewer signs again,
   for each testing cycle.
-draw_target: { from: source, state: { field: status, is: pending } }
+draws:
+  target: { from: source, state: { field: status, states: [pending] } }
 fields:
   analyst:
     type: person
@@ -96,5 +97,5 @@ notifications:
       Anyone watching a sample hears when it's submitted for review. Its assigned
       reviewer is told it's ready for them.
     when: { field: status, to: in_review }
-    tell: { watchers: true }
+    notify: { watchers: true }
     message: { title: "{{ hrid }} is ready for review" }

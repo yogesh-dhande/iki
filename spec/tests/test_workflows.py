@@ -62,7 +62,7 @@ params:
   depth: { type: int, min: 1, max: 5, default: 1 }
   tag: { type: string, default: x }
 effects:
-  updates: [{ input: assay, fields: [score] }]
+  updates: { assay: { fields: [score] } }
   creates: [{ type: Readout, derived_from: [assay] }]
 runs_on: { tier: backend, environment: tools }
 command: [python, ./run.py]
@@ -85,7 +85,7 @@ name: total
 inputs:
   readout: { type: Readout }
 effects:
-  updates: [{ input: readout, fields: [total] }]
+  updates: { readout: { fields: [total] } }
 runs_on: { tier: backend, environment: tools }
 command: [python, ./run.py]
 ---
@@ -95,7 +95,7 @@ name: total_all
 inputs:
   readouts: { type: Readout, cardinality: many }
 effects:
-  updates: [{ input: readouts, fields: [total] }]
+  updates: { readouts: { fields: [total] } }
 runs_on: { tier: backend, environment: tools }
 command: [python, ./run.py]
 ---
@@ -685,7 +685,7 @@ def test_a_step_gives_nothing_to_an_input_from_the_project(tmp_path: Path) -> No
         "---\napiVersion: iki/v1\nkind: Action\nname: rank\ninputs:\n"
         "  assay: { type: Assay }\n"
         "  readouts: { type: Readout, cardinality: many, from_project: true }\n"
-        "effects:\n  updates: [{ input: assay, fields: [score] }]\n"
+        "effects:\n  updates: { assay: { fields: [score] } }\n"
         "runs_on: { tier: backend, environment: tools }\ncommand: [python, ./run.py]\n"
     )
     try:

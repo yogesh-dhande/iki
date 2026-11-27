@@ -309,7 +309,9 @@ def _conditions(
     completion = requests.spec_of(entity.type)
     if completion and completion.completed_field == field:
         for st in candidates:
-            if st.name == completion.completed_state and (why := requests.delivery_refusal(entity)):
+            if st.name in completion.completed_states and (
+                why := requests.delivery_refusal(entity)
+            ):
                 out[st.name] = (why, None)
     if any(st.locks for st in candidates):
         held = holds.blocks_locking(entity)

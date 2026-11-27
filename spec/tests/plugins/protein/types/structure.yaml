@@ -6,7 +6,7 @@ hrid: { prefix: PST }
 fields:
   structure:
     type: file
-    media_types: [chemical/x-mmcif, chemical/x-pdb, acme/protein.model-pdb]
+    media_types: [chemical/x-mmcif, chemical/x-pdb, acme/protein.model_pdb]
     max_size: 2GiB
     required: true
   method: { type: enum, values: [xray, nmr, cryo_em, predicted] }

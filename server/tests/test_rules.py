@@ -73,7 +73,7 @@ def test_a_type_lists_its_rules_and_what_forms_check_them_against(world: World) 
     )
     assert purity["hold"] == {"reviewed_by": ["acme/protein.qa"]}
     assert rules["one_per_well"]["unique"] == ["plate", "well"]
-    assert rules["one_per_well"]["while"] == {"stored": ["true"]}
+    assert rules["one_per_well"]["while"] == {"field": "stored", "states": ["true"]}
     assert rules["one_at_a_time"]["no_overlap"] == {
         "from": "starts_at",
         "to": "ends_at",

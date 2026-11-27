@@ -4,7 +4,7 @@
   "title": "Iki trigger (iki/v1)",
   "description": "Runs one of the plugin's actions by itself: when an entity of a type is created or changed, when a request arrives at a service, or on a schedule. It runs in a project only after one of the project's Admins turns it on there.",
   "type": "object",
-  "required": ["apiVersion", "kind", "name", "on", "run"],
+  "required": ["apiVersion", "kind", "name", "on", "action"],
   "properties": {
     "apiVersion": {
       "description": "The spec version this manifest follows.",
@@ -75,7 +75,7 @@
         "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
       }
     },
-    "run": {
+    "action": {
       "description": "The name of the plugin's action it runs: on the entity, or, on a schedule, on nothing.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
     },

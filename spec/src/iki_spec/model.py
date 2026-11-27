@@ -628,7 +628,7 @@ class ReviewState:
     label: str
     description: str | None = None
     #: The slots whose holders may set it.
-    by: tuple[str, ...] = ()
+    set_by: tuple[str, ...] = ()
     locks: bool = False
     reason: str | None = None
     on_edit: str | None = None
@@ -821,8 +821,8 @@ class Rule:
     no_overlap: tuple[str, ...] = ()
     #: With ``no_overlap``: records' ranges overlap only if they have the same values of these.
     per: tuple[str, ...] = ()
-    #: With ``unique`` or ``no_overlap``: only records whose fields have one of these values
-    #: count, as (field, values), sorted.
+    #: With ``unique`` or ``no_overlap``: only records whose field is in one of these states
+    #: count, as (field, values).
     only_while: tuple[tuple[str, tuple[str, ...]], ...] = ()
     #: Qualified lab roles (ADR 0116). When given, a save that breaks the check is kept,
     #: with a reason, and the record is held until someone with one of them reviews it.
@@ -874,14 +874,10 @@ class Rule:
             if isinstance(overlap, dict)
             else (),
             per=tuple(overlap.get("per") or ()) if isinstance(overlap, dict) else (),
-            only_while=tuple(
-                sorted(
-                    (str(k), tuple(_while_value(x) for x in v))
-                    for k, v in only.items()
-                    if isinstance(v, list)
-                )
-            )
+            only_while=((str(only["field"]), tuple(_while_value(x) for x in only["states"])),)
             if isinstance(only, dict)
+            and isinstance(only.get("field"), str)
+            and isinstance(only.get("states"), list)
             else (),
             hold=tuple(lab_role_name(r, plugin) for r in (hold.get("reviewed_by") or ()))
             if isinstance(hold, dict)
@@ -961,14 +957,14 @@ class TypeNotification:
     from_values: tuple[Any, ...] = ()
     #: Only for records these conditions find, as the search API takes them.
     where: dict[str, Any] | None = None
-    #: Whom: the people these fields name...
-    tell_fields: tuple[str, ...] = ()
+    #: Whom it notifies: the people these fields name...
+    notify_fields: tuple[str, ...] = ()
     #: ...holders of these lab roles in the record's project, qualified...
-    tell_roles: tuple[str, ...] = ()
+    notify_roles: tuple[str, ...] = ()
     #: ...whoever made the record, whoever watches it, and whoever made the change.
-    tell_creator: bool = False
-    tell_watchers: bool = False
-    tell_actor: bool = False
+    notify_creator: bool = False
+    notify_watchers: bool = False
+    notify_actor: bool = False
     #: What it says in Iki: templates over the record's fields, as a display title is.
     title: str | None = None
     body: str | None = None
@@ -990,7 +986,7 @@ class TypeNotification:
     @classmethod
     def from_manifest(cls, name: str, data: dict[str, Any], *, plugin: str) -> TypeNotification:
         when: dict[str, Any] = data["when"] if isinstance(data.get("when"), dict) else {}
-        tell: dict[str, Any] = data["tell"] if isinstance(data.get("tell"), dict) else {}
+        notify: dict[str, Any] = data["notify"] if isinstance(data.get("notify"), dict) else {}
         message: dict[str, Any] = data["message"] if isinstance(data.get("message"), dict) else {}
 
         def values(value: Any) -> tuple[Any, ...]:  # noqa: ANN401 - manifest data
@@ -1009,11 +1005,11 @@ class TypeNotification:
             to_values=values(when.get("to")),
             from_values=values(when.get("from")),
             where=data.get("where"),
-            tell_fields=tuple(tell.get("fields") or ()),
-            tell_roles=tuple(lab_role_name(r, plugin) for r in tell.get("roles") or ()),
-            tell_creator=bool(tell.get("creator", False)),
-            tell_watchers=bool(tell.get("watchers", False)),
-            tell_actor=bool(tell.get("actor", False)),
+            notify_fields=tuple(notify.get("fields") or ()),
+            notify_roles=tuple(lab_role_name(r, plugin) for r in notify.get("roles") or ()),
+            notify_creator=bool(notify.get("creator", False)),
+            notify_watchers=bool(notify.get("watchers", False)),
+            notify_actor=bool(notify.get("actor", False)),
             title=message.get("title"),
             body=message.get("body"),
             email=bool(data.get("email", True)),
@@ -1034,12 +1030,12 @@ class RequestSpec:
     #: The list of references it sends that the service receives with a receipt (ADR 0180),
     #: and the service's lab roles that receive them (any Editor's, if none).
     receives: str | None = None
-    receives_by: tuple[str, ...] = ()
+    received_by: tuple[str, ...] = ()
     #: Sent fields that identify the physical material commissioned for testing.
     materials: tuple[str, ...] = ()
-    #: The service transition that certifies delivery of the request.
+    #: The service's state field, and its states, that certify delivery of the request.
     completed_field: str | None = None
-    completed_state: str | None = None
+    completed_states: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1165,17 +1161,19 @@ class StockCatalogue:
     name: str
     unit: str
     threshold: str
-    notify: tuple[str, ...]
+    #: The lab roles, qualified, whose holders in the item's project a low stock notifies.
+    notify_roles: tuple[str, ...]
     lots: StockLots
     orders: StockOrders
 
     @classmethod
     def read(cls, data: dict[str, Any], plugin: str) -> StockCatalogue:
+        """From its manifest."""
         return cls(
             name=data["name"],
             unit=data["unit"],
             threshold=data["threshold"],
-            notify=tuple(lab_role_name(r, plugin) for r in data["notify"]),
+            notify_roles=tuple(lab_role_name(r, plugin) for r in data["notify"]["roles"]),
             lots=StockLots(**{**data["lots"], "type": qualify(data["lots"]["type"], plugin)}),
             orders=StockOrders(
                 **{**data["orders"], "type": qualify(data["orders"]["type"], plugin)}
@@ -1190,8 +1188,10 @@ class DrawTarget:
     from_field: str
     source: str | None
     state_field: str
-    state: str
-    by: tuple[str, ...]
+    #: The states of ``state_field`` in which the record awaits its draw.
+    states: tuple[str, ...]
+    #: The lab roles, qualified, one of which whoever records the draw holds.
+    drawn_by: tuple[str, ...]
     ready: str | None
     amount: str | None
     stored: bool = False
@@ -1276,6 +1276,34 @@ class ListSpec:
 
 
 @dataclass(frozen=True)
+class Draws:
+    """A type's records' draws (ADR 0139, 0180): what a draw from one meets, and what one
+    that receives a draw awaits. Each part is inherited on its own."""
+
+    #: Conditions on taking material. Every subtype keeps its ancestors' guards too.
+    guards: dict[str, Guard] = field(default_factory=dict)
+    #: Lab roles allowed to draw for each purpose. A subtype may narrow each inherited list.
+    purposes: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: An optional one-draw ledger target, such as a scheduled stability pull.
+    target: DrawTarget | None = None
+    #: Optional record field maintained by the amounts ledger when a draw goes into this record.
+    received: str | None = None
+
+
+@dataclass(frozen=True)
+class Service:
+    """A type's part in a request between projects (ADR 0132): its records are requests,
+    a request's results, or a service's work for one."""
+
+    #: Its records are requests between projects. Subtypes have their ancestor's.
+    request: RequestSpec | None = None
+    #: Its records are a request's results.
+    result: ResultSpec | None = None
+    #: Its records are a service project's internal work for a request.
+    work_item: WorkItemSpec | None = None
+
+
+@dataclass(frozen=True)
 class EntityType:
     plugin: str
     name: str
@@ -1304,23 +1332,13 @@ class EntityType:
     #: Whom its records tell, and when (ADR 0129), by name. Subtypes' records tell what their
     #: ancestors' do too.
     notifications: dict[str, TypeNotification] = field(default_factory=dict)
-    #: Its records are requests between projects (ADR 0132). Subtypes have their
-    #: ancestor's.
-    request: RequestSpec | None = None
-    #: Its records are a request's results (ADR 0132).
-    result: ResultSpec | None = None
-    work_item: WorkItemSpec | None = None
+    #: Its part in a request between projects (ADR 0132).
+    service: Service = field(default_factory=Service)
     #: How much of each record there is (ADR 0139): its own or a parent's.
     amount: Amount | None = None
-    #: Optional record field maintained by the amounts ledger when a draw goes into this record.
-    draws_received: str | None = None
     stock_catalogue: StockCatalogue | None = None
-    #: Conditions on taking material. Every subtype keeps its ancestors' guards too.
-    draw_guards: dict[str, Guard] = field(default_factory=dict)
-    #: Lab roles allowed to draw for each purpose. A subtype may narrow each inherited list.
-    draw_purposes: dict[str, tuple[str, ...]] = field(default_factory=dict)
-    #: An optional one-draw ledger target, such as a scheduled stability pull.
-    draw_target: DrawTarget | None = None
+    #: Its records' draws: guards, purposes, and the draw a record awaits and receives.
+    draws: Draws = field(default_factory=Draws)
     #: Where its records are kept, and what they keep (ADR 0180): its own or a parent's.
     storage: Storage | None = None
     #: Its records are samples (ADR 0177): the files they hold, and those a run that read
@@ -1454,7 +1472,7 @@ class PluginExport:
     """A type's records as a plugin's writer writes them (ADR 0230): the writer, by its
     qualified ID, and the field each of its roles reads."""
 
-    export: str  # the writer: "acme/liquid_handling.tecan-worklist"
+    export: str  # the writer: "acme/liquid_handling.tecan_worklist"
     #: role → the type's field it reads.
     fields: dict[str, str] = field(default_factory=dict)
 
@@ -1525,7 +1543,7 @@ class Writer:
 @dataclass(frozen=True)
 class Extension:
     plugin: str
-    extends_type: str  # qualified
+    adds_to: str  # qualified
     fields: dict[str, Field]
     description: str | None = None
     file: str | None = None
@@ -1534,7 +1552,7 @@ class Extension:
 
     @property
     def table(self) -> str:
-        return naming.extension_table(self.plugin, self.extends_type)
+        return naming.extension_table(self.plugin, self.adds_to)
 
     @property
     def current_fields(self) -> dict[str, Field]:
@@ -1586,7 +1604,7 @@ class Resources:
 class Input:
     name: str
     type: str  # qualified
-    schema: str | None = None  # a schema-version constraint
+    schema_version: str | None = None  # a constraint on the type's schema versions
     cardinality: str = "one"
     max: int | None = None
     optional: bool = False
@@ -1985,7 +2003,7 @@ class Trigger:
     state_field: str = ""
     states: tuple[str, ...] = ()
     #: The plugin's action it runs.
-    run: str = ""
+    action: str = ""
     #: The action's input that takes the entity: given, or the only one that takes its type.
     input: str = ""
     params: dict[str, Any] = field(default_factory=dict)
@@ -2231,6 +2249,8 @@ _DATACLASSES = (
     StockOrders,
     StockLots,
     DrawTarget,
+    Draws,
+    Service,
     Grid,
     Storage,
     Field,
@@ -2307,11 +2327,12 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
         return {
             f.name: _to_json(getattr(value, f.name))
             for f in fields(value)
-            if not (
-                f.name == "draw_target"
-                and isinstance(value, EntityType)
-                and value.draw_target is None
+            if not (isinstance(value, Draws) and f.name == "target" and value.target is None)
+            and not (isinstance(value, EntityType) and f.name == "draws" and value.draws == Draws())
+            and not (
+                isinstance(value, EntityType) and f.name == "service" and value.service == Service()
             )
+            and not (isinstance(value, Service) and getattr(value, f.name) is None)
             and not (isinstance(value, Plugin) and f.name == "formats" and not value.formats)
             and not (isinstance(value, Plugin) and f.name == "writers" and not value.writers)
             and not (
@@ -2321,14 +2342,11 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
             )
             and not (
                 isinstance(value, RequestSpec)
-                and f.name in {"materials", "completed_field", "completed_state"}
+                and f.name in {"materials", "completed_field", "completed_states"}
                 and not getattr(value, f.name)
             )
             and not (
                 isinstance(value, ResultSpec) and f.name == "material" and value.material is None
-            )
-            and not (
-                isinstance(value, EntityType) and f.name == "work_item" and value.work_item is None
             )
             and not (
                 isinstance(value, EntityType) and f.name == "refines_to" and not value.refines_to
@@ -2401,25 +2419,15 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                             n: _notification(x) for n, x in (v.get("notifications") or {}).items()
                         },
                         # ...or requests.
-                        "request": _request(v.get("request")),
-                        "result": _result(v.get("result")),
-                        "work_item": WorkItemSpec(**v["work_item"]) if v.get("work_item") else None,
-                        "stock_catalogue": StockCatalogue.read(v["stock_catalogue"], data["name"])
+                        "service": _service(v.get("service") or {}),
+                        "stock_catalogue": _stock_catalogue(v["stock_catalogue"])
                         if v.get("stock_catalogue")
                         else None,
                         # ...or amounts (ADR 0139).
                         "amount": _amount(v["amount"]) if v.get("amount") else None,
                         # ...or storage (ADR 0180).
                         "storage": _storage(v.get("storage")),
-                        "draw_guards": _guards(v.get("draw_guards") or {}),
-                        "draw_purposes": {
-                            n: tuple(roles) for n, roles in (v.get("draw_purposes") or {}).items()
-                        },
-                        "draw_target": (
-                            DrawTarget(**{**target, "by": tuple(target["by"])})
-                            if (target := v.get("draw_target"))
-                            else None
-                        ),
+                        "draws": _draws(v.get("draws") or {}),
                         # ...or refined rows (ADR 0164).
                         "refines": {
                             n: {r: _row_role(x) for r, x in roles.items()}
@@ -2521,7 +2529,7 @@ def _procedure(data: dict[str, Any]) -> ReviewProcedure:
                 k: ReviewState(
                     **{
                         **v,
-                        "by": tuple(v["by"]),
+                        "set_by": tuple(v["set_by"]),
                         "signature": Signature(**v["signature"]) if v.get("signature") else None,
                         "maker": Maker(**v["maker"]) if v.get("maker") else None,
                         "independent_of": _exclusions(v.get("independent_of")),
@@ -2583,8 +2591,8 @@ def _notification(data: dict[str, Any]) -> TypeNotification:
             **data,
             "to_values": tuple(data["to_values"]),
             "from_values": tuple(data["from_values"]),
-            "tell_fields": tuple(data["tell_fields"]),
-            "tell_roles": tuple(data["tell_roles"]),
+            "notify_fields": tuple(data["notify_fields"]),
+            "notify_roles": tuple(data["notify_roles"]),
         }
     )
 
@@ -2597,9 +2605,46 @@ def _request(data: dict[str, Any] | None) -> RequestSpec | None:
         sends=tuple(data["sends"]),
         materials=tuple(data.get("materials") or ()),
         completed_field=data.get("completed_field"),
-        completed_state=data.get("completed_state"),
+        completed_states=tuple(data.get("completed_states") or ()),
         receives=data.get("receives"),
-        receives_by=tuple(data.get("receives_by") or ()),
+        received_by=tuple(data.get("received_by") or ()),
+    )
+
+
+def _service(data: dict[str, Any]) -> Service:
+    return Service(
+        request=_request(data.get("request")),
+        result=_result(data.get("result")),
+        work_item=WorkItemSpec(**data["work_item"]) if data.get("work_item") else None,
+    )
+
+
+def _stock_catalogue(data: dict[str, Any]) -> StockCatalogue:
+    return StockCatalogue(
+        **{
+            **data,
+            "notify_roles": tuple(data["notify_roles"]),
+            "lots": StockLots(**data["lots"]),
+            "orders": StockOrders(**data["orders"]),
+        }
+    )
+
+
+def _draws(data: dict[str, Any]) -> Draws:
+    target = data.get("target")
+    return Draws(
+        guards=_guards(data.get("guards") or {}),
+        purposes={n: tuple(roles) for n, roles in (data.get("purposes") or {}).items()},
+        target=DrawTarget(
+            **{
+                **target,
+                "states": tuple(target["states"]),
+                "drawn_by": tuple(target["drawn_by"]),
+            }
+        )
+        if target
+        else None,
+        received=data.get("received"),
     )
 
 

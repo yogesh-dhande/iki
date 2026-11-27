@@ -282,19 +282,20 @@ fields:
               (record.expires_on != null && record.expires_on <= today) ||
               (record.retest_on != null && record.retest_on <= today)
             message: Its expiry and retest dates haven't come, so it hasn't expired.
-draw_purposes:
-  qa_sampling: { by: [qa] }
-draw_guards:
-  expiry_date:
-    check: record.expires_on == null || record.expires_on > today
-    message: This lot has reached its expiry date. No material can be taken.
-  retest_date:
-    check: record.retest_on == null || record.retest_on > today || purpose == "qa_sampling"
-    message: This lot is due for retesting. Only a QA sampling draw is allowed.
-  sampling_only_in_quarantine:
-    when: operation == "draw"
-    check: record.disposition != "quarantined" || purpose == "qa_sampling"
-    message: This lot is quarantined. Only a QA sampling draw is allowed.
+draws:
+  purposes:
+    qa_sampling: { drawn_by: [qa] }
+  guards:
+    expiry_date:
+      check: record.expires_on == null || record.expires_on > today
+      message: This lot has reached its expiry date. No material can be taken.
+    retest_date:
+      check: record.retest_on == null || record.retest_on > today || purpose == "qa_sampling"
+      message: This lot is due for retesting. Only a QA sampling draw is allowed.
+    sampling_only_in_quarantine:
+      when: operation == "draw"
+      check: record.disposition != "quarantined" || purpose == "qa_sampling"
+      message: This lot is quarantined. Only a QA sampling draw is allowed.
 rules:
   expires_after_it_was_made:
     label: It expires after it was made
@@ -313,7 +314,7 @@ notifications:
     label: Released
     description: Whoever made a lot, and whoever's responsible for it, hear when QA releases it.
     when: { field: disposition, to: released }
-    tell: { fields: [made_by, responsible], watchers: true }
+    notify: { fields: [made_by, responsible], watchers: true }
     message:
       title: "{{ hrid }} was released"
       body: "QA released lot {{ lot_number or hrid }} for use."
@@ -323,7 +324,7 @@ notifications:
       Whoever made a lot, and whoever's responsible for it, hear when a stock keeper makes
       it available without a QA release.
     when: { field: disposition, to: available }
-    tell: { fields: [made_by, responsible], watchers: true }
+    notify: { fields: [made_by, responsible], watchers: true }
     message:
       title: "{{ hrid }} is available"
       body: "Lot {{ lot_number or hrid }} is available for use under the lab's procedure, not QA released."
@@ -334,7 +335,7 @@ notifications:
       hear when it's put on hold or rejected. It's required: material that can't be used
       needs following up.
     when: { field: disposition, to: [on_hold, rejected] }
-    tell: { fields: [made_by, responsible], roles: [stock_keeper], watchers: true }
+    notify: { fields: [made_by, responsible], roles: [stock_keeper], watchers: true }
     required: true
     message:
       title: "{{ hrid }} is {{ disposition }}"

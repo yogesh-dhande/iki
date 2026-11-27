@@ -422,7 +422,7 @@ def test_watched_fields_narrow_what_fires() -> None:
         on="entity.updated",
         type="acme/protein.Protein",
         fields=("host",),
-        run="compute_properties",
+        action="compute_properties",
         input="protein",
     )
     assert triggers._fires(spec, "entity.updated", "acme/protein.Protein", ["host", "summary"])

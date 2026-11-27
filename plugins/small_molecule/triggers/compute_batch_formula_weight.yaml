@@ -8,7 +8,7 @@ description: >-
   soon as it's registered, such as from its form.
 on: entity.created
 type: CompoundBatch
-run: compute_formula_weight
+action: compute_formula_weight
 ---
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 apiVersion: iki/v1
@@ -21,4 +21,4 @@ description: >-
 on: entity.updated
 type: CompoundBatch
 fields: [salt, salt_equivalents, solvate, solvate_equivalents]
-run: compute_formula_weight
+action: compute_formula_weight

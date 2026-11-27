@@ -7,16 +7,16 @@ description: >-
   A duplex's region, overhangs and mismatches, from its strands' bases
   antiparallel, and its formula and molecular weight, its strands' together.
 inputs:
-  duplex: { type: Duplex, schema: ">=1" }
+  duplex: { type: Duplex, schema_version: ">=1" }
   strands:
     type: Oligonucleotide
-    schema: ">=1"
+    schema_version: ">=1"
     cardinality: many
     max: 2
     label: Its strands
 effects:
   updates:
-    - input: duplex
+    duplex:
       fields:
         - duplex_length
         - mismatches

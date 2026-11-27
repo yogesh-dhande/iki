@@ -5,9 +5,9 @@ name: decode_storage
 label: Decode storage codes
 description: Reads a storage label stamped with the HRID of the setup build that wrote it.
 inputs:
-  sample: { type: ExecutionSample, schema: ">=1" }
+  sample: { type: ExecutionSample, schema_version: ">=1" }
 effects:
-  updates: [{ input: sample, fields: [storage] }]
+  updates: { sample: { fields: [storage] } }
 runs_on: { tier: container, environment: reference }
 command: [python, ./scripts/decode.py, /data/storage-codes/codes.json]
 deterministic: true

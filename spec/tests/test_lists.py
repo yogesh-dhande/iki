@@ -269,7 +269,7 @@ def test_an_extension_of_a_list_adds_its_options_facts(tmp_path: Path) -> None:
             """\
             apiVersion: iki/v1
             kind: EntityTypeExtension
-            extends_type: acme/lab.Category
+            adds_to: acme/lab.Category
             fields:
               sop: { type: string, format: uri, registry: fact }
               notes: { type: string, max_length: 100, pattern: "^.+$" }
@@ -402,7 +402,7 @@ def test_a_run_reads_only_an_included_options_fixed_facts(tmp_path: Path) -> Non
     inputs:
       lot: { type: Lot, include: [grade] }
     effects:
-      updates: [{ input: lot, fields: [filtered] }]
+      updates: { lot: { fields: [filtered] } }
     runs_on: { tier: backend, environment: tools }
     command: [python, ./run.py]
     """
