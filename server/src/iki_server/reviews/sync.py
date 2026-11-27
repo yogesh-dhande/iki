@@ -15,15 +15,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from django.db import transaction
 from psycopg import sql
 
 from iki_server.entities import registry
 from iki_server.reviews.models import Flow, FlowState, Procedure
-from iki_spec.model import EntityType, ReviewProcedure, procedure_to_dict
+from iki_spec.model import EntityType, ReviewProcedure, procedure_from_dict, procedure_to_dict
 
 __all__ = ["Changed", "Table", "install", "install_procedures", "tables"]
 
@@ -35,11 +36,30 @@ class Changed(Exception):  # noqa: N818 - reads as "the procedure changed"
     """A plugin declares an installed procedure version otherwise than it was."""
 
 
+#: The procedure's parts whose order is part of it: slots and states as it declares them,
+#: which is the order setup lists and the flow is drawn in, and its flows as offered.
+ORDERED = ("slots", "states", "flows")
+
+
 def definition(procedure: ReviewProcedure) -> dict[str, Any]:
-    """What's kept of a procedure version: all it declares, but not where its file is."""
+    """What's kept of a procedure version: all it declares, but not where its file is. A
+    JSON column doesn't keep its keys' order, so the order of each part is kept too."""
     data = procedure_to_dict(procedure)
     data.pop("file", None)
+    data["order"] = {part: list(data[part]) for part in ORDERED}
     return data
+
+
+def from_definition(data: Mapping[str, Any]) -> ReviewProcedure:
+    """The procedure version :func:`definition` kept, its parts in its own order."""
+    order = data["order"]
+    return procedure_from_dict(
+        {
+            **{k: v for k, v in data.items() if k != "order"},
+            **{part: {name: data[part][name] for name in order[part]} for part in ORDERED},
+            "file": None,
+        }
+    )
 
 
 def digest(data: dict[str, Any]) -> str:
@@ -52,9 +72,10 @@ def declared() -> dict[str, ReviewProcedure]:
     return {q: p for plugin in registry.plugins().values() for q, p in plugin.procedures.items()}
 
 
+@transaction.atomic
 def install_procedures() -> list[str]:
     """Keeps each declared version, refusing one declared otherwise than it was installed.
-    Returns the newly installed versions."""
+    Returns the newly installed versions: all of them, or none."""
     installed = {p.qualified: p.digest for p in Procedure.objects.select_for_update()}
     added: list[str] = []
     for qualified, procedure in sorted(declared().items()):
@@ -152,8 +173,10 @@ def install(cursor: Any, wanted: Iterable[Table]) -> list[str]:  # noqa: ANN401 
     rest. Rows that don't fit are refused by Postgres as the key is made."""
     cursor.execute(
         "SELECT conrelid::regclass::text, conname, pg_get_constraintdef(oid) "
-        "FROM pg_constraint WHERE conname LIKE %s",
-        [PREFIX + "%"],
+        # Not LIKE, whose `_` matches any character: the reviews app's own tables are
+        # iki_reviews_*, and Postgres names their NOT NULL constraints too.
+        "FROM pg_constraint WHERE starts_with(conname, %s)",
+        [PREFIX],
     )
     current: dict[str, tuple[str, str]] = {row[1]: (row[0], row[2]) for row in cursor.fetchall()}
     needed: dict[str, Table] = {}

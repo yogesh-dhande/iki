@@ -84,9 +84,19 @@ def pin(ref: str) -> tuple[str, str] | None:
     return (found.procedure, found.flow) if found else None
 
 
-def offered(world: World, who: str, ref: str) -> dict[str, Any]:
-    body = api_as(world, who).get(f"/entities/{ref}").json()
-    return {s["name"]: (s["why_not"], s["guard"]) for s in body["can"]["states"]["review"]}
+def offered(world: World, who: str, ref: str) -> dict[str, str | None]:
+    """The review states ``who`` is offered, each with why they can't move it there: a
+    signed state's why from its signatures, which are how it's set."""
+    can = api_as(world, who).get(f"/entities/{ref}").json()["can"]
+    signing = {s["to"]: s["why_not"] for s in can["sign"] if s["field"] == "review"}
+    return {
+        s["name"]: signing.get(s["name"], s["why_not"]) if s["signed"] else s["why_not"]
+        for s in can["states"]["review"]
+    }
+
+
+#: How an independence guard refuses someone (ADR 0301).
+SOMEONE_ELSE = "It must be signed by someone other than"
 
 
 def test_a_record_isnt_made_until_its_procedure_is_chosen(world: World) -> None:
@@ -133,14 +143,16 @@ def test_each_record_keeps_the_procedure_it_was_made_under(world: World) -> None
 
 def test_no_one_gives_or_changes_a_pin(world: World) -> None:
     chosen(world, "research")
-    body = problem(purity(world, review_flow="record_only"), 422, "invalid")
-    assert "set by Iki when the record is created" in body["errors"]["review_flow"][0]
+    body = problem(purity(world, review_flow="record_only"), 422, "validation_failed")
+    assert {e["pointer"]: e["detail"] for e in body["errors"]}["#/values/review_flow"].startswith(
+        "is set by Iki when the record is created"
+    )
     ref = made(world)["id"]
     entity = Entity.objects.get(pk=ref)
     api = api_as(world, "editor")
     etag = api.get(f"/entities/{ref}")["ETag"]
     answer = api.patch(
-        f"/entities/{ref}", {"values": {"review_flow": "record_only"}}, If_Match=etag
+        f"/entities/{ref}", {"values": {"review_flow": "record_only"}}, headers={"If-Match": etag}
     )
     assert answer.status_code in (409, 422), answer.content
     assert pin(ref) == (CORE, "research")
@@ -173,14 +185,14 @@ def test_regulated_qc_takes_three_different_people(world: World) -> None:
     ref = made(world)["id"]
     signed(world, "editor", ref, "submitted", field="review")
     # Whoever made and submitted it doesn't review it, whichever roles they hold.
-    why, guard = offered(world, "editor", ref)["reviewed"]
-    assert guard == "independent"
-    assert why.startswith("It must be signed by someone other than whoever created the record")
+    why = offered(world, "editor", ref)["reviewed"]
+    assert why is not None
+    assert why.startswith(f"{SOMEONE_ELSE} whoever created the record")
     with pytest.raises(Refused):
         begin(world, "editor", ref, "reviewed", field="review")
     signed(world, "admin", ref, "reviewed", field="review")
     # The reviewer doesn't release it either.
-    assert offered(world, "admin", ref)["released"][1] == "independent"
+    assert str(offered(world, "admin", ref)["released"]).startswith(SOMEONE_ELSE)
     signed(world, "viewer", ref, "released", field="review")
     entity = Entity.objects.get(pk=ref)
     assert states.values_of(entity)["review"] == "released"
@@ -194,12 +206,9 @@ def test_the_types_own_people_and_guards_join_the_procedure(world: World) -> Non
     admin = str(world.users["admin"].pk)
     ref = made(world, analysts=[admin])["id"]
     # The admin ran the column, so they can't sign it off.
-    assert offered(world, "admin", ref)["signed_off"][1] == "independent"
+    assert str(offered(world, "admin", ref)["signed_off"]).startswith(SOMEONE_ELSE)
     other = made(world, purity=None)["id"]
-    assert offered(world, "admin", other)["signed_off"] == (
-        "Record the purity before signing.",
-        "measured",
-    )
+    assert offered(world, "admin", other)["signed_off"] == "Record the purity before signing."
 
 
 def test_a_lab_applies_its_own_sop_to_a_type_it_didnt_write(world: World) -> None:

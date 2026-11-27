@@ -23,6 +23,7 @@ from django.db.models import Q
 
 from iki_server.entities import registry
 from iki_server.org.services import Refused
+from iki_server.reviews import sync
 from iki_server.reviews.models import Choice, Procedure
 from iki_spec import procedures
 from iki_spec.model import (
@@ -31,7 +32,6 @@ from iki_spec.model import (
     ReviewProcedure,
     ReviewSpec,
     names_people,
-    procedure_from_dict,
 )
 
 if TYPE_CHECKING:
@@ -77,8 +77,7 @@ def review_of(type_name: str) -> tuple[str, ReviewSpec] | None:
 @cache
 def installed(qualified: str) -> ReviewProcedure:
     """An installed procedure version, as it was installed: a version never changes."""
-    row = Procedure.objects.get(qualified=qualified)
-    return procedure_from_dict({**row.definition, "file": None})
+    return sync.from_definition(Procedure.objects.get(qualified=qualified).definition)
 
 
 def _lineage(type_name: str) -> tuple[str, ...]:
