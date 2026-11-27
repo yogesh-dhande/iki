@@ -390,6 +390,19 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__protein_retaintube__history",
         "acme__protein_assayresult",
         "acme__protein_assayresult__history",
+        # Lab lists (ADR 0270): their options are registry entries, with no records' fields.
+        "acme__protein_methodcategory",
+        "acme__protein_methodcategory__history",
+        "acme__protein_methodcategory__entry",
+        "acme__protein_methodcategory__entry__history",
+        "acme__protein_purificationmethod",
+        "acme__protein_purificationmethod__history",
+        "acme__protein_purificationmethod__entry",
+        "acme__protein_purificationmethod__entry__history",
+        "acme__protein_prep",
+        "acme__protein_prep__history",
+        "acme__protein_prep__polishing",
+        "acme__protein_prep__steps",
         "acme__prediction__acme__protein_proteinstructure",
         "acme__prediction__acme__protein_proteinstructure__history",
     }
@@ -551,7 +564,14 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
     }
     expected = [f"  HRID sequence iki_hrid_{prefix}" for prefix in sorted(prefixes)]
     assert [line for line in report.splitlines() if line.startswith("  HRID sequence ")] == expected
-    assert sync(out, database) == report  # idempotent
+    # Idempotent: again, it seeds no list's starting options (ADR 0270), as they're there.
+    seeded = [line for line in report.splitlines() if line.startswith("  starting options of ")]
+    assert seeded == [
+        "  starting options of acme/protein.MethodCategory in Main: chromatography",
+        "  starting options of acme/protein.PurificationMethod in Main: protein_a, sec, dialysis",
+    ]
+    again = sync(out, database)
+    assert again.splitlines() == [line for line in report.splitlines() if line not in seeded]
     result = orm(
         out,
         database,

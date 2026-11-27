@@ -605,6 +605,8 @@ def test_entities_name_what_their_values_refer_to(world: World, other: Project) 
             "archived": False,
             "purged": False,
             "formerly": [],
+            "code": None,
+            "superseded": None,
         }
     }
     assert seen["files"] == {

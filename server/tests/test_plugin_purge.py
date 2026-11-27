@@ -218,6 +218,8 @@ def test_a_purged_entity_is_gone_but_named(world: World, deployed: Callable[...,
         "archived": False,
         "purged": True,
         "formerly": [],
+        "code": None,
+        "superseded": None,
     }
     # Outsiders aren't told it existed.
     assert world.browser("outsider").get(f"/api/v1/entities/{hrid}").status_code == 404
