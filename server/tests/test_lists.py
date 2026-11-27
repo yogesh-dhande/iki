@@ -123,6 +123,14 @@ def test_a_registry_starts_with_the_plugins_options_in_order(world: World) -> No
     assert first["reason"] == "A starting option of acme/protein 3.0.0."
 
 
+def test_asking_for_no_ones_lists_names_the_parameter_to_give(world: World) -> None:
+    refused = problem(api_as(world, "editor").get("/lists"), 422, "validation_failed")
+    # `project` is a query parameter, named as one (ADR 0027), not a body field's pointer.
+    assert refused["errors"] == [
+        {"parameter": "project", "detail": "Give `project` or `registry`."}
+    ]
+
+
 def test_seeding_again_adds_only_what_a_registry_lacks(world: World) -> None:
     """An upgrade's new starting options are added at the end; a relabel, a reorder or an
     archive the lab made stays as it is, and what the lab added keeps its label."""

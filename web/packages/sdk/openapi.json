@@ -1,5 +1,17 @@
 {
   "components": {
+    "responses": {
+      "Problem": {
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "description": "An error, as a problem (ADR 0027)."
+      }
+    },
     "schemas": {
       "AcquiredOut": {
         "properties": {
@@ -12427,7 +12439,7 @@
             ]
           },
           "list": {
-            "description": "The list's type, such as iki/lots.LotMethod.",
+            "description": "The list's type, such as iki/lots.PurityMethod.",
             "title": "List",
             "type": "string"
           },
@@ -12486,7 +12498,7 @@
             "$ref": "#/components/schemas/RegistryRef"
           },
           "type": {
-            "description": "The list's type, such as iki/lots.LotMethod.",
+            "description": "The list's type, such as iki/lots.PurityMethod.",
             "title": "Type",
             "type": "string"
           }
@@ -17701,6 +17713,79 @@
           }
         },
         "title": "PreviewRowParams",
+        "type": "object"
+      },
+      "Problem": {
+        "description": "An RFC 9457 problem: how every error is described (ADR 0027). `code` is stable, for programs; `detail` is for people. Some codes carry more members, which each operation's description names.",
+        "properties": {
+          "code": {
+            "description": "Stable, for programs: `validation_failed`, `refused`, `insufficient_scope`, …",
+            "type": "string"
+          },
+          "detail": {
+            "description": "What went wrong, for people.",
+            "type": "string"
+          },
+          "errors": {
+            "description": "For `validation_failed` and `hold_reason_required`: what's wrong, and where.",
+            "items": {
+              "$ref": "#/components/schemas/ProblemError"
+            },
+            "type": "array"
+          },
+          "request_id": {
+            "description": "The request's ID, which helps an administrator find it.",
+            "type": "string"
+          },
+          "status": {
+            "description": "The HTTP status.",
+            "type": "integer"
+          },
+          "title": {
+            "description": "The HTTP status's phrase.",
+            "type": "string"
+          },
+          "type": {
+            "description": "`about:blank`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "ProblemError": {
+        "description": "One thing wrong with the request: a body field, by its JSON Pointer, or a query or path parameter, by its name. Each has one of the two.",
+        "properties": {
+          "detail": {
+            "description": "What's wrong there, for people.",
+            "type": "string"
+          },
+          "hold": {
+            "description": "The rule holds the record for review rather than refusing it: saving with a `hold_reason` keeps it.",
+            "type": "boolean"
+          },
+          "parameter": {
+            "description": "The query or path parameter: `cursor`, `project`.",
+            "type": "string"
+          },
+          "pointer": {
+            "description": "Where in the body, as a JSON Pointer: `#/values/sequence`.",
+            "type": "string"
+          },
+          "rule": {
+            "description": "The plugin's rule it breaks, if it's a rule's (ADR 0127).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
         "type": "object"
       },
       "ProjectCan": {
@@ -34653,6 +34738,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -34693,6 +34781,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -34744,6 +34835,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -34795,6 +34889,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -34836,6 +34933,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -34877,6 +34977,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -34919,6 +35022,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -34950,6 +35056,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35051,6 +35160,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35092,6 +35204,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35143,6 +35258,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35184,6 +35302,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35219,6 +35340,9 @@
         "responses": {
           "302": {
             "description": "Found"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35260,6 +35384,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35327,6 +35454,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35361,6 +35491,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35412,6 +35545,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35447,6 +35583,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35486,6 +35625,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35520,6 +35662,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35570,6 +35715,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35658,6 +35806,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35724,6 +35875,9 @@
               "text/csv": {}
             },
             "description": "The records, as CSV"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35755,6 +35909,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35786,6 +35943,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35875,6 +36035,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35910,6 +36073,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35949,6 +36115,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -35983,6 +36152,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36033,6 +36205,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36097,6 +36272,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36135,6 +36313,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36187,6 +36368,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36295,6 +36479,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36338,6 +36525,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36379,6 +36569,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36420,6 +36613,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36461,6 +36657,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36512,6 +36711,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36553,6 +36755,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36588,6 +36793,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36661,6 +36869,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36705,6 +36916,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36764,6 +36978,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36799,6 +37016,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36897,6 +37117,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36949,6 +37172,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -36991,6 +37217,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -37199,6 +37428,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -37248,6 +37480,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -37289,6 +37524,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -37338,6 +37576,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -37426,6 +37667,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -37467,6 +37711,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -37695,6 +37942,9 @@
               "text/csv": {}
             },
             "description": "As CSV"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -37772,6 +38022,9 @@
           },
           "304": {
             "description": "Not Modified"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -37837,6 +38090,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -37888,6 +38144,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -37929,6 +38188,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -37996,6 +38258,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -38047,6 +38312,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -38120,6 +38388,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -38171,6 +38442,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -38216,6 +38490,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -38261,6 +38538,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -38323,6 +38603,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -38484,6 +38767,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -38609,6 +38895,9 @@
               "text/csv": {}
             },
             "description": "As CSV"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -38743,10 +39032,27 @@
             "description": "The file, as an attachment named for the record."
           },
           "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
             "description": "Its plugin's writer refused it, or failed (ADR 0230)."
           },
           "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
             "description": "The export sandbox can't take it now: try again."
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -38857,6 +39163,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -38951,6 +39260,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -38992,6 +39304,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39065,6 +39380,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39110,6 +39428,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39161,6 +39482,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39206,6 +39530,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39251,6 +39578,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39295,6 +39625,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39354,6 +39687,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39399,6 +39735,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39440,6 +39779,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39479,6 +39821,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39537,6 +39882,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39665,6 +40013,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39719,6 +40070,9 @@
               "text/csv": {}
             },
             "description": "As CSV"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39786,6 +40140,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39856,6 +40213,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -39938,6 +40298,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40031,6 +40394,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40115,6 +40481,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40182,6 +40551,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40343,6 +40715,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40468,6 +40843,9 @@
               "text/csv": {}
             },
             "description": "As CSV"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40525,6 +40903,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40591,6 +40972,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40655,6 +41039,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40704,6 +41091,9 @@
               }
             },
             "description": "Accepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40746,6 +41136,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40781,6 +41174,9 @@
         "responses": {
           "302": {
             "description": "Found"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40823,6 +41219,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40858,6 +41257,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40898,6 +41300,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40939,6 +41344,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -40976,6 +41384,9 @@
               "text/csv": {}
             },
             "description": "As CSV"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -41017,6 +41428,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -41082,6 +41496,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -41143,6 +41560,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -41254,6 +41674,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -41304,6 +41727,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -41355,6 +41781,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -41596,6 +42025,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -41769,6 +42201,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -41946,6 +42381,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -41988,6 +42426,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42023,6 +42464,9 @@
         "responses": {
           "302": {
             "description": "Found"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42065,6 +42509,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42139,6 +42586,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42213,6 +42663,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42248,6 +42701,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42289,6 +42745,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42324,6 +42783,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42363,6 +42825,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42415,6 +42880,9 @@
               }
             },
             "description": "Accepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42467,6 +42935,9 @@
               }
             },
             "description": "Accepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42582,6 +43053,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42638,6 +43112,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42731,6 +43208,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42766,6 +43246,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42839,6 +43322,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -42916,6 +43402,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -43029,6 +43518,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -43115,6 +43607,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -43201,6 +43696,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -43312,6 +43810,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -43409,6 +43910,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -43469,6 +43973,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -43566,6 +44073,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -43663,6 +44173,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -43755,6 +44268,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -43785,6 +44301,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -43815,6 +44334,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -43854,6 +44376,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -43884,6 +44409,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44005,6 +44533,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44126,6 +44657,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44208,6 +44742,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44248,6 +44785,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44278,6 +44818,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44329,6 +44872,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44364,6 +44910,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44415,6 +44964,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44459,6 +45011,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44510,6 +45065,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44545,6 +45103,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44609,6 +45170,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44757,6 +45321,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44796,6 +45363,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44837,6 +45407,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44887,6 +45460,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -44961,6 +45537,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45011,6 +45590,9 @@
               }
             },
             "description": "Accepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45071,6 +45653,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45165,6 +45750,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45200,6 +45788,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45240,6 +45831,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45290,6 +45884,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45336,6 +45933,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45410,6 +46010,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45484,6 +46087,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45534,6 +46140,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45576,6 +46185,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45626,6 +46238,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45700,6 +46315,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45762,6 +46380,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45824,6 +46445,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45868,6 +46492,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45930,6 +46557,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -45976,6 +46606,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -46099,6 +46732,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -46145,6 +46781,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -46191,6 +46830,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -46255,6 +46897,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -46307,6 +46952,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -46359,6 +47007,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -46433,6 +47084,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -46483,6 +47137,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -46544,6 +47201,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -46628,6 +47288,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -46701,6 +47364,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -46784,6 +47450,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -46874,6 +47543,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -46920,6 +47592,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -46988,6 +47663,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47056,6 +47734,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47129,6 +47810,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47179,6 +47863,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47294,6 +47981,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47336,6 +48026,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47388,6 +48081,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47429,6 +48125,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47478,6 +48177,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47530,6 +48232,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47582,6 +48287,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47673,6 +48381,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47734,6 +48445,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47793,6 +48507,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47854,6 +48571,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47905,6 +48625,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47957,6 +48680,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -47998,6 +48724,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48049,6 +48778,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48101,6 +48833,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48192,6 +48927,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48254,6 +48992,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48306,6 +49047,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48370,6 +49114,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48419,6 +49166,9 @@
               }
             },
             "description": "Accepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48450,6 +49200,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48499,6 +49252,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48582,6 +49338,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48621,6 +49380,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48662,6 +49424,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48711,6 +49476,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48838,6 +49606,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48884,6 +49655,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -48937,6 +49711,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49006,6 +49783,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49052,6 +49832,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49096,6 +49879,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49156,6 +49942,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49198,6 +49987,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49240,6 +50032,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49292,6 +50087,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49444,6 +50242,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49485,6 +50286,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49558,6 +50362,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49603,6 +50410,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49647,6 +50457,9 @@
         "responses": {
           "302": {
             "description": "Found"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49692,6 +50505,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49755,6 +50571,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49801,6 +50620,9 @@
               "text/plain": {}
             },
             "description": "The log"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49852,6 +50674,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49946,6 +50771,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -49997,6 +50825,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50084,6 +50915,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50123,6 +50957,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50158,6 +50995,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50197,6 +51037,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50247,6 +51090,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50339,6 +51185,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50402,6 +51251,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50441,6 +51293,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50482,6 +51337,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50531,6 +51389,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50561,6 +51422,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50600,6 +51464,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50641,6 +51508,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50683,6 +51553,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50735,6 +51608,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50765,6 +51641,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50807,6 +51686,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50842,6 +51724,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50882,6 +51767,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -50948,6 +51836,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51016,6 +51907,9 @@
               }
             },
             "description": "Accepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51084,6 +51978,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51142,6 +52039,9 @@
               }
             },
             "description": "Accepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51261,6 +52161,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51295,6 +52198,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51348,6 +52254,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51399,6 +52308,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51450,6 +52362,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51485,6 +52400,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51526,6 +52444,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51567,6 +52488,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51620,6 +52544,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51661,6 +52588,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51706,6 +52636,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51745,6 +52678,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51786,6 +52722,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51816,6 +52755,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51855,6 +52797,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51896,6 +52841,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51949,6 +52897,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -51994,6 +52945,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52035,6 +52989,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52133,6 +53090,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52171,6 +53131,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52212,6 +53175,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52261,6 +53227,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52334,6 +53303,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52378,6 +53350,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52428,6 +53403,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52462,6 +53440,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52526,6 +53507,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52565,6 +53549,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52600,6 +53587,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52647,6 +53637,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52715,6 +53708,9 @@
               }
             },
             "description": "Accepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52771,6 +53767,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52889,6 +53888,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52930,6 +53932,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -52980,6 +53985,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53021,6 +54029,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53071,6 +54082,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53105,6 +54119,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53140,6 +54157,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53189,6 +54209,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53219,6 +54242,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53258,6 +54284,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53321,6 +54350,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53359,6 +54391,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53394,6 +54429,9 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53433,6 +54471,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53482,6 +54523,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53577,6 +54621,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53628,6 +54675,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53680,6 +54730,9 @@
               }
             },
             "description": "Accepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53721,6 +54774,9 @@
               }
             },
             "description": "Accepted"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53763,6 +54819,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53886,6 +54945,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53927,6 +54989,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -53978,6 +55043,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -54029,6 +55097,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -54089,6 +55160,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -54149,6 +55223,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -54184,6 +55261,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -54224,6 +55304,9 @@
               }
             },
             "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
@@ -54275,6 +55358,9 @@
               }
             },
             "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
           }
         },
         "security": [
