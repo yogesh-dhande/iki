@@ -15,6 +15,7 @@ there.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
@@ -31,6 +32,7 @@ from iki_spec.model import (
     in_entry,
     lab_role_name,
 )
+from iki_spec.problems import Severity
 
 if TYPE_CHECKING:
     from iki_spec import validate as _validate
@@ -56,6 +58,14 @@ __all__ = [
 #: The kinds of expression: one that's true or false, and text with expressions in it.
 CONDITION = "condition"
 MESSAGE = "message"
+
+#: A lab list option's code, read through one of the record's references.
+_LIST_CODE = re.compile(r"\brecord\s*\.\s*([a-z][a-z0-9_]*)\s*\.\s*code\b")
+#: CEL's string literals, which read nothing: raw, triple-quoted, and quoted.
+_CEL_STRING = re.compile(
+    "[rR]?(?:'''.*?'''|\"\"\".*?\"\"\"|'(?:[^'\\\\\\n]|\\\\.)*'|\"(?:[^\"\\\\\\n]|\\\\.)*\")",
+    re.DOTALL,
+)
 
 #: A field's type, and the CEL type its value is.
 SCALARS: Mapping[str, str] = {
@@ -635,6 +645,8 @@ class _Rules:
                 else:
                     self.overlap(rule, fields, own, source, at)
                 self.while_(rule, fields, own, source, at)
+        for _, expression, at in checks:
+            self.list_codes(expression, fields, source, at)
         found = self.expressions(
             rule_variables(self.record(entity_type)),
             [
@@ -867,8 +879,10 @@ class _Rules:
         for name, guard in guards.items():
             at: Path = (*path, name)
             asked.append((name, guard.check, CONDITION, (*at, "check")))
+            self.list_codes(guard.check, fields, source, (*at, "check"))
             if guard.when is not None:
                 asked.append((name, guard.when, CONDITION, (*at, "when")))
+                self.list_codes(guard.when, fields, source, (*at, "when"))
             asked.append((name, guard.message, MESSAGE, (*at, "message")))
         found = self.expressions(variables, asked, source)
         return {
@@ -877,6 +891,32 @@ class _Rules:
         }
 
     # Expressions.
+
+    def list_codes(
+        self, expression: str, fields: Mapping[str, Field], source: Document, path: Path
+    ) -> None:
+        """Warns where a condition reads a lab list option's code: a curator supersedes a
+        wrong code, and records then name the new one, so a rule or guard comparing the
+        old one stops applying to them without anyone being told (ADR 0270)."""
+        bare = _CEL_STRING.sub('""', expression)
+        for name in dict.fromkeys(m[1] for m in _LIST_CODE.finditer(bare)):
+            f = fields.get(name)
+            if f is None or f.type != "ref":
+                continue
+            lists = [t for t in f.to if (found := self.s.types.get(t)) and found.is_list]
+            if not lists:
+                continue
+            self.add(
+                "list-code-in-expression",
+                f"It reads `{name}.code`, an option of the lab list `{lists[0]}`, which its "
+                "curators keep: an option they supersede gives records a new code, and "
+                "this stops applying to them.",
+                source,
+                path,
+                severity=Severity.WARNING,
+                hint="A value a rule or guard reads should be the plugin's: make it an `enum` "
+                "field. Reading an option's other facts is fine.",
+            )
 
     def expressions(
         self,

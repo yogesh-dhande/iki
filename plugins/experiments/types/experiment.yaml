@@ -45,6 +45,7 @@ fields:
     max_items: 1000
     items:
       type: row
+      row_id: observation_id
       fields:
         observed_at: { type: datetime, required: true, label: Observed at }
         note: { type: text, required: true, max_length: 10000 }

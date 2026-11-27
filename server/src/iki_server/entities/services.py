@@ -691,23 +691,17 @@ def _unique_values() -> Iterator[None]:
         ) from None
 
 
-def _observation_ids(
-    form: Shape,
+def _row_ids(
     f: Field,
     rows: Any,  # noqa: ANN401 - stored field value
     current: Sequence[dict[str, Any]] | None = None,
 ) -> Any:  # noqa: ANN401 - stored values
-    """Assign IDs to new Experiment observations and keep the IDs of retained rows."""
-    if (
-        rows is None
-        or f.name != "observations"
-        or form.part_of(f.name).name != "iki/experiments.Experiment"
-        or f.items is None
-        or "observation_id" not in f.items.fields
-    ):
+    """Give each new row of a list whose rows have an ID (``row_id``) one, and keep the
+    IDs of the rows kept: an edit names a kept row by its ID, never one the record's rows
+    don't have, nor one twice."""
+    if rows is None or f.items is None or f.items.row_id is None:
         return rows
-
-    name = "observation_id"
+    name = f.items.row_id
     existing = {row[name]: row for row in current or ()}
     used: set[str] = set()
     for index, row in enumerate(rows):
@@ -715,19 +709,21 @@ def _observation_ids(
         if row_id is None:
             continue
         if row_id in used:
-            raise RowProblems({f"{index}/{name}": ["names the same observation twice."]})
+            raise RowProblems({f"{index}/{name}": ["names the same row twice."]})
         if current is not None and row_id not in existing:
-            raise RowProblems({f"{index}/{name}": ["isn't a current observation on this record."]})
+            raise RowProblems({f"{index}/{name}": ["isn't one of this record's rows."]})
         used.add(row_id)
 
-    def content(row: dict[str, Any]) -> tuple[Any, Any]:
-        return row["observed_at"], row["note"]
+    others = [c for c in f.items.fields if c != name]
+
+    def content(row: dict[str, Any]) -> tuple[Any, ...]:
+        return tuple(row.get(c) for c in others)
 
     # Older clients can keep an unchanged list as it is. For a changed list, incomplete
     # requests can preserve a unique content match, but cannot identify identical rows.
     if not used and current is not None and list(map(content, rows)) == list(map(content, current)):
         return list(current)
-    matches: dict[tuple[Any, Any], list[str]] = defaultdict(list)
+    matches: dict[tuple[Any, ...], list[str]] = defaultdict(list)
     if not used:
         for row_id, row in existing.items():
             matches[content(row)].append(row_id)
@@ -796,7 +792,7 @@ def prepare(
             ]
         else:
             try:
-                given[name] = _observation_ids(form, f, form.field_value(f, value, refs))
+                given[name] = _row_ids(f, form.field_value(f, value, refs))
             except ValueError as error:
                 errors.update(problems_of(name, error))
     for name, f in fields.items():
@@ -1010,9 +1006,7 @@ def update(
                     using.namer.keeping(_named_in(f, current)),
                     using.keeping(_referred_in(f, current)),
                 ):
-                    converted = _observation_ids(
-                        form, f, form.field_value(f, value, using), current
-                    )
+                    converted = _row_ids(f, form.field_value(f, value, using), current)
             except ValueError as error:
                 errors.update(problems_of(name, error))
                 continue
