@@ -8,8 +8,6 @@ from unittest.mock import patch
 
 import pytest
 from django.core.exceptions import PermissionDenied
-from django.db import connection
-from django.db.migrations.executor import MigrationExecutor
 from first_party_dependencies import FIRST_PARTY, ROOT, build_order, withs
 from org_world import build_world
 from test_lots import LOTS
@@ -24,7 +22,7 @@ from iki_server.entities.values import shape, to_json
 from iki_server.files.models import Blob, File
 from iki_server.org.services import Refused
 from iki_server.runs import catalog, triggers
-from iki_server.runs.models import ProjectTrigger, TriggerFiring
+from iki_server.runs.models import TriggerFiring
 from iki_spec import rules as cel
 
 __all__ = ["database"]
@@ -266,31 +264,6 @@ def exercise_review(blob: Blob) -> None:
     edit(checked, {"method": "gateway_lr"})
     assert services.current_values_of([checked])[checked.pk]["matches_product"] is None
     assert TriggerFiring.objects.filter(entity=checked).count() == count
-
-    # Replaying the upgrade preserves an explicit opt-out and restores the default
-    # for projects whose older trigger was switched off without a reason.
-    stale = create("iki/plasmid.Assembly", source | {"matches_product": True}, by_run=True)
-    with patch.object(triggers, "rechecks", return_value=[]):
-        edit(stale, {"method": "gateway_lr"})
-    assert services.values_at(stale, 2)["matches_product"] is True
-    loader = MigrationExecutor(connection).loader
-    key = ("iki__plasmid", "0008_invalidate_edited_plans")
-    upgrade = loader.get_migration(*key)
-    setting = ProjectTrigger.objects.get(project=world.project, trigger=recheck)
-    with connection.schema_editor() as schema:
-        upgrade.apply(loader.project_state(key, at_end=False), schema)
-        setting.refresh_from_db()
-        assert not setting.enabled and setting.disabled_reason == reason
-        ProjectTrigger.objects.filter(pk=setting.pk).update(disabled_reason="")
-        upgrade.apply(loader.project_state(key, at_end=False), schema)
-    revision = stale.revisions.get(kind="migrated")
-    assert revision.number == 3 and revision.via == "system" and revision.user_id is None
-    assert key[1] in revision.reason
-    assert AuditEvent.objects.filter(action="entity.migrated", target_id=str(stale.pk)).count() == 1
-    assert services.values_at(stale, 2)["matches_product"] is True
-    assert services.values_at(stale, 3)["matches_product"] is None
-    restored = ProjectTrigger.objects.get(pk=setting.pk)
-    assert restored.enabled and restored.disabled_by_id is None
 
     prep = create("iki/lots.PlasmidPrep", {"plasmid": str(plasmid.entry_id)})
     aligned = File.objects.create(

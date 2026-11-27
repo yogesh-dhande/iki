@@ -8,9 +8,10 @@ description: >-
   weighted by each species' share of the area, of the intact conjugate, or of its
   reduced chains using each chain's copy count in the registered antibody carrier.
   Computes the unconjugated share from the intact DAR 0 species, and concentration
-  from the lot's A280 and measured ε280. A DAR by UV/Vis is entered as measured.
+  from the lot's A280 and measured ε280, while its concentration method is one Iki works
+  out from its A280, or none is named. A DAR by UV/Vis is entered as measured.
 inputs:
-  lot: { type: ConjugateLot, schema: ">=2", include: [conjugate] }
+  lot: { type: ConjugateLot, schema: ">=5", include: [conjugate, concentration_method] }
 effects:
   updates:
     - input: lot

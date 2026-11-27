@@ -5,12 +5,12 @@ name: ProteinLot
 label: Protein lot
 label_plural: Protein lots
 extends: BiologicLot
-schema_version: 3
+schema_version: 4
 description: >-
   A lot of a protein, or of a complex of proteins such as an antibody, an Fc fusion
   or a multispecific, such as a purification's pooled fractions: its concentration
   from its A280 and its sequence's ε280 (Pace et al., 1995), its purity and
-  aggregates by SEC, and its endotoxin.
+  aggregates, and its endotoxin.
 hrid: { prefix: PLOT }
 # How much of it is left (ADR 0139): kept by protein mass, drawn by volume at its
 # concentration, so 5 mg of a 2 mg/mL lot is 2.5 mL; only its protein's, so a transfer into it

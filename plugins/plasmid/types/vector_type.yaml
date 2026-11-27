@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: VectorType
+label: Vector type
+schema_version: 1
+description: What a plasmid vector is for, such as mammalian expression. A lab list (ADR 0270).
+hrid: { prefix: VTY }
+list:
+  options:
+    - { code: cloning, label: Cloning }
+    - { code: bacterial_expression, label: Bacterial expression }
+    - { code: mammalian_expression, label: Mammalian expression }
+    - { code: yeast_expression, label: Yeast expression }
+    - { code: insect_expression, label: Insect expression }
+    - code: shuttle
+      label: Shuttle
+      description: Replicates in two hosts, such as E. coli and yeast.
+    - { code: lentiviral, label: Lentiviral }
+    - { code: retroviral, label: Retroviral }
+    - { code: aav, label: AAV }
+    - { code: adenoviral, label: Adenoviral }
+    - { code: crispr, label: CRISPR }
+    - { code: reporter, label: Reporter }
+    - code: gateway_donor
+      label: Gateway donor
+      description: A pDONR backbone, for a BP reaction's entry clone.
+    - code: gateway_destination
+      label: Gateway destination
+      description: A destination vector, for an LR reaction's expression clone.

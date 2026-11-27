@@ -11,8 +11,6 @@ inputs:
         mn: 236000
         mw: 241000
         mp: 242000
-        mn_method: sec_conventional
-        mw_method: sec_conventional
 expect:
   output:
     updates:
@@ -33,8 +31,6 @@ inputs:
     - values:
         mn: 35800
         mw: 37400
-        mn_method: membrane_osmometry
-        mw_method: sedimentation_equilibrium
 expect:
   output:
     updates:
@@ -53,9 +49,6 @@ inputs:
     - values:
         mn: 29184
         mw: 38560
-        mn_method: sec_conventional
-        mw_method: sec_conventional
-        calibration_standard: polystyrene
         eluent: THF
 expect:
   output:

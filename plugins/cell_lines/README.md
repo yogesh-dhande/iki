@@ -30,9 +30,11 @@ sample** is an observation collected from a culture, with its data file.
    to `local` and the lab's own accession.
 2. For a local derivative, create an **Engineered cell line**, choose its
    parental or engineered parent, and list each documented change and its
-   description: a knock-out, knock-in, stable transfection, transduction,
-   immortalization, adaptation to new culture conditions, selection for a
-   trait, or another change in the lab's own terms. Record each independently
+   description: its kind, from the lab's list of engineered changes
+   (`iki/cell_lines.EngineeredChange`, ADR 0270), which starts with knock-out,
+   knock-in, stable transfection, transduction, immortalization, adaptation to
+   new culture conditions and selection for a trait, and to which the list's
+   curators add the lab's own kinds. Record each independently
    isolated clone separately. For a parent from a supplier, select the
    catalogue source of the material used.
 3. Create a **Cell bank** for the line, recording the banking date and passage.

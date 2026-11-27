@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: AggregatesMethod
+label: Aggregates method
+schema_version: 1
+description: >-
+  How a protein, complex or conjugate lot's high molecular weight species are measured.
+  A lab list (ADR 0270).
+hrid: { prefix: AGM }
+list:
+  options:
+    - code: sec
+      label: SEC-HPLC
+      description: Size-exclusion chromatography's peaks before its main peak.
+    - code: sec_mals
+      label: SEC-MALS
+      description: Size exclusion with multi-angle light scattering, which weighs each peak.
+    - code: auc_sv
+      label: AUC sedimentation velocity
+      description: >-
+        Analytical ultracentrifugation's species sedimenting faster than its monomer.

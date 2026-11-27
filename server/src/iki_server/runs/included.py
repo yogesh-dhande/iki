@@ -101,6 +101,16 @@ def resolve(
         records[record.entry_id].append(record)
     entry_ids = set(records) | {e.entry_id for e in found.values() if e.entry_id is not None}
     entries = dict(Entity.objects.filter(pk__in=entry_ids).values_list("pk", "revision"))
+    options = _options(targets - found.keys() - records.keys())
+    registries = (
+        dict(
+            Project.objects.filter(pk__in={w[5].owner_project_id for w in wanted}).values_list(
+                "pk", "registry_id"
+            )
+        )
+        if options
+        else {}
+    )
     errors: dict[str, list[str]] = defaultdict(list)
     pins = []
     for name, position, reference, index, pk, owner in wanted:
@@ -108,6 +118,14 @@ def resolve(
         if target is None and records.get(pk):
             held = [r for r in records[pk] if r.owner_project_id == owner.owner_project_id]
             target = (held or records[pk])[0]
+        if target is None and pk in options:
+            # A lab list's option, read by every project in its registry (ADR 0270): the
+            # one the record's own project's registry has, as a reference can name no other.
+            option = options[pk]
+            if owner.owner_project_id is not None and option.registry_id == registries.get(
+                owner.owner_project_id
+            ):
+                target = option
         if target is None:
             label = reference.replace("_", " ")
             errors[name].append(f"{owner.hrid}'s {label} isn't an entity you can read.")
@@ -128,12 +146,52 @@ def resolve(
     return pins
 
 
+def _options(ids: set[UUID]) -> dict[UUID, Entity]:
+    """Of ``ids``, lab lists' options (ADR 0270): registry entries no project has a record of."""
+    listed = access.list_types()
+    if not ids or not listed:
+        return {}
+    return {
+        e.pk: e
+        for e in Entity.objects.filter(
+            pk__in=ids, registry__isnull=False, type__in=sorted(listed), purged_at__isnull=True
+        )
+    }
+
+
+def options_by_registry(ids: Iterable[UUID]) -> dict[UUID, UUID]:
+    """Of ``ids``, lab lists' options (ADR 0270), each with its registry."""
+    listed = access.list_types()
+    wanted = set(ids)
+    if not wanted or not listed:
+        return {}
+    return dict(
+        Entity.objects.filter(
+            pk__in=wanted, registry__isnull=False, type__in=sorted(listed)
+        ).values_list("pk", "registry_id")
+    )
+
+
+def options_of(project: Project, ids: Iterable[UUID]) -> set[UUID]:
+    """Of ``ids``, the options of ``project``'s registry's lab lists (ADR 0270): every
+    one of its readers reads them, and a run there reads them without a record of them."""
+    return {pk for pk, at in options_by_registry(ids).items() if at == project.registry_id}
+
+
+def is_option(entity: Entity) -> bool:
+    """Whether ``entity`` is a lab list's option (ADR 0270), which its registry's every
+    project reads, rather than a record a project holds."""
+    return entity.registry_id is not None and entity.type in access.list_types()
+
+
 def reads(entities: Mapping[str, Sequence[Entity]], pins: Iterable[Pin]) -> dict[str, list[Entity]]:
     """What the run reads, by input: its entities, then what their references name. Each
-    must be in the run's project, as its inputs must."""
+    must be in the run's project, as its inputs must, except a lab list's option, which is
+    its registry's (ADR 0270)."""
     out = {name: list(chosen) for name, chosen in entities.items()}
     for p in pins:
-        out.setdefault(p.input, []).append(p.entity)
+        if not is_option(p.entity):
+            out.setdefault(p.input, []).append(p.entity)
     return out
 
 

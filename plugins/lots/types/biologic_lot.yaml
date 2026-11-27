@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 #
 # What every lot of a protein, a complex such as an antibody, or a protein conjugate has:
-# its concentration by A280, its purity and aggregates by SEC, its endotoxin. Each
+# its concentration by A280, its purity and aggregates, its endotoxin. Each
 # concrete type names what it's a lot of, which says where its ε280 comes from.
 apiVersion: iki/v1
 kind: EntityType
@@ -10,11 +10,11 @@ label: Biologic lot
 label_plural: Biologic lots
 extends: Lot
 abstract: true
-schema_version: 3
+schema_version: 4
 description: >-
   A lot of a protein, a complex such as an antibody, or a protein conjugate, in
   solution: its concentration, by A280 from its ε280 or by another assay, its purity
-  and aggregates by SEC, and its endotoxin.
+  and aggregates and the methods that measured them, and its endotoxin.
 # Each concrete type keeps its amount, by protein mass, of what it names it's a lot of.
 fields:
   concentration:
@@ -28,21 +28,13 @@ fields:
       measured by another assay. A transfer into it sets it to the pool's (ADR 0157),
       which a later run keeps until its A280 is read again.
   concentration_method:
-    type: enum
+    type: ref
+    to: ProteinConcentrationMethod
     label: Concentration by
-    values: [a280, bca, bradford, amino_acid_analysis, other]
-    default: a280
     description: >-
-      How its concentration was measured: a280 from its absorbance at 280 nm and its
-      ε280, which Iki works out; or by another assay, entered as measured. For one not
-      listed, choose other and name it.
-  concentration_method_other:
-    type: string
-    label: Other concentration method
-    max_length: 200
-    description: >-
-      The lab's own concentration method, with its SOP or kit, such as CE-SDS against a
-      reference standard (SOP-AN-112 rev 3).
+      How its concentration was measured, from the lab's list: by its A280 and ε280,
+      which Iki works out, or by another assay, entered as measured. Left empty, an A280
+      reading gives it, as by A280.
   a280:
     type: float
     label: A280
@@ -116,14 +108,12 @@ fields:
     indexed: true
     description: >-
       Its main species as a share of every peak's area, by the method its purity method
-      names: size-exclusion chromatography's main peak, unless it says otherwise.
+      names, such as size-exclusion chromatography's main peak.
   purity_method:
-    type: string
+    type: ref
+    to: PurityMethod
     label: Purity by
-    max_length: 200
-    description: >-
-      How its purity was measured, such as SEC-HPLC at 280 nm, or CE-SDS non-reduced.
-      Left empty, it's the main peak by SEC.
+    description: How its purity was measured, from the lab's list, such as SEC-HPLC or CE-SDS.
   aggregates:
     type: quantity
     label: High molecular weight species
@@ -131,16 +121,13 @@ fields:
     min: 0
     max: 100
     description: >-
-      Its aggregates, the species larger than its main one, as a share of the area, by the
-      method its aggregates method names: the peaks before SEC's main peak, unless it says
-      otherwise.
+      Its aggregates, the species larger than its main one, as a share of the area, by
+      the method its aggregates method names, such as the peaks before SEC's main peak.
   aggregates_method:
-    type: string
+    type: ref
+    to: AggregatesMethod
     label: Aggregates by
-    max_length: 200
-    description: >-
-      How its aggregates were measured, such as SEC-MALS, or analytical
-      ultracentrifugation. Left empty, it's SEC.
+    description: How its aggregates were measured, from the lab's list, such as SEC-MALS.
   endotoxin:
     type: quantity
     unit: "{EU}/mg"
@@ -152,12 +139,6 @@ fields:
     max_length: 300
     description: What it's in, such as 20 mM histidine, 240 mM sucrose, pH 6.0.
 rules:
-  concentration_method_other_is_named:
-    label: Another concentration method is named
-    check: (record.concentration_method == "other") == (record.concentration_method_other != null)
-    message: >-
-      Name the concentration method when it's Other, and only then.
-    fields: [concentration_method, concentration_method_other]
   path_length_is_positive:
     label: Its path length is more than 0
     check: record.path_length > 0

@@ -23,6 +23,11 @@ works out what follows from what was measured of a lot, and what it's a lot of:
   ε280, which its payload adds to.
 - ``polymer``: a polymer lot's molar-mass dispersity, Mw/Mn (IUPAC, 2009).
 
+A concentration is worked out from an A260 or an A280 only while the lot's concentration
+method, an option of the lab's list (ADR 0270), says it's that calculation's, or the lot
+names none. The lab names its own methods; which of them Iki works out is the option's
+``calculation``, so a lab's own A280 method, say one on a variable path length, is too.
+
 Each run reads $IKI_INPUT and writes $IKI_OUTPUT, as every action's command does. What
 can't be worked out (a measurement left out, a mass not yet computed, a path length or
 an extinction coefficient of 0) is left empty, and the run says why; a computed value
@@ -67,6 +72,16 @@ def number(value: Any) -> float | None:  # noqa: ANN401 - a value's JSON
 def _included(entity: Mapping[str, Any], name: str) -> Mapping[str, Any] | None:
     found = (entity.get("included") or {}).get(name) or []
     return found[0] if found else None
+
+
+def calculated(lot: Lot, calculation: str) -> bool:
+    """Whether Iki works the lot's concentration out by ``calculation`` (``a260`` or
+    ``a280``): its concentration method, an option of the lab's list (ADR 0270) the run
+    includes, says it's that calculation's; or it names none, so a reading gives it."""
+    if lot.values.get("concentration_method") is None:
+        return True
+    method = _included(lot.entity, "concentration_method")
+    return method is not None and (method.get("values") or {}).get("calculation") == calculation
 
 
 def _trimmed(text: str) -> str:
@@ -231,7 +246,7 @@ def oligo(lot: Lot) -> None:
 
 
 def plasmid(lot: Lot) -> None:
-    if (lot.values.get("concentration_method") or "a260") != "a260":
+    if not calculated(lot, "a260"):
         # Measured another way, it's as entered; what an A260 gives isn't what it is.
         lot.set("a260_concentration", None)
         return
@@ -296,7 +311,7 @@ def by_a280(
     lot.set("a280_extinction", None if epsilon is None else round(epsilon, 4))
     lot.set("a280_basis", basis)
     lot.set("a280_estimate", None if epsilon is None else bool(estimate))
-    if (lot.values.get("concentration_method") or "a280") != "a280":
+    if not calculated(lot, "a280"):
         lot.set("a280_concentration", None)
         return
     a280 = lot.get("a280")

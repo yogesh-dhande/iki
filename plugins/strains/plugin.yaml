@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/strains
-version: 0.3.1
+version: 0.3.2
 title: Bacterial and yeast strains
 description: >-
   Register base strains by their source's accession and transformed strains by the

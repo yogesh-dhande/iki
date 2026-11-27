@@ -112,8 +112,9 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "StrainIsolate": "id",
     }
     # Each names what it's a lot of, by its type where one is registered.
+    lists = {n for n, t in types.items() if t.is_list}
     refs = {
-        name: [to for f in t.fields.values() if f.type == "ref" for to in f.to]
+        name: [to for f in t.fields.values() if f.type == "ref" for to in f.to if to not in lists]
         for name, t in concrete.items()
     }
     assert refs == {
@@ -161,48 +162,153 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
     assert not states["available"].locks and not states["available"].signatures
 
 
-#: Each lot type's methods chosen from a menu, with Other for a lab's own, which it names.
-OTHER_METHODS = {
+#: Each lot type's methods, from the lab's lists (ADR 0270), and the codes each list starts
+#: with: the methods its menu had before it was the lab's, so data maps by code.
+LISTED_METHODS = {
     # Protein and conjugate lots have their biologic lot's.
-    "iki/lots.BiologicLot": ("concentration_method",),
-    "iki/lots.PlasmidPrep": ("method", "concentration_method", "verified_by"),
-    "iki/lots.PolymerLot": ("mn_method", "mw_method", "calibration_standard"),
+    "iki/lots.BiologicLot": {
+        "concentration_method": (
+            "ProteinConcentrationMethod",
+            ["a280", "bca", "bradford", "amino_acid_analysis"],
+        ),
+        "purity_method": (
+            "PurityMethod",
+            ["sec", "ce_sds_non_reduced", "ce_sds_reduced", "rp_hplc", "sds_page"],
+        ),
+        "aggregates_method": ("AggregatesMethod", ["sec", "sec_mals", "auc_sv"]),
+    },
+    "iki/lots.PlasmidPrep": {
+        "method": (
+            "PlasmidPrepMethod",
+            ["silica_column", "anion_exchange", "endotoxin_free", "cesium_chloride"],
+        ),
+        "concentration_method": ("DNAConcentrationMethod", ["a260", "fluorescence"]),
+        "verified_by": (
+            "PlasmidVerificationMethod",
+            ["whole_plasmid", "sanger", "restriction_digest"],
+        ),
+    },
+    "iki/lots.PolymerLot": {
+        "mn_method": ("MolarMassMethod", None),
+        "mw_method": ("MolarMassMethod", None),
+        "calibration_standard": (
+            "SECCalibrationStandard",
+            [
+                "polystyrene",
+                "poly_methyl_methacrylate",
+                "polyethylene_glycol",
+                "polyethylene_oxide",
+                "pullulan",
+                "dextran",
+            ],
+        ),
+    },
+    "iki/lots.OligoLot": {
+        "purification": (
+            "OligoPurification",
+            ["desalted", "cartridge", "rp_hplc", "ie_hplc", "page"],
+        ),
+        "counterion": ("OligoCounterion", ["sodium", "ammonium", "triethylammonium"]),
+        "purity_method": ("OligoPurityMethod", ["ip_rp_hplc", "ae_hplc", "ce", "lc_ms"]),
+    },
 }
 
 
-@pytest.mark.parametrize(("type_name", "fields"), OTHER_METHODS.items())
-def test_a_lab_names_its_own_method_as_other(type_name: str, fields: tuple[str, ...]) -> None:
-    """A method outside the menu is Other with the lab's name for it; a name beside a
-    listed method is refused, so a record never says two things."""
+@pytest.mark.parametrize(("type_name", "fields"), LISTED_METHODS.items())
+def test_a_lots_methods_are_the_labs_own_lists(
+    type_name: str, fields: dict[str, tuple[str, list[str] | None]]
+) -> None:
+    """A method is an option of a list the lab curates (ADR 0270), so a lab's own is one
+    more option, not Other with a name typed beside it; the list starts with the methods
+    the plugin's menu had, by the same codes."""
     plugin = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS]).plugin
     assert plugin is not None
     spec = plugin.types[type_name]
-    variables = rules.rule_variables(rules.record_schema(spec.label, spec.fields, None))
-    for name in fields:
-        assert "other" in (spec.fields[name].values or ())
-        rule = spec.rules[f"{name}_other_is_named"]
-        assert rule.check is not None
-        listed = next(v for v in spec.fields[name].values or () if v != "other")
-        named = "A lab method (SOP-AN-112 rev 3)"
-        cases = [
-            ({name: "other", f"{name}_other": named}, True),
-            ({name: "other"}, False),
-            ({name: listed, f"{name}_other": named}, False),
-            ({name: listed}, True),
-            ({}, True),
-        ]
-        outcomes = rules.evaluate(
-            variables, [(rule.check, rules.CONDITION)], [{"record": v} for v, _ in cases]
-        )
-        assert [row[0].value for row in outcomes] == [ok for _, ok in cases], name
+    assert not any(name.endswith("_other") for name in spec.fields)
+    assert not any(name.endswith("_other_is_named") for name in spec.rules)
+    for name, (listed, codes) in fields.items():
+        f = spec.fields[name]
+        assert (f.type, f.to) == ("ref", (f"iki/lots.{listed}",)), name
+        options = plugin.types[f"iki/lots.{listed}"]
+        assert options.is_list and options.list_spec is not None
+        if codes is not None:
+            assert [o["code"] for o in options.list_spec.options] == codes, name
 
 
-def test_a_biologics_purity_and_aggregates_say_how_they_were_measured() -> None:
+def test_iki_works_out_a_concentration_only_for_a_method_it_implements() -> None:
+    """A concentration method's option says which of Iki's calculations it is: A280 and
+    A260 are, as a lab's own A280 method can be; the assays are entered as measured."""
     plugin = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS]).plugin
     assert plugin is not None
-    fields = plugin.types["iki/lots.BiologicLot"].fields
-    assert fields["purity"].label == "Purity"
-    assert fields["purity_method"].type == fields["aggregates_method"].type == "string"
+    for listed, calculation in (
+        ("ProteinConcentrationMethod", "a280"),
+        ("DNAConcentrationMethod", "a260"),
+    ):
+        options = plugin.types[f"iki/lots.{listed}"]
+        assert options.fields["calculation"].values == (calculation,)
+        assert options.list_spec is not None
+        assert {o["code"]: o.get("calculation") for o in options.list_spec.options} == {
+            o["code"]: calculation if o["code"] == calculation else None
+            for o in options.list_spec.options
+        }
+    for kind, values, method, computed in (
+        ("protein", {"a280": 1, "path_length": 1, "extinction_coefficient": 2}, None, 0.5),
+        ("protein", {"a280": 1, "path_length": 1, "extinction_coefficient": 2}, "a280", 0.5),
+        ("protein", {"a280": 1, "path_length": 1, "extinction_coefficient": 2}, "", None),
+        ("plasmid", {"a260": 1, "path_length": 1}, "a260", 50),
+        ("plasmid", {"a260": 1, "path_length": 1}, "", None),
+    ):
+        entity = lot(1, **values)
+        if method is not None:
+            # The record names an option of the lab's list, which the run includes.
+            option = {"values": {"code": "ours", "label": "Ours", "calculation": method or None}}
+            entity["values"]["concentration_method"] = "00000000-0000-7000-8003-000000000009"
+            entity["included"] = {"concentration_method": [option]}
+        reading = "a280_concentration" if kind == "protein" else "a260_concentration"
+        got = changes(compute(kind, entity))
+        assert (got[0].get(reading) if got else None) == computed, (kind, method)
+
+
+def test_a_polymer_lots_mn_and_mw_are_each_by_a_method_that_gives_it() -> None:
+    """One list of molar mass methods for both averages: each says which it gives, so an
+    osmometry counts molecules for Mn and a light scattering weighs them for Mw."""
+    plugin = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS]).plugin
+    assert plugin is not None
+    methods = plugin.types["iki/lots.MolarMassMethod"]
+    assert methods.list_spec is not None
+    gives = {o["code"]: o["averages"] for o in methods.list_spec.options}
+    assert gives["membrane_osmometry"] == ["mn"]
+    assert gives["static_light_scattering"] == gives["sedimentation_equilibrium"] == ["mw"]
+    assert gives["sec_mals"] == ["mn", "mw"]
+    spec = plugin.types["iki/lots.PolymerLot"]
+    variables = rules.rule_variables(
+        rules.record_schema(
+            spec.label,
+            spec.fields,
+            lambda name: (
+                (plugin.types[name].label, plugin.types[name].fields)
+                if name in plugin.types
+                else None
+            ),
+        )
+    )
+    checks = [
+        (spec.rules[n].check or "", rules.CONDITION)
+        for n in ("mn_method_gives_mn", "mw_method_gives_mw")
+    ]
+    osmometry = {"id": "a", "hrid": "MMM-1", "code": "membrane_osmometry", "averages": ["mn"]}
+    scattering = {"id": "b", "hrid": "MMM-2", "code": "static_light_scattering", "averages": ["mw"]}
+    ours = {"id": "c", "hrid": "MMM-3", "code": "af4_mals", "averages": None}
+    cases = [
+        ({"mn_method": osmometry, "mw_method": scattering}, [True, True]),
+        ({"mn_method": scattering, "mw_method": osmometry}, [False, False]),
+        ({"mn_method": ours, "mw_method": ours}, [None, None]),
+        ({}, [None, None]),
+    ]
+    outcomes = rules.evaluate(variables, checks, [{"record": v} for v, _ in cases])
+    assert [[None if o.empty else o.value for o in row] for row in outcomes] == [
+        want for _, want in cases
+    ]
 
 
 def test_an_oligo_lots_mass_is_checked_against_its_named_specification() -> None:
@@ -246,7 +352,16 @@ def test_each_kind_of_lot_works_out_its_values_when_its_recorded_and_measured() 
     # What each action writes is what its trigger watches the inputs of.
     actions = result.plugin.actions
     assert actions["compute_oligo_lot"].inputs["lot"].include == ("oligonucleotide",)
-    assert actions["compute_protein_lot"].inputs["lot"].include == ("protein",)
+    # A concentration is worked out by the calculation its method's option names.
+    assert actions["compute_protein_lot"].inputs["lot"].include == (
+        "protein",
+        "concentration_method",
+    )
+    assert actions["compute_conjugate_lot"].inputs["lot"].include == (
+        "conjugate",
+        "concentration_method",
+    )
+    assert actions["compute_plasmid_prep"].inputs["lot"].include == ("concentration_method",)
 
 
 def script(tmp_path: Path, kind: str, *entities: dict[str, Any]) -> dict[str, Any]:
@@ -465,8 +580,8 @@ def test_a_concentration_follows_its_reading_not_an_older_one(
     lysozyme = {"molecular_weight": 14313.0, "extinction_coefficient_oxidized": 37970}
     out = compute(
         "plasmid",
-        lot(1, concentration_method="a260", concentration=420, a260_concentration=420),
-        lot(2, concentration_method="a260", concentration=500, a260_concentration=420),
+        lot(1, concentration=420, a260_concentration=420),
+        lot(2, concentration=500, a260_concentration=420),
     )
     assert changes(out) == [
         {"a260_concentration": None, "concentration": None},
@@ -488,7 +603,6 @@ def test_a_concentration_follows_its_reading_not_an_older_one(
         "dilution_factor": 1,
         "path_length": 1,
         "extinction_coefficient": 1,
-        "concentration_method": "a280",
         "a280_extinction": 1,
         "a280_basis": "measured",
         "a280_estimate": False,
@@ -644,6 +758,13 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
         from iki_server.org.models import LabRoleGrant, ProjectMembership, ProjectRole
         from iki_server.org.services import Refused
 
+        from iki_server.entities import lists
+
+        # The option of the lab's list (ADR 0270) a record names, by its code.
+        def option(listed, code):
+            found = lists.find(project.registry_id, "iki/lots." + listed, code)
+            return str(found.entry.pk)
+
         alice = User.objects.create_user("alice@example.com")
         quinn = User.objects.create_user("quinn@example.com")
         for user in (alice, quinn):
@@ -671,8 +792,10 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
         made = services.create(
             alice, "iki/lots.OligoLot", project,
             {{"oligonucleotide": str(oligo.pk), "lot_number": "TEG-2611", "source": "made",
-              "made_by": str(alice.pk), "synthesis_scale": 1, "purification": "ie_hplc",
-              "counterion": "sodium", "concentration": 100, "mass_basis": "average",
+              "made_by": str(alice.pk), "synthesis_scale": 1,
+              "purification": option("OligoPurification", "ie_hplc"),
+              "counterion": option("OligoCounterion", "sodium"), "concentration": 100,
+              "mass_basis": "average",
               "measured_mass": 7182.2, **SPECIFIED}},
             amount={{"value": 500, "unit": "nmol"}},
         ).entity
@@ -847,9 +970,16 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
         srm = services.create(
             alice, "iki/lots.PolymerLot", project,
             {{"polymer": str(polystyrene.entry_id), "catalogue_number": "SRM 1478",
-              "mn": 35800, "mn_method": "membrane_osmometry",
-              "mw": 37400, "mw_method": "sedimentation_equilibrium"}},
+              "mn": 35800, "mn_method": option("MolarMassMethod", "membrane_osmometry"),
+              "mw": 37400,
+              "mw_method": option("MolarMassMethod", "sedimentation_equilibrium")}},
         ).entity
+        # Osmometry counts molecules: it gives no weight average.
+        mw_by_osmometry = errors(lambda: services.create(
+            alice, "iki/lots.PolymerLot", project,
+            {{"polymer": str(polystyrene.entry_id), "mw": 37400,
+              "mw_method": option("MolarMassMethod", "membrane_osmometry")}},
+        ))
         wrong_polymer_weights = errors(lambda: services.create(
             alice, "iki/lots.PolymerLot", project,
             {{"polymer": str(polystyrene.entry_id), "mn": 38560, "mw": 29184}},
@@ -885,6 +1015,7 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
             "of_polymer": services.current_values_of([srm])[srm.pk]["polymer"]
                           == polystyrene.entry_id,
             "wrong_polymer_weights": wrong_polymer_weights,
+            "mw_by_osmometry": mw_by_osmometry,
             "of_monomer": of_monomer,
             "lots": sorted(e.type for e in everything),
             "hrids": sorted(e.hrid.split("-")[0] for e in everything),
@@ -930,6 +1061,12 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
         "mw": [
             "Its Mw, 29184 g/mol, is below its Mn, 38560 g/mol: a weight average is never "
             "below the number average of the same chains."
+        ]
+    }
+    assert result["mw_by_osmometry"] == {
+        "mw_method": [
+            "Membrane osmometry doesn't give a weight average: choose a method that weighs "
+            "molecules, or record it as Mn by."
         ]
     }
     assert result["lots"] == [

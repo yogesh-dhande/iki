@@ -12,7 +12,7 @@ finds them all.
 | --------------------------- | -------------- | --------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `iki/lots.OligoLot`         | `OLOT-000001`  | `iki/oligo.Oligonucleotide`                               | nmol, by µM    | Synthesis scale, purification, counterion, purity; yield in OD260 and nmol; mass by ESI-MS against the one its HELM gives                       |
 | `iki/lots.PlasmidPrep`      | `PREP-000001`  | `iki/plasmid.Plasmid`                                     | µg, by ng/µL   | Prep scale and method, kit, host strain; concentration from A260; A260/A280, A260/A230, supercoiled share, endotoxin; how it was verified       |
-| `iki/lots.ProteinLot`       | `PLOT-000001`  | `iki/protein.Protein`, `iki/core.Complex`                 | mg, by mg/mL   | Concentration from A280 and its sequence's ε280; purity and aggregates, by SEC unless named; endotoxin; formulation                             |
+| `iki/lots.ProteinLot`       | `PLOT-000001`  | `iki/protein.Protein`, `iki/core.Complex`                 | mg, by mg/mL   | Concentration from A280 and its sequence's ε280; purity and aggregates, with their methods; endotoxin; formulation                              |
 | `iki/lots.ConjugateLot`     | `CJLOT-000001` | `iki/conjugate.Conjugate`                                 | mg, by mg/mL   | As a protein lot's, with its own measured ε280; DAR from its drug load distribution (HIC, LC-MS, reduced chains), unconjugated share, free drug |
 | `iki/lots.PolymerLot`       | `PYLOT-000001` | `iki/polymer.Polymer`                                     | mg             | Mn, Mw, Mp, dispersity (Mw/Mn), how each was measured and against which standards                                                               |
 | `iki/lots.GenericLot`       | `GLOT-000001`  | any entity                                                | mg, by mg/mL   | Concentration and purity                                                                                                                        |
@@ -22,18 +22,38 @@ finds them all.
 
 `iki/lots.BiologicLot` is the abstract parent of the protein and conjugate
 lots: their A280, path length, dilution, ε280, concentration and
-its method, purity and aggregates with the methods that measured them (SEC unless
-named), endotoxin and formulation.
+its method, purity and aggregates with the methods that measured them, endotoxin and
+formulation.
 
 ### A lab's own methods
 
-Each menu of methods lists the common ones, and **Other** for a lab's own, which the
-record then names in the field beside it: a biologic lot's and a plasmid prep's
-concentration method, a plasmid prep's purification and how it was verified, and a
-polymer lot's Mn and Mw methods and SEC calibration standards. A rule keeps the two
-consistent: Other needs its name, and a name beside a listed method is refused. Iki's
-own calculations run only for the methods they implement, A260 and A280, so a lab's
-method is entered as measured.
+How a lot was made and measured comes from lists the lab curates itself (ADR 0270),
+which every project in a registry picks from. Each starts with the common methods, and
+a list's curators add the lab's own, relabel, reorder and archive them, each with a
+reason:
+
+| List                                  | Used by                                    | Starts with                                                                                  |
+| ------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `iki/lots.ProteinConcentrationMethod` | A biologic lot's concentration method      | A280, BCA assay, Bradford assay, amino acid analysis                                         |
+| `iki/lots.PurityMethod`               | A biologic lot's purity method             | SEC-HPLC, CE-SDS non-reduced and reduced, RP-HPLC, SDS-PAGE densitometry                     |
+| `iki/lots.AggregatesMethod`           | A biologic lot's aggregates method         | SEC-HPLC, SEC-MALS, AUC sedimentation velocity                                               |
+| `iki/lots.DNAConcentrationMethod`     | A plasmid prep's concentration method      | A260, fluorescent dye assay                                                                  |
+| `iki/lots.PlasmidPrepMethod`          | A plasmid prep's method                    | Silica spin column, anion exchange, endotoxin-free anion exchange, caesium chloride gradient |
+| `iki/lots.PlasmidVerificationMethod`  | How a plasmid prep's sequence was verified | Whole-plasmid sequencing, Sanger sequencing, restriction digest                              |
+| `iki/lots.MolarMassMethod`            | A polymer lot's Mn and Mw methods          | SEC (conventional, universal, MALS), MALDI-TOF MS, NMR end groups, osmometry, SLS, AUC       |
+| `iki/lots.SECCalibrationStandard`     | A polymer lot's SEC calibration standards  | Polystyrene, PMMA, PEG, PEO, pullulan, dextran                                               |
+| `iki/lots.OligoPurification`          | An oligonucleotide lot's purification      | Desalted, cartridge, RP-HPLC, IE-HPLC, PAGE                                                  |
+| `iki/lots.OligoPurityMethod`          | An oligonucleotide lot's purity method     | IP-RP-HPLC, AEX-HPLC, capillary electrophoresis, LC-MS                                       |
+| `iki/lots.OligoCounterion`            | An oligonucleotide lot's counterion        | Sodium, ammonium, triethylammonium                                                           |
+
+Iki's own calculations run only for the methods they implement. A concentration
+method's option says which, its **calculation**: A280 for a biologic lot, A260 for a
+plasmid prep. A lab's own method can be one too, such as an A280 by variable path length
+on its own SOP, and Iki works it out as any A280; one with no calculation, such as a BCA
+assay, is entered as measured. A lot that names no method is worked out from its reading,
+as by A280 or A260. Each molar mass method says which averages it gives, and a polymer
+lot's Mn and Mw are each by one that gives it: an osmometry counts molecules, so it gives
+Mn, not Mw.
 
 ## What every lot has
 

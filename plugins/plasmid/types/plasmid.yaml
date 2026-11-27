@@ -17,7 +17,7 @@ kind: EntityType
 name: Plasmid
 label: Plasmid
 label_plural: Plasmids
-schema_version: 4
+schema_version: 5
 description: >-
   A plasmid or vector, by the DNA sequence that is it, circular or linear. Two plasmids of
   the same sequence are the same plasmid, so registering one again finds its registry
@@ -62,40 +62,22 @@ fields:
   name: { type: string, max_length: 255, indexed: true }
   description: { type: text, max_length: 10000 }
   vector_type:
-    type: enum
+    type: ref
+    to: VectorType
     registry: fact
     indexed: true
-    values:
-      [
-        cloning,
-        bacterial_expression,
-        mammalian_expression,
-        yeast_expression,
-        insect_expression,
-        shuttle,
-        lentiviral,
-        retroviral,
-        aav,
-        adenoviral,
-        crispr,
-        reporter,
-        gateway_donor,
-        gateway_destination,
-        other,
-      ]
     description: >-
-      What the vector is for. A registry fact: whoever registers it may set it, and then
-      only its registrars change it, with a reason.
+      What the vector is for, from the lab's list. A registry fact: whoever registers it
+      may set it, and then only its registrars change it, with a reason.
   hosts:
     type: list
     registry: fact
-    max_items: 7
-    items:
-      type: enum
-      values: [bacterial, yeast, mammalian, insect, plant, cell_free, viral]
+    max_items: 20
+    items: { type: ref, to: PlasmidHost }
     description: >-
-      The hosts it replicates or is expressed in: bacterial for an E. coli plasmid,
-      viral for a vector packaged into virus particles, such as a lentiviral one.
+      The hosts it replicates or is expressed in, from the lab's list: bacterial for an
+      E. coli plasmid, viral for a vector packaged into virus particles, such as a
+      lentiviral one.
   copy_number:
     type: enum
     registry: fact

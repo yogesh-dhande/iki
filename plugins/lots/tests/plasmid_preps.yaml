@@ -7,7 +7,10 @@ description: >-
 action: compute_plasmid_prep
 inputs:
   lot:
-    - values: { a260: 0.42, dilution_factor: 20, path_length: 1, concentration_method: a260 }
+    - values: { a260: 0.42, dilution_factor: 20, path_length: 1 }
+      included:
+        concentration_method:
+          - values: { code: a260, label: A260, calculation: a260 }
 expect:
   output:
     updates:
@@ -23,7 +26,10 @@ description: >-
 action: compute_plasmid_prep
 inputs:
   lot:
-    - values: { a260: 1.25, dilution_factor: 1, path_length: 0.1, concentration_method: a260 }
+    - values: { a260: 1.25, dilution_factor: 1, path_length: 0.1 }
+      included:
+        concentration_method:
+          - values: { code: a260, label: A260, calculation: a260 }
 expect:
   output:
     updates:
@@ -32,12 +38,32 @@ expect:
 ---
 apiVersion: iki/v1
 kind: ActionTest
+name: one_by_the_labs_own_assay_keeps_its_own
+description: >-
+  Measured by a method the lab added to its list, droplet digital PCR of its backbone,
+  which no calculation of Iki's is: its concentration is as entered, whatever its A260.
+action: compute_plasmid_prep
+inputs:
+  lot:
+    - values: { a260: 1.25, concentration: 560 }
+      included:
+        concentration_method:
+          - values: { code: ddpcr, label: Droplet digital PCR (SOP-MB-044) }
+expect:
+  output:
+    updates: { lot: [] }
+---
+apiVersion: iki/v1
+kind: ActionTest
 name: one_measured_by_fluorescence_keeps_its_own
 description: Measured by a dye's fluorescence, its concentration is as entered, whatever its A260.
 action: compute_plasmid_prep
 inputs:
   lot:
-    - values: { a260: 1.25, concentration: 580, concentration_method: fluorescence }
+    - values: { a260: 1.25, concentration: 580 }
+      included:
+        concentration_method:
+          - values: { code: fluorescence, label: Fluorescent dye assay }
 expect:
   output:
     updates: { lot: [] }

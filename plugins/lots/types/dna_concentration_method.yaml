@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# How a plasmid prep's DNA concentration was measured: a lab list (ADR 0270). Iki works
+# a concentration out only for an option whose calculation says it can.
+apiVersion: iki/v1
+kind: EntityType
+name: DNAConcentrationMethod
+label: DNA concentration method
+schema_version: 1
+description: >-
+  How a prep's DNA concentration is measured, such as by its A260 or a fluorescent dye's
+  assay. Its calculation says which of Iki's calculations gives the concentration; one
+  with none is entered as measured.
+hrid: { prefix: DCM }
+list:
+  options:
+    - code: a260
+      label: A260
+      description: >-
+        Its absorbance at 260 nm: 50 ng/µL of double-stranded DNA for each unit over
+        1 cm, as Iki works it out.
+      calculation: a260
+    - code: fluorescence
+      label: Fluorescent dye assay
+      description: A dye that binds double-stranded DNA, such as Qubit or PicoGreen, against its standard.
+fields:
+  calculation:
+    type: enum
+    label: Worked out by Iki from
+    values: [a260]
+    description: >-
+      Which of Iki's calculations gives a concentration by this method: a260, from the
+      prep's A260, dilution and path length. Empty for a method whose concentration is
+      entered as measured.

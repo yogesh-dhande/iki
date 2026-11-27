@@ -9,10 +9,11 @@ description: >-
   weight of what it's a lot of: a protein's, with its cysteines as cystines (each two
   hydrogens lighter) or reduced as the lot says; or a complex's, such as an antibody's,
   with each disulfide its bonds place applied while its cysteines are cystines. Only
-  while its concentration method is a280; otherwise its concentration is as measured.
+  while its concentration method is one Iki works out from its A280, as the lab's list
+  says, or none is named; otherwise its concentration is as measured.
   A concentration a pool set, or one entered, since its A280 was read is kept.
 inputs:
-  lot: { type: ProteinLot, schema: ">=1", include: [protein] }
+  lot: { type: ProteinLot, schema: ">=4", include: [protein, concentration_method] }
 effects:
   updates:
     [
