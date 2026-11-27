@@ -49,10 +49,12 @@ import {
   isNew,
   LOCATION,
   moved,
+  NONE_LOADED,
   placePaste,
   problemsAt,
   rangeOf,
   redo,
+  reloaded,
   SAVE_ROWS,
   saveRow,
   saveRows,
@@ -85,6 +87,7 @@ import {
   ConfirmDialog,
   SelectField,
   TextField,
+  useLeaveGuard,
   useMessages,
 } from "../ui";
 
@@ -112,6 +115,14 @@ const ROW_HEIGHT = 34;
 const AHEAD = 30;
 /** How long after the last change a check is sent. */
 const SETTLE_MS = 350;
+
+/** A cell, by its row's key: it stays with its record as rows come and go above it (a new
+ * row added or undone). `row` is where it was, for a row since gone. */
+interface At {
+  key: string;
+  row: number;
+  col: number;
+}
 
 /** A check's answer for a row, and what it answered. */
 interface Answer {
@@ -162,7 +173,7 @@ export function RecordSheet({
 }: {
   type: EntityType;
   project: Project;
-  /** The records the table has loaded, in its order. */
+  /** The records the table has loaded, in its order, as it reads them again. */
   records: readonly Entity[];
   more: { hasNextPage: boolean; isFetchingNextPage: boolean; fetchNextPage: () => unknown };
   /** Done editing: with what was saved, if it was. */
@@ -178,14 +189,46 @@ export function RecordSheet({
   const state = history.present;
   // Each record as it was when its first cell changed: what's saved is from its revision.
   const [bases, setBases] = useState<Record<string, Entity>>({});
+  // The records as the sheet has them: where they first were, none gone, as the table
+  // reads them again (sheet.ts `Loaded`).
+  const [kept, setKept] = useState(() => reloaded(NONE_LOADED, records));
+  const loaded = reloaded(kept, records);
+  if (loaded !== kept) setKept(loaded);
   const rows: SheetRow[] = [
     ...state.added.map((key) => ({ key, number: Number(key.slice(4)) })),
-    ...records.map((e) => ({ key: e.id, entity: bases[e.id] ?? e })),
+    ...loaded.order.flatMap((id) => {
+      const e = bases[id] ?? loaded.byId[id];
+      return e ? [{ key: id, entity: e }] : [];
+    }),
   ];
-  const [anchor, setAnchor] = useState<Point>({ row: 0, col: 1 });
-  const [active, setActive] = useState<Point>({ row: 0, col: 1 });
+  // The selection and the cell being edited are held by their rows' keys, so each stays
+  // on its record, and is drawn where that record's row is now.
+  const where = new Map(rows.map((r, i) => [r.key, i]));
+  const pointOf = (at: At): Point => ({
+    row: where.get(at.key) ?? Math.max(0, Math.min(at.row, rows.length - 1)),
+    col: at.col,
+  });
+  const atOf = (point: Point, among: readonly SheetRow[] = rows): At => ({
+    key: among[point.row]?.key ?? "",
+    row: point.row,
+    col: point.col,
+  });
+  const [anchorAt, setAnchorAt] = useState<At>(() => atOf({ row: 0, col: 1 }));
+  const [activeAt, setActiveAt] = useState<At>(() => atOf({ row: 0, col: 1 }));
+  const anchor = pointOf(anchorAt);
+  const active = pointOf(activeAt);
+  const setAnchor = (point: Point, among?: readonly SheetRow[]) => {
+    setAnchorAt(atOf(point, among));
+  };
+  const setActive = (point: Point, among?: readonly SheetRow[]) => {
+    setActiveAt(atOf(point, among));
+  };
   const selection = rangeOf(anchor, active);
-  const [editing, setEditing] = useState<{ text: string; at: Point; typed?: boolean } | null>(null);
+  const [edit, setEdit] = useState<{ text: string; at: At; typed?: boolean } | null>(null);
+  const editing = edit && { ...edit, at: pointOf(edit.at) };
+  const setEditing = (next: { text: string; at: Point; typed?: boolean } | null) => {
+    setEdit(next && { ...next, at: atOf(next.at) });
+  };
   const types = useQuery(typesQuery).data ?? [];
   /** The lab list (ADR 0270) a column's cells name options of, if they do. */
   const listAt = (column: SheetColumn | undefined) =>
@@ -209,7 +252,7 @@ export function RecordSheet({
   const [saveProblem, setSaveProblem] = useState<Problem>();
   const [stale, setStale] = useState<{ key: string; hrid: string }[]>([]);
   const grid = useRef<HTMLDivElement>(null);
-  const committed = useRef<typeof editing>(null);
+  const committed = useRef<typeof edit>(null);
   const shownAt = useRef("");
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -269,18 +312,10 @@ export function RecordSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waitingKey, asks, project.id, type.name]);
 
-  // Leaving the page with changes unsaved asks first, as the browser does.
+  // Leaving the page with changes unsaved asks first: in the app, as Discard does; closing
+  // the tab, as the browser does.
   const dirty = sending.size > 0;
-  useEffect(() => {
-    if (!dirty) return;
-    const ask = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-    };
-    window.addEventListener("beforeunload", ask);
-    return () => {
-      window.removeEventListener("beforeunload", ask);
-    };
-  }, [dirty]);
+  const leave = useLeaveGuard(dirty);
 
   // The rows checked, their problems, and what saving them does.
   const checkedRows = [...sending.keys()].flatMap((key) => {
@@ -310,7 +345,7 @@ export function RecordSheet({
     const newBases = { ...bases };
     let grew = false;
     for (const key of Object.keys(next.edits)) {
-      const record = records.find((e) => e.id === key);
+      const record = loaded.byId[key];
       if (record && !newBases[key]) {
         newBases[key] = record;
         grew = true;
@@ -369,8 +404,8 @@ export function RecordSheet({
   /** Done editing, with what was typed, or `text`: a lab list's option chosen. */
   const commit = (move?: Point, text?: string) => {
     // Once: the input's blur, as it goes, doesn't commit what Enter or Tab did.
-    if (!editing || committed.current === editing) return;
-    committed.current = editing;
+    if (!editing || committed.current === edit) return;
+    committed.current = edit;
     write([{ row: editing.at.row, col: editing.at.col, text: text ?? editing.text }]);
     setEditing(null);
     if (move) go(move);
@@ -434,11 +469,14 @@ export function RecordSheet({
     write(placed.writes, into, among, "pasted");
     const height = Math.max(block.length, selection.bottom - selection.top + 1);
     const width = Math.max(block[0]?.length ?? 1, selection.right - selection.left + 1);
-    setAnchor({ row: selection.top, col: selection.left });
-    setActive({
-      row: Math.min(selection.top + height - 1, size.rows - 1),
-      col: Math.min(selection.left + width - 1, columns.length - 1),
-    });
+    setAnchor({ row: selection.top, col: selection.left }, among);
+    setActive(
+      {
+        row: Math.min(selection.top + height - 1, size.rows - 1),
+        col: Math.min(selection.left + width - 1, columns.length - 1),
+      },
+      among,
+    );
   };
 
   const copy = (event: ClipboardEvent<HTMLDivElement>, cut = false) => {
@@ -1212,16 +1250,19 @@ export function RecordSheet({
         ) : null}
       </ConfirmDialog>
       <ConfirmDialog
-        isOpen={leaving}
+        isOpen={leaving || leave.asking}
         title="Discard your changes?"
         confirmLabel="Discard changes"
         cancelLabel="Keep editing"
         busy={false}
         onCancel={() => {
           setLeaving(false);
+          leave.stay();
         }}
         onConfirm={() => {
           setLeaving(false);
+          // Going elsewhere in the app, it goes on there; Discard, back to the table.
+          leave.leave();
           onClose();
         }}
       >

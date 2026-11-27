@@ -479,8 +479,35 @@ class _Rules:
             fields = {n: f for n, f in fields.items() if in_entry(f, owner.identity)}
         return found.label, fields
 
-    def record(self, entity_type: EntityType) -> dict[str, Any]:
-        return record_schema(entity_type.label, self.fields_of(entity_type), self.ref_fields)
+    def fixed_ref_fields(self, name: str) -> tuple[str, Mapping[str, Field]] | None:
+        """As :meth:`ref_fields`, without what a lab list's curators can change (ADR 0270)."""
+        found = self.ref_fields(name)
+        if found is None or not self.s.types[name].is_list:
+            return found
+        label, fields = found
+        return label, {n: f for n, f in fields.items() if f.immutable}
+
+    def curated(self, entity_type: EntityType) -> list[str]:
+        """The facts of the lab lists its records refer to that their curators can change,
+        as ``List.fact``."""
+        out: set[str] = set()
+        for f in self.fields_of(entity_type).values():
+            targets = f.to if f.type == "ref" else ()
+            if f.items is not None:
+                targets = f.items.to if f.items.type == "ref" else ()
+                for cell in f.items.fields.values():
+                    targets = (*targets, *(cell.to if cell.type == "ref" else ()))
+            for target in targets:
+                listed = self.s.types.get(target)
+                found = self.ref_fields(target)
+                if listed is None or found is None or not listed.is_list:
+                    continue
+                out.update(f"{listed.name}.{n}" for n, x in found[1].items() if not x.immutable)
+        return sorted(out)
+
+    def record(self, entity_type: EntityType, *, fixed: bool = False) -> dict[str, Any]:
+        refs = self.fixed_ref_fields if fixed else self.ref_fields
+        return record_schema(entity_type.label, self.fields_of(entity_type), refs)
 
     def roles(self) -> list[str]:
         return role_names(self.s.roles, self.plugin.name)
@@ -526,10 +553,15 @@ class _Rules:
             if f.type == "state" and any(st.guards for st in f.states.values()):
                 states = {n: x for n, x in fields.items() if x.type == "state"}
                 variables = guard_variables(self.record(entity_type), states, self.roles(), f)
+                fixed = guard_variables(
+                    self.record(entity_type, fixed=True), states, self.roles(), f
+                )
                 checked_states = {}
                 for state_name, state in f.states.items():
                     path: Path = ("fields", name, "states", state_name, "guards")
-                    checked = self.guards(state.guards, variables, fields, source, path)
+                    checked = self.guards(
+                        state.guards, variables, fields, source, path, fixed=(entity_type, fixed)
+                    )
                     checked_states[state_name] = replace(state, guards=checked)
                 changed[name] = replace(f, states=checked_states)
         draw = entity_type.draw_guards
@@ -646,6 +678,7 @@ class _Rules:
                 ),
             ],
             source,
+            fixed=(entity_type, rule_variables(self.record(entity_type, fixed=True))),
         )
         for name, rule in list(out.items()):
             reads = found.get(name)
@@ -862,6 +895,8 @@ class _Rules:
         fields: Mapping[str, Field],
         source: Document,
         path: Path,
+        *,
+        fixed: tuple[EntityType, Mapping[str, Any]] | None = None,
     ) -> dict[str, Guard]:
         asked: list[tuple[str, str, str, Path]] = []
         for name, guard in guards.items():
@@ -870,7 +905,7 @@ class _Rules:
             if guard.when is not None:
                 asked.append((name, guard.when, CONDITION, (*at, "when")))
             asked.append((name, guard.message, MESSAGE, (*at, "message")))
-        found = self.expressions(variables, asked, source)
+        found = self.expressions(variables, asked, source, fixed=fixed)
         return {
             name: replace(guard, reads=tuple(r for r in found.get(name, ()) if r in fields))
             for name, guard in guards.items()
@@ -883,9 +918,13 @@ class _Rules:
         variables: Mapping[str, Any],
         asked: Sequence[tuple[Any, str, str, Path]],
         source: Document,
+        *,
+        fixed: tuple[EntityType, Mapping[str, Any]] | None = None,
     ) -> dict[Any, tuple[str, ...]]:
         """Type-checks each (key, source, kind, path), reporting those that don't; returns
-        the record's fields each key's expressions read, and each (key, "check")'s own."""
+        the record's fields each key's expressions read, and each (key, "check")'s own.
+        ``fixed``: the type, and its variables without the facts of the lab lists it refers
+        to that their curators can change. A condition that reads one is refused."""
         if not asked:
             return {}
         try:
@@ -902,6 +941,8 @@ class _Rules:
                     "release, which includes it.",
                 )
             return {}
+        if fixed is not None:
+            self.curated_reads(fixed, asked, checked, source)
         out: dict[Any, set[str]] = {}
         for (key, _, kind, path), result in zip(asked, checked, strict=True):
             if not result.valid:
@@ -924,6 +965,43 @@ class _Rules:
             if path and path[-1] == "check":
                 out.setdefault((key, "check"), set()).update(reads)
         return {k: tuple(sorted(v)) for k, v in out.items()}
+
+    def curated_reads(
+        self,
+        fixed: tuple[EntityType, Mapping[str, Any]],
+        asked: Sequence[tuple[Any, str, str, Path]],
+        checked: Sequence[Checked],
+        source: Document,
+    ) -> None:
+        """Refuses a condition that reads a fact a lab list's curators can change: what a
+        state, guard or rule reads is the plugin's (ADR 0270), so it's fixed once the option
+        is added (ADR 0143). A message may show one, as it says what's wrong."""
+        entity_type, variables = fixed
+        curated = self.curated(entity_type)
+        if not curated:
+            return
+        conditions = [
+            (each, result)
+            for each, result in zip(asked, checked, strict=True)
+            if each[2] == CONDITION and result.valid
+        ]
+        if not conditions:
+            return
+        again = type_check(variables, [(e, k) for (_, e, k, _), _ in conditions])
+        for ((_, expression, _, path), _), result in zip(conditions, again, strict=True):
+            if result.valid:
+                continue
+            named = [c for c in curated if c.split(".", 1)[1] in expression] or curated
+            shown = ", ".join(f"`{c}`" for c in named)
+            self.add(
+                "reads-curated-fact",
+                f"It reads {shown}, which the list's curators can change: what a rule or "
+                "guard reads is the plugin's (ADR 0270).",
+                source,
+                path,
+                hint="Declare the fact `immutable: true`, so it's fixed once an option is "
+                "added and a wrong one is superseded (ADR 0143).",
+            )
 
 
 def role_names(roles: Iterable[str], plugin: str) -> list[str]:

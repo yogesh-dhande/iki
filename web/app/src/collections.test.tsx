@@ -7,7 +7,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { entity, KINASE, nth, PROTEIN_ID, renderApp, withTypes } from "./entity-fixtures";
-import { answer, calls, page, respond } from "./test-server";
+import { answer, calls, page, respond, stale } from "./test-server";
 
 const sizes = { clientHeight: 600, clientWidth: 1000, offsetHeight: 600, offsetWidth: 1000 };
 const saved: Record<string, PropertyDescriptor | undefined> = {};
@@ -153,6 +153,49 @@ describe("collections", () => {
     expect(call.body).toEqual({ reason: "For the paper" });
     expect(call.headers.get("If-Match")).toBe('"2"');
     expect(await screen.findByText("It lists 1 entity. You see those you can read.")).toBeVisible();
+  });
+
+  it("says when someone else changed it before a freeze, reads it again, and freezes its new revision", async () => {
+    onCollection({ search: SEARCH });
+    // Someone else renamed it while this dialog was open: Iki refuses the old revision.
+    const theirs = entity({
+      ...collection({ search: SEARCH }),
+      revision: 3,
+      title: "Kinase picks (ABL)",
+      values: { name: "Kinase picks (ABL)", search: SEARCH },
+    });
+    const route = "/api/v1/collections/00000000-0000-7000-8000-00000000c001/freeze";
+    answer(`POST ${route}`, () => {
+      answer("GET /api/v1/entities/COL-000001", theirs);
+      return stale(3);
+    });
+    const { user } = await renderApp("/entities/COL-000001/");
+    await user.click(await screen.findByRole("button", { name: "Freeze as a fixed list" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Freeze Kinase picks?" });
+    await user.type(within(dialog).getByRole("textbox", { name: /Reason/ }), "For the paper");
+    const reads = calls("GET", "/api/v1/entities/COL-000001").length;
+    await user.click(within(dialog).getByRole("button", { name: "Freeze" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Someone changed it while this was open. The page now shows their change: check it, then try again.",
+    );
+    // It's read again, so the page behind the dialog shows their change.
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Kinase picks (ABL)", hidden: true }),
+    ).toBeInTheDocument();
+    expect(calls("GET", "/api/v1/entities/COL-000001").length).toBeGreaterThan(reads);
+
+    answer(`POST ${route}`, {
+      ...theirs,
+      revision: 4,
+      values: { name: "Kinase picks (ABL)", members: [PROTEIN_ID], search: null },
+    });
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", { name: "Freeze" }),
+    );
+    await screen.findByText("Froze COL-000001: it lists 1 entity.");
+    const sent = calls("POST", route);
+    expect(sent.map((call) => call.headers.get("If-Match"))).toEqual(['"2"', '"3"']);
+    expect(nth(sent, 1).body).toEqual({ reason: "For the paper" });
   });
 
   it("says how many entities a static collection lists", async () => {

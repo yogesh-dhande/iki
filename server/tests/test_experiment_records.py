@@ -37,6 +37,7 @@ from iki_server.org.services import Refused
 from iki_server.runs import catalog, queue, results
 from iki_server.runs import services as runs
 from iki_server.runs.models import ActionRun, Job, RunEffect
+from iki_server.setup.models import StarterApplication
 from iki_server.signatures.models import Signature, Status
 from iki_server.signatures.services import finish, verify
 from iki_spec.compute import Binding
@@ -465,9 +466,24 @@ def exercise(flow: str) -> None:
         )
         assert no_reason.status_code == 422, no_reason.content
         assert "after its lock was lifted" in no_reason.content.decode()
+        # The project moves to author sign-off meanwhile: a submission returned for
+        # correction still finishes Regulated QC review (ADR 0240), never by its author alone.
+        StarterApplication.objects.create(
+            project=world.project,
+            starter="experiment-review",
+            version="1.0.0",
+            flow="author_signed",
+            applied_by=world.users["admin"],
+        )
         capture(
             world, experiment, result, reason="Recapture the evidence against corrected SOP 2.1"
         )
+        assert (
+            services.current_values(services.specific(experiment))["review_flow"] == "regulated_qc"
+        )
+        for other, who in (("signed", "editor"), ("witnessed", "admin")):
+            with pytest.raises(Refused):
+                begin(world, who, ref, other, field="review")
         sign(world, experiment, "editor", "submitted")
         sign(world, experiment, "admin", "reviewed", "Review the corrected SOP revision")
         with pytest.raises(Refused):
