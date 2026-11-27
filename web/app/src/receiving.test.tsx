@@ -5,7 +5,7 @@ import { expect, it } from "vitest";
 
 import { PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import type { ObservationEvent, Receipt, ReceiptLine } from "./storage";
-import { answer, calls, ME, page, problem } from "./test-server";
+import { answer, calls, ME, page, problem, type Sent } from "./test-server";
 
 const id = "00000000-0000-7000-8000-0000000000a1";
 const api = `/api/v1/receipts/${id}`;
@@ -120,6 +120,12 @@ async function openReceipt(open: Receipt, types?: Schemas["EntityTypeOut"][]) {
       })),
     };
   });
+  // Every accepted tube can go in the box, unless a test says otherwise.
+  answer(`POST ${api}/put-away/placeable`, () =>
+    open.lines
+      .filter((l) => l.entity && (l.outcome === "matched" || l.outcome === "damaged"))
+      .map((l) => ({ line: l.id, problem: null })),
+  );
   const rendered = await renderApp(`/storage/receive/${ask}/`);
   await screen.findByRole("list", { name: "Checklist" });
   return rendered;
@@ -1100,19 +1106,23 @@ it("lists what was received without a location on the Storage page", async () =>
   withTypes();
   answer("GET /api/v1/storage/places", []);
   answer("GET /api/v1/storage/checked-out", []);
-  answer("GET /api/v1/storage/awaiting-put-away", [
-    {
-      id: "tube-000002",
-      hrid: "TUB-000002",
-      title: "Lysate 2",
-      type: "acme/lims.Tube",
-      archived: false,
-      purged: false,
-      custodian: ADA,
-      custody_since: "2026-01-12T10:00:00Z",
-    },
-  ]);
-  await renderApp("/storage/");
+  const held = (n: number) => ({
+    id: `tube-00000${String(n)}`,
+    hrid: `TUB-00000${String(n)}`,
+    title: `Lysate ${String(n)}`,
+    type: "acme/lims.Tube",
+    archived: false,
+    purged: false,
+    custodian: ADA,
+    custody_since: `2026-01-1${String(n)}T10:00:00Z`,
+  });
+  // A long backlog comes a page at a time, longest held first.
+  answer("GET /api/v1/storage/awaiting-put-away", (call: Sent) =>
+    call.query.get("cursor") === "after-2"
+      ? { items: [held(3)], next_cursor: null }
+      : { items: [held(2)], next_cursor: "after-2" },
+  );
+  const { user } = await renderApp("/storage/");
   const section = within(await screen.findByRole("region", { name: "Received, not yet put away" }));
   const row = await section.findByRole("row", { name: /^TUB-000002/ });
   expect(row).toHaveTextContent("TUB-000002Lysate 2Ada Lovelace12 Jan 2026");
@@ -1120,6 +1130,16 @@ it("lists what was received without a location on the Storage page", async () =>
     "href",
     "/entities/TUB-000002/",
   );
+  expect(section.queryByRole("row", { name: /^TUB-000003/ })).not.toBeInTheDocument();
+  await user.click(section.getByRole("button", { name: "Show more waiting" }));
+  expect(await section.findByRole("row", { name: /^TUB-000003/ })).toHaveTextContent(
+    "TUB-000003Lysate 3Ada Lovelace13 Jan 2026",
+  );
+  expect(section.getAllByRole("row")).toHaveLength(3);
+  expect(section.queryByRole("button", { name: "Show more waiting" })).not.toBeInTheDocument();
+  expect(
+    calls("GET", "/api/v1/storage/awaiting-put-away").map((c) => c.query.get("cursor")),
+  ).toEqual([null, "after-2"]);
 });
 
 it("waits while the Box field names another box than the one whose wells are shown", async () => {
@@ -1340,6 +1360,52 @@ it("offers no well for an archived tube, or one the box doesn’t hold, and says
   expect(completeButton()).toHaveAccessibleDescription(
     "Decide for TUB-000002 and TUB-000003: put each away in a free position, or keep them in your custody.",
   );
+});
+
+it("offers no well for a tube whose project the box’s project can’t read, as the server says, before completing", async () => {
+  // Someone who edits two projects receives a tube linked only to the first, then scans a box
+  // in the second: completing would refuse it there, so no well is offered for it.
+  const shown = received();
+  const { user } = await openReceipt(shown);
+  const refusal =
+    "TUB-000002 isn't in BOX-000135's project, so it can't be kept there: whoever reads the box reads what's in it.";
+  answer(`POST ${api}/put-away/placeable`, [
+    { line: "line-000001", problem: null },
+    { line: "line-000002", problem: refusal },
+  ]);
+  answer("POST /api/v1/storage/scan/resolve", ONE_BOX);
+  answer(`GET /api/v1/storage/containers/${BOX_ID}`, incoming());
+  await showBox(user);
+  await screen.findByRole("table", { name: "BOX-000135 Incoming · 3 free" });
+  expect(calls("POST", `${api}/put-away/placeable`).at(-1)?.body).toEqual({
+    plan_revision: shown.plan_revision,
+    box: BOX_ID,
+  });
+  expect(where("TUB-000001")).toHaveValue("A2");
+  expect(where("TUB-000002")).toHaveValue("");
+  expect(where("TUB-000002")).toHaveAccessibleDescription(
+    `${refusal} Choose another box, or keep it in your custody.`,
+  );
+  expect(
+    within(where("TUB-000002"))
+      .getAllByRole("option")
+      .map((o) => o.textContent),
+  ).toEqual(["Not decided", "Keep in my custody"]);
+  expect(completeButton()).toHaveAccessibleDescription(
+    "Decide for TUB-000002: put it away in a free position, or keep it in your custody.",
+  );
+  await user.selectOptions(where("TUB-000002"), "Keep in my custody");
+  answer(`POST ${api}/complete`, { ...received(6), status: "completed" });
+  await user.click(completeButton());
+  await waitFor(() => {
+    expect(calls("POST", `${api}/complete`)).toHaveLength(1);
+  });
+  expect(calls("POST", `${api}/complete`)[0]?.body).toMatchObject({
+    // Its well was the next free one, reviewed with the server before completing.
+    put_away: [{ line: "line-000001", position: null }],
+    plan: "a".repeat(64),
+    keep_in_custody: ["line-000002"],
+  });
 });
 
 it("waits for each write on its way before completing, and says which", async () => {

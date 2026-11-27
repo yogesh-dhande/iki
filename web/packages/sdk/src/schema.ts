@@ -3892,6 +3892,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/receipts/{receipt_id}/put-away/placeable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Which of a receipt's accepted lines can go in a box
+         * @description Each matched or damaged line, and why it can't be put in the box if it can't, whatever
+         *     the well: archived, a type the box doesn't hold, or a project the box's readers don't
+         *     read. Completing checks the same again.
+         */
+        post: operations["iki_server_api_storage_receipt_placeable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/receipts/{receipt_id}/put-away/preview": {
         parameters: {
             query?: never;
@@ -5013,7 +5035,8 @@ export interface paths {
         };
         /**
          * Received material awaiting a storage location
-         * @description Matched and damaged records you can read that are still in custody without a location.
+         * @description Matched and damaged records you can read that are still in custody without a location,
+         *     longest held first, a page at a time.
          */
         get: operations["iki_server_api_storage_list_awaiting_put_away"];
         put?: never;
@@ -13170,6 +13193,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[AwaitingPutAwayOut] */
+        Page_AwaitingPutAwayOut_: {
+            /** Items */
+            items: components["schemas"]["AwaitingPutAwayOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[BatchOut] */
         Page_BatchOut_: {
             /** Items */
@@ -13923,6 +13956,19 @@ export interface components {
              */
             type: string;
             where?: components["schemas"]["Condition"] | null;
+        };
+        /** PlaceableLineOut */
+        PlaceableLineOut: {
+            /**
+             * Line
+             * Format: uuid
+             */
+            line: string;
+            /**
+             * Problem
+             * @description Why its record can't be put in the box at all; null if it can.
+             */
+            problem: string | null;
         };
         /** PlannedOut */
         PlannedOut: {
@@ -14958,6 +15004,22 @@ export interface components {
              * @description Why: deactivated, no longer in the project, or the role.
              */
             why: string;
+        };
+        /** ReceiptBoxIn */
+        ReceiptBoxIn: {
+            /**
+             * Box
+             * @description The box's ID, HRID or label.
+             */
+            box: string;
+            /** Box Choice */
+            box_choice?: string | null;
+            box_mode?: components["schemas"]["ScanMode"];
+            /**
+             * Plan Revision
+             * @description The receipt revision you reviewed.
+             */
+            plan_revision: number;
         };
         /** ReceiptIn */
         ReceiptIn: {
@@ -27102,6 +27164,32 @@ export interface operations {
             };
         };
     };
+    iki_server_api_storage_receipt_placeable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReceiptBoxIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaceableLineOut"][];
+                };
+            };
+        };
+    };
     iki_server_api_storage_preview_receipt_placement: {
         parameters: {
             query?: never;
@@ -28715,7 +28803,12 @@ export interface operations {
     };
     iki_server_api_storage_list_awaiting_put_away: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -28728,7 +28821,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AwaitingPutAwayOut"][];
+                    "application/json": components["schemas"]["Page_AwaitingPutAwayOut_"];
                 };
             };
         };
