@@ -113,7 +113,7 @@ bond, keeping every atom's stereochemistry.
   and none for a molecule with no acidic proton, such as a methylphosphonate
   or a morpholino. The average molecular weight is from CIAAW's standard atomic
   weights 2024, sulfur 32.06 and phosphorus 30.973761998, the table every Iki
-  plugin weighs by ([ADR 0271](../../docs/adr/0271-one-table-of-atomic-weights-weighs-every-molecule.md)); the monoisotopic mass from each element's most
+  plugin weighs by ([ADR 0272](../../docs/adr/0272-one-table-of-atomic-weights-weighs-every-molecule.md)); the monoisotopic mass from each element's most
   abundant isotope. An atom a
   monomer's structure labels with its isotope (`[13CH]`, `[2H]`) weighs its
   nuclide's mass (RDKit's, from AME2020) in both, and the formula writes it as

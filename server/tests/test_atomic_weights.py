@@ -1,4 +1,4 @@
-"""Every plugin weighs by one table of atomic weights (ADR 0271): CIAAW's standard atomic
+"""Every plugin weighs by one table of atomic weights (ADR 0272): CIAAW's standard atomic
 weights 2024, each plugin's copy the same, and the web packages' too."""
 
 import ast

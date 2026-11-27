@@ -85,7 +85,7 @@ sentence, its whole in the run's log.
 
 Its average mass is its formula's with CIAAW's standard atomic weights 2024,
 the table every Iki plugin weighs by (`scripts/weights.py`,
-[ADR 0271](../../docs/adr/0271-one-table-of-atomic-weights-weighs-every-molecule.md)),
+[ADR 0272](../../docs/adr/0272-one-table-of-atomic-weights-weighs-every-molecule.md)),
 as the protein plugin's molecular weights are, and its monoisotopic mass with
 each element's most abundant
 isotope's mass (AME2020: Wang et al., _Chin Phys C_ 45:030003, 2021). Its chain

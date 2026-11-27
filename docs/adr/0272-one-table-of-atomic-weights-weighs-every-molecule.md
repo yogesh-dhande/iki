@@ -1,4 +1,4 @@
-# 0271. One table of atomic weights weighs every molecule
+# 0272. One table of atomic weights weighs every molecule
 
 - Status: Accepted
 - Date: 2026-11-27

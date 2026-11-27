@@ -192,7 +192,7 @@ Biopython's:
 - **Length**: its amino acids; a stop (`*`) is none.
 - **Molecular weight**: its residues' formulas, plus one water, weighed by
   CIAAW's standard atomic weights 2024, the table every Iki plugin weighs by
-  ([ADR 0271](../../docs/adr/0271-one-table-of-atomic-weights-weighs-every-molecule.md)). It gives haemoglobin α 15,257.59 Da, where ExPASy gives 15,257.55
+  ([ADR 0272](../../docs/adr/0272-one-table-of-atomic-weights-weighs-every-molecule.md)). It gives haemoglobin α 15,257.59 Da, where ExPASy gives 15,257.55
   and Biopython's ProtParam, by IUPAC's atomic weights of 2005, 15,257.36.
 - **Isoelectric point**: the pH at which Bjellqvist's charge model (his pK
   values, with the terminal residues' own) gives no net charge, found by
