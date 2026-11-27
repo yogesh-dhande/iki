@@ -204,8 +204,14 @@ def test_a_prep_picks_its_method_and_everyone_reads_it_by_its_label(
     expect(
         page.get_by_role("heading", level=1, name=re.compile("Anti-HER2 prep 12"))
     ).to_be_visible()
-    link = page.get_by_role("link", name="Protein A affinity")
+    link = page.get_by_role("region", name="Values").get_by_role("link", name="Protein A affinity")
     expect(link).to_be_visible()
+    # Its lineage names the option too, as people read it, leading to the same place.
+    rail = page.get_by_role("complementary", name="About this record")
+    expect(rail.get_by_role("link", name="Protein A affinity")).to_have_attribute(
+        "href", re.compile(rf"/types/{re.escape(METHOD)}/\?project=kinase-atlas#option-protein_a$")
+    )
+    expect(rail.get_by_text("PUM-000001")).to_have_count(0)
     checked(page)
     link.click()
     expect(page).to_have_url(
