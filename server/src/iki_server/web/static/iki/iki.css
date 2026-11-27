@@ -7558,3 +7558,96 @@ button.scan-choice:disabled {
 .record-sheet-review del {
   color: var(--muted);
 }
+
+/* Lab lists (ADR 0270). A long list's option, in its search: its description under its
+   label. */
+.listbox-note {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* A sheet's list cell's options: under the cell, over the sheet, which clips its cells;
+   placed from the cell as it opens and as the sheet scrolls. */
+.popover.sheet-options {
+  position: fixed;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  z-index: 60;
+  max-height: min(18rem, 45vh);
+}
+
+.popover.sheet-options[hidden] {
+  display: none;
+}
+
+/* A list's options, on its type's page: those no dropdown offers read quieter, and the
+   one a record's link points at stands out. */
+.list-options tr.is-retired > * {
+  color: var(--muted);
+}
+
+.list-options tr.is-target > * {
+  background: var(--accent-soft);
+}
+
+.list-curators {
+  margin-top: calc(16rem / 13);
+}
+
+.list-curators p:last-child {
+  margin-bottom: 0;
+}
+
+/* Reordering a list: each option a row, dragged, or moved by its buttons. */
+.reorder-list {
+  margin: 0 0 calc(12rem / 13);
+  padding: 0;
+  list-style: none;
+}
+
+.reorder-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(8rem / 13);
+  padding: calc(6rem / 13) calc(8rem / 13);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: grab;
+}
+
+.reorder-item + .reorder-item {
+  margin-top: calc(4rem / 13);
+}
+
+.reorder-item.is-dragging {
+  opacity: 0.5;
+}
+
+.reorder-item.is-over {
+  box-shadow: inset 0 3px 0 var(--focus);
+}
+
+.reorder-handle {
+  color: var(--muted);
+}
+
+.reorder-position {
+  min-width: 2.5ch;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.reorder-label {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.reorder-moves {
+  display: flex;
+  gap: calc(4rem / 13);
+}

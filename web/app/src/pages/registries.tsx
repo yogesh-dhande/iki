@@ -16,14 +16,15 @@ import {
   useQueryClient,
   useSuspenseQuery,
 } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useState, type SubmitEvent } from "react";
 
-import { iki, problemOf, useApiMutation } from "../api";
+import { iki, problemOf, projectsQuery, useApiMutation } from "../api";
 import { ENTITIES, typeLabel, typesQuery, type EntityType } from "../entities";
 import { FieldInput } from "../entity-inputs";
 import { encode, isBlank, same, toDraft, type Draft } from "../entity-values";
 import { required, useForm } from "../forms";
+import { optionsQuery } from "../lab-lists";
 import { usePageTitle } from "../layout";
 import {
   createdMessage,
@@ -196,6 +197,12 @@ export function EntryPage() {
   const entry = useSuspenseQuery(entryQuery(ref)).data;
   const types = useSuspenseQuery(typesQuery).data;
   const type = types.find((t) => t.name === entry.type);
+  if (type?.lab_list) return <OptionPage entry={entry} type={type} />;
+  return <RegistryEntryPage entry={entry} type={type} />;
+}
+
+function RegistryEntryPage({ entry, type }: { entry: Entry; type: EntityType | undefined }) {
+  const types = useSuspenseQuery(typesQuery).data;
   usePageTitle(`${entry.hrid} · ${entry.registry.name} registry`);
   const fields = (type?.fields ?? []).filter((f) => f.registry);
   return (
@@ -513,6 +520,7 @@ function Curate({ entry, type, types }: { entry: Entry; type: EntityType; types:
           }}
           error={form.errors[`values/${f.name}`]}
           projectId=""
+          registryId={entry.registry.id}
         />
       ))}
       <TextField
@@ -640,6 +648,220 @@ function Supersede({ entry }: { entry: Entry }) {
           {replacement.trim().toUpperCase()} themselves.
         </p>
       </ConfirmDialog>
+    </section>
+  );
+}
+
+// --- A lab list's option ---------------------------------------------------------------
+
+/**
+ * A lab list's option (ADR 0270): an entry no project has a record of, which every
+ * project in its registry picks from. Its page says which list it's in, what's become of
+ * it, and its history: each change with who, when and why. Its curators change it on the
+ * list's page. Once it's superseded, each project's Editors move their records that name
+ * it to its replacement here, as the notification about it says.
+ */
+function OptionPage({ entry, type }: { entry: Entry; type: EntityType }) {
+  const label = typeof entry.values["label"] === "string" ? entry.values["label"] : entry.hrid;
+  const code = typeof entry.values["code"] === "string" ? entry.values["code"] : "";
+  const fields = type.fields.filter((f) => f.name !== "position");
+  // What's become of it, as its list says: archived, or superseded by which option.
+  const option = useQuery(
+    optionsQuery(type.name, { registry: entry.registry.id }, true),
+  ).data?.find((o) => o.id === entry.id);
+  const archived = Boolean(option?.archived);
+  const by = entry.superseded?.by;
+  const replacement = option?.superseded_by?.label ?? (by ? (by.code ? by.title : by.hrid) : "");
+  usePageTitle(`${label} · ${type.label_plural}`);
+  return (
+    <>
+      <PageHeader
+        crumbs={[
+          <Link
+            to="/types/$/"
+            params={{ _splat: type.name }}
+            search={{ registry: entry.registry.id }}
+          >
+            {type.label_plural}
+          </Link>,
+          label,
+        ]}
+        description={
+          <>
+            An option of{" "}
+            <Link
+              to="/types/$/"
+              params={{ _splat: type.name }}
+              search={{ registry: entry.registry.id }}
+              hash={`option-${code}`}
+            >
+              {type.label_plural}
+            </Link>{" "}
+            · {entry.registry.name} registry · {entry.hrid}
+          </>
+        }
+        title={label}
+        badge={
+          entry.superseded ? (
+            <Badge muted>Superseded</Badge>
+          ) : archived ? (
+            <Badge muted>Archived</Badge>
+          ) : null
+        }
+      />
+      {entry.superseded ? (
+        <div className="alert alert-warning" role="note">
+          <p>
+            Superseded by {replacement} on <Time value={entry.superseded.at} />: “
+            {entry.superseded.reason}”. Dropdowns offer {replacement} instead. Each project whose
+            records name {label} moves them to {replacement} itself.
+          </p>
+        </div>
+      ) : archived ? (
+        <div className="alert alert-warning" role="note">
+          <p>
+            Archived: no dropdown offers it. The records that name it keep it, and its curators can
+            restore it on the list’s page.
+          </p>
+        </div>
+      ) : null}
+      {entry.superseded ? (
+        <MoveReferences entry={entry} type={type} label={label} replacement={replacement} />
+      ) : null}
+      <section className="card" aria-labelledby="entry-values-title">
+        <h2 className="section-title" id="entry-values-title">
+          Values
+        </h2>
+        <p className="muted">
+          Every project in the {entry.registry.name} registry picks it as this. Its curators change
+          it on the{" "}
+          <Link
+            to="/types/$/"
+            params={{ _splat: type.name }}
+            search={{ registry: entry.registry.id }}
+          >
+            list’s page
+          </Link>
+          .
+        </p>
+        <dl className="summary values">
+          {fields.map((f) => (
+            <div key={f.name} className="value-row">
+              <dt>{f.label}</dt>
+              <dd>
+                <Value field={f} value={entry.values[f.name]} entity={entry} />
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+      <EntryHistory entry={entry} type={type} />
+    </>
+  );
+}
+
+/** A project's Editors move its records from a superseded option to its replacement: each
+ * record that names it names the replacement, a revision with the reason. The notification
+ * about it opens here with its project (`?project=`). */
+function MoveReferences({
+  entry,
+  type,
+  label,
+  replacement,
+}: {
+  entry: Entry;
+  type: EntityType;
+  label: string;
+  replacement: string;
+}) {
+  const { project: asked } = useSearch({ from: "/entries/$ref" });
+  const { say } = useMessages();
+  const projects = useQuery(projectsQuery).data ?? [];
+  const mine = projects.filter(
+    (p) => p.registry.id === entry.registry.id && p.can.edit && !p.archived,
+  );
+  const [picked, setPicked] = useState("");
+  const [reason, setReason] = useState("");
+  const [moved, setMoved] = useState<{ project: string; hrids: string[] } | null>(null);
+  const target = mine.find((p) => p.id === picked) ?? mine.find((p) => p.slug === asked) ?? mine[0];
+  const code = typeof entry.values["code"] === "string" ? entry.values["code"] : "";
+  const move = useApiMutation(
+    async () =>
+      unwrap(
+        await iki.POST("/api/v1/lists/{name}/options/{code}/move", {
+          params: { path: { name: type.name, code } },
+          body: { project: target?.id ?? "", reason: reason.trim() },
+        }),
+      ),
+    [ENTITIES],
+  );
+  const form = useForm(move.error, move.isPending);
+  if (!target) return null;
+  return (
+    <section className="card" aria-labelledby="move-title">
+      <h2 className="section-title" id="move-title">
+        Move records to {replacement}
+      </h2>
+      <p>
+        Each of the project’s records that names {label} will name {replacement} instead: a revision
+        of each, with your reason. Archived and locked records keep {label}.
+      </p>
+      {form.alert}
+      {moved ? (
+        <div className="alert alert-success" role="status">
+          <p>
+            {moved.hrids.length
+              ? `Moved ${String(moved.hrids.length)} of ${moved.project}’s records to ${replacement}: ${moved.hrids.join(", ")}.`
+              : `None of ${moved.project}’s records that can change name ${label}.`}
+          </p>
+        </div>
+      ) : null}
+      <form
+        {...form.props}
+        onSubmit={(event: SubmitEvent<HTMLFormElement>) => {
+          event.preventDefault();
+          if (
+            !form.validate({ reason: required(reason, "Say why: each record’s history keeps it.") })
+          ) {
+            return;
+          }
+          move.mutate(undefined, {
+            onSuccess: (done) => {
+              setMoved({ project: target.name, hrids: done.moved });
+              setReason("");
+              say(
+                done.moved.length
+                  ? `Moved ${String(done.moved.length)} ${done.moved.length === 1 ? "record" : "records"} to ${replacement}.`
+                  : `None of ${target.name}’s records needed moving.`,
+              );
+            },
+          });
+        }}
+      >
+        {mine.length > 1 ? (
+          <SelectField
+            label="Project"
+            value={target.id}
+            onChange={(id) => {
+              setPicked(id);
+              setMoved(null);
+            }}
+            options={mine.map((p) => ({ value: p.id, label: p.name }))}
+          />
+        ) : null}
+        <TextField
+          label="Reason"
+          value={reason}
+          onChange={setReason}
+          error={form.errors["reason"] ?? form.errors["values/reason"]}
+          maxLength={2000}
+          multiline
+          help="Why, for the record. Each record that moves keeps it in its history."
+        />
+        <Button type="submit" variant="primary" busy={move.isPending} busyText="Moving…">
+          Move {target.name}’s records
+        </Button>
+      </form>
     </section>
   );
 }

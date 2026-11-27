@@ -33,6 +33,7 @@ import {
 import { validateAuditSearch } from "./audit-trail";
 import { validateLineageSearch } from "./lineage";
 import { validateListSearch } from "./lists";
+import { validateEntrySearch, validateTypePageSearch } from "./lab-lists";
 import { validateRequestsSearch } from "./requests";
 import { validateWorkSearch, Work } from "./pages/work";
 import { entryQuery } from "./registries";
@@ -497,6 +498,8 @@ const typeListRoute = createRoute({
 const typeRoute = createRoute({
   getParentRoute: () => typesRoute,
   path: "$",
+  // A lab list's options are a registry's (ADR 0270): ?project=atlas or ?registry= says whose.
+  validateSearch: validateTypePageSearch,
   loader: ({ context }) => context.queryClient.query(typesQuery),
   component: TypeDetail,
 });
@@ -659,6 +662,8 @@ const registryEntriesRoute = createRoute({
 const entryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "entries/$ref",
+  // ?project=atlas: a superseded lab list option's, whose records the project moves.
+  validateSearch: validateEntrySearch,
   loader: ({ context, params }) =>
     Promise.all([
       context.queryClient.query(entryQuery(params.ref)),

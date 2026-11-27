@@ -11,7 +11,7 @@ import "@ikisci/science/quantity-input";
 import "@ikisci/science/sequence-input";
 import type { QuantityInputData } from "@ikisci/science/quantity-input";
 import type { SequenceInputData } from "@ikisci/science/sequence-input";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createElement,
   useEffect,
@@ -35,6 +35,7 @@ import { Item, useComboBoxState, type ComboBoxState, type Key, type Node } from 
 
 import {
   formatSize,
+  inSentence,
   pickerQuery,
   typeLabel,
   type Entity,
@@ -57,8 +58,20 @@ import { UploadStatus } from "./file-upload";
 import { FILES } from "./files";
 import { optionLabel } from "./filters";
 import { describeHelm, isProblem, useHelmReading } from "./helm";
+import {
+  isActive,
+  listOf,
+  LONG_LIST,
+  matching,
+  optionsQuery,
+  optionText,
+  retiredOf,
+  type ListOption,
+  type ListScope,
+} from "./lab-lists";
 import { useMedia } from "./media";
 import { nameableQuery } from "./people";
+import { registriesQuery } from "./registries";
 import { progressLabel, upload, uploadError, type Progress } from "./uploads";
 import { Button } from "./ui";
 
@@ -81,6 +94,12 @@ export interface InputProps {
    * rows' fields (ADR 0137), and where this input's value is among them. */
   errors?: Record<string, string> | undefined;
   path?: string | undefined;
+  /** Whose lab lists (ADR 0270) a reference to one picks from, where there's no project:
+   * a registry's, by its ID. With neither, every registry the reader sees. */
+  registryId?: string | undefined;
+  /** A filter's: a lab list's archived and superseded options are offered too, marked,
+   * as records may still name them. */
+  everyOption?: boolean | undefined;
 }
 
 function describedBy(...ids: (string | false | undefined)[]): string | undefined {
@@ -560,7 +579,29 @@ function pickable(found: readonly Entity[]): Picked[] {
  * answer meanwhile would let the answer land between pressing and releasing, so a click
  * meant for one record chose another, or nothing.
  */
-function RefInput({ field, types, draft, onChange, error, note, disabled, itemLabel }: InputProps) {
+/** A reference: to a lab list's option, a dropdown of the list (ADR 0270); to a record, a
+ * search. */
+function RefInput(props: InputProps) {
+  const list = listOf(props.field, props.types);
+  if (!list) return <RecordRefInput {...props} />;
+  if (props.projectId)
+    return <OptionsIn {...props} list={list} scope={{ project: props.projectId }} />;
+  if (props.registryId) {
+    return <OptionsIn {...props} list={list} scope={{ registry: props.registryId }} />;
+  }
+  return <OptionsAcross {...props} list={list} />;
+}
+
+function RecordRefInput({
+  field,
+  types,
+  draft,
+  onChange,
+  error,
+  note,
+  disabled,
+  itemLabel,
+}: InputProps) {
   const picked = draft as Picked | null;
   // Typed text belongs to the value it was typed over: when the value changes from outside
   // (a row removed above, someone else's change merged in), the new value's label shows.
@@ -648,6 +689,324 @@ function RefInput({ field, types, draft, onChange, error, note, disabled, itemLa
               shown={state.collection.size}
               none={typed ? `Nothing matches “${typed}”.` : "None yet."}
             />
+          </Popover>
+        ) : null}
+      </div>
+      <p {...descriptionProps} className="field-help">
+        {help}
+      </p>
+    </div>
+  );
+}
+
+// --- Lab lists' options (ADR 0270) --------------------------------------------------
+
+/** An option as a dropdown offers it. `group`: its registry's name, where the dropdown
+ * offers several registries' options. */
+interface Choice extends Picked {
+  code: string;
+  group?: string;
+}
+
+function choiceOf(option: ListOption, group?: string): Choice {
+  const retired = retiredOf(option);
+  return {
+    id: option.id,
+    hrid: option.hrid,
+    title: option.label,
+    code: option.code,
+    ...(option.description ? { note: option.description } : {}),
+    ...(retired ? { retired } : {}),
+    ...(group ? { group } : {}),
+  };
+}
+
+/** An option, as a dropdown shows it: "Dialysis (archived)". */
+function choiceText(choice: Picked): string {
+  return optionText(choice.title, choice.retired);
+}
+
+/** Whether a choice is what a draft names: a form's by its ID; a filter's from its
+ * address, by its HRID. */
+function names(choice: Picked, picked: Picked): boolean {
+  return choice.id === picked.id || (Boolean(picked.hrid) && choice.hrid === picked.hrid);
+}
+
+interface Offered {
+  choices: Choice[];
+  loading: boolean;
+  failed: boolean;
+}
+
+/** A reference to a lab list's option in a project's registry, or a given registry. */
+function OptionsIn(props: InputProps & { list: EntityType; scope: ListScope }) {
+  const found = useQuery(optionsQuery(props.list.name, props.scope, props.everyOption ?? false));
+  const offered = useMemo(
+    () => ({
+      choices: (found.data ?? [])
+        .filter((o) => (props.everyOption ?? false) || isActive(o))
+        .map((o) => choiceOf(o)),
+      loading: found.isPending,
+      failed: found.isError,
+    }),
+    [found.data, found.isPending, found.isError, props.everyOption],
+  );
+  return <OptionChoice {...props} offered={offered} />;
+}
+
+/** Across projects, as the lists of every project filter: every registry's options the
+ * reader sees, by registry when there are several, as each registry's are its own. */
+function OptionsAcross(props: InputProps & { list: EntityType }) {
+  const registries = useQuery(registriesQuery());
+  const every = props.everyOption ?? false;
+  const found = useQueries({
+    queries: (registries.data ?? []).map((r) =>
+      optionsQuery(props.list.name, { registry: r.id }, every),
+    ),
+  });
+  const several = (registries.data?.length ?? 0) > 1;
+  const choices = found.flatMap((q, index) =>
+    (q.data ?? [])
+      .filter((o) => every || isActive(o))
+      .map((o) => choiceOf(o, several ? registries.data?.[index]?.name : undefined)),
+  );
+  const offered = {
+    choices,
+    loading: registries.isPending || found.some((q) => q.isPending),
+    failed: registries.isError || found.some((q) => q.isError),
+  };
+  return <OptionChoice {...props} offered={offered} />;
+}
+
+/**
+ * A lab list's options, as a dropdown: a select of the active ones in the list's order,
+ * searched as people type once the list is long (LONG_LIST). What the record names
+ * already stays offered, marked, though the list doesn't offer it any more: it keeps it
+ * unless someone chooses another (ADR 0270).
+ */
+function OptionChoice(props: InputProps & { list: EntityType; offered: Offered }) {
+  const { list, draft, offered } = props;
+  const picked = draft as Picked | null;
+  const current = picked ? offered.choices.find((c) => names(c, picked)) : undefined;
+  // What it names that isn't offered: an option retired since, or, before the options
+  // come, what the record says it is.
+  const held: Choice | undefined =
+    picked && !current
+      ? {
+          ...picked,
+          code: picked.code ?? "",
+          ...(picked.retired || offered.loading || offered.failed || props.everyOption
+            ? {}
+            : { retired: "archived" as const }),
+        }
+      : undefined;
+  const choices = held ? [held, ...offered.choices] : offered.choices;
+  const none = !offered.loading && !offered.failed && offered.choices.length === 0;
+  const status = offered.loading
+    ? "Loading its options…"
+    : offered.failed
+      ? "Couldn’t load its options. Try again in a moment."
+      : none
+        ? `There are no ${inSentence(list.label_plural)} to choose yet: the list’s curators add them on its page.`
+        : undefined;
+  if (offered.choices.length > LONG_LIST) {
+    return (
+      <OptionSearch {...props} choices={choices} chosen={current ?? held ?? null} status={status} />
+    );
+  }
+  return (
+    <OptionSelect {...props} choices={choices} chosen={current ?? held ?? null} status={status} />
+  );
+}
+
+interface ChoiceProps extends InputProps {
+  list: EntityType;
+  choices: Choice[];
+  chosen: Choice | null;
+  /** Loading, failed or empty: said under it, and it can't be changed meanwhile. */
+  status: string | undefined;
+}
+
+function chosenDraft(choice: Choice | null): Picked | null {
+  if (!choice) return null;
+  return {
+    id: choice.id,
+    hrid: choice.hrid,
+    title: choice.title,
+    code: choice.code,
+    ...(choice.retired ? { retired: choice.retired } : {}),
+  };
+}
+
+function OptionSelect({
+  field,
+  choices,
+  chosen,
+  status,
+  onChange,
+  error,
+  note,
+  disabled,
+  itemLabel,
+}: ChoiceProps) {
+  const id = useId();
+  const help = [helpText(field, note), status].filter(Boolean).join(" ") || undefined;
+  const groups = [...new Set(choices.map((c) => c.group ?? ""))];
+  const option = (c: Choice) => (
+    <option key={c.id} value={c.id} title={c.note}>
+      {choiceText(c)}
+    </option>
+  );
+  return (
+    <Shell
+      id={id}
+      label={itemLabel ?? field.label}
+      optional={!field.required}
+      error={error}
+      help={help}
+      hiddenLabel={itemLabel !== undefined}
+    >
+      <select
+        id={id}
+        value={chosen?.id ?? ""}
+        disabled={(disabled ?? false) || (status !== undefined && !chosen && choices.length === 0)}
+        aria-invalid={error ? "true" : undefined}
+        aria-describedby={describedBy(error && `${id}-error`, help && `${id}-help`)}
+        aria-required={field.required || undefined}
+        aria-busy={status === "Loading its options…" || undefined}
+        onChange={(event) => {
+          onChange(chosenDraft(choices.find((c) => c.id === event.target.value) ?? null));
+        }}
+      >
+        <option value="">{field.required ? "Choose one" : "Not set"}</option>
+        {groups.length > 1
+          ? groups.map((g) => (
+              <optgroup key={g} label={g || "Chosen"}>
+                {choices.filter((c) => (c.group ?? "") === g).map(option)}
+              </optgroup>
+            ))
+          : choices.map(option)}
+      </select>
+    </Shell>
+  );
+}
+
+/** An option as a long list's search lists it: its label, its registry where there are
+ * several, and its description, muted. One function, as refOption is. */
+function choiceOption(item: Picked) {
+  const choice = item as Choice;
+  return (
+    <Item key={item.id} textValue={choiceText(item)}>
+      <span>{choiceText(item)}</span>
+      {choice.group ? <span className="muted"> · {choice.group}</span> : null}
+      {item.note ? <span className="listbox-note">{item.note}</span> : null}
+    </Item>
+  );
+}
+
+/** A long list's options (ADR 0270): a combo box that narrows them as people type, by
+ * label or code, in the list's order. As a reference's search (RecordRefInput), with its
+ * keyboard, Escape and list placement, but every option is here already. */
+function OptionSearch({
+  field,
+  list,
+  choices,
+  chosen,
+  status,
+  onChange,
+  error,
+  note,
+  disabled,
+  itemLabel,
+}: ChoiceProps) {
+  const [typing, setTyping] = useState({
+    text: chosen ? choiceText(chosen) : "",
+    over: chosen?.id,
+  });
+  const text = typing.over === chosen?.id ? typing.text : chosen ? choiceText(chosen) : "";
+  const typed = chosen && text === choiceText(chosen) ? "" : text;
+  const items = useMemo(
+    () =>
+      withChosen(
+        matching(
+          choices.map((c) => ({ ...c, label: c.title })),
+          typed,
+        ),
+        chosen,
+      ),
+    [choices, typed, chosen],
+  ) as Choice[];
+  const help = [
+    helpText(field, note) ??
+      `Type to find one of the ${inSentence(list.label_plural)}, by name or code.`,
+    status,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const label = itemLabel ?? field.label;
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listBoxRef = useRef<HTMLUListElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const props = {
+    label,
+    description: help,
+    errorMessage: error,
+    isInvalid: Boolean(error),
+    isRequired: field.required,
+    isDisabled: disabled ?? false,
+    validationBehavior: "aria" as const,
+    items,
+    children: choiceOption,
+    inputValue: text,
+    onInputChange: (value: string) => {
+      setTyping({ text: value, over: value === "" ? undefined : chosen?.id });
+      if (value === "") onChange(null);
+    },
+    value: chosen?.id ?? null,
+    onChange: (key: Key | null) => {
+      const found = items.find((i) => i.id === key) ?? null;
+      onChange(chosenDraft(found));
+      setTyping(
+        found ? { text: choiceText(found), over: found.id } : { text: "", over: undefined },
+      );
+    },
+    menuTrigger: "focus" as const,
+    allowsEmptyCollection: true,
+  };
+  const state = useComboBoxState(props);
+  const { inputProps, listBoxProps, labelProps, descriptionProps, errorMessageProps } = useComboBox(
+    { ...props, inputRef, listBoxRef, popoverRef },
+    state,
+  );
+  return (
+    <div className={error ? "field field-invalid" : "field"}>
+      <label {...labelProps} className={itemLabel !== undefined ? "visually-hidden" : undefined}>
+        {label}
+        {field.required || itemLabel !== undefined ? null : (
+          <span className="optional"> (optional)</span>
+        )}
+      </label>
+      {error ? (
+        <p {...errorMessageProps} className="field-error">
+          {error}
+        </p>
+      ) : null}
+      <div className="combobox">
+        {/* Named by its <label for>, as references' are (see RecordRefInput). */}
+        <input
+          {...inputProps}
+          onKeyDown={withEscape(state, chosen ? choiceText(chosen) : "", inputProps.onKeyDown)}
+          aria-labelledby={undefined}
+          ref={inputRef}
+          spellCheck={false}
+          autoComplete="off"
+        />
+        {state.isOpen ? (
+          <Popover state={state} triggerRef={inputRef} popoverRef={popoverRef}>
+            <ListBox {...listBoxProps} listBoxRef={listBoxRef} state={state} />
+            <p className={items.length ? "visually-hidden" : "listbox-empty"} role="status">
+              {items.length ? "" : typed ? `No option matches “${typed}”.` : "No options yet."}
+            </p>
           </Popover>
         ) : null}
       </div>

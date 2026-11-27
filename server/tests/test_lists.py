@@ -513,6 +513,12 @@ def test_a_wrong_code_is_superseded_and_each_project_moves_its_records(
         )
     )
     assert {world.users["admin"].pk, world.users["outsider"].pk} <= told
+    # By the options' labels, opening the option's page with the project, to move them.
+    notice = Notification.objects.get(
+        kind="registry.entry_superseded", recipient=world.users["admin"]
+    )
+    assert notice.title == "Purification method “Protein G (typo)” was superseded by “Protein G”"
+    assert notice.path == f"/entries/{wrong['id']}/?project={world.project.slug}"
     # A record that names it shows it as superseded until its project moves it.
     ref = editor.get(f"/entities/{mine['id']}").json()["refs"][wrong["id"]]
     assert ref["superseded"]
@@ -576,3 +582,29 @@ def test_a_sheet_names_an_option_by_its_code_or_label(world: World) -> None:
     # An archived one is found, and refused as it's saved unless the record has it already.
     assert str(resolved["dialysis"]) == found["dialysis"]
     assert resolved["hplc"] == "is no option of Purification methods: give its code or its label."
+
+
+def test_a_sheets_cell_shows_an_option_by_its_label(world: World) -> None:
+    """The sheet's cell, and what its check says it read, are the option's label: what
+    people pick, which the sheet reads back as it reads the option's code."""
+    editor = api_as(world, "editor")
+    made = prep(editor, world.project, {"name": "Prep 9"}).json()
+    answer = editor.post(
+        f"/projects/{world.project.pk}/sheet-edits/check",
+        {
+            "type": PREP,
+            "rows": [
+                {
+                    "key": made["id"],
+                    "entity": made["id"],
+                    "revision": made["revision"],
+                    "cells": {"method": "sec", "polishing": "dialysis; PROTEIN A AFFINITY"},
+                }
+            ],
+        },
+    )
+    assert answer.status_code == 200, answer.content
+    row = answer.json()["rows"][0]
+    assert row["problems"] == [], row
+    assert row["shown"]["method"] == "Size exclusion"
+    assert row["shown"]["polishing"] == "Dialysis; Protein A affinity"

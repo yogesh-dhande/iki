@@ -6,13 +6,21 @@
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 
-import { stateLabel, typeQuery, typesQuery, type EntityType, type FieldDef } from "../entities";
+import {
+  inSentence,
+  stateLabel,
+  typeQuery,
+  typesQuery,
+  type EntityType,
+  type FieldDef,
+} from "../entities";
 import { problemOf } from "../api";
 import { typeFlowQuery } from "../flow";
 import { FlowDiagram, useRoleLabels } from "../flow-diagram";
 import { usePageTitle } from "../layout";
 import { TypeDot } from "../type-color";
 import { Badge, PageHeader, ProblemAlert } from "../ui";
+import { ListOptions } from "./list-options";
 
 /** Where a field of a type with an identity is kept (ADR 0115). */
 const KEPT: Record<"identity" | "derived" | "fact" | "record", { badge: string; help: string }> = {
@@ -29,7 +37,8 @@ const KEPT: Record<"identity" | "derived" | "fact" | "record", { badge: string; 
 };
 
 function keptAs(type: EntityType, field: FieldDef): keyof typeof KEPT | null {
-  if (!type.identity.length) return null;
+  // A lab list's options are all its registry's (ADR 0270): there's nothing a project keeps.
+  if (!type.identity.length || type.lab_list) return null;
   if (field.registry) return field.registry;
   return type.identity.includes(field.name) ? "identity" : "record";
 }
@@ -82,6 +91,7 @@ export function TypeList() {
                     </span>
                   </div>
                   <div className="row-tags">
+                    {t.lab_list ? <Badge>Lab list</Badge> : null}
                     {t.abstract ? <Badge muted>Abstract</Badge> : null}
                     {t.detached ? <Badge muted>Detached</Badge> : null}
                     {t.hrid_prefix ? <Badge>{t.hrid_prefix}</Badge> : null}
@@ -130,12 +140,17 @@ export function fieldKind(field: FieldDef, types: EntityType[]): string {
         return "Date";
       case "datetime":
         return "Date and time";
-      case "ref":
+      case "ref": {
+        const listed =
+          field.to.length === 1 ? types.find((t) => t.name === field.to[0]) : undefined;
+        // A lab list's option (ADR 0270): a dropdown of what the lab curates.
+        if (listed?.lab_list) return `One of the lab’s ${inSentence(listed.label_plural)}`;
         return `Reference to ${
           !field.to.length || field.to.includes("iki/core.Entity")
             ? "any entity"
             : new Intl.ListFormat("en", { type: "disjunction" }).format(field.to.map(label))
         }`;
+      }
       case "file":
         return "File";
       case "json":
@@ -166,6 +181,7 @@ export function TypeDetail() {
         title={type.label}
         badge={
           <>
+            {type.lab_list ? <Badge>Lab list</Badge> : null}
             {type.abstract ? <Badge muted>Abstract</Badge> : null}
             {type.detached ? <Badge muted>Detached</Badge> : null}
           </>
@@ -208,7 +224,17 @@ export function TypeDetail() {
               </dd>
             </>
           ) : null}
-          {identity.length ? (
+          {type.lab_list ? (
+            <>
+              <dt>Lab list</dt>
+              <dd>
+                A list the lab curates itself. Each registry keeps its own options, which every
+                project in it picks from: a field that refers to {inSentence(type.label_plural)} is
+                a dropdown of them. Each option’s code never changes; its curators change its label,
+                description and place, each with a reason.
+              </dd>
+            </>
+          ) : identity.length ? (
             <>
               <dt>Identity</dt>
               <dd>
@@ -226,6 +252,7 @@ export function TypeDetail() {
           </p>
         ) : null}
       </section>
+      {type.lab_list ? <ListOptions type={type} types={types} /> : null}
       <TypeFlows name={type.name} />
       <section aria-labelledby="fields-title">
         <h2 className="section-title" id="fields-title">
@@ -238,7 +265,7 @@ export function TypeDetail() {
                 <th scope="col">Field</th>
                 <th scope="col">Holds</th>
                 <th scope="col">Rules</th>
-                {type.identity.length ? <th scope="col">Kept in</th> : null}
+                {type.identity.length && !type.lab_list ? <th scope="col">Kept in</th> : null}
               </tr>
             </thead>
             <tbody>

@@ -49,6 +49,7 @@ import {
   type Revision,
 } from "../entities";
 
+import { isOptionRef, listSearch } from "../lab-lists";
 import { entryQuery, entryRevisionQuery, FIXED_FACT, REGISTRY_MARK } from "../registries";
 import { usePageTitle } from "../layout";
 import { isServiceField } from "../requests";
@@ -138,6 +139,7 @@ export function registryNote(field: FieldDef): string | null {
 function RefLink({ found, project }: { found: Ref; project: string | undefined }) {
   const types = useQuery(typesQuery).data;
   const search = project && hasIdentity(types, found.type) ? { project } : {};
+  if (isOptionRef(found)) return <OptionRef found={found} project={project} />;
   if (found.purged) {
     return (
       <span>
@@ -155,6 +157,26 @@ function RefLink({ found, project }: { found: Ref; project: string | undefined }
       </Link>
       {found.title !== found.hrid ? <span className="muted"> {found.hrid}</span> : null}
       {found.archived ? <span className="muted"> (archived)</span> : null}
+    </span>
+  );
+}
+
+/** A lab list's option (ADR 0270): its label, as it's called now, and what's become of it
+ * if no dropdown offers it any more. It's nobody's record: it leads to its list, in the
+ * registry of the project the record is in, where its history and curators are. */
+export function OptionRef({ found, project }: { found: Ref; project: string | undefined }) {
+  const retired = found.superseded ? "superseded" : found.archived ? "archived" : null;
+  return (
+    <span>
+      <Link
+        to="/types/$/"
+        params={{ _splat: found.type }}
+        search={listSearch(project)}
+        hash={`option-${found.code ?? ""}`}
+      >
+        {found.title}
+      </Link>
+      {retired ? <span className="muted"> ({retired})</span> : null}
     </span>
   );
 }

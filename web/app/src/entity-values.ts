@@ -29,6 +29,13 @@ export interface Picked {
   acquiredAt?: string;
   /** A file's size in bytes, where it's known, said beside its name. */
   size?: number;
+  /** A lab list's option (ADR 0270) no dropdown offers any more, which a record that
+   * names it keeps: archived, or superseded by another. */
+  retired?: "archived" | "superseded";
+  /** A lab list's option: its code, and its description, as a long list's search shows
+   * them. */
+  code?: string;
+  note?: string;
 }
 
 /** A list's row (ADR 0137): each of its fields' drafts, by name. */
@@ -150,7 +157,20 @@ export function toDraft(
       const id = value as string;
       const found = entity.refs[id];
       const title = found?.title ?? "An entity you can’t read";
-      return { id, hrid: found?.hrid ?? title, title };
+      const retired = found?.code
+        ? found.superseded
+          ? "superseded"
+          : found.archived
+            ? "archived"
+            : undefined
+        : undefined;
+      return {
+        id,
+        hrid: found?.hrid ?? title,
+        title,
+        ...(found?.code ? { code: found.code } : {}),
+        ...(retired ? { retired } : {}),
+      };
     }
     case "file": {
       const id = value as string;

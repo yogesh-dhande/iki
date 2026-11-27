@@ -240,7 +240,8 @@ def _problem_out(p: sheets.Problem) -> dict[str, Any]:
 def cell_text(f: Mapping[str, Any], value: Any, row: Mapping[str, Any]) -> str:  # noqa: ANN401
     """A value as a sheet's cell has it, to be typed back and read the same: as the grid's
     CSV writes it (ADR 0175), but a list's items apart by ``;``, as a cell's list is read,
-    and a person by their email, or their ID when it can't be seen."""
+    a person by their email, or their ID when it can't be seen, and a lab list's option by
+    its label."""
     if value is None:
         return ""
     if isinstance(value, list) and f.get("items") != "row":
@@ -249,6 +250,12 @@ def cell_text(f: Mapping[str, Any], value: Any, row: Mapping[str, Any]) -> str: 
     if f["type"] == "person":
         found = row["people"].get(str(value))
         return str(found["email"] or value) if found else str(value)
+    if f["type"] == "ref":
+        found = row["refs"].get(str(value))
+        if found and found.get("code"):
+            # A lab list's option (ADR 0270) by its label, as the sheet shows it and reads
+            # it back, as it reads its code.
+            return str(found["title"])
     return search_exports.text(f, value, row)
 
 
