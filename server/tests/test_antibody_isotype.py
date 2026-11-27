@@ -752,6 +752,8 @@ def test_a_human_constant_region_is_human_and_no_other_species(tmp_path: Path) -
     code, _, output = assemble(tmp_path, human)
     values = output["creates"][0]["values"]
     assert code == 0 and (values["isotype"], values["constant_species"]) == ("igg1", "human")
+    # Its disulfides are IgG1's pattern, not read from this molecule (ADR 0267).
+    assert values["bonds"] and values["bonds_from"] == "pattern"
     code, stdout, _ = assemble(tmp_path, human, constant_species="mouse")
     assert code == 1
     assert "a human constant region, not a mouse one: leave the species out" in stdout

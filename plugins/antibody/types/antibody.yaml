@@ -9,7 +9,7 @@ name: Antibody
 label: Antibody
 label_plural: Antibodies
 extends: iki/core.Complex
-schema_version: 3
+schema_version: 4
 description: >-
   An antibody by the proteins that are its chains: at most one kind of heavy
   chain and one of light chain, each with its copies. Two copies of each for a
@@ -88,6 +88,18 @@ fields:
 # `assemble`'s check: it reads where the chain's variable domains end, which is each
 # project's record's numbering, not the registry entry a reference holds.
 rules:
+  stated_bonds_name_their_source:
+    label: Curated and observed bonds name their source
+    description: >-
+      Bonds read from a source or seen in this molecule say where, so a
+      reader can tell them from bonds placed by its kind's pattern.
+    check: record.bonds_source != null
+    when: record.bonds_from == "curated" || record.bonds_from == "observed"
+    message: >-
+      Give the source of its {{ record.bonds_from }} bonds as a link: the
+      database entry, structure or publication that records them, or the
+      peptide map that saw them.
+    fields: [bonds_source]
   paired_formats_have_a_light_chain:
     label: An IgG, a Fab and an Fv have a light chain
     check: record.components.exists(c, c.role == "light")
