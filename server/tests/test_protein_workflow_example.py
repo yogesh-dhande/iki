@@ -1,4 +1,5 @@
-"""Run the lab's translation workflow with its local actions and first-party record types."""
+"""Run the lab's translation workflow: its steps are the Protein plugin's own actions, run as
+Protein declares them, on first-party record types (ADR 0298)."""
 
 import json
 import os
@@ -22,6 +23,8 @@ __all__ = ["database"]
 
 EXAMPLE = ROOT / "examples" / "plugins" / "protein_translation"
 PLUGIN = "acme/protein_translation"
+#: The plugin whose actions its steps run.
+PROTEIN = "iki/protein"
 
 
 def test_translated_protein_keeps_both_steps_provenance(tmp_path: Path, database: str) -> None:
@@ -45,12 +48,13 @@ def test_translated_protein_keeps_both_steps_provenance(tmp_path: Path, database
 def exercise() -> None:
     world = build_world()
     editor = api_as(world, "editor")
-    environment = f"{PLUGIN}.protein-tools"
+    # The steps run in Protein's environment: the workflow's plugin declares none.
+    environment = f"{PROTEIN}.protein-tools"
     catalog.compute().bindings[environment] = Binding(
         environment=environment, templates=(("backend-small", 0),)
     )
     pod = worker(
-        world, plugins=[{"name": PLUGIN, "sha": None, "environments": None, "bundle": None}]
+        world, plugins=[{"name": PROTEIN, "sha": None, "environments": None, "bundle": None}]
     )
     dna = create(
         editor,
@@ -71,13 +75,14 @@ def exercise() -> None:
 
     for action in ("translate", "compute_properties"):
         job = pod.lease().json()
-        assert job["run"]["action"] == f"{PLUGIN}.{action}"
+        assert job["run"]["action"] == f"{PROTEIN}.{action}"
+        assert job["environment"] == environment
         with TemporaryDirectory() as stage:
             inp, out = Path(stage) / "input.json", Path(stage) / "output.json"
             inp.write_text(json.dumps(job))
-            subprocess.run(  # noqa: S603 - the example's local action command
+            subprocess.run(  # noqa: S603 - Protein's own action command
                 [sys.executable, *job["command"][1:]],
-                cwd=EXAMPLE,
+                cwd=PLUGINS / "protein",
                 env={**os.environ, "IKI_INPUT": str(inp), "IKI_OUTPUT": str(out)},
                 check=True,
                 timeout=30,

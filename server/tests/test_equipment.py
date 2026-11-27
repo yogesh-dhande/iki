@@ -21,7 +21,8 @@ from test_signatures import begin, ready, signed, standing
 from test_states import roles
 
 from iki_server.amounts import services as amounts
-from iki_server.entities import services, states
+from iki_server.audit.models import Via
+from iki_server.entities import registry, services, states
 from iki_server.entities.models import Entity
 from iki_server.files.models import File
 from iki_server.org.services import Refused
@@ -246,13 +247,12 @@ def exercise_trace(*, automatic: bool) -> None:
     ready(world)
     roles(world, editor=("iki/lab_roles.engineer", "iki/lab_roles.analyst"), admin=(PREFIX + "qa",))
     project, editor = world.project, world.users["editor"]
-    environments = [PREFIX + "equipment-tools"]
-    if automatic:
-        environments.append(POLICY + "calibration-tools")
-    for environment in environments:
-        catalog.compute().bindings[environment] = Binding(
-            environment=environment, templates=(("backend-small", 0),)
-        )
+    # The facility's trigger runs Equipment's own action (ADR 0298), in Equipment's
+    # environment: the policy plugin has none.
+    environment = PREFIX + "equipment-tools"
+    catalog.compute().bindings[environment] = Binding(
+        environment=environment, templates=(("backend-small", 0),)
+    )
 
     def make(type_name: str, *, by_run: bool = False, **values: Any) -> Entity:
         saved = services.create(editor, type_name, project, values, by_run=by_run)
@@ -394,9 +394,18 @@ def exercise_trace(*, automatic: bool) -> None:
         firing.refresh_from_db()
         assert firing.state == FiringState.LAUNCHED, firing.error
         assert firing.related == {"calibrations": 3, "uses": 1, "existing": 1}
-        assert firing.run is not None and firing.run.action == POLICY + "trace_failed_calibrations"
+        # The policy's trigger, Equipment's run: its action, environment and version.
+        traced = firing.run
+        assert traced is not None
+        assert traced.action == PREFIX + "trace_failed_calibrations"
+        assert (traced.environment, Job.objects.get(run=traced).environment) == (
+            "equipment-tools",
+            PREFIX + "equipment-tools",
+        )
+        assert traced.plugin_version == registry.plugins()["iki/equipment"].version
+        assert (traced.via, traced.requested_by) == (Via.TRIGGER, world.users["admin"])
         assert triggers.fire(str(firing.pk)) == "already fired"
-        [second_case] = execute(firing.run, EXAMPLE)
+        [second_case] = execute(traced, PLUGIN)
     else:
         assert not TriggerFiring.objects.exists()
         assert Entity.objects.filter(type=PREFIX + "CalibrationImpact").count() == 1

@@ -76,8 +76,8 @@
       }
     },
     "action": {
-      "description": "The name of the plugin's action it runs: on the entity, or, on a schedule, on nothing.",
-      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+      "description": "The action it runs: on the entity, or, on a schedule, on nothing. A bare name is the plugin's own; `namespace/plugin.action` is a dependency's.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/actionRef"
     },
     "input": {
       "description": "The action's input that takes the entity. It can be left out when only one input takes the trigger's type.",

@@ -1533,10 +1533,10 @@ def build() -> MCPServer:
 
     @server.tool(annotations=READ, title="List workflows")
     async def list_workflows() -> CallToolResult:
-        """Installed workflows: several of a plugin's actions run as one, each step an
-        ordinary run started once the steps it takes from have succeeded. Each lists its
-        inputs, params, steps (with their conditions and approvals), the tiers its steps run
-        on, and whether it can run now."""
+        """Installed workflows: several actions, the plugin's own or its dependencies', run
+        as one, each step an ordinary run started once the steps it takes from have
+        succeeded. Each lists its inputs, params, steps (with their conditions and
+        approvals), the tiers its steps run on, and whether it can run now."""
         return answer(await call("GET", "/workflows"))
 
     @server.tool(annotations=READ, title="Describe a workflow")

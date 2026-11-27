@@ -1432,6 +1432,83 @@ class _Semantics:
         )
         return None
 
+    def actions(self) -> dict[str, Action]:
+        """The actions its triggers, workflow steps and components can run, by qualified
+        name: its own, and its declared dependencies' (ADR 0298)."""
+        found = {a.qualified_name: a for a in self.plugin.actions.values()}
+        for name in self.plugin.dependencies:
+            other = self.others.get(name)
+            if other is not None and other.plugin is not None:
+                found.update({a.qualified_name: a for a in other.plugin.actions.values()})
+        return found
+
+    def action(self, ref: str, code: str, source: Document, path: Path) -> Action | None:
+        """The action `ref` names, qualified (``acme/lab.weigh`` or ``iki/protein.weigh``),
+        or None after reporting why it can't be run: its plugin's own, or a declared
+        dependency's (ADR 0298). `code` is the caller's for an action that isn't there."""
+        plugin, _, name = ref.rpartition(".")
+        if plugin == self.plugin.name:
+            found = self.plugin.actions.get(name)
+            if found is None:
+                # Written bare, but a dependency's: say how to name that one.
+                theirs = sorted(
+                    a.plugin
+                    for a in self.actions().values()
+                    if a.plugin != plugin and a.name == name
+                )
+                self.add(
+                    code,
+                    f"This plugin has no action `{name}`.",
+                    source,
+                    path,
+                    hint=f"Write `{theirs[0]}.{name}` for the {theirs[0]} plugin's."
+                    if len(theirs) == 1
+                    else schemas._did_you_mean(name, list(self.plugin.actions)),
+                )
+            return found
+        if "/" not in plugin:
+            own = plugin == naming.short_name(self.plugin.name)
+            self.add(
+                "unqualified-reference",
+                f"`{ref}` doesn't say which namespace the {plugin} plugin is in.",
+                source,
+                path,
+                hint=f"Write `{name}`, since it's this plugin's own action."
+                if own
+                else f"Write `{self._qualified(plugin)}.{name}`.",
+            )
+            return None
+        if plugin not in self.plugin.dependencies:
+            self.add(
+                "undeclared-dependency",
+                f"`{ref}` belongs to the {plugin} plugin, which plugin.yaml doesn't list under "
+                "`dependencies`.",
+                source,
+                path,
+                hint=f"Add `{plugin}: {{}}` under `dependencies`, and pass its directory with "
+                "`--with`.",
+            )
+            return None
+        if plugin in self.unavailable:
+            return None  # reported once, on the dependency
+        other = self.others.get(plugin)
+        owner = other.plugin if other is not None else None
+        found = owner.actions.get(name) if owner is not None else None
+        if found is None:
+            self.add(
+                code,
+                f"The {plugin} plugin has no action `{name}`.",
+                source,
+                path,
+                hint=schemas._did_you_mean(name, list(owner.actions)) if owner else None,
+            )
+        return found
+
+    def shown(self, action: str) -> str:
+        """An action's name as a message shows it: bare if it's this plugin's own."""
+        plugin, _, name = action.rpartition(".")
+        return name if plugin == self.plugin.name else action
+
     def _qualified(self, plugin: str) -> str:
         """What to write for a plugin named without its namespace: the one plugin of that
         name it was given (or is), else Iki's own, else the name in a namespace to fill in."""

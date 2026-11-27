@@ -43,6 +43,7 @@ import {
   LOG_KEPT_BYTES,
   logDownloadUrl,
   moreEffectsQuery,
+  pluginOf,
   projectRunsQuery,
   readLog,
   RUNS,
@@ -993,13 +994,22 @@ function ImportedRows({ imported }: { imported: NonNullable<Run["imported"]> }) 
   );
 }
 
+/** “ (a trigger of the acme/lab plugin)”, when what started a run is another plugin's than
+ * its action (ADR 0298); nothing when it's the same one's. */
+function ofPlugin(run: Run, qualified: string, kind: "trigger" | "workflow"): string {
+  const plugin = pluginOf(qualified);
+  return plugin && plugin !== pluginOf(run.action) ? ` (a ${kind} of the ${plugin} plugin)` : "";
+}
+
 function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trigger"]> }) {
+  const of = ofPlugin(run, trigger.name, "trigger");
   if (trigger.event === "schedule") {
     return (
       <>
         <dt>Trigger</dt>
         <dd>
-          {trigger.label}, on its schedule, for{" "}
+          {trigger.label}
+          {of}, on its schedule, for{" "}
           <RelativeTime value={trigger.scheduled_for ?? run.created_at} />
           {trigger.since ? (
             <>
@@ -1019,7 +1029,8 @@ function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trig
     <>
       <dt>Trigger</dt>
       <dd>
-        {trigger.label}, when{" "}
+        {trigger.label}
+        {of}, when{" "}
         {trigger.entity ? (
           <Link to="/entities/$ref/" params={{ ref: fired?.hrid ?? trigger.entity }}>
             {fired?.hrid ?? "its entity"}
@@ -1888,6 +1899,7 @@ export function RunPage() {
                 <Link to="/workflow-runs/$ref/" params={{ ref: run.workflow.hrid }}>
                   {run.workflow.hrid}
                 </Link>
+                {ofPlugin(run, run.workflow.name, "workflow")}
               </dd>
             </>
           ) : null}

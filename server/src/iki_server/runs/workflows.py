@@ -3,7 +3,9 @@
 
 A workflow run's steps are ordinary runs, launched by :func:`services.launch` as the person
 who started it, as they started it (through the web app, the API or an agent, whose runs
-then wait for approval as theirs would), in its project. A step starts once the steps it
+then wait for approval as theirs would), in its project. A step's action may be one of a
+dependency's (ADR 0298): its run is that action's, as its own plugin declares it, and the
+workflow records which step it was. A step starts once the steps it
 takes from or needs have succeeded, with the entities they say: the workflow's inputs, the
 entities a step created, or those a step was given.
 
@@ -105,7 +107,7 @@ def workflow(name: str) -> Workflow | None:
 
 def actions(of: Workflow) -> dict[str, Action | None]:
     """The action each step runs, by step ID, as installed now; None for one that isn't."""
-    return {i: catalog.action(f"{of.plugin}.{s.action}") for i, s in of.steps.items()}
+    return {i: catalog.action(s.action) for i, s in of.steps.items()}
 
 
 def visible(user: Any) -> QuerySet[WorkflowRun]:  # noqa: ANN401 - User or AnonymousUser
@@ -665,12 +667,12 @@ def _launch(
     """Launch the step's run, or a run for each entity, as the person who started the
     workflow, as they started it. On failure the step fails, and None is returned."""
     declared = spec.steps[step.step]
-    action = catalog.action(f"{spec.plugin}.{declared.action}")
+    action = catalog.action(declared.action)
     now = timezone.now()
     step.started_at = now
     try:
         if action is None:
-            raise Refused(f"`{spec.plugin}.{declared.action}` is no longer installed.")
+            raise Refused(f"`{declared.action}` is no longer installed.")
         inputs = _inputs(run, spec, declared.inputs, action, runs)
         named = {pk for group in inputs.values() for pk in group}
         if access.project_reference_ids(run.project, named) != named:

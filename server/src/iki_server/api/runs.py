@@ -519,7 +519,10 @@ class ApprovalCan(Schema):
 
 
 class TriggerRefOut(Schema):
-    name: str = Field(description="The trigger's qualified name, such as `protein.weigh_new`.")
+    name: str = Field(
+        description="The trigger's qualified name, such as `iki/protein.weigh_new`: its plugin "
+        "may not be the run's action's (ADR 0298)."
+    )
     label: str = Field(description="Its label, or its name once it's no longer installed.")
 
 
@@ -560,6 +563,11 @@ class BatchRefOut(Schema):
 class WorkflowStepRefOut(Schema):
     id: UUID
     hrid: str = Field(description="Such as WF-000123.")
+    name: str = Field(
+        description="The workflow's qualified name, such as "
+        "`acme/protein_translation.translate_and_characterize`: its plugin may not be the "
+        "run's action's (ADR 0298)."
+    )
     step: str = Field(description="The step's ID in the workflow.")
 
 
@@ -1143,11 +1151,12 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             pk__in={r.batch_id for r in runs if r.batch_id is not None}
         ).values("id", "hrid")
     }
-    flows = dict(
-        WorkflowRun.objects.filter(
+    flows = {
+        pk: (hrid, name)
+        for pk, hrid, name in WorkflowRun.objects.filter(
             pk__in={r.workflow_id for r in runs if r.workflow_id is not None}
-        ).values_list("id", "hrid")
-    )
+        ).values_list("id", "hrid", "workflow")
+    }
     fired = {
         f.run_id: {
             **trigger_ref(f.trigger),
@@ -1210,7 +1219,8 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "batch": batches.get(run.batch_id) if run.batch_id else None,
             "workflow": {
                 "id": run.workflow_id,
-                "hrid": flows[run.workflow_id],
+                "hrid": flows[run.workflow_id][0],
+                "name": flows[run.workflow_id][1],
                 "step": run.workflow_step,
             }
             if run.workflow_id

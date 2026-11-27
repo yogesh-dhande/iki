@@ -105,7 +105,7 @@ describe("a workflow run's page", () => {
       "/batches/BAT-000001/",
     );
     expect(steps).toHaveTextContent(
-      "acme/protein_translation.compute_properties for each protein · BAT-000001, 1 of 3 runs finished",
+      "iki/protein.compute_properties for each protein · BAT-000001, 1 of 3 runs finished",
     );
   });
 
@@ -346,13 +346,23 @@ describe("a run that's a workflow's step", () => {
     answer("GET /api/v1/projects", page([KINASE]));
     answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
     answer("GET /api/v1/actions", [ACTION]);
-    const step = run({ workflow: { id: WORKFLOW_ID, hrid: "WF-000001", step: "properties" } });
+    // A lab's workflow of iki/protein's actions (ADR 0298): the run names whose it is.
+    const step = run({
+      workflow: {
+        id: WORKFLOW_ID,
+        hrid: "WF-000001",
+        name: "acme/protein_translation.translate_and_characterize",
+        step: "properties",
+      },
+    });
     answer("GET /api/v1/runs/RUN-000001", step);
     answer("GET /api/v1/runs/RUN-000001/attempts", []);
     answer("GET /api/v1/runs/RUN-000001/artifacts", []);
     await renderApp("/runs/RUN-000001/");
     const link = await screen.findByRole("link", { name: "WF-000001" });
     expect(link).toHaveAttribute("href", "/workflow-runs/WF-000001/");
-    expect(link.closest("dd")).toHaveTextContent("Step properties of WF-000001");
+    expect(link.closest("dd")).toHaveTextContent(
+      "Step properties of WF-000001 (a workflow of the acme/protein_translation plugin)",
+    );
   });
 });

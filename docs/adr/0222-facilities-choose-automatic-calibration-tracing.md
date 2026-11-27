@@ -1,6 +1,7 @@
 # 0222. Facilities choose automatic calibration tracing
 
 - Status: Accepted
+- Updated by [0298](0298-a-plugin-can-run-its-dependencies-actions.md): the example's trigger runs Equipment's own trace, with no local copy
 - Date: 2026-11-25
 - Updates [0194](0194-equipment-use-pins-calibration-and-failures-open-impact-cases.md)
 

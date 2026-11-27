@@ -145,6 +145,13 @@
       "maxLength": 112,
       "pattern": "^([a-z][a-z0-9]*(_[a-z0-9]+)*(/[a-z][a-z0-9]*(_[a-z0-9]+)*)?\\.)?[A-Z][A-Za-z0-9]*$"
     },
+    "actionRef": {
+      "description": "An action: just `action` for one of the same plugin's, or `namespace/plugin.action` (such as `iki/protein.compute_properties`) for one of a plugin it lists under `dependencies`.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 112,
+      "pattern": "^([a-z][a-z0-9]*(_[a-z0-9]+)*(/[a-z][a-z0-9]*(_[a-z0-9]+)*)?\\.)?[a-z][a-z0-9]*(_[a-z0-9]+)*$"
+    },
     "label": {
       "description": "What people see. Defaults to the name, with underscores as spaces.",
       "type": "string",

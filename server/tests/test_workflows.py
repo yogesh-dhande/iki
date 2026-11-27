@@ -197,7 +197,13 @@ def test_starting_a_workflow_launches_its_first_steps(world: World) -> None:
     assert get(world, body, "viewer") == {**body, "can": {"cancel": False, "rerun": False}}
     runs = viewer.get("/runs", workflow=body["hrid"]).json()["items"]
     assert [r["id"] for r in runs] == [weigh_run["id"]]
-    assert runs[0]["workflow"] == {"id": body["id"], "hrid": body["hrid"], "step": "weigh"}
+    # Named, since its plugin may not be the step's action's (ADR 0298).
+    assert runs[0]["workflow"] == {
+        "id": body["id"],
+        "hrid": body["hrid"],
+        "name": "acme/protein.weigh_and_align",
+        "step": "weigh",
+    }
     listed = viewer.get("/workflow-runs", project=str(world.project.pk)).json()["items"]
     assert [w["hrid"] for w in listed] == [body["hrid"]]
     assert viewer.get("/workflow-runs", status="failed").json()["items"] == []

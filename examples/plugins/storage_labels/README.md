@@ -20,8 +20,9 @@ These labels describe storage. Track tube placement, moves and balances with Inv
    `types/dna_sequence.yaml` adds a construct ID and verification flag to that
    sequence's project record.
 
-Both workflow steps call actions declared by this plugin. The DNA dependency
-supplies a type. A project admin can also enable **Assign storage to new
+Both workflow steps call actions declared by this plugin, by name. A step or
+trigger can also run a dependency's action, named in full, such as
+`iki/dna.compute_composition`. The DNA dependency supplies a type. A project admin can also enable **Assign storage to new
 samples** in project triggers. It queues the assignment action on creation
 and requires approval for its container run. Run the workflow to expand a code.
 

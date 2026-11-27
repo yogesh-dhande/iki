@@ -1,6 +1,7 @@
 # 0079. Workflows are DAGs of ordinary runs
 
 - Status: Accepted
+- Amended by [0298](0298-a-plugin-can-run-its-dependencies-actions.md): a step may run a declared dependency's action, by its qualified name
 - Date: 2026-11-13
 
 ## Context

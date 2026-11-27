@@ -186,7 +186,7 @@ def test_a_good_trigger(tmp_path: Path) -> None:
         label="Measure new assays",
         on="entity.created",
         type="acme/lab.Assay",
-        action="measure",
+        action="acme/lab.measure",
         # Left out, and the only input that takes an Assay.
         input="assay",
         params={"mode": "fast"},

@@ -120,6 +120,8 @@ if there is a known calibration failure.
 Facilities that open impact cases automatically when an engineer sets the
 failure flag can adapt the
 [calibration tracing example](../../examples/plugins/calibration_tracing/README.md).
+Its trigger runs this plugin's own **Trace failed calibrations**, so both routes
+trace with the same validated calculation.
 
 The lab controls its return-to-service decision. Record and sign the passing
 check, then update the instrument's service and calibration states. The

@@ -101,7 +101,7 @@ class TriggerOut(Schema):
 
 
 def _trigger_out(spec: Trigger) -> dict[str, Any]:
-    action = catalog.action(f"{spec.plugin}.{spec.action}")
+    action = catalog.action(spec.action)
     return {
         "name": spec.qualified_name,
         "plugin": spec.plugin,
@@ -115,7 +115,7 @@ def _trigger_out(spec: Trigger) -> dict[str, Any]:
         "fields": list(spec.fields),
         "field": spec.state_field,
         "states": list(spec.states),
-        "action": f"{spec.plugin}.{spec.action}",
+        "action": spec.action,
         "recheck": bool(spec.recheck),
         "action_label": action.label if action is not None else spec.action,
         "input": spec.input,

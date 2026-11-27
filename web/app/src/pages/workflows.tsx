@@ -24,6 +24,7 @@ import { usePageTitle } from "../layout";
 import { consentFor, SendsOutside, useSending } from "../outside-apis";
 import {
   actionsQuery,
+  fromPlugin,
   projectWorkflowRunsQuery,
   RUNS,
   workflowsQuery,
@@ -292,6 +293,7 @@ function Steps({ workflow, actions }: { workflow: Workflow; actions: Action[] })
             <span className="row-title">{step.label}</span>
             <span className="row-meta">
               {actions.find((a) => a.name === step.action)?.label ?? step.action}
+              {fromPlugin(step.action, workflow.plugin)}
               {step.each ? ` for each ${step.each}` : ""}
               {step.after.length ? ` · after ${step.after.join(", ")}` : ""}
             </span>

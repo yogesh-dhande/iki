@@ -7,9 +7,9 @@ Iki's installable first-party plugins live in [`plugins/`](../../plugins).
 
 - [Analytical testing](analytical_testing/README.md) gives an analytical core its own
   request for a panel of measurements, and a signed result for each one.
-- [Automatic calibration impact tracing](calibration_tracing/README.md) opens
-  impact cases for affected measurements when an engineer marks an instrument's
-  calibration as failed.
+- [Automatic calibration impact tracing](calibration_tracing/README.md) runs
+  Equipment's own trace, opening impact cases for affected measurements, when an
+  engineer marks an instrument's calibration as failed.
 - [Hosted model adapter](hosted_models/README.md) submits a job to a fictional
   provider and imports its result when the job finishes. Use it to adapt an
   asynchronous service your lab has approved.
@@ -25,8 +25,9 @@ Iki's installable first-party plugins live in [`plugins/`](../../plugins).
   known bases and a lab’s standard pattern of modifications.
 - [Protein production](protein_production/README.md) gives a production core its own
   request for a protein and a mass, and the lot it returns.
-- [Protein translation](protein_translation/README.md) chains translation and
-  property calculation for labs that characterize each translated protein.
+- [Protein translation](protein_translation/README.md) chains Protein's own
+  translation and property calculation for labs that characterize each
+  translated protein.
 - [qPCR instrument intake](instrument_intake/README.md) sends each QuantStudio
   run from the instrument PC to a facility's project, and reads its wells and
   standard curves once the file is scanned clean.
@@ -57,7 +58,9 @@ In `plugin.yaml`, change `acme/example` to your plugin's identity, such as
 `acme/lab_storage`, and give it the title your users should see. The identity
 determines table names. Update qualified references in the copied manifests,
 scripts and tests before the first migration. Keep other plugins' names on
-their types. Each workflow step calls an action in its own plugin.
+their types and actions. A workflow step or trigger runs the plugin's own
+action by name, or a dependency's in full, such as
+`iki/protein.compute_properties`.
 
 ## Test and build the copy
 

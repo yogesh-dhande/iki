@@ -6761,7 +6761,7 @@ class TriggerFiredOut(TypedDict):
     event: Literal['entity.created', 'entity.registered', 'entity.state_changed', 'entity.updated', 'request.received', 'schedule']
     #: Its label, or its name once it's no longer installed.
     label: str
-    #: The trigger's qualified name, such as `protein.weigh_new`.
+    #: The trigger's qualified name, such as `iki/protein.weigh_new`: its plugin may not be the run's action's (ADR 0298).
     name: str
     #: The revision of the visible entity whose change fired it.
     revision: int | None
@@ -6810,7 +6810,7 @@ class TriggerOut(TypedDict):
 class TriggerRefOut(TypedDict):
     #: Its label, or its name once it's no longer installed.
     label: str
-    #: The trigger's qualified name, such as `protein.weigh_new`.
+    #: The trigger's qualified name, such as `iki/protein.weigh_new`: its plugin may not be the run's action's (ADR 0298).
     name: str
 
 
@@ -7525,6 +7525,8 @@ class WorkflowStepRefOut(TypedDict):
     #: Such as WF-000123.
     hrid: str
     id: str
+    #: The workflow's qualified name, such as `acme/protein_translation.translate_and_characterize`: its plugin may not be the run's action's (ADR 0298).
+    name: str
     #: The step's ID in the workflow.
     step: str
 
