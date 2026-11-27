@@ -1,7 +1,23 @@
 # Importing an endpoint plate
 
-Use a 96- or 384-well plate and export a single raw absorbance endpoint in
-BMG LABTECH MARS. In MicroPlate View, select the raw channel and the **OD**
+A plate's reader file format names the subset of an export Iki reads and the
+version of that reading. Each committed read records it, for example
+`bmg_mars_absorbance/1`. A file in the other format is refused with the format
+to choose. An export Iki doesn't list here needs a new format; a lab can
+convert its own reader's endpoint matrix to the Iki plate matrix below, when
+its readout is normalized activity.
+
+Every format gives one matrix: numbered columns 1–12 or 1–24, then lettered
+rows A–H or A–P. Each measured cell joins the assignment of its labelled row
+and column. A zero is a reading. An empty cell has no reading. Each export is
+one read of the plate. The same export can't be committed to a plate twice;
+another read of it, such as one taken later or at another wavelength, is its
+own export and its own read on the same layout.
+
+## BMG LABTECH MARS absorbance endpoint, version 1
+
+`bmg_mars_absorbance`. Use a 96- or 384-well plate and export a single raw
+absorbance endpoint in BMG LABTECH MARS. In MicroPlate View, select the raw channel and the **OD**
 display. Include the run header, choose comma-separated CSV with a decimal
 point and leave unmeasured wells empty. The file must contain one block
 labelled `Raw Data (<wavelength>)`, with its wavelength in nanometres.
@@ -20,14 +36,33 @@ readings and readings without assignments. Resolve the issues before commit.
 [ANSI/SLAS microplate standards](https://www.slas.org/education/ansi-slas-microplate-standards/).
 
 The signal is dimensionless absorbance, displayed as AU. The original
-reading and channel stay with the measurement for review.
-[IUPAC definition of absorbance](https://doi.org/10.1351/goldbook.A00028).
+reading and channel stay with the measurement for review, with the readout
+`absorbance`. [IUPAC definition of absorbance](https://doi.org/10.1351/goldbook.A00028).
 
-## Normalized activity
+The read keeps the export's run header as MARS wrote it: its user, test name,
+test run number, date, time and plate IDs. The date is kept as text, because
+its order follows the instrument PC's locale. The export's directory path
+isn't kept.
 
-For deposited percent activity, place `Normalized activity (%)` alone on line one, then the numbered column headings and the labelled plate rows. Each populated cell contains the signed percentage as deposited. Individual well records store it as **Normalized activity (%)**. The fitter retains this unit. [Tox21 example and source](curve-example.md).
+Not read in this version: fluorescence, luminescence and other readouts,
+milli-OD and percent transmission displays, blank-corrected or calculated
+matrices, kinetic, spectral and well-scan exports, more than one matrix per
+file, and Excel or ASCII table exports.
+
+## Iki plate matrix of normalized activity, version 1
+
+`iki_plate_matrix`. Iki's own interchange format, not a vendor export, for
+activity that is already normalized, such as a public deposit. Place
+`Normalized activity (%)` alone on line one, then the numbered column headings
+and the labelled plate rows. Each populated cell contains the signed
+percentage as given. Individual well records store it as **Normalized
+activity (%)**, with the readout `normalized_activity`; it is never read as
+absorbance, nor absorbance as activity. The fitter retains this unit. The
+matrix has no run header. [Tox21 example and source](curve-example.md).
 
 ## Example files
+
+Each is a golden file for its format's tests.
 
 - [PHERAstar QC plate](../tests/data/mars-384-qc.csv) contains the public MARS
   export of the 384-well `472 ABS 384 QC` run at 484 nm. Its measurements and
@@ -43,3 +78,6 @@ For deposited percent activity, place `Normalized activity (%)` alone on line on
      and −0.002 AU model measurement scatter. The readings are rounded to six
      decimal places. A9 is the blank control at 0.1 AU and A10 the reference
      control at 1 AU. All ten occupy replicate 1.
+- [Tox21 luciferase matrix](../tests/data/aid-1224835-activity.csv) is the
+  Iki plate matrix of the deposited PubChem AID 1224835 activities the
+  [curve example](curve-example.md) describes.

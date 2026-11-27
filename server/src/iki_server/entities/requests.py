@@ -720,6 +720,33 @@ def _material_matches(request: Entity, material: uuid.UUID | None) -> bool:
     return covers(subjects, material) if material is not None else not subjects
 
 
+def _nearness(request_type: str, result_type: str) -> int | None:
+    """How near ``request_type`` the type that ``result_type``'s request reference refers to
+    is: 0 for the request's own type, 1 for its parent, and so on. None if its results can't
+    answer one."""
+    spec = result_spec(result_type)
+    if spec is None or registry.types()[result_type].abstract:
+        return None
+    targets = shape(result_type).fields()[spec.of].to
+    entity_type = registry.types()[request_type]
+    lineage = [request_type, *(t.qualified_name for t in registry.ancestors(entity_type))]
+    return next((i for i, name in enumerate(lineage) if name in targets), None)
+
+
+def _a(label: str) -> str:
+    return ("an " if label[:1] in "AEIOU" else "a ") + label
+
+
+def answered_by(request_type: str) -> list[str]:
+    """The result types whose results answer requests of ``request_type`` (ADR 0235): of
+    those whose request reference can refer to one, the ones referring to the type nearest
+    it. A service's result type that refines its request reference to the service's own
+    request type is so the one that answers it, and its parent's isn't."""
+    near = {name: n for name in result_types() if (n := _nearness(request_type, name)) is not None}
+    nearest = min(near.values(), default=None)
+    return sorted(name for name, n in near.items() if n == nearest)
+
+
 def result_rows(request: Entity) -> Iterator[tuple[str, ResultSpec, QuerySet[Any]]]:
     """Each concrete type of result that can answer this request and all its recorded results."""
     from iki_server.entities.values import subtypes
@@ -820,6 +847,12 @@ def check_result(
             == request.completed_state
         ):
             return {spec.of: ["This request has already been delivered."]}
+        answering = answered_by(found.entity.type)
+        if type_name not in answering:
+            types = registry.types()
+            asked = _a(types[found.entity.type].label)
+            labels = " or ".join(_a(types[name].label) for name in answering)
+            return {spec.of: [f"is {asked}: record {labels} for it."]}
         if spec.material and not _material_matches(found.entity, given.get(spec.material)):
             return {spec.material: [MATERIAL_REFUSAL]}
         return {}

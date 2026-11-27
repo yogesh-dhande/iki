@@ -12,6 +12,18 @@ Request and Deliverable are abstract parents. The concrete request determines wh
 | ResearchRequest | ResearchDeliverable | A reviewer signs the result.                                                                              |
 | QCRequest       | QCDeliverable       | An analyst signs submission, an independent reviewer signs review and a third person in QA signs release. |
 
+Each signature checks that a deliverable's material is still on the request, or is an aliquot or sample of it.
+
+## A service's own fields
+
+These types hold what every service shares. A core that records more about its work, such as the protein and mass to make, the sequencing method or the measurements of an analytical panel, declares its own request and deliverable types. Its request type extends Plain, Research or QC request with the fields the asking project gives. Its deliverable type extends the matching deliverable with the service's evidence, and refines `request` to the service's request type. Its rules read that type's fields, and only its deliverables answer its requests. [ADR 0235](../../docs/adr/0235-a-services-own-request-types-carry-its-fields.md)
+
+Start from one of these examples:
+
+- [Protein production](../../examples/plugins/protein_production/README.md): one protein, a requested mass, and the lot the core returns.
+- [Sequencing service](../../examples/plugins/sequencing_service/README.md): tubes, a method, and each tube's reads or public run accession.
+- [Analytical testing](../../examples/plugins/analytical_testing/README.md): the analyses to run, and each signed measurement.
+
 ## Try a facility request
 
 The [core facility examples](../../examples/core-facility-requests/README.md) include a protein request and a sequencing request, with their input records, delivery reports and sources.

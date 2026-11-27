@@ -194,7 +194,33 @@ class PlateMap extends HTMLElement {
     const preview = values.preview;
     if (preview || values.reader_file || values.committed) {
       out.push(node("h3", {}, "Reader measurements"));
-      if (values.committed) out.push(node("p", { role: "status" }, "Measurements committed."));
+      const reads = values.committed_reads?.length ?? (values.committed ? 1 : 0);
+      if (reads)
+        out.push(
+          node(
+            "p",
+            { role: "status" },
+            `${reads} read${reads === 1 ? "" : "s"} committed. The layout is fixed; attach the next read's file to add another.`,
+          ),
+        );
+      if (preview?.format) {
+        const header = preview.acquisition ?? {};
+        const run = [
+          header.test_name,
+          header.test_run && `run ${header.test_run}`,
+          header.date,
+          header.time,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        out.push(
+          node(
+            "p",
+            {},
+            `Read as ${preview.format.label}, version ${preview.format.version}.${run ? ` Export: ${run}.` : ""}`,
+          ),
+        );
+      }
       if (preview?.issues?.length) {
         out.push(
           node(
@@ -230,10 +256,12 @@ class PlateMap extends HTMLElement {
           ),
         );
       }
-      if (!values.committed) {
+      // A committed read's file isn't committed again: the next read needs its own file.
+      const done = values.committed_reads?.some((r) => r.sha256 === preview?.source?.sha256);
+      if (!values.committed || values.reader_file) {
         const actions = node("div", { class: "actions" });
         this.offer(actions, PREVIEW, preview ? "Refresh reader preview" : "Preview reader file");
-        if (preview?.readings?.length && !preview.issues?.length)
+        if (preview?.readings?.length && !preview.issues?.length && !done)
           this.offer(actions, COMMIT, "Commit measurements");
         out.push(actions);
       }

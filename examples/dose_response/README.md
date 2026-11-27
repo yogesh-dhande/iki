@@ -55,7 +55,8 @@ reviews, signatures, and inventory movements.
 1. In the service project, open **Requests → Sent to us → Tox21 firefly luciferase
    inhibition**. Start receiving and scan both compound tubes. Choose **Keep in my custody**
    and complete receiving.
-2. Open the plate's **Plate map** tab. Preview the normalized activity CSV and confirm 72
+2. Open the plate's **Plate map** tab. The plate reads its file in the Iki plate matrix
+   format. Preview the normalized activity CSV and confirm 72
    readings, including six controls. Commit the measurements. Rows A–C contain apigenin and
    rows D–F contain daidzein. Column 12 carries the active and inactive controls.
 3. Run **Fit a dose-response curve** for each compound on that read. Select **IC50** and use

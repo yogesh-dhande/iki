@@ -5,7 +5,9 @@ These files accompany the [Requests plugin](../../plugins/requests/README.md) an
 For the protein production example, register the yeast alcohol dehydrogenase 1 sequence from
 [P00330.fasta](P00330.fasta). Send a Research request for 1 mg and upload
 [P00330-production.txt](P00330-production.txt) in the core as the delivery report for the
-training lot and 0.8 mg delivery. The requested quantity, delivered quantity,
+training lot and 0.8 mg delivery. A core that records the mass, lot and delivered mass as
+fields uses the [protein production example](../plugins/protein_production/README.md)'s
+request and deliverable types. The requested quantity, delivered quantity,
 and lot are synthetic. The protein and sequence come from the UniProtKB
 entry under its attribution license.
 [UniProtKB P00330](https://www.uniprot.org/uniprotkb/P00330/entry),
@@ -14,6 +16,7 @@ entry under its attribution license.
 For sequencing, register a training tube named CEY652 and send it with a
 Regulated QC request for long-read sequencing. In the core, receive it and
 use [ERR13376132-delivery.txt](ERR13376132-delivery.txt) for the tube's report with public
-run accession `ERR13376132`. The accession and sample identifier refer to
+run accession `ERR13376132`. The [sequencing service example](../plugins/sequencing_service/README.md)
+records the method and the accession as fields. The accession and sample identifier refer to
 a published yeast dataset. The request, custody, and signatures are training
 events. [NCBI Sequence Read Archive](https://www.ncbi.nlm.nih.gov/sra/ERX12747051)

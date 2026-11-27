@@ -3,9 +3,9 @@ kind: Action
 name: preview_reader
 label: Preview reader and well assignments
 description: >-
-  Join the endpoint matrix to this plate layout.
-  Use an absorbance export in OD (AU) or a normalized activity matrix in percent. The preview displays the
-  joined values and identifies missing, repeated and unassigned wells.
+  Read the reader file in the plate's reader file format and join its matrix to the plate
+  layout. The preview displays the joined values and the export's run header, and identifies
+  missing, repeated and unassigned wells and a file already committed to the plate.
 inputs: { plate: { type: AssayPlate, schema: ">=1" } }
 effects: { updates: [{ input: plate, fields: [preview] }] }
 runs_on: { tier: backend, environment: assay-tools }

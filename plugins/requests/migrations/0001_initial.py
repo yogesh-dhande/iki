@@ -6,7 +6,6 @@ import django.contrib.postgres.search
 import django.db.models.deletion
 import django.db.models.functions.text
 import django.db.models.lookups
-import iki_server.entities.checks
 import iki_server.entities.fields
 import iki_server.plugins.operations
 from django.conf import settings
@@ -31,11 +30,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('entity', models.OneToOneField(db_column='entity_id', on_delete=django.db.models.deletion.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to='iki_entities.entity')),
                 ('outcome', models.TextField()),
-                ('lot_number', models.CharField(max_length=100, null=True)),
-                ('delivered_mass', iki_server.entities.fields.QuantityField(null=True, unit='mg')),
-                ('run_accession', models.CharField(max_length=30, null=True)),
                 ('material', models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to='iki_entities.entity')),
-                ('protein', models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to='iki_entities.entity')),
                 ('report', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='+', to='iki_files.file')),
             ],
             options={
@@ -51,12 +46,7 @@ class Migration(migrations.Migration):
                 ('revision', models.PositiveIntegerField()),
                 ('outcome', models.TextField(null=True)),
                 ('report', models.UUIDField(db_column='report_id', null=True)),
-                ('protein', models.UUIDField(db_column='protein_id', null=True)),
-                ('lot_number', models.TextField(null=True)),
-                ('delivered_mass', iki_server.entities.fields.QuantityField(null=True, unit='mg')),
                 ('material', models.UUIDField(db_column='material_id', null=True)),
-                ('data_files', django.contrib.postgres.fields.ArrayField(base_field=models.UUIDField(), null=True)),
-                ('run_accession', models.TextField(null=True)),
             ],
             options={
                 'db_table': 'iki__requests_deliverable__history',
@@ -86,7 +76,6 @@ class Migration(migrations.Migration):
             fields=[
                 ('entity', models.OneToOneField(db_column='entity_id', on_delete=django.db.models.deletion.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to='iki_entities.entity')),
                 ('title', models.CharField(max_length=200)),
-                ('analyses', django.contrib.postgres.fields.ArrayField(base_field=models.TextField(), null=True)),
                 ('needed_by', models.DateField(null=True)),
                 ('instructions', models.TextField(null=True)),
                 ('standing', iki_server.entities.fields.StateField(db_comment='A state field (ADR 0125): one of open, withdrawn.', db_default='open', states=['open', 'withdrawn'])),
@@ -94,9 +83,6 @@ class Migration(migrations.Migration):
                 ('priority', models.TextField(db_default='routine', null=True)),
                 ('scheduled_on', models.DateField(null=True)),
                 ('service_notes', models.TextField(null=True)),
-                ('facility_service', models.TextField(db_index=True, null=True)),
-                ('requested_mass', iki_server.entities.fields.QuantityField(null=True, unit='mg')),
-                ('sequencing_method', models.TextField(null=True)),
                 ('analyst', models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to=settings.AUTH_USER_MODEL)),
             ],
             options={
@@ -125,12 +111,6 @@ class Migration(migrations.Migration):
                 ('entity_id', models.UUIDField()),
                 ('revision', models.PositiveIntegerField()),
                 ('request', models.UUIDField(db_column='request_id', null=True)),
-                ('analysis', models.TextField(null=True)),
-                ('purity', models.FloatField(null=True)),
-                ('measured_mass', iki_server.entities.fields.QuantityField(null=True, unit='u')),
-                ('peptide_coverage', iki_server.entities.fields.QuantityField(null=True, unit='%')),
-                ('endotoxin', iki_server.entities.fields.QuantityField(null=True, unit='{EU}/mg')),
-                ('result', models.TextField(null=True)),
                 ('notes', models.TextField(null=True)),
                 ('review', models.TextField(null=True)),
             ],
@@ -165,7 +145,6 @@ class Migration(migrations.Migration):
                 ('records', django.contrib.postgres.fields.ArrayField(base_field=models.UUIDField(), null=True)),
                 ('materials', django.contrib.postgres.fields.ArrayField(base_field=models.UUIDField(), null=True)),
                 ('tubes', django.contrib.postgres.fields.ArrayField(base_field=models.UUIDField(), null=True)),
-                ('analyses', django.contrib.postgres.fields.ArrayField(base_field=models.TextField(), null=True)),
                 ('needed_by', models.DateField(null=True)),
                 ('instructions', models.TextField(null=True)),
                 ('standing', models.TextField(null=True)),
@@ -174,9 +153,6 @@ class Migration(migrations.Migration):
                 ('scheduled_on', models.DateField(null=True)),
                 ('analyst', models.UUIDField(db_column='analyst_id', null=True)),
                 ('service_notes', models.TextField(null=True)),
-                ('facility_service', models.TextField(null=True)),
-                ('requested_mass', iki_server.entities.fields.QuantityField(null=True, unit='mg')),
-                ('sequencing_method', models.TextField(null=True)),
             ],
             options={
                 'db_table': 'iki__requests_request__history',
@@ -250,12 +226,6 @@ class Migration(migrations.Migration):
             name='QCDeliverable',
             fields=[
                 ('deliverable_ptr', models.OneToOneField(db_column='entity_id', on_delete=django.db.models.deletion.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to='iki__requests.deliverable')),
-                ('analysis', models.TextField(null=True)),
-                ('purity', models.FloatField(null=True)),
-                ('measured_mass', iki_server.entities.fields.QuantityField(null=True, unit='u')),
-                ('peptide_coverage', iki_server.entities.fields.QuantityField(null=True, unit='%')),
-                ('endotoxin', iki_server.entities.fields.QuantityField(null=True, unit='{EU}/mg')),
-                ('result', models.TextField(null=True)),
                 ('notes', models.TextField(null=True)),
                 ('review', iki_server.entities.fields.StateField(db_comment='A state field (ADR 0125): one of recorded, submitted, reviewed, released.', db_default='recorded', locking=['submitted', 'reviewed', 'released'], states=['recorded', 'submitted', 'reviewed', 'released'])),
             ],
@@ -354,49 +324,9 @@ class Migration(migrations.Migration):
             },
             bases=('iki_entities.entity',),
         ),
-        migrations.CreateModel(
-            name='Deliverable_data_files',
-            fields=[
-                ('pk', models.CompositePrimaryKey('entity', 'position', blank=True, editable=False, primary_key=True, serialize=False)),
-                ('entity', models.ForeignKey(db_column='entity_id', on_delete=django.db.models.deletion.CASCADE, related_name='+', to='iki__requests.deliverable')),
-                ('position', models.PositiveIntegerField()),
-                ('item', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='+', to='iki_files.file')),
-            ],
-            options={
-                'db_table': 'iki__requests_deliverable__data_files',
-            },
-        ),
         migrations.AddConstraint(
             model_name='deliverable',
             constraint=models.CheckConstraint(condition=models.Q(('outcome__in', ['fulfilled', 'unsuccessful'])), name='iki__requests_deliverable__outcome__values'),
-        ),
-        migrations.AddConstraint(
-            model_name='deliverable',
-            constraint=models.CheckConstraint(condition=django.db.models.lookups.GreaterThanOrEqual(django.db.models.functions.text.Length('lot_number'), 1), name='iki__requests_deliverable__lot_number__not_empty'),
-        ),
-        migrations.AddConstraint(
-            model_name='deliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('lot_number__regex', '[\\r\\n]'), _negated=True), name='iki__requests_deliverable__lot_number__one_line'),
-        ),
-        migrations.AddConstraint(
-            model_name='deliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('delivered_mass__gt', float("-inf")), ('delivered_mass__lt', float("inf"))), name='iki__requests_deliverable__delivered_mass__finite'),
-        ),
-        migrations.AddConstraint(
-            model_name='deliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('delivered_mass__gte', 0)), name='iki__requests_deliverable__delivered_mass__min'),
-        ),
-        migrations.AddConstraint(
-            model_name='deliverable',
-            constraint=models.CheckConstraint(condition=django.db.models.lookups.GreaterThanOrEqual(django.db.models.functions.text.Length('run_accession'), 1), name='iki__requests_deliverable__run_accession__not_empty'),
-        ),
-        migrations.AddConstraint(
-            model_name='deliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('run_accession__regex', '[\\r\\n]'), _negated=True), name='iki__requests_deliverable__run_accession__one_line'),
-        ),
-        migrations.AddConstraint(
-            model_name='deliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('run_accession__regex', '^(?:^(SRR|ERR|DRR)[0-9]+$)$')), name='iki__requests_deliverable__run_accession__pattern'),
         ),
         iki_server.plugins.operations.AddPluginField(
             model_name='plaindeliverable',
@@ -446,18 +376,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='request',
-            constraint=models.CheckConstraint(condition=iki_server.entities.checks.IsPlainList('analyses'), name='iki__requests_request__analyses__plain_list'),
-        ),
-        migrations.AddConstraint(
-            model_name='request',
-            constraint=models.CheckConstraint(condition=models.Q(('analyses__len__lte', 4)), name='iki__requests_request__analyses__max_items'),
-        ),
-        migrations.AddConstraint(
-            model_name='request',
-            constraint=models.CheckConstraint(condition=models.Q(('analyses__contained_by', ['sec_purity', 'intact_mass', 'peptide_map', 'endotoxin'])), name='iki__requests_request__analyses__item_values'),
-        ),
-        migrations.AddConstraint(
-            model_name='request',
             constraint=models.CheckConstraint(condition=django.db.models.lookups.GreaterThanOrEqual(django.db.models.functions.text.Length('instructions'), 1), name='iki__requests_request__instructions__not_empty'),
         ),
         migrations.AddConstraint(
@@ -475,22 +393,6 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name='request',
             constraint=models.CheckConstraint(condition=django.db.models.lookups.GreaterThanOrEqual(django.db.models.functions.text.Length('service_notes'), 1), name='iki__requests_request__service_notes__not_empty'),
-        ),
-        migrations.AddConstraint(
-            model_name='request',
-            constraint=models.CheckConstraint(condition=models.Q(('facility_service__in', ['protein_production', 'sequencing'])), name='iki__requests_request__facility_service__values'),
-        ),
-        migrations.AddConstraint(
-            model_name='request',
-            constraint=models.CheckConstraint(condition=models.Q(('requested_mass__gt', float("-inf")), ('requested_mass__lt', float("inf"))), name='iki__requests_request__requested_mass__finite'),
-        ),
-        migrations.AddConstraint(
-            model_name='request',
-            constraint=models.CheckConstraint(condition=models.Q(('requested_mass__gte', 0)), name='iki__requests_request__requested_mass__min'),
-        ),
-        migrations.AddConstraint(
-            model_name='request',
-            constraint=models.CheckConstraint(condition=models.Q(('sequencing_method__in', ['sanger', 'short_read', 'long_read'])), name='iki__requests_request__sequencing_method__values'),
         ),
         migrations.AddIndex(
             model_name='workitem',
@@ -521,64 +423,12 @@ class Migration(migrations.Migration):
             constraint=models.CheckConstraint(condition=models.Q(('status__in', ['queued', 'scheduled', 'running', 'done', 'cancelled'])), name='iki__requests_workitem__status__known'),
         ),
         migrations.AddConstraint(
-            model_name='deliverable_data_files',
-            constraint=models.CheckConstraint(condition=models.Q(('position__lt', 12)), name='iki__requests_deliverable__data_files__position__max_items'),
-        ),
-        migrations.AddConstraint(
             model_name='plaindeliverable',
             constraint=models.CheckConstraint(condition=models.Q(('status__in', ['recorded', 'delivered'])), name='iki__requests_plaindeliverable__status__known'),
         ),
         migrations.AddIndex(
             model_name='qcdeliverable',
             index=django.contrib.postgres.indexes.GinIndex(django.contrib.postgres.search.SearchVector('notes', config='simple'), name='notes_fts_df3d35fc1f7622198a56'),
-        ),
-        migrations.AddConstraint(
-            model_name='qcdeliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('analysis__in', ['sec_purity', 'intact_mass', 'peptide_map', 'endotoxin'])), name='iki__requests_qcdeliverable__analysis__values'),
-        ),
-        migrations.AddConstraint(
-            model_name='qcdeliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('purity__gt', float("-inf")), ('purity__lt', float("inf"))), name='iki__requests_qcdeliverable__purity__finite'),
-        ),
-        migrations.AddConstraint(
-            model_name='qcdeliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('purity__gte', 0)), name='iki__requests_qcdeliverable__purity__min'),
-        ),
-        migrations.AddConstraint(
-            model_name='qcdeliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('purity__lte', 100)), name='iki__requests_qcdeliverable__purity__max'),
-        ),
-        migrations.AddConstraint(
-            model_name='qcdeliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('measured_mass__gt', float("-inf")), ('measured_mass__lt', float("inf"))), name='iki__requests_qcdeliverable__measured_mass__finite'),
-        ),
-        migrations.AddConstraint(
-            model_name='qcdeliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('measured_mass__gte', 0)), name='iki__requests_qcdeliverable__measured_mass__min'),
-        ),
-        migrations.AddConstraint(
-            model_name='qcdeliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('peptide_coverage__gt', float("-inf")), ('peptide_coverage__lt', float("inf"))), name='iki__requests_qcdeliverable__peptide_coverage__finite'),
-        ),
-        migrations.AddConstraint(
-            model_name='qcdeliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('peptide_coverage__gte', 0)), name='iki__requests_qcdeliverable__peptide_coverage__min'),
-        ),
-        migrations.AddConstraint(
-            model_name='qcdeliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('peptide_coverage__lte', 100)), name='iki__requests_qcdeliverable__peptide_coverage__max'),
-        ),
-        migrations.AddConstraint(
-            model_name='qcdeliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('endotoxin__gt', float("-inf")), ('endotoxin__lt', float("inf"))), name='iki__requests_qcdeliverable__endotoxin__finite'),
-        ),
-        migrations.AddConstraint(
-            model_name='qcdeliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('endotoxin__gte', 0)), name='iki__requests_qcdeliverable__endotoxin__min'),
-        ),
-        migrations.AddConstraint(
-            model_name='qcdeliverable',
-            constraint=models.CheckConstraint(condition=models.Q(('result__in', ['pass', 'fail'])), name='iki__requests_qcdeliverable__result__values'),
         ),
         migrations.AddConstraint(
             model_name='qcdeliverable',

@@ -65,48 +65,6 @@
                   "message": "Submit the deliverable from Recorded."
                 },
                 {
-                  "name": "has_sample",
-                  "description": null,
-                  "check": "record.material != null",
-                  "when": "record.analysis != null",
-                  "message": "Name the sample that was measured."
-                },
-                {
-                  "name": "has_result",
-                  "description": null,
-                  "check": "record.result != null",
-                  "when": "record.analysis != null",
-                  "message": "Record whether the sample passed or failed."
-                },
-                {
-                  "name": "has_purity",
-                  "description": null,
-                  "check": "record.purity != null",
-                  "when": "record.analysis == \"sec_purity\"",
-                  "message": "Record the SEC purity as a percentage."
-                },
-                {
-                  "name": "has_mass",
-                  "description": null,
-                  "check": "record.measured_mass != null",
-                  "when": "record.analysis == \"intact_mass\"",
-                  "message": "Record the measured intact mass."
-                },
-                {
-                  "name": "has_coverage",
-                  "description": null,
-                  "check": "record.peptide_coverage != null",
-                  "when": "record.analysis == \"peptide_map\"",
-                  "message": "Record the percentage of the protein sequence covered by the peptide map."
-                },
-                {
-                  "name": "has_endotoxin",
-                  "description": null,
-                  "check": "record.endotoxin != null",
-                  "when": "record.analysis == \"endotoxin\"",
-                  "message": "Record the endotoxin units per milligram of protein."
-                },
-                {
                   "name": "active_request",
                   "description": null,
                   "check": "record.request.standing == \"open\" && record.request.status == \"in_progress\"",
@@ -114,18 +72,11 @@
                   "message": "Sign the deliverable while the request is open and in progress at the service."
                 },
                 {
-                  "name": "measured_scope",
+                  "name": "still_requested",
                   "description": null,
-                  "check": "record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses && size(covered_subjects) > 0",
-                  "when": "record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)",
-                  "message": "The measurement must still answer this request for the material it sent."
-                },
-                {
-                  "name": "scope_still_matches",
-                  "description": null,
-                  "check": "record.request.facility_service == \"protein_production\" ? (record.protein != null && record.protein.id in record.request.records) : (record.request.facility_service != \"sequencing\" ||\n covered_subjects.exists(id, id in record.request.tubes))",
+                  "check": "record.material == null || size(covered_subjects) > 0",
                   "when": null,
-                  "message": "The protein or tube must still be on the request."
+                  "message": "The material must still be on the request, or be an aliquot or sample of it."
                 }
               ],
               "signatures": [
@@ -171,18 +122,11 @@
                   "message": "Sign the deliverable while the request is open and in progress at the service."
                 },
                 {
-                  "name": "measured_scope",
+                  "name": "still_requested",
                   "description": null,
-                  "check": "record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses && size(covered_subjects) > 0",
-                  "when": "record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)",
-                  "message": "The measurement must still answer this request for the material it sent."
-                },
-                {
-                  "name": "scope_still_matches",
-                  "description": null,
-                  "check": "record.request.facility_service == \"protein_production\" ? (record.protein != null && record.protein.id in record.request.records) : (record.request.facility_service != \"sequencing\" ||\n covered_subjects.exists(id, id in record.request.tubes))",
+                  "check": "record.material == null || size(covered_subjects) > 0",
                   "when": null,
-                  "message": "The protein or tube must still be on the request."
+                  "message": "The material must still be on the request, or be an aliquot or sample of it."
                 }
               ],
               "signatures": [
@@ -228,18 +172,11 @@
                   "message": "Sign the deliverable while the request is open and in progress at the service."
                 },
                 {
-                  "name": "measured_scope",
+                  "name": "still_requested",
                   "description": null,
-                  "check": "record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses && size(covered_subjects) > 0",
-                  "when": "record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)",
-                  "message": "The measurement must still answer this request for the material it sent."
-                },
-                {
-                  "name": "scope_still_matches",
-                  "description": null,
-                  "check": "record.request.facility_service == \"protein_production\" ? (record.protein != null && record.protein.id in record.request.records) : (record.request.facility_service != \"sequencing\" ||\n covered_subjects.exists(id, id in record.request.tubes))",
+                  "check": "record.material == null || size(covered_subjects) > 0",
                   "when": null,
-                  "message": "The protein or tube must still be on the request."
+                  "message": "The material must still be on the request, or be an aliquot or sample of it."
                 }
               ],
               "signatures": [
