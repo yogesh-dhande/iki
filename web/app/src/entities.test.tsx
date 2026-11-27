@@ -928,7 +928,7 @@ describe("an entity's page", () => {
     const run = {
       id: "r1",
       hrid: "RUN-000009",
-      action: "iki/ab_predict.predict_structure_with_immunebuilder",
+      action: "iki/antibody_3d.predict_structure_with_immunebuilder",
     };
     const recorded = {
       by: "iki",
@@ -977,7 +977,7 @@ describe("an entity's page", () => {
     ];
     // One line per run, its tools together.
     expect(iki).toHaveTextContent(
-      "Computed with ImmuneBuilder 1.2, OpenMM 8.6.1, by RUN-000009 (iki/ab_predict.predict_structure_with_immunebuilder)Recorded by Iki",
+      "Computed with ImmuneBuilder 1.2, OpenMM 8.6.1, by RUN-000009 (iki/antibody_3d.predict_structure_with_immunebuilder)Recorded by Iki",
     );
     expect(within(iki).getByRole("link", { name: "RUN-000009" })).toHaveAttribute(
       "href",

@@ -88,7 +88,7 @@ def check_seed(atlas: Project) -> None:
     # check their successful runs rather than count generic alignments and structures.
     expected_actions = {
         # The antibody plugin's own methods, and the optional structure provider apart.
-        "iki/ab_predict.predict_structure_with_immunebuilder",
+        "iki/antibody_3d.predict_structure_with_immunebuilder",
         "iki/antibody.assemble",
         "iki/antibody.find_liabilities",
         "iki/antibody.number_chains",

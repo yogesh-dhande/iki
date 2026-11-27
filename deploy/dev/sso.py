@@ -5895,7 +5895,7 @@ NUMBERING_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-antibody-numbering-tools"
     "@sha256:c314f625ee3c381add9a9cfcba3596cd7e0b61529764dc906c4fb09902007384"
 )
-#: The ab_predict plugin's ImmuneBuilder image (its environments/structure-tools.yaml).
+#: The antibody_3d plugin's ImmuneBuilder image (its environments/structure-tools.yaml).
 IMMUNEBUILDER_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-antibody-structure-tools"
     "@sha256:eb6f0596205fa9fac71d5909b25e992668854599fb8e53e60ab5e88604b81e85"
@@ -6384,7 +6384,7 @@ def predicted(
     heavy: dict[str, Any],
     light: dict[str, Any],
 ) -> None:
-    """iki/ab_predict.predict_structure_with_immunebuilder, the optional structure provider:
+    """iki/antibody_3d.predict_structure_with_immunebuilder, the optional structure provider:
     trastuzumab's structure from its chains, which its input includes (ADR 0105), in a pod of
     its own with that plugin's image. Registration, numbering and the screen ran without it."""
     # Numbering changed the chains: the run reads them as they are now.
@@ -6396,7 +6396,7 @@ def predicted(
     run = launch(
         alice,
         project,
-        "iki/ab_predict.predict_structure_with_immunebuilder",
+        "iki/antibody_3d.predict_structure_with_immunebuilder",
         {"antibody": antibody},
         within=1800,
     )
@@ -6429,7 +6429,7 @@ def predicted(
     ):
         fail(f"{run['hrid']} made {made[0]['hrid']} as {structure}")
     ok(
-        "iki/ab_predict.predict_structure_with_immunebuilder ran in a pod of its own "
+        "iki/antibody_3d.predict_structure_with_immunebuilder ran in a pod of its own "
         f"({run['hrid']}): "
         f"{made[0]['hrid']}, from {heavy['hrid']} and {light['hrid']} as numbered, "
         f"estimated error {error} Å (CDR-H3 {structure.get('cdr_h3_predicted_error')} Å)"

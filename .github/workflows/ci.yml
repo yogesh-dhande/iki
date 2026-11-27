@@ -585,8 +585,8 @@ jobs:
             plugin: plugins/antibody
             dir: plugins/antibody/images/numbering-tools
           - image: iki-antibody-structure-tools
-            plugin: plugins/ab_predict
-            dir: plugins/ab_predict/images/structure-tools
+            plugin: plugins/antibody_3d
+            dir: plugins/antibody_3d/images/structure-tools
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

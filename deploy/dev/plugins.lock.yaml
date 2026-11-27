@@ -10,7 +10,7 @@ plugins:
   - { name: iki/dna, local: ../../plugins/dna, state: active, settings: settings/dna.yaml }
   - { name: iki/protein, local: ../../plugins/protein, state: active }
   - { name: iki/antibody, local: ../../plugins/antibody, state: active }
-  - { name: iki/ab_predict, local: ../../plugins/ab_predict, state: active }
+  - { name: iki/antibody_3d, local: ../../plugins/antibody_3d, state: active }
   - { name: iki/biologics_ms, local: ../../plugins/biologics_ms, state: active }
   - { name: iki/small_molecule, local: ../../plugins/small_molecule, state: active }
   - { name: iki/oligo, local: ../../plugins/oligo, state: active }

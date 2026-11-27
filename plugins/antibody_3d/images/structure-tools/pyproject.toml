@@ -1,4 +1,4 @@
-# What the ab_predict plugin's structure-tools image installs, locked in uv.lock and
+# What the antibody_3d plugin's structure-tools image installs, locked in uv.lock and
 # exported, hashed, to requirements.txt (see the Dockerfile). Recompile with:
 #   uv lock --upgrade && uv export --frozen --no-emit-project --no-header -o requirements.txt
 [project]

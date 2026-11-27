@@ -1,4 +1,4 @@
-# ab_predict
+# Antibody structure prediction
 
 Iki's antibody structure prediction plugin: an optional provider for the
 [antibody plugin](../antibody). It predicts an antibody's variable-domain
