@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 from datetime import UTC, date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Context, Decimal, InvalidOperation
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,13 @@ from typing import Any
 PLUGIN = "iki/qc_release"
 MAX_ATTEMPTS = 250
 SUCCESSOR_POLICIES = {"future", "same_day", "backdated"}
+#: A limit as a specification states it: a plain decimal, to its last significant place.
+#: The criterion's pattern says the same.
+LIMIT = re.compile(r"-?(0|[1-9][0-9]{0,8})([.][0-9]{1,6})?")
+#: How a criterion compares a result with its limits (USP General Notices 7.20).
+ROUNDING = ("limit_places", "unrounded")
+#: Enough digits to round any finite double to a limit's places without losing one.
+EXACT = Context(prec=400)
 FLOWS: dict[str, dict[str, Any]] = {
     "research": {
         "investigation": "ResearchOOSInvestigation",
@@ -99,6 +107,46 @@ def kind(criterion: dict[str, Any]) -> str:
     return str(criterion.get("kind") or "numeric")
 
 
+def limit(criterion: dict[str, Any], name: str) -> Decimal | None:
+    """A limit as its specification states it, significant to its last digit shown."""
+    text = criterion.get(name)
+    if text is None:
+        return None
+    if not isinstance(text, str) or not LIMIT.fullmatch(text):
+        raise ValueError(
+            f"State the {name} limit for {criterion.get('attribute')} as a decimal number, "
+            "to its last significant place, such as 99.0."
+        )
+    return Decimal(text)
+
+
+def places(amount: Decimal) -> int:
+    exponent = amount.as_tuple().exponent
+    return max(0, -exponent) if isinstance(exponent, int) else 0
+
+
+def rounding(criterion: dict[str, Any]) -> str:
+    rule = criterion.get("rounding") or "limit_places"
+    if rule not in ROUNDING:
+        raise ValueError(
+            f"Compare {criterion.get('attribute')} rounded to its limits' places, or unrounded."
+        )
+    return str(rule)
+
+
+def reportable(measured: Decimal, criterion: dict[str, Any]) -> Decimal:
+    """The value a numeric criterion compares with its limits. USP General Notices 7.20
+    rounds the final result to the limit expression's places, considering only the next
+    digit: below 5 it's dropped, 5 or more rounds up. The limits are fixed, and the
+    observed value is kept as measured (21 CFR 211.194(a)(5))."""
+    if rounding(criterion) == "unrounded":
+        return measured
+    bounds = (limit(criterion, "lower"), limit(criterion, "upper"))
+    stated = next(bound for bound in bounds if bound is not None)
+    step = Decimal(1).scaleb(-places(stated))
+    return measured.quantize(step, rounding=ROUND_HALF_UP, context=EXACT)
+
+
 def criteria(version: dict[str, Any]) -> dict[str, dict[str, Any]]:
     rows = version["values"].get("criteria") or []
     if not rows:
@@ -119,13 +167,18 @@ def criteria(version: dict[str, Any]) -> dict[str, dict[str, Any]]:
             continue
         if not str(row.get("unit") or "").strip():
             raise ValueError(f"The specification needs a reporting unit for {attribute}.")
-        lower, upper = (
-            number(row[name]) if row.get(name) is not None else None for name in ("lower", "upper")
-        )
+        lower, upper = limit(row, "lower"), limit(row, "upper")
         if lower is None and upper is None:
             raise ValueError(f"The specification needs an acceptance limit for {attribute}.")
-        if lower is not None and upper is not None and lower > upper:
-            raise ValueError(f"The acceptance limits for {attribute} are reversed.")
+        if lower is not None and upper is not None:
+            if lower > upper:
+                raise ValueError(f"The acceptance limits for {attribute} are reversed.")
+            if rounding(row) == "limit_places" and places(lower) != places(upper):
+                raise ValueError(
+                    f"State both limits for {attribute} to the same decimal place, such as "
+                    "98.0 and 102.0: a result is rounded to the limits' last place."
+                )
+        rounding(row)
         by_attribute[attribute] = row
     return by_attribute
 
@@ -195,6 +248,19 @@ def publish_version(run: dict[str, Any]) -> dict[str, Any]:
     elif str(run["params"].get("backdated_because") or "").strip():
         raise ValueError("A schedule's first version needs no backdating reason.")
     return output("schedule", schedule, {"versions": [*ids, version["id"]]})
+
+
+def named(material: dict[str, Any] | None, expected: object) -> str:
+    """The material's name, which its certificate of analysis states (ICH Q7 §11.41)."""
+    if material is None or material["id"] != expected:
+        raise ValueError("The specification's material is missing from the pinned inputs.")
+    name = str(material["values"].get("name") or "").strip()
+    if not name:
+        raise ValueError(
+            f"Name {material['hrid']} on its record first: a certificate of analysis names "
+            "the material it's for."
+        )
+    return name
 
 
 def lot_material(lot: dict[str, Any]) -> object:
@@ -278,6 +344,7 @@ def open_release(run: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(
             "The specification schedule must be for the material registered on this lot."
         )
+    named(next(iter(included(schedule, "material")), None), material)
     lot_number = lot["values"].get("lot_number")
     if not str(lot_number or "").strip():
         raise ValueError("Record the physical lot number before opening release testing.")
@@ -297,9 +364,11 @@ def open_release(run: dict[str, Any]) -> dict[str, Any]:
         "lot": lot["id"],
         "lot_revision": lot["revision"],
         "lot_number": lot_number,
+        "material": material,
         "schedule": schedule["id"],
         "schedule_revision": schedule["revision"],
         "context": schedule["values"].get("context") or "Release",
+        **({"grade": grade} if (grade := schedule["values"].get("grade")) else {}),
         **cycle,
         "specification": version["id"],
         "specification_revision": version["revision"],
@@ -560,12 +629,12 @@ def record_test(run: dict[str, Any]) -> dict[str, Any]:
         if params.get("result") is not None:
             raise ValueError(f"{attribute} is a number: give its observed value.")
         reading, evidence = observation(case, params, assessor, criterion)
-        measured = number(reading)
-        # Stored specification bounds are inclusive. Compare the supplied value directly,
-        # without adding a tolerance, rounding across a boundary or averaging repeats.
-        is_outside = (lower is not None and measured < number(lower)) or (
-            upper is not None and measured > number(upper)
-        )
+        # The limits are inclusive and fixed. The reportable value is the one compared:
+        # rounded to the limits' places, or as measured, and never averaged with repeats.
+        compared = reportable(number(reading), criterion)
+        low, high = limit(criterion, "lower"), limit(criterion, "upper")
+        is_outside = (low is not None and compared < low) or (high is not None and compared > high)
+        typed |= {"reported": format(compared, "f"), "rounding": rounding(criterion)}
     if seen := str(params.get("observation") or "").strip():
         typed["observation"] = seen
     attempt = {
@@ -679,8 +748,21 @@ def review_attempts(
         )
 
 
-#: A final result's fields the certificate states, where the test has them.
-STATED = ("attribute", "method", "unit", "lower", "upper", "value", "kind", "acceptance", "result")
+#: A final result's fields the certificate states, where the test has them: its limits as
+#: the specification states them, and its reportable value. The value as measured stays in
+#: the evidence.
+STATED = (
+    "attribute",
+    "method",
+    "unit",
+    "lower",
+    "upper",
+    "rounding",
+    "reported",
+    "kind",
+    "acceptance",
+    "result",
+)
 
 
 def statement(
@@ -690,9 +772,10 @@ def statement(
     tests: list[dict[str, Any]],
     issuer: str | None,
 ) -> dict[str, Any]:
-    """What the issued certificate states (ICH Q7 §11.4): its issuer, the lot and its
-    dates, the specification, and each criterion's limits and final reportable result.
-    Failed attempts, investigations and analysts stay in the evidence."""
+    """What the issued certificate states (ICH Q7 §11.41-11.43): its issuer, the material's
+    name and grade, the lot and its dates, the specification, and each criterion's limits
+    and final reportable result. Its issuing signature dates it. Failed attempts,
+    investigations and analysts stay in the evidence."""
     values = case["values"]
     flow = FLOWS[values["review_flow"]]
     final: dict[str, dict[str, Any]] = {}
@@ -705,6 +788,12 @@ def statement(
         "title": flow["title"],
         **({"intended_use": flow["intended_use"]} if flow["intended_use"] else {}),
         **({"issuer": issuer} if issuer else {}),
+        "material": {
+            # Read when the certificate was prepared, from the material's current revision.
+            "name": named(pinned(case, "material"), values["material"]),
+            "hrid": pinned(case, "material")["hrid"],
+            **({"grade": values["grade"]} if values.get("grade") else {}),
+        },
         "lot": {
             "lot_number": values["lot_number"],
             "hrid": lot["hrid"],
@@ -749,7 +838,7 @@ def digest(coa: dict[str, Any]) -> str:
 
 def issue_certificate(run: dict[str, Any]) -> dict[str, Any]:
     """The certificate of analysis a finally signed certificate record states, signed on its
-    own when it's issued: its export holds only what it states (ICH Q7 §11.4). The record
+    own when it's issued: its export holds only what it states (ICH Q7 §11.41-11.43). The record
     keeps the evidence, and names the certificate by its digest."""
     record = run["inputs"]["certificate"][0]
     values = record["values"]
@@ -796,6 +885,7 @@ def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
             "revision": values["lot_revision"],
             "lot_number": values["lot_number"],
         },
+        "material": pin_fields(pinned(case, "material"), ("name",)),
         "schedule": {"id": values["schedule"], "revision": values["schedule_revision"]},
         "specification": pin_fields(
             specification, ("version", "effective_from", "source", "criteria")
@@ -810,6 +900,8 @@ def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
                     "kind",
                     "unit",
                     "value",
+                    "reported",
+                    "rounding",
                     "lower",
                     "upper",
                     "acceptance",

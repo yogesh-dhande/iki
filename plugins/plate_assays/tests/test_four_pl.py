@@ -73,6 +73,20 @@ def test_report_extrapolation(mid, status):
     assert result["endpoint_value"] == pytest.approx(mid)
 
 
+@pytest.mark.parametrize(("kind", "increasing"), [("EC50", True), ("IC50", False)])
+def test_zero_dose_wells_dont_widen_the_tested_range(kind, increasing):
+    # The same exact curve, midpoint 0.6, at positive doses 1 to 64 and three vehicle
+    # wells. The lowest concentration tested is 1, so 0.6 is an extrapolation: the
+    # vehicle wells fix the zero-dose plateau, not where the midpoint can be read.
+    doses = [1, 2, 4, 8, 16, 32, 64]
+    curve = [(x, 100 / (1 + (0.6 / x) ** (1 if increasing else -1))) for x in doses]
+    vehicle = 0 if increasing else 100
+    result = fit_curve([*curve, (0, vehicle), (0, vehicle + 0.5), (0, vehicle - 0.5)], kind)
+    assert result["fit_status"] == "fitted", result.get("fit_reason")
+    assert result["endpoint_value"] == pytest.approx(0.6, rel=1e-3)
+    assert result["qualifier"] == "below_range"
+
+
 def test_concentration_units_change_only_midpoint_and_limits():
     # Synthetic raw signal can use an inverted detector and large response units.
     points = [(x, 1e10 * (1 + 2 / (1 + (3.5 / x) ** -1.3)) + x) for x in (1, 2, 3, 4, 5, 8, 12)]
