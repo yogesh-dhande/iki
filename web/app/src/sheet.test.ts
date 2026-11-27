@@ -44,6 +44,7 @@ const SAMPLE: Schemas["EntityTypeOut"] = {
   extends: null,
   abstract: false,
   sample: true,
+  lab_list: false,
   detached: false,
   subtypes: [],
   hrid_prefix: "SMP",

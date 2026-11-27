@@ -124,6 +124,7 @@ export const PROTEIN: Schemas["EntityTypeOut"] = {
   extends: null,
   abstract: false,
   sample: false,
+  lab_list: false,
   detached: false,
   subtypes: [],
   hrid_prefix: "PRT",

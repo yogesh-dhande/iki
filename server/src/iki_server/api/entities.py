@@ -891,10 +891,10 @@ class RefOut(Schema):
         description="For a lab list's option (ADR 0270): its code, its identity in the list, "
         "which never changes when it's relabelled.",
     )
-    superseded: bool = Field(
-        False,
-        description="For a lab list's option: it was superseded by another, which dropdowns "
-        "offer instead.",
+    superseded: bool | None = Field(
+        None,
+        description="For a lab list's option: whether it was superseded by another, which "
+        "dropdowns offer instead. Other references haven't got it.",
     )
     purged: bool = Field(
         description="Its plugin's data was purged (ADR 0092): only its HRID and type are left."

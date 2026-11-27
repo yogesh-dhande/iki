@@ -504,6 +504,8 @@ class AvailableMapping(TypedDict):
 
 class AwaitingPutAwayOut(TypedDict):
     archived: bool
+    #: For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+    code: NotRequired[str | None]
     custodian: UserOut
     custody_since: str
     #: The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
@@ -512,6 +514,8 @@ class AwaitingPutAwayOut(TypedDict):
     id: str
     #: Its plugin's data was purged (ADR 0092): only its HRID and type are left.
     purged: bool
+    #: For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+    superseded: NotRequired[bool | None]
     #: What it's called: its type's display title, or its HRID.
     title: str
     type: str
@@ -762,6 +766,8 @@ class CheckOutIn(TypedDict):
 
 class CheckedOutOut(TypedDict):
     archived: bool
+    #: For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+    code: NotRequired[str | None]
     custodian: UserOut
     custody_since: str
     #: The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
@@ -773,6 +779,8 @@ class CheckedOutOut(TypedDict):
     position: str | None
     #: Its plugin's data was purged (ADR 0092): only its HRID and type are left.
     purged: bool
+    #: For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+    superseded: NotRequired[bool | None]
     #: What it's called: its type's display title, or its HRID.
     title: str
     type: str
@@ -1006,6 +1014,8 @@ class ContainerOut(TypedDict):
     reconciliation: str | None
     #: Its grid of positions, if it has one.
     shape: ShapeOut | None
+    #: For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+    superseded: NotRequired[bool | None]
     #: What it's called: its type's display title, or its HRID.
     title: str
     type: str
@@ -1433,6 +1443,8 @@ class EntityTypeOut(TypedDict):
     hrid_prefix: str | None
     #: The fields that tell two entities apart. With one, its entities are projects' records of registry entries (ADR 0115): one entry per identity in a registry, one record of it per project.
     identity: list[str]
+    #: Its entities are a lab list's options (ADR 0270): a reference to it is a dropdown of /lists/{type}/options, which its curators keep, and nobody creates one as a record.
+    lab_list: NotRequired[bool]
     label: str
     label_plural: str
     #: Qualified: plugin.Type.
@@ -2077,6 +2089,8 @@ class GraphEdgeOut(TypedDict):
 
 class GraphEntityOut(TypedDict):
     archived: bool
+    #: For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+    code: NotRequired[str | None]
     #: It's a registry entry (ADR 0115): the identity its records are of.
     entry: NotRequired[bool]
     #: The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
@@ -2087,6 +2101,8 @@ class GraphEntityOut(TypedDict):
     project: NotRequired[ProjectRef | None]
     #: Its plugin's data was purged (ADR 0092): only its HRID and type are left.
     purged: bool
+    #: For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+    superseded: NotRequired[bool | None]
     #: What it's called: its type's display title, or its HRID.
     title: str
     type: str
@@ -2096,6 +2112,8 @@ class GraphNodeOut(TypedDict):
     archived: bool
     #: Steps from the root: negative upstream, positive downstream.
     at: int
+    #: For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+    code: NotRequired[str | None]
     #: It's a registry entry (ADR 0115): the identity its records are of.
     entry: NotRequired[bool]
     #: The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
@@ -2106,6 +2124,8 @@ class GraphNodeOut(TypedDict):
     project: NotRequired[ProjectRef | None]
     #: Its plugin's data was purged (ADR 0092): only its HRID and type are left.
     purged: bool
+    #: For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+    superseded: NotRequired[bool | None]
     #: What it's called: its type's display title, or its HRID.
     title: str
     type: str
@@ -2802,6 +2822,34 @@ class LastDelivery(TypedDict):
     status: str
 
 
+class ListCan(TypedDict):
+    #: Add, change, reorder, archive and supersede its options: its registry's registrars, and the list's curators.
+    curate: bool
+
+
+class ListCuratorOut(TypedDict):
+    appointed_at: str
+    appointed_by: UserOut | None
+    #: The list's type, such as iki/lots.LotMethod.
+    list: str
+    user: UserOut
+
+
+class ListOut(TypedDict):
+    can: ListCan
+    description: str | None
+    #: Its plugin is detached (ADR 0091): its options can be read, not changed.
+    detached: bool
+    label: str
+    label_plural: str
+    #: How many options a dropdown offers: the active ones.
+    options: int
+    plugin: str
+    registry: RegistryRef
+    #: The list's type, such as iki/lots.LotMethod.
+    type: str
+
+
 class LocationOut(TypedDict):
     #: Who has it: checked out (its position kept for it), or received and not put away yet.
     custodian: UserOut | None
@@ -3208,6 +3256,95 @@ class OpenOrder(TypedDict):
     ordered_packs: int
     outstanding_packs: int
     received_packs: int
+
+
+class OptionFilters(TypedDict):
+    #: Every option, archived and superseded ones too, as curators see them.
+    archived: NotRequired[bool]
+    #: A project you read, by ID or slug: its registry's lists, which its records pick from.
+    project: NotRequired[str | None]
+    #: Only options whose label or code has this in it.
+    q: NotRequired[str | None]
+    #: A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.
+    registry: NotRequired[str | None]
+
+
+class OptionIn(TypedDict):
+    #: Its identity in the list, which never changes, such as `hplc`.
+    code: str
+    description: NotRequired[str]
+    #: What people see and pick.
+    label: str
+    #: Why it's added, if you'd say.
+    reason: NotRequired[str]
+    #: Its values for the list's other fields, by name. A reference is the ID of another list's option.
+    values: NotRequired[dict[str, Any]]
+
+
+class OptionMoveIn(TypedDict):
+    #: The project whose records move, by ID or slug.
+    project: str
+    #: Why: each record's history keeps it.
+    reason: str
+
+
+class OptionMovedOut(TypedDict):
+    #: The records that now name the replacement, by HRID.
+    moved: list[str]
+
+
+class OptionOut(TypedDict):
+    #: No dropdown offers it, but the records naming it keep it.
+    archived: bool
+    #: Its identity in the list, which never changes: what exports give for it.
+    code: str
+    description: str
+    hrid: str
+    #: What a record's reference to it holds.
+    id: str
+    #: What people see and pick, as it's called now.
+    label: str
+    #: Its place in the list's order, from 1.
+    position: int
+    #: Its latest revision. Send it back as If-Match.
+    revision: int
+    #: The option that replaced it: dropdowns offer that one instead.
+    superseded_by: OptionReplacementOut | None
+    #: For its curators: how many records name it, in every project. Never which.
+    uses: int | None
+    #: Its values for the list's other fields. A reference is the ID of another list's option.
+    values: dict[str, Any]
+
+
+class OptionPatch(TypedDict):
+    #: Empty clears it.
+    description: NotRequired[str | None]
+    label: NotRequired[str | None]
+    #: Why: every project in the registry sees it.
+    reason: str
+    #: Only the other fields to change; null clears one.
+    values: NotRequired[dict[str, Any]]
+
+
+class OptionReplacementOut(TypedDict):
+    code: str
+    hrid: str
+    id: str
+    label: str
+
+
+class OptionSupersedeIn(TypedDict):
+    #: Why: projects that name it are told.
+    reason: str
+    #: The option that replaces it, by its code.
+    replacement: str
+
+
+class OrderIn(TypedDict):
+    #: Every option's code, archived and superseded ones too, in the new order.
+    codes: list[str]
+    #: Why: every project's dropdowns follow it.
+    reason: str
 
 
 class OrgParams(TypedDict):
@@ -3689,6 +3826,8 @@ class PersonRef(TypedDict):
 
 class PlaceOut(TypedDict):
     archived: bool
+    #: For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+    code: NotRequired[str | None]
     count: int
     #: The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
     formerly: NotRequired[list[str]]
@@ -3699,6 +3838,8 @@ class PlaceOut(TypedDict):
     #: Its plugin's data was purged (ADR 0092): only its HRID and type are left.
     purged: bool
     shape: ShapeOut | None
+    #: For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+    superseded: NotRequired[bool | None]
     #: What it's called: its type's display title, or its HRID.
     title: str
     type: str
@@ -4195,6 +4336,11 @@ class ReadIn(TypedDict):
     read: bool
 
 
+class Reason(TypedDict):
+    #: Why: every project in the registry sees it.
+    reason: str
+
+
 class ReassignOut(TypedDict):
     """Someone an assignment field names who can't be named there now (ADR 0122)."""
     field: str
@@ -4385,11 +4531,15 @@ class RecordExportOut(TypedDict):
 
 class RefOut(TypedDict):
     archived: bool
+    #: For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+    code: NotRequired[str | None]
     #: The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
     formerly: NotRequired[list[str]]
     hrid: str
     #: Its plugin's data was purged (ADR 0092): only its HRID and type are left.
     purged: bool
+    #: For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+    superseded: NotRequired[bool | None]
     #: What it's called: its type's display title, or its HRID.
     title: str
     type: str
@@ -4458,6 +4608,8 @@ class RegistrationStatusOut(TypedDict):
 class RegistryCan(TypedDict):
     #: You're one of its registrars: see its entries, change their facts, supersede them.
     curate: bool
+    #: You curate some of its lab lists, or all of them as a registrar (ADR 0270): GET /lists?registry= says which.
+    curate_lists: bool
     #: Rename it, choose its teams, appoint its registrars.
     manage: bool
 
@@ -5269,6 +5421,8 @@ class ScanIn(TypedDict):
 
 class ScanMatchOut(TypedDict):
     archived: bool
+    #: For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+    code: NotRequired[str | None]
     #: Its type holds things.
     container: bool
     #: The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
@@ -5282,6 +5436,8 @@ class ScanMatchOut(TypedDict):
     purged: bool
     #: Its type is kept somewhere.
     storable: bool
+    #: For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+    superseded: NotRequired[bool | None]
     #: What it's called: its type's display title, or its HRID.
     title: str
     type: str
@@ -5335,6 +5491,13 @@ class ScansIn(TypedDict):
     reviewed_lines: NotRequired[list[ReviewedCountLine]]
     #: Each position scanned: one at a time, or a rack scanner's file.
     scans: list[ScanIn]
+
+
+class Scope(TypedDict):
+    #: A project you read, by ID or slug: its registry's lists, which its records pick from.
+    project: NotRequired[str | None]
+    #: A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.
+    registry: NotRequired[str | None]
 
 
 class ScopeOut(TypedDict):
@@ -6411,6 +6574,8 @@ class StepErrorOut(TypedDict):
 
 class StepOut(TypedDict):
     archived: bool
+    #: For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+    code: NotRequired[str | None]
     #: The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
     formerly: NotRequired[list[str]]
     hrid: str
@@ -6419,6 +6584,8 @@ class StepOut(TypedDict):
     position: str | None
     #: Its plugin's data was purged (ADR 0092): only its HRID and type are left.
     purged: bool
+    #: For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+    superseded: NotRequired[bool | None]
     #: What it's called: its type's display title, or its HRID.
     title: str
     type: str
@@ -7353,4 +7520,4 @@ class WorkflowStepRefOut(TypedDict):
     step: str
 
 
-__all__ = ['AcquiredOut', 'ActionApiOut', 'ActionFilters', 'ActionOut', 'ActionSecretOut', 'AdditionalUnregisteredIn', 'AdjustIn', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AliquotsOut', 'AmountIn', 'AmountMovedOut', 'AmountOut', 'ApiActionOut', 'ApiApprovalIn', 'ApiApprovalOut', 'ApiCallOut', 'ApiCredentialOut', 'ApiPriceOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'AppliedMappingOut', 'AppliedStarterOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptScanWaitOut', 'AttemptSlurmOut', 'AttemptVolumeOut', 'AvailableMapping', 'AwaitingPutAwayOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BreachOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'CancelReceiptIn', 'CancelReconciliationIn', 'CarriedSignatureOut', 'CellReadingOut', 'CertificationIn', 'CertificationOut', 'CertificationState', 'ChangedOut', 'ChangeOut', 'ChangesParams', 'CheckedOutOut', 'CheckedReceiptOut', 'CheckInIn', 'CheckInItemIn', 'CheckOutIn', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ColumnReadingOut', 'CompleteReceiptIn', 'CompleteReconciliationIn', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'ComponentPersonOut', 'CompoundExportOut', 'Condition', 'ConditionOut', 'ConsentOut', 'ConsentStatementOut', 'ContainerCan', 'ContainerOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CountScanEvidenceOut', 'CountsOut', 'CreatedOut', 'CreatesOut', 'CustodyOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DisableIn', 'DraftEntityOut', 'DrawIn', 'DrawPurpose', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EnableIn', 'EndOut', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentImageOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventOut', 'EventsOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'ExportParams', 'ExportSearchIn', 'FacetParams', 'FieldOut', 'FieldTargetOut', 'FileCountOut', 'FileDetailOut', 'FileExportOut', 'FileFactsOut', 'FileFilters', 'FileFormatOut', 'FileOriginOut', 'FileOut', 'FilePageOut', 'FileRef', 'FileRowOut', 'FileScanOut', 'FileSignatureOut', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FlowFieldOut', 'FlowTransitionOut', 'FormatOut', 'FreezeIn', 'GivenOut', 'GivenSignatureOut', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'GuardOut', 'HandOverIn', 'HeldCopyOut', 'HeldOut', 'HelmGroupMemberOut', 'HelmGroupOut', 'HelmIn', 'HelmLengthOut', 'HelmMonomerOut', 'HelmOut', 'HelmPolymerOut', 'HelmReadingOut', 'HoldingRecordOut', 'HoldOccurrenceOut', 'HoldOut', 'HoldReviewIn', 'HoldRuleOut', 'IdentityBasis', 'IkiIdConfirmationIn', 'ImageBindingOut', 'ImageBindingsOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportMemberParams', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportRunRef', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InstalledFormatOut', 'IntakeIn', 'IntakeOut', 'InventoryOut', 'JobState', 'KindOut', 'LabelOut', 'LabelsIn', 'LabelSizeOut', 'LabelSizesOut', 'LabelsOut', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LocationOut', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'MoveItemIn', 'MovementOut', 'MovementsOut', 'MovesIn', 'MovesOut', 'MoveUnregisteredIn', 'MySigningOut', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationAgent', 'NotificationOut', 'NotificationProject', 'NotificationRecordOut', 'ObservationEventOut', 'ObservationEventsOut', 'OccupantOut', 'OpenOrder', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideApiOut', 'OutsideRef', 'OverlapOut', 'OverviewOut', 'PageApiCallOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFiringOut', 'PageHoldingRecordOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageOpenOrder', 'PagePreviewRowOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageQuarantineOut', 'PageRecordExportOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageSlurmAccountOut', 'PageSpreadsheetImportOut', 'PageStockLot', 'PageStockSummary', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageUsingRunOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'ParkOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceOut', 'PlaceSearchIn', 'PlannedOut', 'PluginCandidateIn', 'PluginExportOut', 'PluginFindingOut', 'PluginPreflightOut', 'PluginTypePreflightOut', 'PolicyIn', 'PolicyOut', 'PreviewRowOut', 'PreviewRowParams', 'ProjectCan', 'ProjectChangeOut', 'ProjectChoiceIn', 'ProjectChoiceOut', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'ProteinExportOut', 'PutAwayIn', 'QuarantineFilters', 'QuarantineOut', 'QuarantineReleaseOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadGroupOut', 'ReadIn', 'ReassignOut', 'ReceiptIn', 'ReceiptLineIn', 'ReceiptLineOut', 'ReceiptOut', 'ReceiptPlacementIn', 'ReceiptScanIn', 'ReceiptScanOut', 'ReceiptsOut', 'ReconciliationLineOut', 'ReconciliationOut', 'RecordExportIn', 'RecordExportOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistrationStatusOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'RelatedOut', 'ReleaseQuarantineIn', 'ReproduceIn', 'ReproductionOut', 'RequestOut', 'RequestSidesOut', 'RequestTypeOut', 'RequestTypeRef', 'RerunIn', 'ResolveIn', 'ResultReleaseOut', 'ResultTypeOut', 'ReviewedCountLine', 'ReviewedExtraIn', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RowOut', 'RowRoleOut', 'RuleOut', 'RunApiOut', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRef', 'RunRefOut', 'RunScanWaitOut', 'RunStatus', 'SampleOut', 'SavedMappingIn', 'SavedMappingMatch', 'SavedMappingOut', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScanCandidateBoxOut', 'ScanCandidateOut', 'ScanCandidateProjectOut', 'ScanIn', 'ScanMatchOut', 'ScanMode', 'ScanOut', 'ScanParams', 'ScanResolveIn', 'ScanResolveOut', 'ScansIn', 'ScanWaitFileOut', 'ScopeOut', 'ScopeSearch', 'SearchCsvParams', 'SearchEverythingOut', 'SearchEverythingParams', 'SearchGroupOut', 'SearchIn', 'SearchResultOut', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'ServiceOut', 'ServicesFilters', 'SettingsIn', 'SettingsOut', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'ShapeOut', 'SheetColumnIn', 'SheetColumnOut', 'SheetEditCheckIn', 'SheetEditCheckOut', 'SheetEditCheckRowIn', 'SheetEditLocaleIn', 'SheetEditPlaceIn', 'SheetEditPlaceOut', 'SheetEditProblemOut', 'SheetEditRowOut', 'SheetEditSavedRowOut', 'SheetEditSaveIn', 'SheetEditSaveOut', 'SheetEditSaveRowIn', 'SheetLocaleIn', 'SheetLocaleOut', 'SheetOut', 'SheetProblemOut', 'SignatureAuthenticationOut', 'SignatureCan', 'SignatureCheckOut', 'SignatureListParams', 'SignatureOut', 'SignaturesOut', 'SignatureVerificationOut', 'SignCan', 'SignedChangeOut', 'SignedReportExportOut', 'SigningIn', 'SigningKeyOut', 'SigningKeysOut', 'SigningOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SlurmAccountIn', 'SlurmAccountOut', 'SlurmClusterOut', 'SlurmTemplateOut', 'SlurmUsageOut', 'SoftwareOut', 'SortIn', 'SpanOut', 'SplitIn', 'SpreadsheetCommitIn', 'SpreadsheetImportChange', 'SpreadsheetImportIn', 'SpreadsheetImportOut', 'SpreadsheetPreviewOut', 'StartedOut', 'StarterApplyIn', 'StarterFlowOut', 'StarterOut', 'StarterRoleOut', 'StarterSetupIn', 'StarterSetupOut', 'StateCan', 'StatedOut', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepOut', 'StepRunOut', 'StockFilters', 'StockLot', 'StockSummary', 'StructureViewerOut', 'SubmitIn', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TrailFilter', 'TransferIn', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'TypeAmountOut', 'TypeCountOut', 'TypeFlowOut', 'TypeGridOut', 'TypeNotificationOut', 'TypeStorageOut', 'UnitOption', 'UnusedImageBindingOut', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UploadStatusOut', 'UsedByCountOut', 'UserFilters', 'UserOut', 'UserPatch', 'UsingRunOut', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WantedSignatureOut', 'WatchIn', 'WatchOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WithdrawalIn', 'WorkbookRef', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']
+__all__ = ['AcquiredOut', 'ActionApiOut', 'ActionFilters', 'ActionOut', 'ActionSecretOut', 'AdditionalUnregisteredIn', 'AdjustIn', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AliquotsOut', 'AmountIn', 'AmountMovedOut', 'AmountOut', 'ApiActionOut', 'ApiApprovalIn', 'ApiApprovalOut', 'ApiCallOut', 'ApiCredentialOut', 'ApiPriceOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'AppliedMappingOut', 'AppliedStarterOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptScanWaitOut', 'AttemptSlurmOut', 'AttemptVolumeOut', 'AvailableMapping', 'AwaitingPutAwayOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BreachOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'CancelReceiptIn', 'CancelReconciliationIn', 'CarriedSignatureOut', 'CellReadingOut', 'CertificationIn', 'CertificationOut', 'CertificationState', 'ChangedOut', 'ChangeOut', 'ChangesParams', 'CheckedOutOut', 'CheckedReceiptOut', 'CheckInIn', 'CheckInItemIn', 'CheckOutIn', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ColumnReadingOut', 'CompleteReceiptIn', 'CompleteReconciliationIn', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'ComponentPersonOut', 'CompoundExportOut', 'Condition', 'ConditionOut', 'ConsentOut', 'ConsentStatementOut', 'ContainerCan', 'ContainerOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CountScanEvidenceOut', 'CountsOut', 'CreatedOut', 'CreatesOut', 'CustodyOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DisableIn', 'DraftEntityOut', 'DrawIn', 'DrawPurpose', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EnableIn', 'EndOut', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentImageOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventOut', 'EventsOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'ExportParams', 'ExportSearchIn', 'FacetParams', 'FieldOut', 'FieldTargetOut', 'FileCountOut', 'FileDetailOut', 'FileExportOut', 'FileFactsOut', 'FileFilters', 'FileFormatOut', 'FileOriginOut', 'FileOut', 'FilePageOut', 'FileRef', 'FileRowOut', 'FileScanOut', 'FileSignatureOut', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FlowFieldOut', 'FlowTransitionOut', 'FormatOut', 'FreezeIn', 'GivenOut', 'GivenSignatureOut', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'GuardOut', 'HandOverIn', 'HeldCopyOut', 'HeldOut', 'HelmGroupMemberOut', 'HelmGroupOut', 'HelmIn', 'HelmLengthOut', 'HelmMonomerOut', 'HelmOut', 'HelmPolymerOut', 'HelmReadingOut', 'HoldingRecordOut', 'HoldOccurrenceOut', 'HoldOut', 'HoldReviewIn', 'HoldRuleOut', 'IdentityBasis', 'IkiIdConfirmationIn', 'ImageBindingOut', 'ImageBindingsOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportMemberParams', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportRunRef', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InstalledFormatOut', 'IntakeIn', 'IntakeOut', 'InventoryOut', 'JobState', 'KindOut', 'LabelOut', 'LabelsIn', 'LabelSizeOut', 'LabelSizesOut', 'LabelsOut', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'ListCan', 'ListCuratorOut', 'ListOut', 'LocationOut', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'MoveItemIn', 'MovementOut', 'MovementsOut', 'MovesIn', 'MovesOut', 'MoveUnregisteredIn', 'MySigningOut', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationAgent', 'NotificationOut', 'NotificationProject', 'NotificationRecordOut', 'ObservationEventOut', 'ObservationEventsOut', 'OccupantOut', 'OpenOrder', 'OptionFilters', 'OptionIn', 'OptionMovedOut', 'OptionMoveIn', 'OptionOut', 'OptionPatch', 'OptionReplacementOut', 'OptionSupersedeIn', 'OrderIn', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideApiOut', 'OutsideRef', 'OverlapOut', 'OverviewOut', 'PageApiCallOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFiringOut', 'PageHoldingRecordOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageOpenOrder', 'PagePreviewRowOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageQuarantineOut', 'PageRecordExportOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageSlurmAccountOut', 'PageSpreadsheetImportOut', 'PageStockLot', 'PageStockSummary', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageUsingRunOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'ParkOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceOut', 'PlaceSearchIn', 'PlannedOut', 'PluginCandidateIn', 'PluginExportOut', 'PluginFindingOut', 'PluginPreflightOut', 'PluginTypePreflightOut', 'PolicyIn', 'PolicyOut', 'PreviewRowOut', 'PreviewRowParams', 'ProjectCan', 'ProjectChangeOut', 'ProjectChoiceIn', 'ProjectChoiceOut', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'ProteinExportOut', 'PutAwayIn', 'QuarantineFilters', 'QuarantineOut', 'QuarantineReleaseOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadGroupOut', 'ReadIn', 'Reason', 'ReassignOut', 'ReceiptIn', 'ReceiptLineIn', 'ReceiptLineOut', 'ReceiptOut', 'ReceiptPlacementIn', 'ReceiptScanIn', 'ReceiptScanOut', 'ReceiptsOut', 'ReconciliationLineOut', 'ReconciliationOut', 'RecordExportIn', 'RecordExportOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistrationStatusOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'RelatedOut', 'ReleaseQuarantineIn', 'ReproduceIn', 'ReproductionOut', 'RequestOut', 'RequestSidesOut', 'RequestTypeOut', 'RequestTypeRef', 'RerunIn', 'ResolveIn', 'ResultReleaseOut', 'ResultTypeOut', 'ReviewedCountLine', 'ReviewedExtraIn', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RowOut', 'RowRoleOut', 'RuleOut', 'RunApiOut', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRef', 'RunRefOut', 'RunScanWaitOut', 'RunStatus', 'SampleOut', 'SavedMappingIn', 'SavedMappingMatch', 'SavedMappingOut', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScanCandidateBoxOut', 'ScanCandidateOut', 'ScanCandidateProjectOut', 'ScanIn', 'ScanMatchOut', 'ScanMode', 'ScanOut', 'ScanParams', 'ScanResolveIn', 'ScanResolveOut', 'ScansIn', 'ScanWaitFileOut', 'Scope', 'ScopeOut', 'ScopeSearch', 'SearchCsvParams', 'SearchEverythingOut', 'SearchEverythingParams', 'SearchGroupOut', 'SearchIn', 'SearchResultOut', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'ServiceOut', 'ServicesFilters', 'SettingsIn', 'SettingsOut', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'ShapeOut', 'SheetColumnIn', 'SheetColumnOut', 'SheetEditCheckIn', 'SheetEditCheckOut', 'SheetEditCheckRowIn', 'SheetEditLocaleIn', 'SheetEditPlaceIn', 'SheetEditPlaceOut', 'SheetEditProblemOut', 'SheetEditRowOut', 'SheetEditSavedRowOut', 'SheetEditSaveIn', 'SheetEditSaveOut', 'SheetEditSaveRowIn', 'SheetLocaleIn', 'SheetLocaleOut', 'SheetOut', 'SheetProblemOut', 'SignatureAuthenticationOut', 'SignatureCan', 'SignatureCheckOut', 'SignatureListParams', 'SignatureOut', 'SignaturesOut', 'SignatureVerificationOut', 'SignCan', 'SignedChangeOut', 'SignedReportExportOut', 'SigningIn', 'SigningKeyOut', 'SigningKeysOut', 'SigningOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SlurmAccountIn', 'SlurmAccountOut', 'SlurmClusterOut', 'SlurmTemplateOut', 'SlurmUsageOut', 'SoftwareOut', 'SortIn', 'SpanOut', 'SplitIn', 'SpreadsheetCommitIn', 'SpreadsheetImportChange', 'SpreadsheetImportIn', 'SpreadsheetImportOut', 'SpreadsheetPreviewOut', 'StartedOut', 'StarterApplyIn', 'StarterFlowOut', 'StarterOut', 'StarterRoleOut', 'StarterSetupIn', 'StarterSetupOut', 'StateCan', 'StatedOut', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepOut', 'StepRunOut', 'StockFilters', 'StockLot', 'StockSummary', 'StructureViewerOut', 'SubmitIn', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TrailFilter', 'TransferIn', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'TypeAmountOut', 'TypeCountOut', 'TypeFlowOut', 'TypeGridOut', 'TypeNotificationOut', 'TypeStorageOut', 'UnitOption', 'UnusedImageBindingOut', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UploadStatusOut', 'UsedByCountOut', 'UserFilters', 'UserOut', 'UserPatch', 'UsingRunOut', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WantedSignatureOut', 'WatchIn', 'WatchOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WithdrawalIn', 'WorkbookRef', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']

@@ -2519,6 +2519,196 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A registry's lab lists
+         * @description Every installed list, by label, with how many options each offers in the registry.
+         */
+        get: operations["iki_server_api_lists_list_lists"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lists/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A lab list */
+        get: operations["iki_server_api_lists_get_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lists/{name}/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A lab list's options
+         * @description In the list's order. Without ``archived``, what a dropdown offers.
+         */
+        get: operations["iki_server_api_lists_list_options"];
+        put?: never;
+        /**
+         * Add an option to a lab list
+         * @description Its registry's registrars, and the list's curators. It's added at the end of the
+         *     list; every project in the registry can pick it.
+         */
+        post: operations["iki_server_api_lists_add_option"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lists/{name}/options/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One of a list's options */
+        get: operations["iki_server_api_lists_get_option"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change a lab list's option
+         * @description Its label, description or other values, with a reason. Records naming it show what
+         *     it's called now; their history says what it was called when. Its code never changes:
+         *     supersede it with an option of the right one.
+         */
+        patch: operations["iki_server_api_lists_patch_option"];
+        trace?: never;
+    };
+    "/api/v1/lists/{name}/options/{code}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive a lab list's option
+         * @description No dropdown offers it from now on. The records that name it keep it, and it's still
+         *     in their search, filters, exports and the API.
+         */
+        post: operations["iki_server_api_lists_archive_option"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lists/{name}/options/{code}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a project's records to a superseded option's replacement
+         * @description A project's Editor, once the option was superseded: each of the project's records
+         *     that names it names the replacement, a revision with the reason. Archived and locked
+         *     records keep theirs.
+         */
+        post: operations["iki_server_api_lists_move_references"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lists/{name}/options/{code}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore a lab list's archived option
+         * @description Dropdowns offer it again, in its place in the list.
+         */
+        post: operations["iki_server_api_lists_restore_option"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lists/{name}/options/{code}/supersede": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Supersede a lab list's option
+         * @description For a wrong code: the option is replaced for good by another of the list, which
+         *     dropdowns offer instead. The Admins of each project whose records name it are told, to
+         *     move them to the replacement.
+         */
+        post: operations["iki_server_api_lists_supersede_option"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lists/{name}/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Reorder a lab list
+         * @description Every option of the list, as its curators see it, in its new order.
+         */
+        put: operations["iki_server_api_lists_reorder_list"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -3990,6 +4180,48 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/registries/{registry_id}/list-curators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who curates a registry's lab lists
+         * @description Each list's curators. Its registrars curate every list besides.
+         */
+        get: operations["iki_server_api_lists_list_curators"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/registries/{registry_id}/list-curators/{name}/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Make someone a lab list's curator
+         * @description Org Admins appoint them, a list at a time: a QC lead for deviation categories, a
+         *     purification lead for lot methods. Being an Org Admin doesn't make someone one.
+         */
+        put: operations["iki_server_api_lists_appoint_curator"];
+        post?: never;
+        /** Stop someone curating a lab list */
+        delete: operations["iki_server_api_lists_dismiss_curator"];
         options?: never;
         head?: never;
         patch?: never;
@@ -6712,6 +6944,11 @@ export interface components {
         AwaitingPutAwayOut: {
             /** Archived */
             archived: boolean;
+            /**
+             * Code
+             * @description For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+             */
+            code?: string | null;
             custodian: components["schemas"]["UserOut"];
             /**
              * Custody Since
@@ -6735,6 +6972,11 @@ export interface components {
              * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
              */
             purged: boolean;
+            /**
+             * Superseded
+             * @description For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+             */
+            superseded?: boolean | null;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -7249,6 +7491,11 @@ export interface components {
         CheckedOutOut: {
             /** Archived */
             archived: boolean;
+            /**
+             * Code
+             * @description For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+             */
+            code?: string | null;
             custodian: components["schemas"]["UserOut"];
             /**
              * Custody Since
@@ -7278,6 +7525,11 @@ export interface components {
              * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
              */
             purged: boolean;
+            /**
+             * Superseded
+             * @description For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+             */
+            superseded?: boolean | null;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -7775,6 +8027,11 @@ export interface components {
             reconciliation: string | null;
             /** @description Its grid of positions, if it has one. */
             shape: components["schemas"]["ShapeOut"] | null;
+            /**
+             * Superseded
+             * @description For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+             */
+            superseded?: boolean | null;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -8700,6 +8957,12 @@ export interface components {
              * @description The fields that tell two entities apart. With one, its entities are projects' records of registry entries (ADR 0115): one entry per identity in a registry, one record of it per project.
              */
             identity: string[];
+            /**
+             * Lab List
+             * @description Its entities are a lab list's options (ADR 0270): a reference to it is a dropdown of /lists/{type}/options, which its curators keep, and nobody creates one as a record.
+             * @default false
+             */
+            lab_list: boolean;
             /** Label */
             label: string;
             /** Label Plural */
@@ -10016,6 +10279,11 @@ export interface components {
             /** Archived */
             archived: boolean;
             /**
+             * Code
+             * @description For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+             */
+            code?: string | null;
+            /**
              * Entry
              * @description It's a registry entry (ADR 0115): the identity its records are of.
              * @default false
@@ -10040,6 +10308,11 @@ export interface components {
              * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
              */
             purged: boolean;
+            /**
+             * Superseded
+             * @description For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+             */
+            superseded?: boolean | null;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -10058,6 +10331,11 @@ export interface components {
              */
             at: number;
             /**
+             * Code
+             * @description For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+             */
+            code?: string | null;
+            /**
              * Entry
              * @description It's a registry entry (ADR 0115): the identity its records are of.
              * @default false
@@ -10082,6 +10360,11 @@ export interface components {
              * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
              */
             purged: boolean;
+            /**
+             * Superseded
+             * @description For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+             */
+            superseded?: boolean | null;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -11555,6 +11838,57 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** ListCan */
+        ListCan: {
+            /**
+             * Curate
+             * @description Add, change, reorder, archive and supersede its options: its registry's registrars, and the list's curators.
+             */
+            curate: boolean;
+        };
+        /** ListCuratorOut */
+        ListCuratorOut: {
+            /**
+             * Appointed At
+             * Format: date-time
+             */
+            appointed_at: string;
+            appointed_by: components["schemas"]["UserOut"] | null;
+            /**
+             * List
+             * @description The list's type, such as iki/lots.LotMethod.
+             */
+            list: string;
+            user: components["schemas"]["UserOut"];
+        };
+        /** ListOut */
+        ListOut: {
+            can: components["schemas"]["ListCan"];
+            /** Description */
+            description: string | null;
+            /**
+             * Detached
+             * @description Its plugin is detached (ADR 0091): its options can be read, not changed.
+             */
+            detached: boolean;
+            /** Label */
+            label: string;
+            /** Label Plural */
+            label_plural: string;
+            /**
+             * Options
+             * @description How many options a dropdown offers: the active ones.
+             */
+            options: number;
+            /** Plugin */
+            plugin: string;
+            registry: components["schemas"]["RegistryRef"];
+            /**
+             * Type
+             * @description The list's type, such as iki/lots.LotMethod.
+             */
+            type: string;
+        };
         /** LocationOut */
         LocationOut: {
             /** @description Who has it: checked out (its position kept for it), or received and not put away yet. */
@@ -12417,6 +12751,196 @@ export interface components {
             outstanding_packs: number;
             /** Received Packs */
             received_packs: number;
+        };
+        /** OptionFilters */
+        OptionFilters: {
+            /**
+             * Archived
+             * @description Every option, archived and superseded ones too, as curators see them.
+             * @default false
+             */
+            archived: boolean;
+            /**
+             * Project
+             * @description A project you read, by ID or slug: its registry's lists, which its records pick from.
+             */
+            project?: string | null;
+            /**
+             * Q
+             * @description Only options whose label or code has this in it.
+             */
+            q?: string | null;
+            /**
+             * Registry
+             * @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.
+             */
+            registry?: string | null;
+        };
+        /** OptionIn */
+        OptionIn: {
+            /**
+             * Code
+             * @description Its identity in the list, which never changes, such as `hplc`.
+             */
+            code: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Label
+             * @description What people see and pick.
+             */
+            label: string;
+            /**
+             * Reason
+             * @description Why it's added, if you'd say.
+             * @default
+             */
+            reason: string;
+            /**
+             * Values
+             * @description Its values for the list's other fields, by name. A reference is the ID of another list's option.
+             */
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        /** OptionMoveIn */
+        OptionMoveIn: {
+            /**
+             * Project
+             * @description The project whose records move, by ID or slug.
+             */
+            project: string;
+            /**
+             * Reason
+             * @description Why: each record's history keeps it.
+             */
+            reason: string;
+        };
+        /** OptionMovedOut */
+        OptionMovedOut: {
+            /**
+             * Moved
+             * @description The records that now name the replacement, by HRID.
+             */
+            moved: string[];
+        };
+        /** OptionOut */
+        OptionOut: {
+            /**
+             * Archived
+             * @description No dropdown offers it, but the records naming it keep it.
+             */
+            archived: boolean;
+            /**
+             * Code
+             * @description Its identity in the list, which never changes: what exports give for it.
+             */
+            code: string;
+            /** Description */
+            description: string;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             * @description What a record's reference to it holds.
+             */
+            id: string;
+            /**
+             * Label
+             * @description What people see and pick, as it's called now.
+             */
+            label: string;
+            /**
+             * Position
+             * @description Its place in the list's order, from 1.
+             */
+            position: number;
+            /**
+             * Revision
+             * @description Its latest revision. Send it back as If-Match.
+             */
+            revision: number;
+            /** @description The option that replaced it: dropdowns offer that one instead. */
+            superseded_by: components["schemas"]["OptionReplacementOut"] | null;
+            /**
+             * Uses
+             * @description For its curators: how many records name it, in every project. Never which.
+             */
+            uses: number | null;
+            /**
+             * Values
+             * @description Its values for the list's other fields. A reference is the ID of another list's option.
+             */
+            values: {
+                [key: string]: unknown;
+            };
+        };
+        /** OptionPatch */
+        OptionPatch: {
+            /**
+             * Description
+             * @description Empty clears it.
+             */
+            description?: string | null;
+            /** Label */
+            label?: string | null;
+            /**
+             * Reason
+             * @description Why: every project in the registry sees it.
+             */
+            reason: string;
+            /**
+             * Values
+             * @description Only the other fields to change; null clears one.
+             */
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        /** OptionReplacementOut */
+        OptionReplacementOut: {
+            /** Code */
+            code: string;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+        };
+        /** OptionSupersedeIn */
+        OptionSupersedeIn: {
+            /**
+             * Reason
+             * @description Why: projects that name it are told.
+             */
+            reason: string;
+            /**
+             * Replacement
+             * @description The option that replaces it, by its code.
+             */
+            replacement: string;
+        };
+        /** OrderIn */
+        OrderIn: {
+            /**
+             * Codes
+             * @description Every option's code, archived and superseded ones too, in the new order.
+             */
+            codes: string[];
+            /**
+             * Reason
+             * @description Why: every project's dropdowns follow it.
+             */
+            reason: string;
         };
         /** OrgParams */
         OrgParams: {
@@ -13322,6 +13846,11 @@ export interface components {
         PlaceOut: {
             /** Archived */
             archived: boolean;
+            /**
+             * Code
+             * @description For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+             */
+            code?: string | null;
             /** Count */
             count: number;
             /**
@@ -13346,6 +13875,11 @@ export interface components {
              */
             purged: boolean;
             shape: components["schemas"]["ShapeOut"] | null;
+            /**
+             * Superseded
+             * @description For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+             */
+            superseded?: boolean | null;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -14392,6 +14926,14 @@ export interface components {
             /** Read */
             read: boolean;
         };
+        /** Reason */
+        Reason: {
+            /**
+             * Reason
+             * @description Why: every project in the registry sees it.
+             */
+            reason: string;
+        };
         /**
          * ReassignOut
          * @description Someone an assignment field names who can't be named there now (ADR 0122).
@@ -14807,6 +15349,11 @@ export interface components {
             /** Archived */
             archived: boolean;
             /**
+             * Code
+             * @description For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+             */
+            code?: string | null;
+            /**
              * Formerly
              * @description The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
              */
@@ -14818,6 +15365,11 @@ export interface components {
              * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
              */
             purged: boolean;
+            /**
+             * Superseded
+             * @description For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+             */
+            superseded?: boolean | null;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -14967,6 +15519,11 @@ export interface components {
              * @description You're one of its registrars: see its entries, change their facts, supersede them.
              */
             curate: boolean;
+            /**
+             * Curate Lists
+             * @description You curate some of its lab lists, or all of them as a registrar (ADR 0270): GET /lists?registry= says which.
+             */
+            curate_lists: boolean;
             /**
              * Manage
              * @description Rename it, choose its teams, appoint its registrars.
@@ -16662,6 +17219,11 @@ export interface components {
             /** Archived */
             archived: boolean;
             /**
+             * Code
+             * @description For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+             */
+            code?: string | null;
+            /**
              * Container
              * @description Its type holds things.
              */
@@ -16694,6 +17256,11 @@ export interface components {
              * @description Its type is kept somewhere.
              */
             storable: boolean;
+            /**
+             * Superseded
+             * @description For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+             */
+            superseded?: boolean | null;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -16798,6 +17365,19 @@ export interface components {
              * @description Each position scanned: one at a time, or a rack scanner's file.
              */
             scans: components["schemas"]["ScanIn"][];
+        };
+        /** Scope */
+        Scope: {
+            /**
+             * Project
+             * @description A project you read, by ID or slug: its registry's lists, which its records pick from.
+             */
+            project?: string | null;
+            /**
+             * Registry
+             * @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.
+             */
+            registry?: string | null;
         };
         /** ScopeOut */
         ScopeOut: {
@@ -19112,6 +19692,11 @@ export interface components {
             /** Archived */
             archived: boolean;
             /**
+             * Code
+             * @description For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.
+             */
+            code?: string | null;
+            /**
              * Formerly
              * @description The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
              */
@@ -19133,6 +19718,11 @@ export interface components {
              * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
              */
             purged: boolean;
+            /**
+             * Superseded
+             * @description For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.
+             */
+            superseded?: boolean | null;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -24455,6 +25045,336 @@ export interface operations {
             };
         };
     };
+    iki_server_api_lists_list_lists: {
+        parameters: {
+            query?: {
+                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                project?: string | null;
+                /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
+                registry?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_lists_get_list: {
+        parameters: {
+            query?: {
+                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                project?: string | null;
+                /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
+                registry?: string | null;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_lists_list_options: {
+        parameters: {
+            query?: {
+                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                project?: string | null;
+                /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
+                registry?: string | null;
+                /** @description Every option, archived and superseded ones too, as curators see them. */
+                archived?: boolean;
+                /** @description Only options whose label or code has this in it. */
+                q?: string | null;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptionOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_lists_add_option: {
+        parameters: {
+            query?: {
+                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                project?: string | null;
+                /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
+                registry?: string | null;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OptionIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptionOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_lists_get_option: {
+        parameters: {
+            query?: {
+                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                project?: string | null;
+                /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
+                registry?: string | null;
+            };
+            header?: never;
+            path: {
+                name: string;
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptionOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_lists_patch_option: {
+        parameters: {
+            query?: {
+                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                project?: string | null;
+                /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
+                registry?: string | null;
+            };
+            header?: {
+                "If-Match"?: string | null;
+            };
+            path: {
+                name: string;
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OptionPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptionOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_lists_archive_option: {
+        parameters: {
+            query?: {
+                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                project?: string | null;
+                /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
+                registry?: string | null;
+            };
+            header?: never;
+            path: {
+                name: string;
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Reason"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptionOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_lists_move_references: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OptionMoveIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptionMovedOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_lists_restore_option: {
+        parameters: {
+            query?: {
+                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                project?: string | null;
+                /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
+                registry?: string | null;
+            };
+            header?: never;
+            path: {
+                name: string;
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Reason"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptionOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_lists_supersede_option: {
+        parameters: {
+            query?: {
+                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                project?: string | null;
+                /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
+                registry?: string | null;
+            };
+            header?: never;
+            path: {
+                name: string;
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OptionSupersedeIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptionOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_lists_reorder_list: {
+        parameters: {
+            query?: {
+                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                project?: string | null;
+                /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
+                registry?: string | null;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrderIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptionOut"][];
+                };
+            };
+        };
+    };
     iki_server_api_me_me: {
         parameters: {
             query?: never;
@@ -26610,6 +27530,83 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Page_RegistryEntryOut_"];
                 };
+            };
+        };
+    };
+    iki_server_api_lists_list_curators: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListCuratorOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_lists_appoint_curator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registry_id: string;
+                name: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListCuratorOut"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListCuratorOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_lists_dismiss_curator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registry_id: string;
+                name: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

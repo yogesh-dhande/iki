@@ -86,7 +86,7 @@ function registry(overrides: Partial<Schemas["RegistryOut"]> = {}): Schemas["Reg
     all_teams: true,
     teams: [],
     created_at: "2026-01-01T00:00:00Z",
-    can: { manage: false, curate: false },
+    can: { manage: false, curate: false, curate_lists: false },
     ...overrides,
   };
 }
@@ -686,7 +686,7 @@ describe("a registry's entries", () => {
     answer("GET /api/v1/entity-types", [PROTEIN_R]);
     answer(
       `GET /api/v1/registries/${MAIN_REGISTRY.id}`,
-      registry({ can: { manage: false, curate: true } }),
+      registry({ can: { manage: false, curate: true, curate_lists: false } }),
     );
     const listed = (superseded: boolean) => ({
       id: superseded ? ENTRY_ID : NEW_ENTRY_ID,
@@ -739,7 +739,10 @@ describe("a registry's entries", () => {
   it("are a link away on a registrar's home page", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([KINASE]));
-    answer("GET /api/v1/registries", page([registry({ can: { manage: false, curate: true } })]));
+    answer(
+      "GET /api/v1/registries",
+      page([registry({ can: { manage: false, curate: true, curate_lists: false } })]),
+    );
     await renderApp("/");
     const curated = await screen.findByRole("region", { name: "Registries you curate" });
     expect(within(curated).getByRole("link", { name: "Main" })).toHaveAttribute(
