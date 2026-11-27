@@ -1,30 +1,33 @@
-// The mass conventions used by the complex plugin and Bio.Data.IUPACData.
-// Standard atomic weights and isotope abundances: IUPAC / NIST,
-// https://physics.nist.gov/PhysRefData/Compositions/ . Each labelled atom counts
-// as its specified nuclide, including in an average mass.
+// Average masses: CIAAW's standard atomic weights 2024, the table every Iki plugin weighs
+// by (plugins/*/scripts/weights.py, which a test keeps these equal to): for an element
+// whose standard atomic weight is an interval, CIAAW's abridged value.
+// https://www.ciaaw.org/atomic-weights.htm, https://www.ciaaw.org/abridged-atomic-weights.htm
+// Monoisotopic and isotope masses: AME2020, as NIST gives them,
+// https://physics.nist.gov/PhysRefData/Compositions/ . Each labelled atom counts as its
+// specified nuclide, including in an average mass.
 export const AVERAGE: Readonly<Record<string, number>> = {
-  C: 12.0107,
-  H: 1.00794,
-  N: 14.0067,
-  O: 15.9994,
-  S: 32.065,
-  P: 30.973761,
-  Se: 78.96,
-  F: 18.9984032,
-  Cl: 35.453,
+  C: 12.011,
+  H: 1.008,
+  N: 14.007,
+  O: 15.999,
+  S: 32.06,
+  P: 30.973761998,
+  Se: 78.971,
+  F: 18.998403162,
+  Cl: 35.45,
   Br: 79.904,
   I: 126.90447,
-  Na: 22.98977,
+  Na: 22.98976928,
   K: 39.0983,
-  Si: 28.0855,
-  B: 10.811,
+  Si: 28.085,
+  B: 10.81,
   Fe: 55.845,
-  Zn: 65.39,
+  Zn: 65.38,
   Cu: 63.546,
   Mg: 24.305,
   Ca: 40.078,
-  Mn: 54.938049,
-  Co: 58.9332,
+  Mn: 54.938043,
+  Co: 58.933194,
 };
 export const MONOISOTOPIC: Readonly<Record<string, number>> = {
   C: 12.0,

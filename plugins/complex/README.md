@@ -62,12 +62,12 @@ parts (`include: [components.part]`), at the revisions they have then:
   complex with one is named and left out. J (leucine or isoleucine, as mass
   spectrometry reads them) is C6H11NO either way, and absorbs at 280 nm as
   neither does, so it's weighed, and the run says so;
-- a DNA sequence's is its bases', as Biopython's `molecular_weight` weighs
-  DNA: each its deoxynucleoside 5′-monophosphate's less a water for each
+- a DNA sequence's is its bases', as Biopython's `molecular_weight` counts
+  DNA's atoms: each its deoxynucleoside 5′-monophosphate's less a water for each
   phosphodiester bond, a 5′ phosphate and a 3′ hydroxyl on a linear strand,
   and both strands of a double-stranded one, which is two chains. A strand
   made with a 5′ hydroxyl (a synthetic oligonucleotide, a PCR product of
-  unphosphorylated primers) is HPO3, 79.97 u, lighter, which the run says. An
+  unphosphorylated primers) is HPO3, 79.98 u, lighter, which the run says. An
   ambiguous base has no one formula;
 - any other part's is its entry's `molecular_formula`: a compound's, an
   oligonucleotide's, a duplex's or another complex's, which this action
@@ -83,9 +83,11 @@ Each complex gets one message, at most, saying all of it, so a run of 100
 keeps to the 100 messages a run's output has: the longest is cut at a
 sentence, its whole in the run's log.
 
-Its average mass is its formula's with the standard atomic weights Biopython
-has (`Bio.Data.IUPACData.atom_weights`), as the protein plugin's molecular
-weights are, and its monoisotopic mass with each element's most abundant
+Its average mass is its formula's with CIAAW's standard atomic weights 2024,
+the table every Iki plugin weighs by (`scripts/weights.py`,
+[ADR 0271](../../docs/adr/0271-one-table-of-atomic-weights-weighs-every-molecule.md)),
+as the protein plugin's molecular weights are, and its monoisotopic mass with
+each element's most abundant
 isotope's mass (AME2020: Wang et al., _Chin Phys C_ 45:030003, 2021). Its chain
 count is each part's chains times its copies: a protein, nucleic acid or
 oligonucleotide is one, a duplex two, a complex its own count, a compound none.
@@ -101,7 +103,7 @@ protein nor a complex (a heme, an oligonucleotide) absorbs in ways Pace's
 values don't weigh, so the complex has none, and the run says why.
 
 The run says what its disulfides make it: _"With its 16 disulfides:
-C6472H10014N1730O2023S46, 145,900.13 u average and 145,810.1054 u
+C6472H10014N1730O2023S46, 145,902.15 u average and 145,810.1054 u
 monoisotopic, and 216,410 L/(mol.cm) at 280 nm"_. A part that's a complex has
 bonds of its own, shown on it, and the run says what the complex is with those
 as well, and when some may not be counted (a part complex whose own parts'
@@ -112,17 +114,18 @@ What it computes, checked against published values:
 
 | Complex                                            | Its parts as they are                                                                                                                             | Published                                                                                                                                                                                                                                           |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hemoglobin A (CPX-2158)                            | C2954H4508Fe4N780O806S12, 64,452.3 u; no absorbance, as its hemes aren't weighed                                                                  | Complex Portal: 64 kD. Its α chain alone, 15,126.16 u: 15,126.4 Da by electrospray (Rai, Landin and Green, Waters application note, _The analysis of human haemoglobin variants using mass spectrometry_)                                           |
-| Amivantamab (KEGG D11894)                          | Its chains' residues alone, unglycosylated: with its 16 disulfides, C6472H10014N1730O2023S46, 145,900.13 u; 214,410 L/(mol.cm), 216,410 with them | KEGG DRUG (its peptide chains): C6472H10014N1730O2023S46, 145,900.22 (average), 145,810.1055 (exact); ours 145,810.1054. The glycoprotein's major glycoform is 148,209 Da (FDA's chemistry review of Rybrevant, BLA 761210), its glycans 2,309 more |
-| Trastuzumab Fab–HER2 (PDB 1N8Z)                    | C4980H7745N1389O1538S65, 113,766.39 u, 3 chains; 133,620 L/(mol.cm), 136,495 with HER2's 23 disulfides and 136,995 with the Fab's 4 as well       | Its chains as Biopython weighs them, and its disulfides 1N8Z's SSBOND records; RCSB's entity weights are 0.1% higher                                                                                                                                |
-| Human insulin (P01308)                             | With its 3 disulfides, C257H383N65O77S6, 5,807.57 u, 2 chains                                                                                     | USP and DrugBank (DB00030): C257H383N65O77S6, 5,807.57                                                                                                                                                                                              |
-| Drew–Dickerson dodecamer with netropsin (PDB 1BNA) | Its two strands with a 5′ phosphate, 7,452.73 u, and netropsin's C18H26N10O3: C250H322N102O149P24, 7,883.2 u, 2 chains                            | Biopython's `molecular_weight`, double-stranded: 7,452.73; netropsin, PubChem CID 4461                                                                                                                                                              |
+| Hemoglobin A (CPX-2158)                            | C2954H4508Fe4N780O806S12, 64,453.31 u; no absorbance, as its hemes aren't weighed                                                                 | Complex Portal: 64 kD. Its α chain alone, 15,126.40 u: 15,126.4 Da by electrospray (Rai, Landin and Green, Waters application note, _The analysis of human haemoglobin variants using mass spectrometry_)                                           |
+| Amivantamab (KEGG D11894)                          | Its chains' residues alone, unglycosylated: with its 16 disulfides, C6472H10014N1730O2023S46, 145,902.15 u; 214,410 L/(mol.cm), 216,410 with them | KEGG DRUG (its peptide chains): C6472H10014N1730O2023S46, 145,900.22 (average), 145,810.1055 (exact); ours 145,810.1054. The glycoprotein's major glycoform is 148,209 Da (FDA's chemistry review of Rybrevant, BLA 761210), its glycans 2,307 more |
+| Trastuzumab Fab–HER2 (PDB 1N8Z)                    | C4980H7745N1389O1538S65, 113,767.82 u, 3 chains; 133,620 L/(mol.cm), 136,495 with HER2's 23 disulfides and 136,995 with the Fab's 4 as well       | Its chains' residues, and its disulfides 1N8Z's SSBOND records; RCSB's entity weights are 0.1% higher                                                                                                                                               |
+| Human insulin (P01308)                             | With its 3 disulfides, C257H383N65O77S6, 5,807.63 u, 2 chains                                                                                     | USP and DrugBank (DB00030): C257H383N65O77S6, 5,807.57, by older atomic weights                                                                                                                                                                     |
+| Drew–Dickerson dodecamer with netropsin (PDB 1BNA) | Its two strands with a 5′ phosphate, 7,452.79 u, and netropsin's C18H26N10O3: C250H322N102O149P24, 7,883.26 u, 2 chains                           | Biopython's `molecular_weight`, double-stranded, by older atomic weights: 7,452.73; netropsin, PubChem CID 4461                                                                                                                                     |
 
 Every mass is its parts' formulas', so a glycoprotein's is its chains' without
 their glycans, or any other modification its parts' formulas don't have.
 Amivantamab's formula, from KEGG DRUG's chains, is KEGG's exactly; its average
-mass differs in its last figures, as KEGG's atomic weights differ from
-Biopython's. Extinction coefficients are
+mass is 13 ppm more, and insulin's 10 ppm more than USP's, as they weigh by
+IUPAC's atomic weights of 2005 (C 12.0107, H 1.00794), which CIAAW has since
+replaced. Hemoglobin's α chain, 15,126.40 u, is what electrospray measures. Extinction coefficients are
 Biopython ProtParam's for each chain with its thiols free
 (`molar_extinction_coefficient`), summed over copies.
 

@@ -52,12 +52,15 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from weights import AVERAGE
+
 #: Double-stranded DNA's concentration for an A260 of 1 over 1 cm, in ng/µL (50 µg/mL).
 DSDNA_PER_A260 = 50.0
 #: A cystine's molar absorbance at 280 nm in water, L/(mol·cm) (Pace et al., 1995).
 CYSTINE = 125
-#: Hydrogen's standard atomic weight, as the complex plugin weighs a disulfide's two.
-HYDROGEN = 1.00794
+#: Hydrogen's atomic weight in the table every Iki plugin weighs by, as the complex plugin
+#: weighs a disulfide's two.
+HYDROGEN = AVERAGE["H"]
 
 
 def number(value: Any) -> float | None:  # noqa: ANN401 - a value's JSON

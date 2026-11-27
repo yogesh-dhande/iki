@@ -43,9 +43,10 @@ the computed conjugate mass already includes the defined attachments.
 Expected mass adds the glycan residue mass and any separately assigned
 delta, and subtracts two hydrogens per retained disulfide. Reported mass
 error is one million times observed minus expected, divided by expected.
-The calculation uses [CIAAW](https://ciaaw.org/abridged-atomic-weights.htm)
-for average atomic weights, [AME2020](https://doi.org/10.1088/1674-1137/abddaf)
-for isotope masses, and [Unimod](https://www.unimod.org/masses.html) for
+The calculation weighs a chain from its residues' formulas, and its
+glycans and disulfides, by [CIAAW's standard atomic weights 2024](https://www.ciaaw.org/atomic-weights.htm),
+the table every Iki plugin weighs by ([ADR 0271](../../docs/adr/0271-one-table-of-atomic-weights-weighs-every-molecule.md)); by
+[AME2020](https://doi.org/10.1088/1674-1137/abddaf) for isotope masses, and [Unimod](https://www.unimod.org/masses.html) for
 attached glycan residue formulas. Glycan assignments are compositions
 and do not resolve isomers. A distribution of ADC loads needs a defined
 species or a separately assigned subunit delta for comparison.

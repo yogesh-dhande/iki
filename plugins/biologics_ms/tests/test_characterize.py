@@ -1,11 +1,15 @@
 """Test scientific edge cases with explicitly synthetic peptide and material records."""
 
 import runpy
+import sys
 from pathlib import Path
 
 import pytest
 
-SCRIPT = runpy.run_path(str(Path(__file__).parents[1] / "scripts/characterize.py"))
+SCRIPTS = Path(__file__).parents[1] / "scripts"
+# As the worker runs it: from its own directory, so it finds weights.py beside it.
+sys.path.insert(0, str(SCRIPTS))
+SCRIPT = runpy.run_path(str(SCRIPTS / "characterize.py"))
 
 
 def test_attachment_residue_has_no_free_water():

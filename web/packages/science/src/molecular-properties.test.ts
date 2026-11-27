@@ -8,8 +8,9 @@ import {
 
 describe("molecular mass and spectroscopy", () => {
   it("weighs water and fixed labels by their neutral atom masses", () => {
-    // https://physics.nist.gov/PhysRefData/Compositions/
-    expect(molecularMass("H2O").average).toBeCloseTo(18.01528, 6);
+    // CIAAW's abridged H 1.0080 and O 15.999 (https://www.ciaaw.org/abridged-atomic-weights.htm);
+    // monoisotopic, https://physics.nist.gov/PhysRefData/Compositions/
+    expect(molecularMass("H2O").average).toBeCloseTo(2 * 1.008 + 15.999, 9);
     expect(molecularMass("H2O").monoisotopic).toBeCloseTo(18.01056468403, 9);
     expect(molecularMass("D2O")).toEqual(molecularMass("[2H]2O"));
     expect(molecularMass("[13C]").average).toBeCloseTo(13.00335483507, 10);

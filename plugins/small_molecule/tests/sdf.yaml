@@ -38,7 +38,7 @@ expect:
           name: pheniramine
           salt: hydrochloride
           salt_equivalents: 1
-          formula_weight: 276.811
+          formula_weight: 276.808
     metrics: { records: 2, skipped: 0 }
 ---
 apiVersion: iki/v1

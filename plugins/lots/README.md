@@ -258,7 +258,7 @@ measured.
   stated where they'd make a difference, or its complex's disulfides may not
   all be counted. The run says what to confirm, and the concentration still
   follows the reading, so it's clear what it rests on. Hen lysozyme's sequence (UniProt P00698, 19–147) gives 37,970 L/(mol·cm) and
-  14,313.0 g/mol, less 8.06 for its four cystines: 37,970 / 14,304.94 = 2.6543
+  14,313.18 g/mol, less 8.06 for its four cystines: 37,970 / 14,305.12 = 2.6543
   mL/(mg·cm), within 0.6% of the 2.64 measured at 281.5 nm (Aune & Tanford,
   1969, Biochemistry 8:4579). Trastuzumab (KEGG D03257), two heavy and two light
   chains, is 145,197.41 g/mol and 213,380 L/(mol·cm) free; with its 16

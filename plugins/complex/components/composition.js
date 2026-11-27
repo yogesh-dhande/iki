@@ -25,9 +25,58 @@ function disclosure(section, title, contents, open = false) {
 	});
 	return details;
 }
+// web/packages/science/src/molecular-data.ts
+const AVERAGE = {
+	C: 12.011,
+	H: 1.008,
+	N: 14.007,
+	O: 15.999,
+	S: 32.06,
+	P: 30.973761998,
+	Se: 78.971,
+	F: 18.998403162,
+	Cl: 35.45,
+	Br: 79.904,
+	I: 126.90447,
+	Na: 22.98976928,
+	K: 39.0983,
+	Si: 28.085,
+	B: 10.81,
+	Fe: 55.845,
+	Zn: 65.38,
+	Cu: 63.546,
+	Mg: 24.305,
+	Ca: 40.078,
+	Mn: 54.938043,
+	Co: 58.933194
+};
+const MONOISOTOPIC = {
+	C: 12,
+	H: 1.00782503223,
+	N: 14.00307400443,
+	O: 15.99491461957,
+	S: 31.9720711744,
+	P: 30.97376199842,
+	Se: 79.9165218,
+	F: 18.99840316273,
+	Cl: 34.968852682,
+	Br: 78.9183376,
+	I: 126.9044719,
+	Na: 22.989769282,
+	K: 38.9637064864,
+	Si: 27.97692653465,
+	B: 11.00930536,
+	Fe: 55.93493633,
+	Zn: 63.92914201,
+	Cu: 62.92959772,
+	Mg: 23.985041697,
+	Ca: 39.962590863,
+	Mn: 54.93804391,
+	Co: 58.93319429
+};
 // web/packages/science/src/composition-mass.ts
-const AVERAGE_H = 1.00794;
-const MASS_1H = 1.00782503223;
+const AVERAGE_H = AVERAGE["H"] ?? NaN;
+const MASS_1H = MONOISOTOPIC["H"] ?? NaN;
 const CYSTINE_EXTINCTION = 125;
 /** Oxidizing two thiols to a disulfide removes two H per bond. Keeps isotope labels intact. */
 function withDisulfides(reduced, count) {

@@ -295,8 +295,11 @@ formula weight for each parent must be what the drawing weighs; when it isn't
 
 From the compound's SMILES, as RDKit 2026.09.2 computes them:
 
-- **Molecular weight**: from IUPAC's standard atomic weights
-  (`Descriptors.MolWt`); **exact mass**, monoisotopic (`ExactMolWt`). An atom
+- **Molecular weight**: as `Descriptors.MolWt` counts its atoms, but by
+  CIAAW's standard atomic weights 2024, the table every Iki plugin weighs by
+  ([ADR 0271](../../docs/adr/0271-one-table-of-atomic-weights-weighs-every-molecule.md)), not RDKit's own: chlorine 35.45 and sulfur 32.06, where RDKit has
+  35.453 and 32.067. An element with no standard atomic weight, such as
+  technetium, is weighed only when drawn as its isotope (`[99Tc]`); **exact mass**, monoisotopic (`ExactMolWt`). An atom
   drawn as a particular isotope counts at that isotope's mass in both, and the
   **formula** writes it so (`CalcMolFormula` with separate isotopes): heavy
   water is D2O, and carbon-13 methanol [13C]H4O.

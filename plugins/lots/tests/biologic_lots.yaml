@@ -5,10 +5,10 @@ upgrade: true
 description: >-
   Hen egg-white lysozyme, its 129 mature residues (UniProt P00698, 19–147): 6 Trp, 3 Tyr
   and 4 cystines give 37,970 L/(mol·cm) (Pace et al., 1995). Its sequence weighs
-  14,313.0 g/mol; its 4 cystines take 8 H (8.06 g/mol) off, 14,304.94, as a complex's
+  14,313.18 g/mol; its 4 cystines take 8 H (8.06 g/mol) off, 14,305.12, as a complex's
   disulfides do, so 2.6543 mL/(mg·cm), within 0.6% of the 2.64 measured (E1% 26.4 at
   281.5 nm; Aune & Tanford, 1969). An A280 of 0.53 diluted 1 in 10 is 0.53 × 10 /
-  2.6543 = 1.9967 mg/mL.
+  2.6543 = 1.9968 mg/mL.
 action: compute_protein_lot
 inputs:
   lot:
@@ -20,7 +20,7 @@ inputs:
           - type: iki/protein.Protein
             values:
               sequence: KVFGRCELAAAMKRHGLDNYRGYSLGNWVCAAKFESNFNTQATNRNTDGSTDYGILQINSRWWCNDGRTPGSRNLCNIPCSALLSSDITASVNCAKKIVSDGNGMNAWVAWRNRCKGTDVQAWIRGCRL
-              molecular_weight: 14313.0
+              molecular_weight: 14313.18
               extinction_coefficient_oxidized: 37970
               extinction_coefficient_reduced: 37470
 expect:
@@ -32,8 +32,8 @@ expect:
               a280_extinction: 2.6543,
               a280_basis: cystines,
               a280_estimate: false,
-              a280_concentration: 1.9967,
-              concentration: 1.9967,
+              a280_concentration: 1.9968,
+              concentration: 1.9968,
             }
 ---
 apiVersion: iki/v1
@@ -52,7 +52,7 @@ inputs:
         protein:
           - type: iki/protein.Protein
             values:
-              molecular_weight: 14313.0
+              molecular_weight: 14313.18
               extinction_coefficient_oxidized: 37970
               extinction_coefficient_reduced: 37470
 expect:
@@ -80,7 +80,7 @@ inputs:
           - values: { code: a280, label: A280, calculation: a280 }
         protein:
           - type: iki/protein.Protein
-            values: { molecular_weight: 14313.0, extinction_coefficient_oxidized: 37970 }
+            values: { molecular_weight: 14313.18, extinction_coefficient_oxidized: 37970 }
 expect:
   output:
     updates:
@@ -104,7 +104,7 @@ inputs:
         protein:
           - type: iki/protein.Protein
             values:
-              molecular_weight: 14313.0
+              molecular_weight: 14313.18
               extinction_coefficient_oxidized: 37970
               extinction_coefficient_reduced: 37470
 expect:
@@ -119,7 +119,7 @@ name: the_labs_own_a280_method_is_worked_out_too
 description: >-
   A lab's own method on its list, an A280 by variable path length (SoloVPE), whose
   option says it's an A280: Iki works lysozyme's out as any other, 0.53 × 10 / 2.6543
-  = 1.9967 mg/mL.
+  = 1.9968 mg/mL.
 action: compute_protein_lot
 inputs:
   lot:
@@ -133,21 +133,21 @@ inputs:
         protein:
           - type: iki/protein.Protein
             values:
-              molecular_weight: 14313.0
+              molecular_weight: 14313.18
               extinction_coefficient_oxidized: 37970
               extinction_coefficient_reduced: 37470
 expect:
   output:
     updates:
       lot:
-        - values: { a280_concentration: 1.9967, concentration: 1.9967 }
+        - values: { a280_concentration: 1.9968, concentration: 1.9968 }
 ---
 apiVersion: iki/v1
 kind: ActionTest
 name: a_lot_naming_no_method_is_by_its_a280
 description: >-
   Its concentration method left empty, its A280 reading gives its concentration, as by
-  A280: 1.9967 mg/mL.
+  A280: 1.9968 mg/mL.
 action: compute_protein_lot
 inputs:
   lot:
@@ -156,21 +156,21 @@ inputs:
         protein:
           - type: iki/protein.Protein
             values:
-              molecular_weight: 14313.0
+              molecular_weight: 14313.18
               extinction_coefficient_oxidized: 37970
               extinction_coefficient_reduced: 37470
 expect:
   output:
     updates:
       lot:
-        - values: { a280_concentration: 1.9967, concentration: 1.9967 }
+        - values: { a280_concentration: 1.9968, concentration: 1.9968 }
 ---
 apiVersion: iki/v1
 kind: ActionTest
 name: unstated_cysteines_make_its_e280_an_estimate
 description: >-
   Lysozyme again, its cysteines not stated: they're taken as cystines, as before, and the
-  same 1.9967 mg/mL follows its A280, but the lot records that its ε280 is an estimate
+  same 1.9968 mg/mL follows its A280, but the lot records that its ε280 is an estimate
   and the run says what to confirm.
 action: compute_protein_lot
 inputs:
@@ -183,7 +183,7 @@ inputs:
         protein:
           - type: iki/protein.Protein
             values:
-              molecular_weight: 14313.0
+              molecular_weight: 14313.18
               extinction_coefficient_oxidized: 37970
               extinction_coefficient_reduced: 37470
 expect:
@@ -195,7 +195,7 @@ expect:
               a280_extinction: 2.6543,
               a280_basis: cystines,
               a280_estimate: true,
-              concentration: 1.9967,
+              concentration: 1.9968,
             }
     messages:
       - level: warning
