@@ -60,6 +60,7 @@ from iki_server.entities import (
     counts,
     exports,
     holds,
+    lists,
     people,
     plugin_writers,
     registry,
@@ -668,6 +669,12 @@ class EntityTypeOut(Schema):
     sample: bool = Field(
         description="Its records are samples (ADR 0177): a project's files are found by them."
     )
+    lab_list: bool = Field(
+        False,
+        description="Its entities are a lab list's options (ADR 0270): a reference to it is a "
+        "dropdown of /lists/{type}/options, which its curators keep, and nobody creates one "
+        "as a record.",
+    )
     detached: bool = Field(
         description="Its plugin is detached (ADR 0091): its entities can be read, not changed, "
         "and no new ones can be made."
@@ -879,6 +886,16 @@ class RefOut(Schema):
     title: str = Field(description="What it's called: its type's display title, or its HRID.")
     type: str
     archived: bool
+    code: str | None = Field(
+        None,
+        description="For a lab list's option (ADR 0270): its code, its identity in the list, "
+        "which never changes when it's relabelled.",
+    )
+    superseded: bool | None = Field(
+        None,
+        description="For a lab list's option: whether it was superseded by another, which "
+        "dropdowns offer instead. Other references haven't got it.",
+    )
     purged: bool = Field(
         description="Its plugin's data was purged (ADR 0092): only its HRID and type are left."
     )
@@ -1562,6 +1579,7 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "extends": entity_type.extends if entity_type.extends != "iki/core.Entity" else None,
         "abstract": entity_type.abstract,
         "sample": name in registry.sample_types(),
+        "lab_list": entity_type.is_list,
         "detached": services.frozen(form) is not None,
         "subtypes": sorted(subtypes(name) - {name}),
         "hrid_prefix": entity_type.hrid_prefix,
@@ -2363,7 +2381,7 @@ def _lookup(
     def ref(e: Entity, shown_by: Entity) -> dict[str, Any]:
         fields = shape(e.type).fields()
         shown = {n: to_json(fields[n], v) for n, v in titled_values.get(shown_by.pk, {}).items()}
-        return {
+        out = {
             "hrid": e.hrid,
             "title": _title(shown_by, shown),
             "type": e.type,
@@ -2371,6 +2389,15 @@ def _lookup(
             "archived": shown_by.archived_at is not None,
             "purged": False,
         }
+        if e.pk in named:
+            # A lab list's option (ADR 0270): its code is what it is, whatever it's called
+            # now, and it has no record to be titled by.
+            out["code"], out["title"] = named[e.pk]
+            out["superseded"] = e.superseded_by_id is not None
+        return out
+
+    listed = access.list_types()
+    named = lists.names_of([e.pk for e in entries if e.type in listed])
 
     refs: dict[Any, dict[str, Any]] = {}
     for e in [*found, *entries]:

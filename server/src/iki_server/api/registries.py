@@ -46,7 +46,7 @@ from iki_server.api.entities import (
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, ProjectRef, RegistryRef, TeamRef, UserOut
-from iki_server.entities import access, entries, services
+from iki_server.entities import access, entries, lists, services
 from iki_server.entities.history import FieldNames
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid, ids_in, shape, to_json
@@ -65,6 +65,10 @@ class RegistryCan(Schema):
     curate: bool = Field(
         description="You're one of its registrars: see its entries, change their facts, "
         "supersede them."
+    )
+    curate_lists: bool = Field(
+        description="You curate some of its lab lists, or all of them as a registrar "
+        "(ADR 0270): GET /lists?registry= says which."
     )
 
 
@@ -121,7 +125,11 @@ def _registries_for(user: User) -> QuerySet[Registry]:
     teams = permissions.visible_teams(user).values("pk")
     projects = access.readable_projects(user).values("registry_id")
     return Registry.objects.filter(
-        Q(all_teams=True) | Q(teams__in=teams) | Q(pk__in=projects) | Q(registrars__user=user)
+        Q(all_teams=True)
+        | Q(teams__in=teams)
+        | Q(pk__in=projects)
+        | Q(registrars__user=user)
+        | Q(list_curators__user=user)
     ).distinct()
 
 
@@ -146,6 +154,7 @@ def _registry_out(user: User, registry: Registry) -> dict[str, Any]:
         "can": {
             "manage": manage,
             "curate": permissions.can(user, Action.REGISTRY_CURATE, registry),
+            "curate_lists": permissions.can(user, Action.LISTS_CURATE, registry),
         },
     }
 
@@ -377,10 +386,19 @@ def _entry(user: User, ref: str) -> tuple[Entity, bool]:
     if found is None:
         raise Problem(404, "No such registry entry, or you can’t read it.")
     assert found.registry is not None  # noqa: S101 - entries have one
-    curates = permissions.can(user, Action.REGISTRY_CURATE, found.registry)
+    curates = _curates(user, found)
     if not curates and not access.visible_entries(user).filter(pk=found.pk).exists():
         raise Problem(404, "No such registry entry, or you can’t read it.")
     return found, curates
+
+
+def _curates(user: User, entry: Entity) -> bool:
+    """Whether the user curates the entry: its registry's registrars do, and a lab list's
+    option's curators (ADR 0270)."""
+    assert entry.registry is not None  # noqa: S101 - entries have one
+    if lists.is_list(entry.type):
+        return permissions.can_curate_list(user, entry.registry, entry.type)
+    return permissions.can(user, Action.REGISTRY_CURATE, entry.registry)
 
 
 def _entry_references(
@@ -501,7 +519,8 @@ def patch_entry(
     me = caller(request)
     entry, curates = _entry(me, ref)
     assert entry.registry is not None  # noqa: S101
-    require(me, Action.REGISTRY_CURATE, entry.registry)
+    if not curates:
+        require(me, Action.REGISTRY_CURATE, entry.registry)
     expected = _expected(if_match)
     try:
         entries.curate(me, entry, payload.values, reason=payload.reason, expected_revision=expected)
@@ -530,9 +549,10 @@ def supersede_entry(request: HttpRequest, ref: str, payload: SupersedeIn) -> dic
     registry, for good. Each holding project's Admins, and whoever added its record, are
     told, to move their records to the replacement."""
     me = caller(request)
-    entry, _ = _entry(me, ref)
+    entry, curates = _entry(me, ref)
     assert entry.registry is not None  # noqa: S101
-    require(me, Action.REGISTRY_CURATE, entry.registry)
+    if not curates:
+        require(me, Action.REGISTRY_CURATE, entry.registry)
     replacement, _ = _entry(me, payload.replacement)
     try:
         entries.supersede(me, entry, replacement, reason=payload.reason)
@@ -563,6 +583,9 @@ def list_entry_revisions(
     only what was set. ``person`` finds only those you're told they made."""
     me = caller(request)
     entry, curates = _entry(me, ref)
+    # A lab list's option is curated in the open (ADR 0270): every reader is told who
+    # changed it, when and why, as no project's work is in it.
+    curates = curates or lists.is_list(entry.type)
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
     names = FieldNames.for_type(entry.type, entry=True)
     revisions = trail.applied(
@@ -613,7 +636,7 @@ def get_entry_revision(request: HttpRequest, ref: str, number: int) -> dict[str,
     names = FieldNames.for_type(entry.type, entry=True)
     told = (
         {**_revision(revision, _runs_of(me, [revision]), names=names), "entry": True}
-        if curates or services.discloses(revision, readable)
+        if curates or lists.is_list(entry.type) or services.discloses(revision, readable)
         else undisclosed(revision, names)
     )
     return {

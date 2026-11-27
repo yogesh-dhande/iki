@@ -15,6 +15,7 @@ from org_world import World, build_world
 from iki_server.accounts.models import User
 from iki_server.amounts.models import Movement
 from iki_server.audit.models import AuditEvent
+from iki_server.entities import lists
 from iki_server.entities.models import Entity, Intake
 from iki_server.files.models import File
 from iki_server.org import services
@@ -135,7 +136,8 @@ def test_preview_apply_replay_and_switch(setup: Setup) -> None:
     assert change.data["after"] == {"version": "2.0.0", "flow": "research"}
     assert change.data["grants_added"] == switched["grants_to_add"]
     assert change.data["plan"] == again["plan"]
-    assert not Entity.objects.exists()
+    # No records: only the registry's lab lists' options, which the sync seeded (ADR 0270).
+    assert not Entity.objects.exclude(type__in=list(lists.types())).exists()
     assert not File.objects.exists()
     assert not Movement.objects.exists()
     assert not Intake.objects.exists()

@@ -1935,6 +1935,18 @@
             "title": "Archived",
             "type": "boolean"
           },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.",
+            "title": "Code"
+          },
           "custodian": {
             "$ref": "#/components/schemas/UserOut"
           },
@@ -1964,6 +1976,18 @@
             "description": "Its plugin's data was purged (ADR 0092): only its HRID and type are left.",
             "title": "Purged",
             "type": "boolean"
+          },
+          "superseded": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.",
+            "title": "Superseded"
           },
           "title": {
             "description": "What it's called: its type's display title, or its HRID.",
@@ -3013,6 +3037,18 @@
             "title": "Archived",
             "type": "boolean"
           },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.",
+            "title": "Code"
+          },
           "custodian": {
             "$ref": "#/components/schemas/UserOut"
           },
@@ -3057,6 +3093,18 @@
             "description": "Its plugin's data was purged (ADR 0092): only its HRID and type are left.",
             "title": "Purged",
             "type": "boolean"
+          },
+          "superseded": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.",
+            "title": "Superseded"
           },
           "title": {
             "description": "What it's called: its type's display title, or its HRID.",
@@ -4102,6 +4150,18 @@
             ],
             "description": "Its grid of positions, if it has one."
           },
+          "superseded": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.",
+            "title": "Superseded"
+          },
           "title": {
             "description": "What it's called: its type's display title, or its HRID.",
             "title": "Title",
@@ -4117,12 +4177,12 @@
           "title",
           "type",
           "archived",
+          "code",
           "purged",
           "id",
           "project",
           "shape",
           "holds",
-          "code",
           "location",
           "contents",
           "free",
@@ -6084,6 +6144,12 @@
             },
             "title": "Identity",
             "type": "array"
+          },
+          "lab_list": {
+            "default": false,
+            "description": "Its entities are a lab list's options (ADR 0270): a reference to it is a dropdown of /lists/{type}/options, which its curators keep, and nobody creates one as a record.",
+            "title": "Lab List",
+            "type": "boolean"
           },
           "label": {
             "title": "Label",
@@ -9149,6 +9215,18 @@
             "title": "Archived",
             "type": "boolean"
           },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.",
+            "title": "Code"
+          },
           "entry": {
             "default": false,
             "description": "It's a registry entry (ADR 0115): the identity its records are of.",
@@ -9187,6 +9265,18 @@
             "description": "Its plugin's data was purged (ADR 0092): only its HRID and type are left.",
             "title": "Purged",
             "type": "boolean"
+          },
+          "superseded": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.",
+            "title": "Superseded"
           },
           "title": {
             "description": "What it's called: its type's display title, or its HRID.",
@@ -9220,6 +9310,18 @@
             "title": "At",
             "type": "integer"
           },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.",
+            "title": "Code"
+          },
           "entry": {
             "default": false,
             "description": "It's a registry entry (ADR 0115): the identity its records are of.",
@@ -9258,6 +9360,18 @@
             "description": "Its plugin's data was purged (ADR 0092): only its HRID and type are left.",
             "title": "Purged",
             "type": "boolean"
+          },
+          "superseded": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.",
+            "title": "Superseded"
           },
           "title": {
             "description": "What it's called: its type's display title, or its HRID.",
@@ -12281,6 +12395,116 @@
         "title": "LastDelivery",
         "type": "object"
       },
+      "ListCan": {
+        "properties": {
+          "curate": {
+            "description": "Add, change, reorder, archive and supersede its options: its registry's registrars, and the list's curators.",
+            "title": "Curate",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "curate"
+        ],
+        "title": "ListCan",
+        "type": "object"
+      },
+      "ListCuratorOut": {
+        "properties": {
+          "appointed_at": {
+            "format": "date-time",
+            "title": "Appointed At",
+            "type": "string"
+          },
+          "appointed_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "list": {
+            "description": "The list's type, such as iki/lots.LotMethod.",
+            "title": "List",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserOut"
+          }
+        },
+        "required": [
+          "list",
+          "user",
+          "appointed_by",
+          "appointed_at"
+        ],
+        "title": "ListCuratorOut",
+        "type": "object"
+      },
+      "ListOut": {
+        "properties": {
+          "can": {
+            "$ref": "#/components/schemas/ListCan"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "detached": {
+            "description": "Its plugin is detached (ADR 0091): its options can be read, not changed.",
+            "title": "Detached",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "label_plural": {
+            "title": "Label Plural",
+            "type": "string"
+          },
+          "options": {
+            "description": "How many options a dropdown offers: the active ones.",
+            "title": "Options",
+            "type": "integer"
+          },
+          "plugin": {
+            "title": "Plugin",
+            "type": "string"
+          },
+          "registry": {
+            "$ref": "#/components/schemas/RegistryRef"
+          },
+          "type": {
+            "description": "The list's type, such as iki/lots.LotMethod.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "plugin",
+          "label",
+          "label_plural",
+          "description",
+          "registry",
+          "options",
+          "detached",
+          "can"
+        ],
+        "title": "ListOut",
+        "type": "object"
+      },
       "LocationOut": {
         "properties": {
           "custodian": {
@@ -14204,6 +14428,351 @@
           "outstanding_packs"
         ],
         "title": "OpenOrder",
+        "type": "object"
+      },
+      "OptionFilters": {
+        "properties": {
+          "archived": {
+            "default": false,
+            "description": "Every option, archived and superseded ones too, as curators see them.",
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "title": "Project"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only options whose label or code has this in it.",
+            "title": "Q"
+          },
+          "registry": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+            "title": "Registry"
+          }
+        },
+        "title": "OptionFilters",
+        "type": "object"
+      },
+      "OptionIn": {
+        "properties": {
+          "code": {
+            "description": "Its identity in the list, which never changes, such as `hplc`.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Description",
+            "type": "string"
+          },
+          "label": {
+            "description": "What people see and pick.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why it's added, if you'd say.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Its values for the list's other fields, by name. A reference is the ID of another list's option.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "code",
+          "label"
+        ],
+        "title": "OptionIn",
+        "type": "object"
+      },
+      "OptionMoveIn": {
+        "properties": {
+          "project": {
+            "description": "The project whose records move, by ID or slug.",
+            "title": "Project",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why: each record's history keeps it.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "reason"
+        ],
+        "title": "OptionMoveIn",
+        "type": "object"
+      },
+      "OptionMovedOut": {
+        "properties": {
+          "moved": {
+            "description": "The records that now name the replacement, by HRID.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Moved",
+            "type": "array"
+          }
+        },
+        "required": [
+          "moved"
+        ],
+        "title": "OptionMovedOut",
+        "type": "object"
+      },
+      "OptionOut": {
+        "properties": {
+          "archived": {
+            "description": "No dropdown offers it, but the records naming it keep it.",
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "code": {
+            "description": "Its identity in the list, which never changes: what exports give for it.",
+            "title": "Code",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "description": "What a record's reference to it holds.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "description": "What people see and pick, as it's called now.",
+            "title": "Label",
+            "type": "string"
+          },
+          "position": {
+            "description": "Its place in the list's order, from 1.",
+            "title": "Position",
+            "type": "integer"
+          },
+          "revision": {
+            "description": "Its latest revision. Send it back as If-Match.",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptionReplacementOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The option that replaced it: dropdowns offer that one instead."
+          },
+          "uses": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For its curators: how many records name it, in every project. Never which.",
+            "title": "Uses"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Its values for the list's other fields. A reference is the ID of another list's option.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "code",
+          "label",
+          "description",
+          "position",
+          "archived",
+          "superseded_by",
+          "values",
+          "revision",
+          "uses"
+        ],
+        "title": "OptionOut",
+        "type": "object"
+      },
+      "OptionPatch": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Empty clears it.",
+            "title": "Description"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "reason": {
+            "description": "Why: every project in the registry sees it.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Only the other fields to change; null clears one.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "OptionPatch",
+        "type": "object"
+      },
+      "OptionReplacementOut": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "code",
+          "label"
+        ],
+        "title": "OptionReplacementOut",
+        "type": "object"
+      },
+      "OptionSupersedeIn": {
+        "properties": {
+          "reason": {
+            "description": "Why: projects that name it are told.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "replacement": {
+            "description": "The option that replaces it, by its code.",
+            "title": "Replacement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "replacement",
+          "reason"
+        ],
+        "title": "OptionSupersedeIn",
+        "type": "object"
+      },
+      "OrderIn": {
+        "properties": {
+          "codes": {
+            "description": "Every option's code, archived and superseded ones too, in the new order.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "minItems": 1,
+            "title": "Codes",
+            "type": "array"
+          },
+          "reason": {
+            "description": "Why: every project's dropdowns follow it.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "codes",
+          "reason"
+        ],
+        "title": "OrderIn",
         "type": "object"
       },
       "OrgParams": {
@@ -16531,6 +17100,18 @@
             "title": "Archived",
             "type": "boolean"
           },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.",
+            "title": "Code"
+          },
           "count": {
             "title": "Count",
             "type": "integer"
@@ -16589,6 +17170,18 @@
                 "type": "null"
               }
             ]
+          },
+          "superseded": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.",
+            "title": "Superseded"
           },
           "title": {
             "description": "What it's called: its type's display title, or its HRID.",
@@ -18953,6 +19546,22 @@
         "title": "ReadIn",
         "type": "object"
       },
+      "Reason": {
+        "properties": {
+          "reason": {
+            "description": "Why: every project in the registry sees it.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "Reason",
+        "type": "object"
+      },
       "ReassignOut": {
         "description": "Someone an assignment field names who can't be named there now (ADR 0122).",
         "properties": {
@@ -19978,6 +20587,18 @@
             "title": "Archived",
             "type": "boolean"
           },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.",
+            "title": "Code"
+          },
           "formerly": {
             "description": "The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.",
             "items": {
@@ -19994,6 +20615,18 @@
             "description": "Its plugin's data was purged (ADR 0092): only its HRID and type are left.",
             "title": "Purged",
             "type": "boolean"
+          },
+          "superseded": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.",
+            "title": "Superseded"
           },
           "title": {
             "description": "What it's called: its type's display title, or its HRID.",
@@ -20283,6 +20916,11 @@
             "title": "Curate",
             "type": "boolean"
           },
+          "curate_lists": {
+            "description": "You curate some of its lab lists, or all of them as a registrar (ADR 0270): GET /lists?registry= says which.",
+            "title": "Curate Lists",
+            "type": "boolean"
+          },
           "manage": {
             "description": "Rename it, choose its teams, appoint its registrars.",
             "title": "Manage",
@@ -20291,7 +20929,8 @@
         },
         "required": [
           "manage",
-          "curate"
+          "curate",
+          "curate_lists"
         ],
         "title": "RegistryCan",
         "type": "object"
@@ -24079,6 +24718,18 @@
             "title": "Archived",
             "type": "boolean"
           },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.",
+            "title": "Code"
+          },
           "container": {
             "description": "Its type holds things.",
             "title": "Container",
@@ -24132,6 +24783,18 @@
             "description": "Its type is kept somewhere.",
             "title": "Storable",
             "type": "boolean"
+          },
+          "superseded": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.",
+            "title": "Superseded"
           },
           "title": {
             "description": "What it's called: its type's display title, or its HRID.",
@@ -24393,6 +25056,37 @@
           "scans"
         ],
         "title": "ScansIn",
+        "type": "object"
+      },
+      "Scope": {
+        "properties": {
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "title": "Project"
+          },
+          "registry": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+            "title": "Registry"
+          }
+        },
+        "title": "Scope",
         "type": "object"
       },
       "ScopeOut": {
@@ -29436,6 +30130,18 @@
             "title": "Archived",
             "type": "boolean"
           },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option (ADR 0270): its code, its identity in the list, which never changes when it's relabelled.",
+            "title": "Code"
+          },
           "formerly": {
             "description": "The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.",
             "items": {
@@ -29469,6 +30175,18 @@
             "description": "Its plugin's data was purged (ADR 0092): only its HRID and type are left.",
             "title": "Purged",
             "type": "boolean"
+          },
+          "superseded": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a lab list's option: whether it was superseded by another, which dropdowns offer instead. Other references haven't got it.",
+            "title": "Superseded"
           },
           "title": {
             "description": "What it's called: its type's display title, or its HRID.",
@@ -42064,6 +42782,995 @@
         ]
       }
     },
+    "/api/v1/lists": {
+      "get": {
+        "description": "Every installed list, by label, with how many options each offers in the registry.",
+        "operationId": "iki_server_api_lists_list_lists",
+        "parameters": [
+          {
+            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+            "in": "query",
+            "name": "registry",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+              "title": "Registry"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ListOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A registry's lab lists",
+        "tags": [
+          "lists"
+        ]
+      }
+    },
+    "/api/v1/lists/{name}": {
+      "get": {
+        "operationId": "iki_server_api_lists_get_list",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+            "in": "query",
+            "name": "registry",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+              "title": "Registry"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A lab list",
+        "tags": [
+          "lists"
+        ]
+      }
+    },
+    "/api/v1/lists/{name}/options": {
+      "get": {
+        "description": "In the list's order. Without ``archived``, what a dropdown offers.",
+        "operationId": "iki_server_api_lists_list_options",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+            "in": "query",
+            "name": "registry",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+              "title": "Registry"
+            }
+          },
+          {
+            "description": "Every option, archived and superseded ones too, as curators see them.",
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Every option, archived and superseded ones too, as curators see them.",
+              "title": "Archived",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Only options whose label or code has this in it.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only options whose label or code has this in it.",
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OptionOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A lab list's options",
+        "tags": [
+          "lists"
+        ]
+      },
+      "post": {
+        "description": "Its registry's registrars, and the list's curators. It's added at the end of the\nlist; every project in the registry can pick it.",
+        "operationId": "iki_server_api_lists_add_option",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+            "in": "query",
+            "name": "registry",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+              "title": "Registry"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptionOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Add an option to a lab list",
+        "tags": [
+          "lists"
+        ]
+      }
+    },
+    "/api/v1/lists/{name}/options/{code}": {
+      "get": {
+        "operationId": "iki_server_api_lists_get_option",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+            "in": "query",
+            "name": "registry",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+              "title": "Registry"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptionOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "One of a list's options",
+        "tags": [
+          "lists"
+        ]
+      },
+      "patch": {
+        "description": "Its label, description or other values, with a reason. Records naming it show what\nit's called now; their history says what it was called when. Its code never changes:\nsupersede it with an option of the right one.",
+        "operationId": "iki_server_api_lists_patch_option",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+            "in": "query",
+            "name": "registry",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+              "title": "Registry"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptionPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptionOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Change a lab list's option",
+        "tags": [
+          "lists"
+        ]
+      }
+    },
+    "/api/v1/lists/{name}/options/{code}/archive": {
+      "post": {
+        "description": "No dropdown offers it from now on. The records that name it keep it, and it's still\nin their search, filters, exports and the API.",
+        "operationId": "iki_server_api_lists_archive_option",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+            "in": "query",
+            "name": "registry",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+              "title": "Registry"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Reason"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptionOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Archive a lab list's option",
+        "tags": [
+          "lists"
+        ]
+      }
+    },
+    "/api/v1/lists/{name}/options/{code}/move": {
+      "post": {
+        "description": "A project's Editor, once the option was superseded: each of the project's records\nthat names it names the replacement, a revision with the reason. Archived and locked\nrecords keep theirs.",
+        "operationId": "iki_server_api_lists_move_references",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptionMoveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptionMovedOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Move a project's records to a superseded option's replacement",
+        "tags": [
+          "lists"
+        ]
+      }
+    },
+    "/api/v1/lists/{name}/options/{code}/restore": {
+      "post": {
+        "description": "Dropdowns offer it again, in its place in the list.",
+        "operationId": "iki_server_api_lists_restore_option",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+            "in": "query",
+            "name": "registry",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+              "title": "Registry"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Reason"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptionOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Restore a lab list's archived option",
+        "tags": [
+          "lists"
+        ]
+      }
+    },
+    "/api/v1/lists/{name}/options/{code}/supersede": {
+      "post": {
+        "description": "For a wrong code: the option is replaced for good by another of the list, which\ndropdowns offer instead. The Admins of each project whose records name it are told, to\nmove them to the replacement.",
+        "operationId": "iki_server_api_lists_supersede_option",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+            "in": "query",
+            "name": "registry",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+              "title": "Registry"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptionSupersedeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptionOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Supersede a lab list's option",
+        "tags": [
+          "lists"
+        ]
+      }
+    },
+    "/api/v1/lists/{name}/order": {
+      "put": {
+        "description": "Every option of the list, as its curators see it, in its new order.",
+        "operationId": "iki_server_api_lists_reorder_list",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+            "in": "query",
+            "name": "registry",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+              "title": "Registry"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OptionOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Reorder a lab list",
+        "tags": [
+          "lists"
+        ]
+      }
+    },
     "/api/v1/me": {
       "get": {
         "operationId": "iki_server_api_me_me",
@@ -47144,6 +48851,174 @@
         "summary": "Every entry in a registry, for its registrars",
         "tags": [
           "registries"
+        ]
+      }
+    },
+    "/api/v1/registries/{registry_id}/list-curators": {
+      "get": {
+        "description": "Each list's curators. Its registrars curate every list besides.",
+        "operationId": "iki_server_api_lists_list_curators",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ListCuratorOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Who curates a registry's lab lists",
+        "tags": [
+          "lists"
+        ]
+      }
+    },
+    "/api/v1/registries/{registry_id}/list-curators/{name}/{user_id}": {
+      "delete": {
+        "operationId": "iki_server_api_lists_dismiss_curator",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registry Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Stop someone curating a lab list",
+        "tags": [
+          "lists"
+        ]
+      },
+      "put": {
+        "description": "Org Admins appoint them, a list at a time: a QC lead for deviation categories, a\npurification lead for lot methods. Being an Org Admin doesn't make someone one.",
+        "operationId": "iki_server_api_lists_appoint_curator",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registry Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCuratorOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCuratorOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Make someone a lab list's curator",
+        "tags": [
+          "lists"
         ]
       }
     },

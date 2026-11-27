@@ -221,7 +221,8 @@ ENTRY_SUPERSEDED = register(
         "registry.entry_superseded",
         "A registry entry was superseded",
         "A registrar supersedes a registry entry with another, and a project you're an Admin "
-        "of, or whose record of it you added, has a record of it to move.",
+        "of, or whose record of it you added, has a record of it to move; or a lab list's "
+        "curator supersedes one of its options that your project's records name.",
         group="Registries",
     )
 )

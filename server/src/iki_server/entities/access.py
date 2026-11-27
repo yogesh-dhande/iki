@@ -29,6 +29,10 @@ A **registry entry** (ADR 0115) belongs to no project: it's readable by whoever
 can read a record of it, and nobody else, so its ID alone grants nothing. The
 entities above (``visible`` and the rest) are records; :func:`visible_entries`
 are entries.
+
+A **lab list's option** (ADR 0270) is a registry entry every project in its
+registry reads, and its records refer to, without a record of it: whoever can
+read a project reads its registry's lists.
 """
 
 from collections.abc import Callable, Iterable
@@ -108,22 +112,38 @@ def all_references_readable(user: Any, ids: Iterable[UUID]) -> bool:  # noqa: AN
 
 
 def _has_record_in(projects: QuerySet[Any]) -> Q:
-    """Of entries, those with a record in (or shared with) one of ``projects``."""
+    """Of entries, those with a record in (or shared with) one of ``projects``, and the
+    options of the lab lists of their registries (ADR 0270)."""
     links = ProjectLink.objects.filter(entity=OuterRef("pk"), project__in=projects)
     records = Entity.objects.filter(entry=OuterRef("pk"), purged_at__isnull=True).filter(
         Exists(links)
     )
-    return Q(registry__isnull=False) & Q(Exists(records))
+    registries = Project.objects.filter(pk__in=projects).values("registry")
+    return Q(registry__isnull=False) & (Q(Exists(records)) | _listed(Q(registry__in=registries)))
+
+
+def _listed(where: Q) -> Q:
+    """Lab lists' options (ADR 0270), where ``where`` says: none, without lists."""
+    lists = list_types()
+    return Q(type__in=sorted(lists)) & where if lists else Q(pk__in=[])
+
+
+def list_types() -> frozenset[str]:
+    """The installed lab lists' types (ADR 0270)."""
+    return frozenset(name for name, t in registry.types().items() if t.is_list)
 
 
 def held_entries(project: Project) -> QuerySet[Entity]:
     """The registry entries `project` holds: it has a record of each, its own or one shared
-    with it (ADR 0115). Its entities' references may name them."""
+    with it (ADR 0115), and its registry's lists' options (ADR 0270). Its entities'
+    references may name them."""
     here = ProjectLink.objects.filter(entity=OuterRef("pk"), project=project)
     records = Entity.objects.filter(entry=OuterRef("pk"), purged_at__isnull=True).filter(
         Exists(here)
     )
-    return Entity.objects.filter(registry__isnull=False).filter(Exists(records))
+    return Entity.objects.filter(registry__isnull=False).filter(
+        Q(Exists(records)) | _listed(Q(registry_id=project.registry_id))
+    )
 
 
 def visible_of[E: Entity](user: Any, model: type[E]) -> QuerySet[E]:  # noqa: ANN401 - User or AnonymousUser
@@ -408,12 +428,16 @@ def readers(entity: Entity, users: Iterable[Any]) -> set[Any]:
     found = {u.pk for u in one_by_one if can_read(u, entity)}
     if VIEW in registry.types() and entity.type in subtypes(VIEW):
         return found | {u.pk for u in people if u.pk in together and can_read(u, entity)}
-    if entity.registry_id is not None:
+    if entity.registry_id is not None and entity.type in list_types():
+        # A lab list's option: every project in its registry reads it (ADR 0270).
+        where = Q(project__registry_id=entity.registry_id)
+    elif entity.registry_id is not None:
         links = ProjectLink.objects.filter(entity__entry=entity, entity__purged_at__isnull=True)
+        where = Q(project__in=links.values("project"))
     else:
-        links = ProjectLink.objects.filter(entity=entity)
+        where = Q(project__in=ProjectLink.objects.filter(entity=entity).values("project"))
     grants = (
-        ProjectMembership.objects.filter(project__in=links.values("project"))
+        ProjectMembership.objects.filter(where)
         .filter(Q(user__in=together) | Q(team__memberships__user__in=together))
         .values_list("user", "team__memberships__user")
         .order_by()

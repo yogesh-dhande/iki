@@ -1035,6 +1035,137 @@ class Lot_inputs(models.Model):
         ]
 
 
+class MethodCategory(Entity):
+    """Method category (acme/protein.MethodCategory), schema version 1."""
+
+    IKI_TYPE = 'acme/protein.MethodCategory'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+
+    class Meta:
+        db_table = 'acme__protein_methodcategory'
+
+
+class MethodCategory_History(models.Model):
+    """The history of acme__protein_methodcategory: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'MethodCategory'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = 'acme__protein_methodcategory__history'
+
+
+class MethodCategory_Entry(Entity):
+    """Registry entries of Method category (acme/protein.MethodCategory), ADR 0115."""
+
+    IKI_TYPE = 'acme/protein.MethodCategory'
+    IKI_ENTRY = True
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    code = models.CharField(max_length=64, db_index=True)
+    label = models.CharField(max_length=200, db_index=True)
+    description = models.TextField(null=True)
+    position = models.BigIntegerField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_methodcategory__entry'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('code'), 1),
+                name='acme__protein_methodcategory__entry__code__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(code__regex='[\\r\\n]'),
+                name='acme__protein_methodcategory__entry__code__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(code__regex='^(?:^[A-Za-z0-9][A-Za-z0-9_.+-]*$)$'),
+                name='acme__protein_methodcategory__entry__code__pattern',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('label'), 1),
+                name='acme__protein_methodcategory__entry__label__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(label__regex='[\\r\\n]'),
+                name='acme__protein_methodcategory__entry__label__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(label__regex='^(?:^\\S(?:.*\\S)?$)$'),
+                name='acme__protein_methodcategory__entry__label__pattern',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('description'), 1),
+                name='acme__protein_methodcategory__entry__description__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=LessThanOrEqual(Length('description'), 2000),
+                name='acme__protein_methodcategory__entry__description__max_length',
+            ),
+            models.CheckConstraint(
+                condition=Q(position__gte=1),
+                name='acme__protein_methodcategory__entry__position__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(position__lte=10000),
+                name='acme__protein_methodcategory__entry__position__max',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['code'],
+                opclasses=['gin_trgm_ops'],
+                name='code_trgm_8d151f4ea956af7e7725',
+            ),
+            GinIndex(
+                fields=['label'],
+                opclasses=['gin_trgm_ops'],
+                name='label_trgm_e4be91afaa12d73bca6',
+            ),
+            GinIndex(
+                SearchVector(Left('description', 100000), config='simple'),
+                name='descriptio_fts_7a10b5227ffebf9',
+            ),
+        ]
+
+
+class MethodCategory_Entry_History(models.Model):
+    """The history of acme__protein_methodcategory__entry: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'MethodCategory_Entry'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    code = models.TextField(null=True)
+    label = models.TextField(null=True)
+    description = models.TextField(null=True)
+    position = models.BigIntegerField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_methodcategory__entry__history'
+
+
 class Multimer(iki_plugin_iki__core.models.Complex):
     """Multimer (acme/protein.Multimer), schema version 1. Molecules held together as one, of any parts, each with its copies."""
 
@@ -1098,6 +1229,115 @@ class Multimer_Entry_History(models.Model):
 
     class Meta:
         db_table = 'acme__protein_multimer__entry__history'
+
+
+class Prep(Entity):
+    """Prep (acme/protein.Prep), schema version 1. A protein prep, purified by methods from a lab list (ADR 0270)."""
+
+    IKI_TYPE = 'acme/protein.Prep'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    name = models.CharField(max_length=100, db_index=True)
+    method = models.ForeignKey(
+        'PurificationMethod_Entry',
+        models.PROTECT,
+        related_name='+',
+        null=True,
+    )
+
+    class Meta:
+        db_table = 'acme__protein_prep'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('name'), 1),
+                name='acme__protein_prep__name__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(name__regex='[\\r\\n]'),
+                name='acme__protein_prep__name__one_line',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['name'],
+                opclasses=['gin_trgm_ops'],
+                name='name_trgm_e0ed2ec4db70301b7516',
+            ),
+        ]
+
+
+class Prep_History(models.Model):
+    """The history of acme__protein_prep: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Prep'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    name = models.TextField(null=True)
+    method = models.UUIDField(db_column='method_id', null=True)
+    polishing = ArrayField(models.UUIDField(), null=True)
+    steps = models.JSONField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_prep__history'
+
+
+class Prep_polishing(models.Model):
+    """The items of acme/protein.Prep.polishing, in order."""
+
+    IKI_LIST_OF = ('Prep', 'polishing')
+
+    pk = models.CompositePrimaryKey('entity', 'position')
+    entity = models.ForeignKey('Prep', models.CASCADE, db_column='entity_id', related_name='+')
+    position = models.PositiveIntegerField()
+    item = models.ForeignKey('PurificationMethod_Entry', models.PROTECT, related_name='+')
+
+    class Meta:
+        db_table = 'acme__protein_prep__polishing'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(position__lt=5),
+                name='acme__protein_prep__polishing__position__max_items',
+            ),
+        ]
+
+
+class Prep_steps(models.Model):
+    """The items of acme/protein.Prep.steps, in order."""
+
+    IKI_LIST_OF = ('Prep', 'steps')
+
+    pk = models.CompositePrimaryKey('entity', 'position')
+    entity = models.ForeignKey('Prep', models.CASCADE, db_column='entity_id', related_name='+')
+    position = models.PositiveIntegerField()
+    method = models.ForeignKey('PurificationMethod_Entry', models.PROTECT, related_name='+')
+    note = models.CharField(max_length=200, null=True)
+
+    class Meta:
+        db_table = 'acme__protein_prep__steps'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('note'), 1),
+                name='acme__protein_prep__steps__note__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(note__regex='[\\r\\n]'),
+                name='acme__protein_prep__steps__note__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(position__lt=10),
+                name='acme__protein_prep__steps__position__max_items',
+            ),
+        ]
 
 
 class Protein(iki_plugin_acme__dna.models.Sequence):
@@ -1449,6 +1689,158 @@ class ProteinStructure_chains(models.Model):
 
     class Meta:
         db_table = 'acme__protein_proteinstructure__chains'
+
+
+class PurificationMethod(Entity):
+    """Purification method (acme/protein.PurificationMethod), schema version 1. How a prep was purified. A lab list (ADR 0270) the lab curates itself."""
+
+    IKI_TYPE = 'acme/protein.PurificationMethod'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+
+    class Meta:
+        db_table = 'acme__protein_purificationmethod'
+
+
+class PurificationMethod_History(models.Model):
+    """The history of acme__protein_purificationmethod: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'PurificationMethod'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = 'acme__protein_purificationmethod__history'
+
+
+class PurificationMethod_Entry(Entity):
+    """Registry entries of Purification method (acme/protein.PurificationMethod), ADR 0115."""
+
+    IKI_TYPE = 'acme/protein.PurificationMethod'
+    IKI_ENTRY = True
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    code = models.CharField(max_length=64, db_index=True)
+    label = models.CharField(max_length=200, db_index=True)
+    description = models.TextField(null=True)
+    position = models.BigIntegerField(null=True)
+    category = models.ForeignKey(
+        'MethodCategory_Entry',
+        models.PROTECT,
+        related_name='+',
+        null=True,
+    )
+    sop = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_purificationmethod__entry'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('code'), 1),
+                name='acme__protein_purificationmethod__entry__code__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(code__regex='[\\r\\n]'),
+                name='acme__protein_purificationmethod__entry__code__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(code__regex='^(?:^[A-Za-z0-9][A-Za-z0-9_.+-]*$)$'),
+                name='acme__protein_purificationmethod__entry__code__pattern',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('label'), 1),
+                name='acme__protein_purificationmethod__entry__label__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(label__regex='[\\r\\n]'),
+                name='acme__protein_purificationmethod__entry__label__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(label__regex='^(?:^\\S(?:.*\\S)?$)$'),
+                name='acme__protein_purificationmethod__entry__label__pattern',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('description'), 1),
+                name='acme__protein_purificationmethod__entry__description__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=LessThanOrEqual(Length('description'), 2000),
+                name='acme__protein_purificationmethod__entry__descriptio__5ab3a690f8',
+            ),
+            models.CheckConstraint(
+                condition=Q(position__gte=1),
+                name='acme__protein_purificationmethod__entry__position__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(position__lte=10000),
+                name='acme__protein_purificationmethod__entry__position__max',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('sop'), 1),
+                name='acme__protein_purificationmethod__entry__sop__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(sop__regex='[\\r\\n]'),
+                name='acme__protein_purificationmethod__entry__sop__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(sop__regex='^[A-Za-z][A-Za-z0-9+.-]*:[^\\s]+$'),
+                name='acme__protein_purificationmethod__entry__sop__format',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['code'],
+                opclasses=['gin_trgm_ops'],
+                name='code_trgm_e42d5e26b6c6219cf602',
+            ),
+            GinIndex(
+                fields=['label'],
+                opclasses=['gin_trgm_ops'],
+                name='label_trgm_f304aaf3807adb25096',
+            ),
+            GinIndex(
+                SearchVector(Left('description', 100000), config='simple'),
+                name='descriptio_fts_0bcfd444c4571d8',
+            ),
+        ]
+
+
+class PurificationMethod_Entry_History(models.Model):
+    """The history of acme__protein_purificationmethod__entry: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'PurificationMethod_Entry'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    code = models.TextField(null=True)
+    label = models.TextField(null=True)
+    description = models.TextField(null=True)
+    position = models.BigIntegerField(null=True)
+    category = models.UUIDField(db_column='category_id', null=True)
+    sop = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_purificationmethod__entry__history'
 
 
 class Rack(Entity):

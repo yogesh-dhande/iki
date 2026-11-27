@@ -389,6 +389,35 @@ def build() -> MCPServer:
         list_projects says which the person holds where. Only people give them, in Iki."""
         return answer(await call("GET", "/lab-roles"))
 
+    @server.tool(annotations=READ, title="List lab lists")
+    async def list_lab_lists(
+        project: Annotated[UUID, Field(description="The project whose records pick from them.")],
+    ) -> CallToolResult:
+        """The dropdowns the lab curates itself (ADR 0270), such as lot methods: each list's
+        type and how many options it offers. A field referring to one of these types takes
+        one of its options' IDs, from list_lab_list_options."""
+        return answer(await call("GET", "/lists", query={"project": str(project)}))
+
+    @server.tool(annotations=READ, title="List a lab list's options")
+    async def list_lab_list_options(
+        list_type: Annotated[
+            str, Field(description="The list's type, such as iki/lots.LotMethod.")
+        ],
+        project: Annotated[UUID, Field(description="The project whose records pick from it.")],
+        archived: Annotated[
+            bool | None,
+            Field(description="true: every option, archived and superseded ones too."),
+        ] = None,
+        q: Annotated[
+            str | None, Field(description="Only options whose label or code has this in it.")
+        ] = None,
+    ) -> CallToolResult:
+        """A lab list's options in its order, each with its ID, code and label. A record's
+        field referring to the list takes the option's ID; only active ones can be chosen
+        anew. Its curators change the list, in Iki: there's no tool for it."""
+        query = {"project": str(project), "archived": archived, "q": q}
+        return answer(await call("GET", path("/lists/{name}/options", name=list_type), query=query))
+
     @server.tool(annotations=READ, title="Find files")
     async def find_files(
         project: Annotated[UUID | None, Field(description="Only this project's files.")] = None,

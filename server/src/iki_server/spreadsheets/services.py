@@ -49,7 +49,7 @@ from django.utils import timezone
 from iki_server.accounts.models import User
 from iki_server.api.problems import Problem
 from iki_server.audit import log as audit
-from iki_server.entities import access, registry, unique
+from iki_server.entities import access, lists, registry, unique
 from iki_server.entities import services as entities
 from iki_server.entities.identity import hash_of
 from iki_server.entities.models import UniqueValue
@@ -1031,6 +1031,8 @@ class Resolver:
     def find(self, f: Field, texts: set[str]) -> dict[str, str | uuid.UUID]:
         """What each text names: a record's ID, or why it names none."""
         target = f.items if f.type == "list" and f.items is not None else f
+        if len(target.to) == 1 and lists.is_list(target.to[0]):
+            return self._options(target.to[0], texts)
         types = referable(target)
         out: dict[str, str | uuid.UUID] = {}
         ids = {t: uuid.UUID(t) for t in texts if cells.is_id(t)}
@@ -1062,6 +1064,31 @@ class Resolver:
         label = _one_of(target.to)
         for text in rest - out.keys():
             out[text] = f"is no {label} in {self.project.name}, by its ID, HRID or name."
+        return out
+
+    def _options(self, type_name: str, texts: set[str]) -> dict[str, str | uuid.UUID]:
+        """A lab list's options (ADR 0270), by code, by label in any case, by HRID or by
+        ID, in the project's registry. An archived one is found, and refused when it's saved
+        unless the record names it already."""
+        every = lists.options(self.project.registry_id, type_name, archived=True)
+        by_code = {o.code: o.entry.pk for o in every}
+        by_label = {o.label.casefold(): o.entry.pk for o in every}
+        by_hrid = {o.entry.hrid: o.entry.pk for o in every}
+        by_id = {str(o.entry.pk): o.entry.pk for o in every}
+        label = registry.types()[type_name].label_plural
+        out: dict[str, str | uuid.UUID] = {}
+        for text in texts:
+            found = (
+                by_code.get(text)
+                or by_label.get(text.casefold())
+                or by_hrid.get(text.upper())
+                or by_id.get(text.lower())
+            )
+            out[text] = (
+                found
+                if found is not None
+                else f"is no option of {label}: give its code or its label."
+            )
         return out
 
     def _by_name(

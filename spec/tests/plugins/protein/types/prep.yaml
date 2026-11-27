@@ -1,0 +1,20 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Prep
+schema_version: 1
+description: A protein prep, purified by methods from a lab list (ADR 0270).
+hrid: { prefix: PRP }
+fields:
+  name: { type: string, required: true, max_length: 100, indexed: true }
+  method: { type: ref, to: PurificationMethod }
+  polishing: { type: list, items: { type: ref, to: PurificationMethod }, max_items: 5 }
+  steps:
+    type: list
+    max_items: 10
+    items:
+      type: row
+      fields:
+        method: { type: ref, to: PurificationMethod, required: true }
+        note: { type: string, max_length: 200 }
+display:
+  title: "{{ name }}"

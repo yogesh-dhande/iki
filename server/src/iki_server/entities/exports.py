@@ -43,7 +43,14 @@ from django.db import transaction
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
-from iki_server.entities import access, plugin_writers, registry, search_exports, signed_reports
+from iki_server.entities import (
+    access,
+    lists,
+    plugin_writers,
+    registry,
+    search_exports,
+    signed_reports,
+)
 from iki_server.entities.compound_files import CompoundFile, NotAMolfile, molfile, sdf
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.plugin_writers import PluginRecord, PluginWriter
@@ -699,7 +706,13 @@ def _sd_data(
         str(pk): hrid
         for pk, hrid in Entity.objects.filter(pk__in=readable).values_list("pk", "hrid")
     }
-    row = {"refs": {k: {"hrid": v} for k, v in hrids.items()}, "files": {}, "people": {}}
+    # A lab list's option by its code (ADR 0270), as the search's download gives it.
+    codes = {str(pk): code for pk, code in lists.codes_of(readable).items()}
+    row = {
+        "refs": {k: {"hrid": v, "code": codes.get(k)} for k, v in hrids.items()},
+        "files": {},
+        "people": {},
+    }
     out = []
     for name in names:
         value = values.get(name)

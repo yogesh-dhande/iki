@@ -48,7 +48,7 @@ from iki_server.entities import access, identity, registry, requests, unique
 from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity, Revision, UniqueValue
 from iki_server.entities.services import frozen
-from iki_server.entities.values import Shape, shape
+from iki_server.entities.values import Shape, reference_ids, shape
 from iki_server.files import services as files
 from iki_server.files import storage
 from iki_server.files.models import Blob, File, Upload, UploadKind
@@ -60,7 +60,7 @@ from iki_server.runs.models import ActionRun
 from iki_server.storage.codes import RESERVED_VENDOR_MESSAGE
 from iki_server.tasks import task
 from iki_spec import titles
-from iki_spec.model import EntityType, Field
+from iki_spec.model import LIST_CODE, EntityType, Field
 
 logger = structlog.get_logger("iki.bundles")
 
@@ -344,6 +344,9 @@ class _Planner:
     #: The bundle's registry entries, by their ID there, and what each is here.
     entries: dict[str, dict[str, Any]] = field(default_factory=dict)
     resolved: dict[str, _Entry] = field(default_factory=dict)
+    #: The lab lists' options (ADR 0270) the bundle's records name that can't be named
+    #: here, by their ID there: why not. A record naming one is a conflict.
+    unnamable: dict[uuid.UUID, str] = field(default_factory=dict)
     #: Per-source decisions for comparing the confirmed plan, including outside references
     #: beyond the display limit. Entities and people have their own plan tables.
     members: dict[str, dict[str, dict[str, Any]]] = field(
@@ -630,11 +633,28 @@ class _Planner:
                 )
                 continue
             found = here.get(digest)
+            entity_type = registry.types().get(line["type"])
+            listed = entity_type is not None and entity_type.is_list
             if found is not None:
                 self.counts.entries_here += 1
-                self.resolved[line["id"]] = _Entry(
-                    found, found.pk, found.hrid, self._against_entry(line, found)
+                why = self._against_entry(line, found)
+                self.resolved[line["id"]] = _Entry(found, found.pk, found.hrid, why)
+                if listed and why:
+                    self.unnamable[uuid.UUID(line["id"])] = why
+                continue
+            if listed:
+                # A lab list's option (ADR 0270) is its curators' to add, not an import's:
+                # the bundle's records name it by its code, which the list here must have.
+                assert entity_type is not None  # noqa: S101 - it's a list
+                code = (line.get("values") or {}).get(LIST_CODE)
+                why = (
+                    f"It names `{code}` of {entity_type.label_plural}, which this registry's "
+                    "list hasn't got: its curators add it first."
                 )
+                self.resolved[line["id"]] = _Entry(
+                    None, remapped.get(line["id"], uuid.UUID(line["id"])), "", why
+                )
+                self.unnamable[uuid.UUID(line["id"])] = why
                 continue
             self.counts.registered += 1
             pk = remapped.get(line["id"], uuid.UUID(line["id"]))
@@ -684,6 +704,11 @@ class _Planner:
                 f"It's registered here as {here.hrid}, which was superseded by "
                 f"{here.superseded_by.hrid}."
             )
+        found = registry.types().get(here.type)
+        if found is not None and found.is_list:
+            # A lab list's option is its code here (ADR 0270): its label, description and
+            # place are this registry's curators', whatever the bundle's registry calls it.
+            return ""
         form = shape(here.type)
         fields = form.entry_fields()
         current = entity_services.current_values(entity_services.specific(here))
@@ -792,6 +817,12 @@ class _Planner:
                 row.why = f"{line['hrid']} is another entity's HRID here."
                 self.counts.renumbered += 1
         entity_type = registry.types().get(line["type"])
+        if row.action in (EntityPlan.NEW, EntityPlan.UPDATE) and self.unnamable:
+            form = shape(line["type"]) if entity_type is not None else None
+            named = reference_ids(form.fields(), _typed(form, values)) if form else set()
+            blocked = sorted(named & self.unnamable.keys())
+            if blocked:
+                row.action, row.adds, row.why = EntityPlan.CONFLICT, 0, self.unnamable[blocked[0]]
         if row.action in (EntityPlan.NEW, EntityPlan.UPDATE) and entity_type is not None:
             work_errors = requests.check_work_item(
                 self.made.project, entity_type.qualified_name, values

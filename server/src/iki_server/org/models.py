@@ -245,6 +245,39 @@ class Registrar(models.Model):
         return f"{self.user} curates {self.registry}"
 
 
+class ListCurator(models.Model):
+    """Someone who curates one of a registry's lab lists (ADR 0270): adds its options,
+    relabels, reorders, archives and supersedes them. Org Admins appoint them, a list at a
+    time; a registry's registrars curate all its lists already."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    registry = models.ForeignKey(Registry, on_delete=models.CASCADE, related_name="list_curators")
+    #: The list's type, such as ``iki/lots.LotMethod``. A plugin's removal leaves the
+    #: appointment, which curates nothing until a list of that name is installed again.
+    list_type = models.CharField(
+        max_length=112, db_comment="The list's type, such as iki/lots.LotMethod (ADR 0270)."
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="list_curator_of"
+    )
+    appointed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    appointed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "iki_list_curator"
+        db_table_comment = "Who curates each of a registry's lab lists (ADR 0270)."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["registry", "list_type", "user"], name="iki_list_curator_once"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} curates {self.list_type} in {self.registry}"
+
+
 def registry_of(project: "Project") -> UUID:
     """A project's registry's ID: always set, though django-stubs, for its default, can't
     tell."""

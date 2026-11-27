@@ -30,6 +30,7 @@ import datetime as dt
 import tempfile
 import uuid
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -56,7 +57,7 @@ from iki_server.bundles.models import (
     ImportState,
 )
 from iki_server.bundles.review import ReviewedPlan
-from iki_server.entities import breaches, hrids, registry, requests, states
+from iki_server.entities import breaches, hrids, lists, registry, requests, states
 from iki_server.entities import services as entity_services
 from iki_server.entities.dashboards import APP
 from iki_server.entities.models import Entity, ProjectLink, Revision
@@ -99,7 +100,7 @@ from iki_server.runs.models import (
 from iki_server.tasks import task
 from iki_server.tasks.backend import Retry
 from iki_spec import schemas
-from iki_spec.model import Field
+from iki_spec.model import LIST_CODE, Field
 
 logger = structlog.get_logger("iki.bundles")
 
@@ -594,6 +595,7 @@ class _Writer:
         for row, line in rows:
             if uuid.UUID(line["id"]) != row.entry_id:
                 self.renamed[uuid.UUID(line["id"])] = row.entry_id  # type: ignore[assignment]
+        self._options(lines.values())
         by = self.made.applied_by
         assert by is not None  # noqa: S101 - it's being applied
         project = self.made.project
@@ -622,6 +624,18 @@ class _Writer:
                     project=project,
                     reason=reason,
                 )
+
+    def _options(self, lines: Iterable[dict[str, Any]]) -> None:
+        """The lab lists' options (ADR 0270) the bundle's records name, by the option of the
+        same code here: the plan made a record naming one this registry hasn't got a
+        conflict, so the rest are here."""
+        registry_id = self.made.project.registry_id
+        for line in lines:
+            if not lists.is_list(line["type"]):
+                continue
+            found = lists.find(registry_id, line["type"], str(line["values"].get(LIST_CODE)))
+            if found is not None and found.entry.pk != uuid.UUID(line["id"]):
+                self.renamed[uuid.UUID(line["id"])] = found.entry.pk
 
     def _remap(
         self, form: Shape, values: dict[str, Any], ids: _Ids | None = None
