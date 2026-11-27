@@ -1,6 +1,7 @@
 # 0211. Lots, inventory, samples and requests have separate owners
 
 - Status: Accepted
+- Lab roles refined by [0304](0304-lab-roles-are-shared-and-a-procedures-slots-are-bound-at-setup.md): a procedure's slots bind to the shared roles
 - Date: 2026-11-24
 - Service fields: production, sequencing and analytical fields and checks are each
   service's own request and result types, under [ADR 0235](0235-a-services-own-request-types-carry-its-fields.md).

@@ -365,6 +365,23 @@ sandbox:
   replicas: 2
   # Exports each pod runs at once. More wait briefly, then get a 503 with Retry-After.
   concurrency: 4
+  # Each writer's limits (ADR 0230). Left out (null), a limit is Iki's: 1,000,000,000
+  # fuel per call plus 2,000 per byte of its request; 64 MiB of output and of request
+  # per call; 1,000 notes per record of at most 500 characters. Any may be lowered, and
+  # the fuel raised, for writers this deployment's records need more of. Fuel is
+  # deterministic, so the same records run out at the same point on every host.
+  limits:
+    fuelBase: null
+    fuelPerByte: null
+    outputBytes: null
+    requestBytes: null
+    notes: null
+    noteCharacters: null
+    # The wall clock: seconds a writer may take over a file its request waits for,
+    # and over one written in the background. A backstop that only fails an export,
+    # never changes its bytes; either may be raised or lowered.
+    inlineSeconds: 120
+    backgroundSeconds: 1800
   # Each export running needs its writer's `memory` (64 MiB by default, 256 MiB at
   # most) plus about 50 MB for its process; the launcher and a child kept waiting
   # take about 100 MB more. The limit fits the default concurrency with writers at

@@ -27,8 +27,14 @@ from typing import Any
 #: Where the module goes, in the project's source.
 WASM = Path("src", "iki_spec", "iki_wasm.wasm")
 #: A first-party plugin's own module, built from the same crates and checked against the
-#: digest git tracks beside it. Each is a script in ``scripts/``.
-PLUGIN_MODULES = ("build-plasmid-tools-wasm.sh", "build-oligo-checks-wasm.sh")
+#: digest git tracks beside it: each script in ``scripts/``, and the copy of the module it
+#: leaves in iki-spec (``iki_spec.modules``), which every wheel must carry.
+PLUGIN_MODULES = {
+    "build-plasmid-tools-wasm.sh": "plasmid-tools.wasm",
+    "build-oligo-checks-wasm.sh": "oligo-checks.wasm",
+}
+#: Where iki-spec carries them.
+MODULES = Path("src", "iki_spec", "modules")
 
 
 def ensure_wasm(project: Path) -> Path:
@@ -52,13 +58,21 @@ def ensure_wasm(project: Path) -> Path:
     notice = wasm.with_name("rust-standard-library.html")
     if not notice.is_file() or notice.stat().st_size == 0:
         raise RuntimeError("iki-spec needs rust-standard-library.html alongside its Rust modules.")
-    if in_a_checkout:
-        for name in PLUGIN_MODULES:
-            module = scripts / name
-            if module.is_file():
-                # Each checks its own bytes against the digest git tracks, so a module
-                # that no longer matches its Rust fails the build rather than shipping.
-                subprocess.run([str(module)], check=True)  # noqa: S603 - the checkout's own script
+    for name, carried in PLUGIN_MODULES.items():
+        module = scripts / name
+        if in_a_checkout and module.is_file():
+            # Each checks its own bytes against the digest git tracks, so a module that no
+            # longer matches its Rust fails the build rather than shipping.
+            subprocess.run([str(module)], check=True)  # noqa: S603 - the checkout's own script
+        # From a checkout or a source distribution alike: a wheel without it would install,
+        # then fail building a deployment of its plugin.
+        built = project / MODULES / carried
+        if not built.is_file() or built.stat().st_size == 0:
+            raise RuntimeError(
+                f"iki-spec needs {carried} ({MODULES / carried}), and it isn't there: build "
+                f"iki-spec from Iki's repository, where scripts/{name} builds it, or from a "
+                "source distribution that carries it."
+            )
     return wasm
 
 

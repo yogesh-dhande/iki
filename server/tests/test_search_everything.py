@@ -139,8 +139,9 @@ def test_each_kind_is_found_across_the_projects_its_caller_reads(
         "Shared with the project",
         {"q": "lysozyme"},
     )
-    # It opens from its own address, as the sidebar's saved views do.
-    assert view["href"] == f"/saved-searches/{view['id']}/"
+    # It opens from its own address, as the sidebar's saved views do: the app puts it in
+    # its project's grid as it was saved, or says why the grid can't show it.
+    assert view["href"] == f"/saved-searches/{made['saved'].pk}/"
 
 
 def test_a_record_in_two_projects_lists_both_its_owner_first(world: World, second: Project) -> None:
@@ -369,13 +370,13 @@ def test_a_view_of_every_project_is_its_owners_and_opens_in_all_entities(world: 
     """A saved search with no project (ADR 0176) searches every project its owner reads, and
     is theirs alone: search finds it for them, in All entities, and for no one else."""
     editor = world.users["editor"]
-    saved_searches.create(editor, None, name="Kinases everywhere", query={"q": "kinase"})
+    saved = saved_searches.create(editor, None, name="Kinases everywhere", query={"q": "kinase"})
     body = searched(Api(world.browser("editor")), q="kinases", kind="saved_views")
     [view] = group(body, "saved_views")["items"]
     assert (view["title"], view["detail"], view["href"], view["projects"]) == (
         "Kinases everywhere",
         "Yours, across your projects",
-        f"/saved-searches/{view['id']}/",
+        f"/saved-searches/{saved.pk}/",
         [],
     )
     body = searched(Api(world.browser("viewer")), q="kinases", kind="saved_views")

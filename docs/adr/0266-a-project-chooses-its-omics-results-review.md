@@ -1,6 +1,7 @@
 # 0266. A project chooses its omics results' review
 
 - Status: Accepted
+- Refined by [0301](0301-a-review-procedure-is-declared-once-and-a-type-says-what-it-needs.md) and [0302](0302-a-project-chooses-each-types-review-procedure-and-the-server-pins-it.md): core's result review, pinned by the server, with no deployment setting
 - Date: 2026-11-26
 - Refines: [0240](0240-a-project-chooses-its-release-stability-and-verification-review.md),
   [0255](0255-a-quality-summary-can-be-recorded-without-sign-off.md),

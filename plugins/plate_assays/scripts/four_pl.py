@@ -139,10 +139,12 @@ def fit_curve(points: Sequence[tuple[float, float]], endpoint: str) -> dict[str,
     if ci_low <= 0 or not (math.isfinite(ci_high) and np.isfinite(plateaus).all()):
         result["fit_reason"] = "The parameter estimates or confidence limits exceed numeric range."
         return result
+    # The tested range is the positive concentrations': a zero-dose well fixes the left
+    # asymptote, not a midpoint on the log scale (Ritz et al. 2015, effective doses).
     qualifier = "within_range"
     if concentration > doses.max():
         qualifier = "above_range"
-    elif concentration < doses.min():
+    elif concentration < doses[positive].min():
         qualifier = "below_range"
     return {
         **result,

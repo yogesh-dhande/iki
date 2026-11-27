@@ -70,10 +70,9 @@ def key(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", without_unit.casefold())
 
 
-def headers_of(sample: Sequence[Sequence[str]], header_row: int, width: int) -> list[str]:
-    """The sheet's headers, one a column: what its header row says, or the column's letter
-    (``Column C``) where it says nothing or it has none."""
-    row = list(sample[header_row - 1]) if 0 < header_row <= len(sample) else []
+def headers_of(row: Sequence[str], width: int) -> list[str]:
+    """The sheet's headers, one a column: what its header ``row`` says, or the column's
+    letter (``Column C``) where it says nothing or it has none."""
     out = []
     for index in range(width):
         text = row[index].strip() if index < len(row) else ""

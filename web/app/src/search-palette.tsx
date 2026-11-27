@@ -8,10 +8,11 @@
  * (Ctrl+↵) opens it in a new tab, and Esc closes the palette, putting focus back where
  * it was. The dialog keeps focus inside it while it's open.
  *
- * While the answer shown is for other text (or another kind) than what's in the box, as
- * it is while typing pauses and the next answer is on its way, nothing in it is active:
- * ↵ waits for the answer to what was typed and opens its first result, and ⌘↵, which a
- * browser only lets open a tab straight away, does nothing.
+ * What the last text found stays on show while the next is found, but ↵ opens only what
+ * was found for the text in the box, of the kind chosen: pressed sooner, it waits for that
+ * answer and opens its first result, or nothing if it finds nothing. So pasting an HRID
+ * and pressing ↵ opens that record, never one the text before it found. Until then
+ * nothing shown is active, and the arrow keys wait for it too.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -135,8 +136,6 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
     in: null,
     index: 0,
   });
-  // ↵ pressed before the answer to what was typed came: it opens that answer's first.
-  const waiting = useRef(false);
   const typed = text.trim().replace(/\s+/g, " ");
   const q = useDebounced(typed, DEBOUNCE_MS);
   const answer = useQuery(searchQuery(q, kind));
@@ -144,9 +143,11 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
   const everyKind = useQuery({ ...searchQuery(q, null), enabled: kind !== null && q !== "" });
   const data: SearchAnswer | undefined = answer.data;
   const current = data?.q === q;
-  // Whether what's shown answers what's in the box, for the kind chosen: only then does
-  // anything in it open from the keyboard.
-  const settled = current && typed === q && !answer.isPlaceholderData;
+  // Whether what's shown answers what's in the box, of the kind chosen, rather than being
+  // what the text before it found, kept on show until the answer comes.
+  const fresh = typed === q && answer.isSuccess && !answer.isPlaceholderData;
+  // A ↵ (or ⌘↵) pressed before then, for the text and kind it was pressed for.
+  const waiting = useRef<{ text: string; kind: SearchKind | null; newTab: boolean } | null>(null);
 
   // It opens to type into; ⌘K again, while it's open, starts over from what's typed.
   useEffect(() => {
@@ -171,7 +172,8 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
     },
     [rows],
   );
-  const activeRow = settled ? rows[active] : undefined;
+  // Only an answer to what's in the box has an option for ↵ to open.
+  const activeRow = fresh ? rows[active] : undefined;
   useEffect(() => {
     if (!activeRow) return;
     document.getElementById(activeRow.id)?.scrollIntoView({ block: "nearest" });
@@ -189,25 +191,30 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
     [onOpen],
   );
 
+  // The answer a ↵ waited for: it opens what that answer found first.
   useEffect(() => {
-    if (!waiting.current) return;
-    if (answer.isError) waiting.current = false;
-    if (!settled || answer.isFetching) return;
-    waiting.current = false;
-    go(rows[0], false);
-  }, [settled, answer.isFetching, answer.isError, rows, go]);
+    const pressed = waiting.current;
+    if (!pressed) return;
+    if (pressed.text !== typed || pressed.kind !== kind || answer.isError) {
+      waiting.current = null;
+      return;
+    }
+    if (!fresh) return;
+    waiting.current = null;
+    go(rows[0], pressed.newTab);
+  }, [fresh, rows, typed, kind, answer.isError, go]);
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      if (!settled || !rows.length) return;
+      if (!fresh || !rows.length) return;
       const step = event.key === "ArrowDown" ? 1 : -1;
       setActive((active + step + rows.length) % rows.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
       const newTab = event.metaKey || event.ctrlKey;
-      if (settled) go(activeRow, newTab);
-      else if (!newTab) waiting.current = true;
+      if (fresh) go(activeRow, newTab);
+      else waiting.current = { text: typed, kind, newTab };
     }
   }
 
@@ -251,7 +258,6 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
           placeholder="Search records, requests, runs, projects, people"
           onChange={(event) => {
             setText(event.target.value);
-            waiting.current = false;
           }}
           onKeyDown={onKeyDown}
         />
@@ -275,7 +281,6 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
                 aria-pressed={kind === p.kind}
                 onClick={() => {
                   setKind(p.kind);
-                  waiting.current = false;
                   input.current?.focus();
                 }}
               >
@@ -292,8 +297,8 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
         ref={list}
         role="listbox"
         id={listbox}
+        aria-busy={!fresh && !answer.isError}
         aria-label={q ? `Results for ${q}` : "Recent"}
-        aria-busy={!settled}
       >
         {recent.length ? (
           <ResultGroup

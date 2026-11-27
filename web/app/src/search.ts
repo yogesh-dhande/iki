@@ -95,7 +95,11 @@ export function searchQuery(q: string, kind: SearchKind | null) {
   });
 }
 
-/** The paths the web app draws itself: opening one there needs no page load. */
+/**
+ * The paths the web app draws itself: opening one there needs no page load. A saved view
+ * opens from its own address, `/saved-searches/<id>/`, as the sidebar's do: that puts it
+ * in its grid as it was saved, or says why the grid can't show it.
+ */
 const APP_PATHS = [
   "/entities/",
   "/requests/",

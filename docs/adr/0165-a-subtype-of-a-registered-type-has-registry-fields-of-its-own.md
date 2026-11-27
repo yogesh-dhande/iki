@@ -48,3 +48,20 @@ can't hold. A lab that wants the other type supersedes the entry (ADR 0115).
   a record's are.
 - An entry's type is fixed when it's registered: registering the same
   molecule as a more specific type later doesn't change it.
+
+## Amendment of 2026-11-27 — a command sees a record's lineage
+
+An action's input that takes a type offers the lab's subtypes of it too, and
+a command was told only a record's own `type`. Commands that asked what a
+record is compared that name: a complex's part of a lab's `acme/enzymes.Enzyme`,
+which extends `iki/protein.Protein`, wasn't weighed by its sequence, and a lab's
+own kind of protein lot wasn't taken as one for mass spectrometry.
+
+**Each record in a run input has `types`**: its type and each type it extends,
+nearest first, ending with `iki/core.Entity` (`run-input/v1`). A command asks
+`"iki/protein.Protein" in record["types"]`, never `record["type"] ==`. The
+server gives it for inputs and what they include, and `iki plugin test` gives
+it to ActionTests, from the same lineage.
+
+`type` stays: it's what a command names in what it writes back, and what a
+record is registered as.

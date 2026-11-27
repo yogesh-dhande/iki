@@ -133,6 +133,7 @@ def start(
             projects=[p.pk for p in projects],
             read_in=sorted(read_in),
             name=name,
+            background=len(pinned) > INLINE,
         )
         audit.record(
             "entities.export_requested",
@@ -145,14 +146,15 @@ def start(
                 "selection": selection,
                 "search": made.search,
                 "fields": fields,
+                "projects": [str(p.pk) for p in projects],
                 "count": len(records),
                 "records": [{"id": i, "hrid": h, "revision": r} for i, h, r in records],
             },
         )
-        if len(pinned) > INLINE:
+        if made.background:
             # The task is a row in the same transaction: it runs only if this commits.
             write_record_export.enqueue(str(made.pk))
-    if len(pinned) <= INLINE:
+    if not made.background:
         _write(made)
         made.refresh_from_db()
     return made
@@ -297,6 +299,7 @@ def _search_of(wanted: search.Search | None) -> dict[str, Any] | None:
         "where": dict(wanted.where) if wanted.where else None,
         "sort": wanted.sort,
         "descending": wanted.descending,
+        "then": search.then_json(wanted.then),
     }
 
 
@@ -614,6 +617,7 @@ def download_url(by: User, made: RecordExport) -> str:
             "file": made.name,
             "sha256": made.sha256,
             "size": made.size,
+            "projects": [str(p) for p in made.projects],
             "count": len(made.records),
             "records": [{"id": i, "hrid": h, "revision": r} for i, h, r in made.records],
             # What the file couldn't hold of each record, as it says it where it can.
@@ -625,6 +629,34 @@ def download_url(by: User, made: RecordExport) -> str:
     return storage.download_url(
         storage.uri(storage.record_export_key(made.pk)), "", made.name, media_type
     )
+
+
+#: How long past its writer's deadline an export written while its request waits is taken
+#: as interrupted: well past any request's, too.
+INTERRUPTED_AFTER = timedelta(minutes=15)
+
+
+def interrupted() -> int:
+    """Fails each export written while its request waited whose write never finished,
+    because the process writing it stopped (a restart, a timeout): no task would ever
+    finish it, so its requester would otherwise see it writing for good."""
+    stale = RecordExport.objects.filter(
+        background=False,
+        state__in=(RecordExportState.QUEUED, RecordExportState.WRITING),
+        created_at__lte=timezone.now()
+        - timedelta(seconds=plugin_writers.inline_deadline())
+        - INTERRUPTED_AFTER,
+    )
+    count = 0
+    for pk in stale.values_list("pk", flat=True):
+        with transaction.atomic():
+            made = stale.select_for_update(skip_locked=True).filter(pk=pk).first()
+            if made is None:
+                continue
+            _failed(made, "Writing it was interrupted, so no file was made: export again.")
+            logger.warning("record_export_interrupted", export=str(made.pk))
+            count += 1
+    return count
 
 
 def expire() -> int:

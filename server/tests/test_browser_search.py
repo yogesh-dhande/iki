@@ -3,6 +3,7 @@
 and the server's own, finds what its person can read across their projects, is driven by
 keyboard as a combobox, passes axe in both themes, and fits a phone's width."""
 
+import re
 from typing import Any
 
 import pytest
@@ -107,20 +108,35 @@ def test_the_palette_finds_what_you_read_across_projects_and_opens_it(
     assert_clean(page)
 
 
-def test_enter_straight_after_new_text_opens_what_was_typed(open_as: Any, world: World) -> None:
-    """↵ pressed while the last text's answer is still shown waits for the answer to what was
-    typed, and opens its first: the record named, not the last answer's first."""
+def test_enter_on_a_pasted_hrid_opens_that_record_not_what_the_text_before_found(
+    open_as: Any, world: World
+) -> None:
+    """↵ pressed at once after pasting, while the last text's results still show and the
+    answer for the new text is on its way, waits for that answer and opens what it found;
+    text that finds nothing opens nothing, however quickly ↵ follows it."""
     made = lysozymes(world)
     page = open_as("admin", "/projects/")
     dialog = search_for(page, "lysozyme")
     found = dialog.get_by_role("group", name="Entities").get_by_role("option")
     expect(found.first).to_contain_text(made["b"].hrid)
-    box = dialog.get_by_role("combobox")
-    box.fill(made["c"].hrid)
-    page.keyboard.press("Enter")
+    held: list[Route] = []
+    asked = re.compile(r"/api/v1/search\?.*q=" + re.escape(made["c"].hrid))
+    page.route(asked, lambda route: held.append(route))
+    with page.expect_request(asked):
+        dialog.get_by_role("combobox").fill(made["c"].hrid)
+        page.keyboard.press("Enter")
+    # Lysozyme B, which "lysozyme" found first, still shows, isn't active, and ↵ didn't
+    # open it.
+    expect(found.first).to_contain_text(made["b"].hrid)
+    expect(found.first).to_have_attribute("aria-selected", "false")
+    expect(dialog).to_be_visible()
+    assert "/entities/" not in page.url
+    assert len(held) == 1
+    held[0].continue_()
     page.get_by_role("heading", level=1, name="Lysozyme C").wait_for()
-    assert made["c"].hrid in page.url
-    # Text that finds nothing opens nothing, however quickly ↵ follows it.
+    page.get_by_text(made["c"].hrid, exact=True).first.wait_for()
+    assert_clean(page)
+    page.unroute(asked)
     dialog = search_for(page, "lysozyme")
     dialog.get_by_role("combobox").fill("nothing like it")
     page.keyboard.press("Enter")
@@ -130,6 +146,8 @@ def test_enter_straight_after_new_text_opens_what_was_typed(open_as: Any, world:
 
 
 def test_a_saved_view_the_grid_cant_show_opens_on_its_own_page(open_as: Any, world: World) -> None:
+    """Saved with the API for an exact type alone, it can't open in the grid: found by
+    search, it opens where the sidebar's does, on the page that says so (ADR 0176)."""
     SavedSearch.objects.create(
         project=world.project,
         name="Proteins of this type only",

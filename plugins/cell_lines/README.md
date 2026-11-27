@@ -24,8 +24,14 @@ sample** is an observation collected from a culture, with its data file.
    the input file as provenance. Leave both blank for material without a
    catalogue number, such as a line from a collaborator.
    Repeating registration reuses the line and catalogue source. Importing a
-   different supplier's record keeps its source alongside the first. The WI-38 example file
-   contains only the catalogue fields the action reads. For a line Cellosaurus
+   different supplier's record keeps its source alongside the first. The
+   supplier must be one Cellosaurus lists as a cell line collection or
+   supplier, such as ATCC, DSMZ or Coriell: its other cross-references, to
+   databases, ontologies and encyclopedias such as BioSample or Wikidata,
+   name the line but aren't a source of it. A line's export from its
+   Cellosaurus page, such as WI-38's, ends with the references it cites; the
+   action reads the line's entry and skips them. A file with two lines'
+   entries is refused. For a line Cellosaurus
    doesn't list, create the **Parental cell line** with **Registered in** set
    to `local` and the lab's own accession.
 2. For a local derivative, create an **Engineered cell line**, choose its
@@ -52,7 +58,12 @@ sample** is an observation collected from a culture, with its data file.
 
 4. Create a **Cell bank check** for each test of a bank: STR authentication,
    species identity, mycoplasma, sterility, viral testing, karyotype, or
-   another test the lab names. Select its bank, enter the method, result and
+   Other, a test from the lab's list of bank tests
+   (`iki/cell_lines.CellCheckTest`, ADR 0270). That list starts with
+   endotoxin, post-thaw viability and tumorigenicity, and its curators add the
+   lab's own tests, each with the kind of result it gives: match or mismatch,
+   positive or negative, or conforms or does not conform. A check's result
+   must be one its test gives, or inconclusive. Select its bank, enter the method, result and
    test date from the lab, and attach the report if available. Enter the repeat
    date when the lab assigns one. Search checks by date to find those due for
    repeat testing. Keep each repeat as its own record.

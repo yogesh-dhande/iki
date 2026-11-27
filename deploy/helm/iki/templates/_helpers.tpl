@@ -351,8 +351,19 @@ cluster's (ADR 0133), with no admission controller in front of its nodes. */}}
 Where web pods and task runners send plugins' exports (ADR 0230). Only with sandbox.enabled.
 */}}
 {{- define "iki.sandboxEnv" -}}
+{{- $l := .Values.sandbox.limits }}
 - name: IKI_EXPORT_SANDBOX
   value: {{ printf "tcp://%s-sandbox:8090" (include "iki.fullname" .) | quote }}
+- name: IKI_EXPORT_INLINE_DEADLINE
+  value: {{ $l.inlineSeconds | quote }}
+- name: IKI_EXPORT_BACKGROUND_DEADLINE
+  value: {{ $l.backgroundSeconds | quote }}
+{{- range $key, $name := dict "fuelBase" "FUEL_BASE" "fuelPerByte" "FUEL_PER_BYTE" "outputBytes" "MAX_OUTPUT" "requestBytes" "MAX_REQUEST" "notes" "MAX_NOTES" "noteCharacters" "MAX_NOTE_CHARS" }}
+{{- if not (kindIs "invalid" (index $l $key)) }}
+- name: IKI_EXPORT_{{ $name }}
+  value: {{ index $l $key | int64 | quote }}
+{{- end }}
+{{- end }}
 {{- end -}}
 
 {{- define "iki.volumeMounts" -}}

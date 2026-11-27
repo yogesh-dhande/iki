@@ -82,11 +82,17 @@ each kind's own reading rules, so it finds nothing its reader couldn't open.
 
 The palette is a combobox (WAI-ARIA's pattern). Focus stays in its text box,
 and the arrow keys move through the results. Each group's link to its full
-list is its last option, so the arrows reach it. ⌘K (Ctrl+K) opens it, as
-does anything that dispatches an `iki:search` event on the window. The
-server-rendered pages load the palette on its own, as a second entry of the
-web app's build that shares the app's chunks, so ⌘K opens the same palette
-there.
+list is its last option, so the arrows reach it. What the last text found
+stays on show while the next is found, but ↵ opens only what was found for
+the text in the box, of the kind chosen: pressed sooner, it waits for that
+answer and opens its first result, or nothing if nothing matches, so pasting
+an HRID and pressing ↵ opens that record. Until that answer comes, none of
+what's shown is the active option, and the arrow keys wait for it too. A
+saved view opens from its own address, `/saved-searches/<id>/`, as the
+sidebar's do. ⌘K (Ctrl+K) opens the palette, as does anything that
+dispatches an `iki:search` event on the window. The server-rendered pages
+load the palette on its own, as a second entry of the web app's build that
+shares the app's chunks, so ⌘K opens the same palette there.
 
 **A project's page holds what belongs to the project alone.** Its tabs are
 Overview, Entities, Requests, Runs, Automation, Members and Settings.
@@ -369,17 +375,3 @@ No page loads fonts or scripts from outside the deployment.
   lists only the people whose revisions the reader is told about. On an
   entry's revisions, a person filter matches only those revisions, except
   for registrars, who see every revision.
-
-## Amendment (2026-11-27). A found saved view opens from its own address, and ↵ opens what was typed
-
-- **Search everything opens a saved view where the sidebar does,** from
-  `/saved-searches/<id>/`: its project's grid, or All entities, searching as
-  it was saved, and one the grid can't show on the page that says so. A
-  result's `href` is that address; its `query` is still the search, for API
-  callers. It used to open such a search on the bare grid, which showed every
-  record without its conditions.
-- **The palette acts only on the answer to what's in its box.** While the
-  results shown are for earlier text, or another kind, none is active: ↵
-  waits for the answer to what was typed and opens its first result, and
-  ⌘↵ (Ctrl+↵), which a browser lets open a tab only at once, does nothing.
-  Changing the text or the kind forgets a ↵ that was waiting.

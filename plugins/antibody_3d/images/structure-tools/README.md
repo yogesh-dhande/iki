@@ -12,9 +12,11 @@ weights and attribution. The workflow verifies the SLSA attestation before
 tagging the image with `sha256-<digest>` and moving the `published` tag.
 
 The [tools Dockerfile](Dockerfile) uses the weights image by immutable digest
-and rechecks every file offline. CI and the image publisher compare this digest
-with the `published` tag. When dispatching a new weights release, coordinate the
-Dockerfile pin update with the workflow's published digest.
+and rechecks every file offline. Every build checks that the registry still serves
+this digest, which the tags below keep, so an older revision rebuilds with the
+weights it pinned. CI on the development branch also checks that it is the
+`published` one: when dispatching a new weights release, update the Dockerfile pin
+to the workflow's published digest.
 
 Keep `iki-immunebuilder-weights` outside the retention policy for runtime images.
 The digest tags and the bootstrap release's source-commit tag protect the

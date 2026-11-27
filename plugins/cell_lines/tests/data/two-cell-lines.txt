@@ -1,0 +1,265 @@
+ID   1-5c-4
+AC   CVCL_2260
+SY   Clone 1-5c-4; Clone 1-5c-4 WKD of Chang Conjunctiva; Wong-Kilbourne derivative of Chang conjunctiva; ChWK
+DR   CLO; CLO_0002500
+DR   CLO; CLO_0002501
+DR   CLDB; cl793
+DR   CLDB; cl794
+DR   CLDB; cl795
+DR   ATCC; CCL-20.2
+DR   BioSample; SAMN03151673
+DR   ECACC; 88021103
+DR   IZSLER; BS CL 93
+DR   KCLB; 10020.2
+DR   Wikidata; Q54399838
+RX   DOI=10.1007/BF02618370;
+RX   PubMed=566722;
+RX   PubMed=19630270;
+RX   PubMed=20143388;
+WW   Info; ICLAC; -; https://iclac.org/wp-content/uploads/Cross-Contaminations_v13_distribution.xlsx
+CC   Problematic cell line: Contaminated. Shown to be a HeLa derivative (PubMed=566722; PubMed=20143388). Originally thought to originate from the conjunctiva of a child.
+CC   Registration: International Cell Line Authentication Committee, Register of Misidentified Cell Lines; ICLAC-00298.
+CC   Population: African American.
+CC   Transformant: NCBI_TaxID; 333761; Human papillomavirus type 18 (HPV18).
+CC   Omics: Transcriptomics; Microarray.
+CC   Derived from site: In situ; Uterus, cervix; UBERON=UBERON_0000002.
+ST   Source(s): ATCC=CCL-20.2; KCLB=10020.2
+ST   Amelogenin: X
+ST   CSF1PO: 9,10
+ST   D13S317: 12,13.3
+ST   D16S539: 9,10
+ST   D18S51: 16
+ST   D19S433: 13,14
+ST   D21S11: 27,28
+ST   D2S1338: 17
+ST   D3S1358: 15,18
+ST   D5S818: 11,12
+ST   D7S820: 8,12
+ST   D8S1179: 12
+ST   FGA: 18,21
+ST   Penta D: 8,15
+ST   Penta E: 7,17
+ST   TH01: 7
+ST   TPOX: 8,12
+ST   vWA: 16,18
+DI   NCIt; C27677; Human papillomavirus-related endocervical adenocarcinoma
+OX   NCBI_TaxID=9606; ! Homo sapiens (Human)
+HI   CVCL_0030 ! HeLa
+SX   Female
+AG   30Y6M
+CA   Cancer cell line
+DT   Created: 04-04-12; Last updated: 10-04-25; Version: 27
+//
+RX   DOI=10.1007/BF02618370;
+RA   Stulberg, Cyril S.
+RA   Coriell, Lewis Lemon
+RA   Kniazeff, Alexis John
+RA   Shannon, John E.
+RT   "The animal cell culture collection.";
+RL   In Vitro 5:1-16(1970).
+//
+RX   PubMed=20143388; DOI=10.1002/ijc.25242;
+RA   Capes-Davis, Amanda
+RA   Theodosopoulos, George
+RA   Atkin, Isobel
+RA   Drexler, Hans Gunther
+RA   Kohara, Arihiro
+RA   MacLeod, Roderick A.F.
+RA   Masters, John R.W.
+RA   Nakamura, Yukio
+RA   Reid, Yvonne A.
+RA   Reddel, Roger Robert
+RA   Freshney, Robert Ian
+RT   "Check your cultures! A list of cross-contaminated or misidentified
+RT   cell lines.";
+RL   Int. J. Cancer 127:1-8(2010).
+//
+RX   PubMed=566722; DOI=10.1007/BF02616110;
+RA   Lavappa, Kantharajapura Subbegowda
+RT   "Survey of ATCC stocks of human cell lines for HeLa contamination.";
+RL   In Vitro 14:469-475(1978).
+//
+RX   PubMed=19630270; DOI=10.3727/105221609788681231; PMCID=PMC6042047;
+RA   Tong, Louis
+RA   Diebold, Yolanda
+RA   Calonge, Margarita
+RA   Gao, Jian-Ping
+RA   Stern, Michael E.
+RA   Beuerman, Roger W.
+RT   "Comparison of gene expression profiles of conjunctival cell lines
+RT   with primary cultured conjunctival epithelial cells and human
+RT   conjunctival tissue.";
+RL   Gene Expr. 14:265-278(2009).
+//
+ID   WI-38
+AC   CVCL_0579
+SY   Wi-38; WI 38; WI38; Wistar Institute-38; AG06814E; AG06814G; AG06814H; AG06814-J; AG06814J; AG06814-M; AG06814-N
+DR   BTO; BTO_0000458
+DR   CLO; CLO_0009591
+DR   CLO; CLO_0009594
+DR   CLO; CLO_0035526
+DR   CLO; CLO_0035534
+DR   EFO; EFO_0001260
+DR   MCCL; MCC:0000485
+DR   CLDB; cl4703
+DR   CLDB; cl4704
+DR   CLDB; cl4705
+DR   AddexBio; T0016037/5007
+DR   ArrayExpress; E-MTAB-38
+DR   ATCC; CCL-75
+DR   ATCC; CRL-7728
+DR   BioSample; SAMN01821606
+DR   BioSample; SAMN01821721
+DR   BioSample; SAMN03471285
+DR   cancercelllines; CVCL_0579
+DR   CCRID; 1101HUM-PUMC000210
+DR   CCRID; 1102HUM-NIFDC00067
+DR   CCRID; 3101HUMGNHu42
+DR   CCRID; 3101HUMSCSP521
+DR   CCRID; 4201HUM-CCTCC00016
+DR   CCTCC; GDC0016
+DR   ChEMBL-Cells; CHEMBL3307476
+DR   ChEMBL-Cells; CHEMBL3307614
+DR   ChEMBL-Targets; CHEMBL612806
+DR   ChEMBL-Targets; CHEMBL614391
+DR   CLS; 300428
+DR   Coriell; AG06814-J
+DR   Coriell; AG06814-M
+DR   Coriell; AG06814-N
+DR   ECACC; 90020107
+DR   GEO; GSE12450
+DR   GEO; GSE33710
+DR   GEO; GSM827323
+DR   GEO; GSM1022634
+DR   GEO; GSM1022637
+DR   GEO; GSM1022647
+DR   GEO; GSM1022655
+DR   GEO; GSM1887928
+DR   GEO; GSM1887984
+DR   IGRhCellID; WI38
+DR   IZSLER; BS CL 90
+DR   JCRB; IFO50075
+DR   JCRB; JCRB9017
+DR   KCB; KCB 200556YJ
+DR   KCLB; 10075
+DR   Lonza; 495
+DR   Progenetix; CVCL_0579
+DR   PubChem_Cell_line; CVCL_0579
+DR   RCB; RCB0702
+DR   RCB; RCB0704
+DR   TKG; TKG 0360
+DR   Wikidata; Q7950532
+RX   CelloPub=CLPUB00391;
+RX   CelloPub=CLPUB00597;
+RX   DOI=10.1007/BF02618370;
+RX   DOI=10.1016/B978-0-12-007903-2.50014-3;
+RX   DOI=10.1038/498407a;
+RX   DOI=10.1038/498422a;
+RX   DOI=10.11418/jtca1981.16.3_147;
+RX   PubMed=211143;
+RX   PubMed=352912;
+RX   PubMed=535915;
+RX   PubMed=656543;
+RX   PubMed=699332;
+RX   PubMed=1031681;
+RX   PubMed=1249414;
+RX   PubMed=1756776;
+RX   PubMed=3016668;
+RX   PubMed=4203458;
+RX   PubMed=4329447;
+RX   PubMed=4695793;
+RX   PubMed=4817727;
+RX   PubMed=5347639;
+RX   PubMed=5668122;
+RX   PubMed=5801069;
+RX   PubMed=5834207;
+RX   PubMed=5956336;
+RX   PubMed=6256643;
+RX   PubMed=6409440;
+RX   PubMed=6538202;
+RX   PubMed=6887978;
+RX   PubMed=7065527;
+RX   PubMed=7972006;
+RX   PubMed=14064953;
+RX   PubMed=14218592;
+RX   PubMed=14315085;
+RX   PubMed=17395773;
+RX   PubMed=17792436;
+RX   PubMed=19896956;
+RX   PubMed=20215515;
+RX   PubMed=22984048;
+RX   PubMed=25063771;
+RX   PubMed=25903999;
+RX   PubMed=29546209;
+WW   Info; -; -; https://web.archive.org/web/20160502013052/http://www.bioedge.org/bioethics/bioethics_article/10637
+WW   Info; -; -; https://web.archive.org/web/20170206220904/http://www.ascb.org/activation-energy/the-story-of-wi-38-the-other-famous-cell-line/
+WW   Info; -; -; https://web.archive.org/web/20200208221629/https://www.aginginterventionfoundation.org/BookReview2.pdf
+WW   Info; Slate; -; https://www.slate.com/articles/technology/future_tense/2017/03/the_woman_whose_aborted_fetus_helped_create_the_rubella_vaccine.html
+WW   Info; Wikipedia; -; https://en.wikipedia.org/wiki/WI-38
+CC   Group: Space-flown cell line (cellonaut).
+CC   Group: Vaccine production cell line.
+CC   Part of: Naval Biosciences Laboratory (NBL) collection (transferred to ATCC in 1982).
+CC   Population: Caucasian; Swedish.
+CC   Biotechnology: Used for the production of RA27/3 - the first rubella virus vaccine.
+CC   Biotechnology: Used for the production of live oral adenovirus type 4 and type 7 vaccine used by the US military. Produced first by Wyeth Laboratories from 1971 to 1999 and from 2011 onward by Barr Pharmaceuticals.
+CC   Biotechnology: Was used in the early 1970's for the production of the Human Diploid Cell Vaccine (HDCV) vaccine against rabies by Institut Merieux.
+CC   Characteristics: Used in many context such as senescence and aging studies.
+CC   Senescence: Life expectancy of 50 +- 10 population doublings. Senesces at 38 PDL (PubMed=17395773).
+CC   Doubling time: ~24 hours (ATCC=CCL-75; ECACC=90020107).
+CC   Omics: Genomics; ChIP-seq; CTCF.
+CC   Omics: Transcriptomics; Microarray.
+CC   Omics: Transcriptomics; miRNA profiling; Microarray.
+CC   Omics: Variations; SNP array analysis.
+CC   Anecdotal: Leonard Hayflick when numbering diploid cell strains 'jumped' directly from WI-27 (which failed) to WI-38 (CelloPub=CLPUB00391).
+CC   Anecdotal: Have been flown in space on Skylab-3 to study growth in microgravity (PubMed=352912).
+CC   Discontinued: ATCC; CRL-7728; true.
+CC   Discontinued: JCRB; JCRB9017; true.
+CC   Discontinued: KCLB; 10075; probable.
+CC   Derived from site: In situ; Fetal lung; UBERON=UBERON_0005597.
+CC   Cell type: Fibroblast of lung; CL=CL_0002553.
+ST   Source(s): AddexBio=T0016037/5007; ATCC=CCL-75; CCRID; ECACC=90020107; JCRB=IFO50075; JCRB=JCRB9017; RCB=RCB0702; RCB=RCB0704; Technion Genomics Center
+ST   Amelogenin: X
+ST   CSF1PO: 10,12
+ST   D10S1248: 13,15
+ST   D12S391: 21,23
+ST   D13S317: 11
+ST   D16S539: 11,12
+ST   D18S51: 16,18
+ST   D19S433: 13,16.2
+ST   D1S1656: 11,18.3
+ST   D21S11: 30,30.2
+ST   D22S1045: 11,17
+ST   D2S1338: 19,25
+ST   D2S441: 11
+ST   D3S1358: 16,17
+ST   D5S818: 10
+ST   D7S820: 9,11
+ST   D8S1179: 14
+ST   FGA: 22,24
+ST   Penta D: 13
+ST   Penta E: 13,14
+ST   TH01: 8,9.3
+ST   TPOX: 8
+ST   vWA: 19,20
+OX   NCBI_TaxID=9606; ! Homo sapiens (Human)
+SX   Female
+AG   16FW
+CA   Finite cell line
+DT   Created: 04-04-12; Last updated: 27-11-25; Version: 46
+CH   CVCL_1R80 ! GM08854
+CH   CVCL_1R88 ! GM10322
+CH   CVCL_1R89 ! GM10323
+CH   CVCL_3142 ! PSV811
+CH   CVCL_7871 ! UTHs
+CH   CVCL_YU09 ! WI-38 (HSV-2)Tr
+CH   CVCL_L281 ! WI-38 CT-1
+CH   CVCL_5605 ! WI-38 Tr
+CH   CVCL_2759 ! WI-38 VA13 subline 2RA
+CH   CVCL_2812 ! WI-38-30
+CH   CVCL_2813 ! WI-38-40
+CH   CVCL_N806 ! WI-38/hTERT/GFP-RAF-ER
+CH   CVCL_F0KC ! WI38-E6-E7
+CH   CVCL_F0KD ! WI38-hTERT
+CH   CVCL_F0KE ! WI38-hTERT-E6-E7
+CH   CVCL_A5BN ! WIF12
+//

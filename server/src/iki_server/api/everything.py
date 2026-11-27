@@ -406,9 +406,9 @@ def _saved_views(me: User, q: str, limit: int) -> _Group:
                 else "Yours, across your projects"
             ),
             projects=[s.project] if s.project else [],
-            # It opens from its own address, as the sidebar's saved views do: on its
-            # project's grid, or All entities for one of every project, searching as it was
-            # saved; one the grid can't show, on a page that says so.
+            # Its own address, as the sidebar's saved views link to: the app opens it in its
+            # project's grid (All entities for one of every project) searching as it was
+            # saved, or says why the grid can't show it.
             href=f"/saved-searches/{s.pk}/",
             query=dict(s.query),
         )

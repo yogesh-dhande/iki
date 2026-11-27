@@ -1009,15 +1009,19 @@ def build() -> MCPServer:
                 min_length=1,
                 max_length=1000,
                 description="The rows check_record_sheet returned, as it returned them: each "
-                "row's key, entity and revision, values, and a new one's location and amount.",
+                "row's key, entity and revision, values, and a new one's location (its "
+                "container and the exact position the check found) and amount.",
             ),
         ],
         reason: Reason,
         hold_reason: HoldReason = "",
     ) -> CallToolResult:
         """Saves what check_record_sheet checked, each change a revision with the reason,
-        every row or none. A record changed since its revision refuses it all (412): check
-        again. So does any row's problem, each named at its row and cell."""
+        every row or none. Each new record goes at the position the check found, never
+        another. A record changed since its revision, or a position another placement took
+        since the check, refuses it all (412, `rows` and `places` say which): check again
+        and show the person what changed. So does any row's problem (422), each named at its
+        row and cell."""
         kept = ("key", "entity", "revision", "values", "location", "amount")
         sent = []
         for row in rows:

@@ -81,6 +81,14 @@ def test_a_run_reads_what_its_inputs_references_name_as_of_launch(world: World) 
     ]
     assert chains[1]["values"]["sequence"] == src["values"]["sequence"]
     assert chains[0]["type"] == "acme/protein.Protein"
+    # Each record's lineage, so a command can tell a lab's subtype of a type it handles.
+    assert given["types"] == ["acme/protein.ProteinStructure", "iki/core.Entity"]
+    assert chains[0]["types"] == [
+        "acme/protein.Protein",
+        "acme/dna.Sequence",
+        "iki/core.Sequence",
+        "iki/core.Entity",
+    ]
     assert chains[0]["entry_id"] == abl["entry"]["id"]
 
 
