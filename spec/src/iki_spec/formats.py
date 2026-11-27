@@ -8,6 +8,7 @@ from functools import cached_property
 from pathlib import PurePosixPath
 
 from iki_spec import naming
+from iki_spec.effective import resolve_one
 from iki_spec.model import Action, Field, FileFormat, Plugin, included_reference
 
 #: Uploads need at most this many bytes to distinguish registered signatures (ADR 0214).
@@ -164,16 +165,13 @@ class FormatRegistry:
                 extensions[extension.extends_type].append(extension)
 
         def record_fields(name: str) -> dict[str, Field]:
-            fields: dict[str, Field] = {}
-            seen: set[str] = set()
-            while name not in seen and (owner := types.get(name)):
-                seen.add(name)
-                fields.update(owner.fields)
-                for extension in extensions[name]:
+            if name not in types:
+                return {}
+            declared = resolve_one(types, name)
+            fields = dict(declared.fields)
+            for each in declared.chain:
+                for extension in extensions[each]:
                     fields.update(extension.fields)
-                if not owner.extends:
-                    break
-                name = owner.extends
             return fields
 
         def inputs(action: Action) -> Iterator[Field]:

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from iki_spec.model import (
@@ -466,9 +466,12 @@ def compile_flow(
         if maker is not None:
             guards["maker"] = maker_guard(field, maker, flow.open, labels)
         if independence:
-            guards["independent"] = exclusion_guard(
+            compiled = exclusion_guard(
                 field, independence, open=flow.open, labels=labels, people=people
             )
+            if review is not None and review.independent_of:
+                compiled = replace(compiled, reads=review.reads)
+            guards["independent"] = compiled
         if review is not None:
             for gname, extra in review.guards.items():
                 on = set(extra.on)

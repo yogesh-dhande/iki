@@ -21,7 +21,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from iki_spec import cron, schemas
+from iki_spec import cron, effective, schemas
 from iki_spec import validate as _validate
 from iki_spec.model import Action, Related, Trigger, qualify
 from iki_spec.problems import Path
@@ -98,12 +98,7 @@ class _Rules:
         return out
 
     def is_a(self, child: str, parent: str) -> bool:
-        if child == parent:
-            return True
-        found = self.s.types.get(child)
-        return found is not None and any(
-            each.qualified_name == parent for each in self.s.ancestors(found)
-        )
+        return child == parent or effective.is_a(self.s.types, child, parent)
 
     def trigger(self, trigger: Trigger, source: Document) -> Trigger:
         scheduled = trigger.on == "schedule"
@@ -146,7 +141,7 @@ class _Rules:
             if (
                 target is not None
                 and trigger.on == "entity.registered"
-                and not any(t.identity for t in [target, *self.s.ancestors(target)])
+                and not self.s.registered(target)
             ):
                 self.add(
                     "trigger-registered-without-identity",

@@ -14,6 +14,8 @@ description: One measurement of a sample an analytical request sent, and whether
 refines:
   # It answers analytical requests, and they take no other deliverable (ADR 0235).
   request: { to: AnalyticalRequest }
+  # Every result names the sample it measured (ADR 0283).
+  material: { required: true }
 fields:
   analysis:
     type: enum
@@ -59,10 +61,6 @@ rules:
     recheck_before_signing: true
     message: Measure one of the analyses the request asks for.
     fields: [analysis]
-  measured_sample:
-    check: record.material != null
-    message: Name the sample that was measured.
-    fields: [material]
   purity_given:
     when: record.analysis == "sec_purity"
     check: record.purity != null

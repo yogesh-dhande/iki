@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import dataclasses
 import re
-from collections.abc import Collection, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field, fields, replace
+from collections.abc import Collection, Iterator, Mapping
+from dataclasses import dataclass, field, fields
 from typing import Any
 
 from iki_spec import naming
@@ -44,6 +44,7 @@ __all__ = [
     "Meaning",
     "Metric",
     "Plugin",
+    "Refinement",
     "Related",
     "Resources",
     "ReviewFlow",
@@ -67,6 +68,8 @@ __all__ = [
     "person_role",
     "plugin_from_dict",
     "plugin_to_dict",
+    "procedure_from_dict",
+    "procedure_to_dict",
     "workflow_from_dict",
 ]
 
@@ -334,50 +337,6 @@ def split_entry(
     record = {n: f for n, f in fields.items() if not in_entry(f, identity)}
     entry = {n: f for n, f in fields.items() if in_entry(f, identity)}
     return record, entry
-
-
-def refined(f: Field, roles: Mapping[str, RowRole]) -> Field:
-    """A list of rows ``f`` as a subtype that refines it has it (ADR 0164): with its roles
-    the subtype's, which are every role its rows may have."""
-    assert f.items is not None  # noqa: S101 - only lists of rows are refined
-    return replace(f, items=replace(f.items, roles=dict(roles), closed=True))
-
-
-def reference_refinement(lineage: Sequence[EntityType], name: str) -> tuple[str, ...] | None:
-    """The types a reference, or list of references, ``name`` refers to in the first of
-    ``lineage`` (a type, then its ancestors, nearest first) as the nearest type below the one
-    declaring it refines it (ADR 0235), or None where none does."""
-    for t in lineage:
-        if name in t.fields:
-            return None
-        if name in t.refines_to:
-            return t.refines_to[name]
-    return None
-
-
-def as_refined(lineage: Sequence[EntityType], name: str, f: Field) -> Field:
-    """Field ``name``, declared as ``f`` by one of ``lineage`` (a type, then its ancestors,
-    nearest first), as the first of them has it: a list of rows with the roles it gives
-    (ADR 0164), a reference with the types it refers to (ADR 0235)."""
-    if (roles := refinement(lineage, name)) is not None:
-        return refined(f, roles)
-    if (targets := reference_refinement(lineage, name)) is not None:
-        if f.type == "list" and f.items is not None:
-            return replace(f, items=replace(f.items, to=targets))
-        return replace(f, to=targets)
-    return f
-
-
-def refinement(lineage: Sequence[EntityType], name: str) -> dict[str, RowRole] | None:
-    """The roles a list of rows ``name`` has in the first of ``lineage`` (a type, then its
-    ancestors, nearest first) as the nearest type below the one declaring it refines it
-    (ADR 0164), or None where none does."""
-    for t in lineage:
-        if name in t.fields:
-            return None
-        if name in t.refines:
-            return t.refines[name]
-    return None
 
 
 def included_reference(fields: Mapping[str, Field], name: str) -> Field | None:
@@ -755,6 +714,8 @@ class ReviewSpec:
     #: People every independent state also excludes.
     independent_of: tuple[Exclusion, ...] = ()
     guards: dict[str, TypeGuard] = dataclasses.field(default_factory=dict)
+    #: The fields of its records ``independent_of`` reads, as its validation found them.
+    reads: tuple[str, ...] = ()
 
     @classmethod
     def read(cls, data: object) -> ReviewSpec | None:
@@ -919,6 +880,55 @@ class RowRole:
                 if isinstance(t, str | list)
             }
             if isinstance(to, dict)
+            else {},
+        )
+
+
+@dataclass(frozen=True)
+class Refinement:
+    """What a subtype's records take in a field it inherits (ADR 0283): only ever narrower
+    than what its parent's take, so each of its records is one of its parent's too. Each
+    part left out is its parent's."""
+
+    #: The field must have a value.
+    required: bool = False
+    #: An enum's values, or a list of enums' items': some of its parent's.
+    values: tuple[str, ...] = ()
+    #: A number's or quantity's bounds, in its unit: within its parent's.
+    min: float | None = None
+    max: float | None = None
+    #: What a new record has when it's given none: a value its narrowed field takes.
+    has_default: bool = False
+    default: Any = None
+    #: A reference's targets, or a list of references' (ADR 0235): each one of its
+    #: parent's, or a subtype of one.
+    to: tuple[str, ...] = ()
+    #: A list of rows' roles (ADR 0164): every role its rows may have, within its parent's.
+    roles: dict[str, RowRole] = field(default_factory=dict)
+
+    @classmethod
+    def from_manifest(cls, data: dict[str, Any], *, plugin: str) -> Refinement:
+        to = data.get("to")
+        roles = data.get("roles")
+        values = data.get("values")
+        return cls(
+            required=data.get("required") is True,
+            values=tuple(str(v) for v in values) if isinstance(values, list) else (),
+            min=data.get("min"),
+            max=data.get("max"),
+            has_default="default" in data,
+            default=data.get("default"),
+            to=(qualify(to, plugin),)
+            if isinstance(to, str)
+            else tuple(qualify(t, plugin) for t in to if isinstance(t, str))
+            if isinstance(to, list)
+            else (),
+            roles={
+                n: RowRole.from_manifest(n, r, plugin=plugin)
+                for n, r in roles.items()
+                if isinstance(r, dict)
+            }
+            if isinstance(roles, dict)
             else {},
         )
 
@@ -1326,14 +1336,9 @@ class EntityType:
     #: Its records are samples (ADR 0177): the files they hold, and those a run that read
     #: one of them read or made, are its files in a project's Files. Its subtypes' are too.
     sample: bool = False
-    #: What each list of rows it inherits takes, by the list's name (ADR 0164): every role
-    #: its rows may have, each with how many and what its references may refer to, within
-    #: what its ancestor's say. Its subtypes have these unless they name their own.
-    refines: dict[str, dict[str, RowRole]] = field(default_factory=dict)
-    #: What each reference it inherits, or list of references, refers to, by its name
-    #: (ADR 0235): types among its ancestor's, each with its subtypes. Its subtypes have
-    #: these unless they name their own.
-    refines_to: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: What its records take in fields it inherits, by the field's name (ADR 0283): each
+    #: narrower than its parent's, as its subtypes' are narrower than its own.
+    refines: dict[str, Refinement] = field(default_factory=dict)
     #: Its entities are a lab list's options (ADR 0270): registry entries every project in
     #: their registry may pick, curated by its registrars and list curators.
     list_spec: ListSpec | None = None
@@ -1357,29 +1362,6 @@ class EntityType:
     def current_fields(self) -> dict[str, Field]:
         """The fields entities have now, without the removed ones."""
         return {name: f for name, f in self.fields.items() if not f.removed}
-
-
-def lineage(type_name: str, types: Mapping[str, EntityType]) -> list[str]:
-    """A validated type and each type it extends, nearest first, ending with
-    ``iki/core.Entity``: what a run input gives a command as an entity's ``types``."""
-    out = [type_name]
-    current = types[type_name]
-    while current.extends:
-        out.append(current.extends)
-        current = types[current.extends]
-    if out[-1] != naming.ENTITY:
-        out.append(naming.ENTITY)
-    return out
-
-
-def amount_of(type_name: str, types: Mapping[str, EntityType]) -> Amount | None:
-    """The nearest amount declaration on a validated type or one of its ancestors."""
-    current = types.get(type_name)
-    while current is not None:
-        if current.amount is not None:
-            return current.amount
-        current = types.get(current.extends) if current.extends else None
-    return None
 
 
 @dataclass(frozen=True)
@@ -2235,6 +2217,7 @@ _DATACLASSES = (
     Storage,
     Field,
     RowRole,
+    Refinement,
     State,
     Signature,
     Guard,
@@ -2330,9 +2313,7 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
             and not (
                 isinstance(value, EntityType) and f.name == "work_item" and value.work_item is None
             )
-            and not (
-                isinstance(value, EntityType) and f.name == "refines_to" and not value.refines_to
-            )
+            and not (isinstance(value, Refinement) and _unnarrowed(f.name, value))
             and not (
                 isinstance(value, EntityType) and f.name == "list_spec" and value.list_spec is None
             )
@@ -2420,15 +2401,8 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                             if (target := v.get("draw_target"))
                             else None
                         ),
-                        # ...or refined rows (ADR 0164).
-                        "refines": {
-                            n: {r: _row_role(x) for r, x in roles.items()}
-                            for n, roles in (v.get("refines") or {}).items()
-                        },
-                        # ...or refined references (ADR 0235).
-                        "refines_to": {
-                            n: tuple(to) for n, to in (v.get("refines_to") or {}).items()
-                        },
+                        # ...or refined fields (ADR 0283).
+                        "refines": {n: _refinement(x) for n, x in (v.get("refines") or {}).items()},
                         # ...or lists (ADR 0270).
                         "list_spec": ListSpec(
                             options=tuple(dict(o) for o in v["list_spec"]["options"])
@@ -2512,6 +2486,17 @@ def _exclusions(data: list[dict[str, Any]] | None) -> tuple[Exclusion, ...]:
     )
 
 
+def procedure_to_dict(procedure: ReviewProcedure) -> dict[str, Any]:
+    """A review procedure as JSON, as a plugin's manifest holds it; :func:`procedure_from_dict`
+    reads it back."""
+    out: dict[str, Any] = _to_json(procedure)
+    return out
+
+
+def procedure_from_dict(data: dict[str, Any]) -> ReviewProcedure:
+    return _procedure(data)
+
+
 def _procedure(data: dict[str, Any]) -> ReviewProcedure:
     return ReviewProcedure(
         **{
@@ -2557,6 +2542,7 @@ def _review(data: dict[str, Any]) -> ReviewSpec:
                 }
             ),
             "independent_of": _exclusions(data.get("independent_of")),
+            "reads": tuple(data.get("reads") or ()),
             "guards": {
                 n: TypeGuard(guard=_guards({n: g["guard"]})[n], on=tuple(g["on"]))
                 for n, g in (data.get("guards") or {}).items()
@@ -2807,6 +2793,27 @@ def _guards(data: dict[str, Any]) -> dict[str, Guard]:
 
 def _row_role(data: dict[str, Any]) -> RowRole:
     return RowRole(**{**data, "to": {c: tuple(t) for c, t in (data.get("to") or {}).items()}})
+
+
+def _refinement(data: dict[str, Any]) -> Refinement:
+    return Refinement(
+        **{
+            **data,
+            "values": tuple(data.get("values") or ()),
+            "to": tuple(data.get("to") or ()),
+            "roles": {n: _row_role(r) for n, r in (data.get("roles") or {}).items()},
+        }
+    )
+
+
+def _unnarrowed(name: str, r: Refinement) -> bool:
+    """Whether a refinement leaves ``name`` as its parent's, so its JSON leaves it out."""
+    if name in ("default", "has_default"):
+        return not r.has_default
+    if name == "required":
+        return not r.required
+    value = getattr(r, name)
+    return value is None or (isinstance(value, tuple | dict) and not value)
 
 
 def _rule(data: dict[str, Any]) -> Rule:

@@ -31,9 +31,8 @@ def for_type(type_name: str, slot: str) -> list[Component]:
     """The components whose `slot` shows on the pages of entities of `type_name`, which may
     be a subtype of the type they name, in plugin and component order."""
     lineage = {type_name}
-    entity_type = registry.types().get(type_name)
-    if entity_type is not None:
-        lineage |= {t.qualified_name for t in registry.ancestors(entity_type)}
+    if type_name in registry.types():
+        lineage |= set(registry.effective(type_name).ancestors) - {naming.ENTITY}
     return [
         c
         for c in components().values()

@@ -78,6 +78,7 @@ from iki_server.entities.values import (
 from iki_server.files import scan_state, storage
 from iki_server.files.models import File
 from iki_server.org.models import registry_of
+from iki_server.reviews import pins
 from iki_server.runs import live, makings, results
 from iki_server.runs.models import (
     ActionRun,
@@ -92,7 +93,6 @@ from iki_server.runs.models import (
     RunOutput,
     RunStatus,
 )
-from iki_server.runs.services import is_a
 from iki_server.setup import starter_flows
 from iki_spec import schemas
 from iki_spec.model import Action as SpecAction
@@ -646,6 +646,9 @@ def _stage_rows(
             results.invalid(check, create.pointer, error)
             errors.extend(check.errors)
             continue
+        except pins.ProcedureNotChosen as error:
+            # Refused whole, as any output whose record can't be made (ADR 0302).
+            raise results.Rejected("conflict", str(error)) from None
         prepared.append((line, create, form, given))
     refused = {
         index: [b for b in broken if not b.held]
@@ -1052,7 +1055,9 @@ def _update_matches(imported: RunImport, check: results.Check) -> None:
     # An inherited unique field has one key across all of its concrete types.
     columns: dict[tuple[str, str], list[str]] = {}
     for type_name in staged:
-        effect = next(effect for effect in check.action.creates if is_a(type_name, effect.type))
+        effect = next(
+            effect for effect in check.action.creates if registry.is_a(type_name, effect.type)
+        )
         if effect.match_on is not None:
             part = shape(type_name).part_of(effect.match_on)
             columns.setdefault((part.model._meta.db_table, effect.match_on), []).append(type_name)

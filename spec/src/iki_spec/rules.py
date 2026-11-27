@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from iki_spec import procedures, wasm
+from iki_spec import effective, procedures, wasm
 from iki_spec.model import (
     SIGNATURE_MEANINGS,
     EntityType,
@@ -28,7 +28,6 @@ from iki_spec.model import (
     Field,
     Guard,
     Rule,
-    as_refined,
     in_entry,
     lab_role_name,
 )
@@ -467,12 +466,8 @@ class _Rules:
 
     def fields_of(self, entity_type: EntityType) -> dict[str, Field]:
         """Every current field of its records: its chain's and installed extensions'."""
-        lineage = [entity_type, *self.s.ancestors(entity_type)]
-        out = {
-            n: as_refined(lineage, n, f)
-            for n, (f, _) in self.s.all_fields(entity_type).items()
-            if not f.removed
-        }
+        declared = effective.resolve_one(self.s.types, entity_type.qualified_name)
+        out = dict(declared.current_fields)
         for extension in self.extensions_of(entity_type):
             for name, f in extension.current_fields.items():
                 out.setdefault(name, f)
@@ -483,10 +478,10 @@ class _Rules:
         if found is None:
             return None
         fields = self.fields_of(found)
-        owner = next((t for t in [found, *self.s.ancestors(found)] if t.identity), None)
-        if owner is not None:
+        identity = effective.resolve_one(self.s.types, name).identity
+        if identity:
             # A reference to a type with an identity is to its registry entry (ADR 0115).
-            fields = {n: f for n, f in fields.items() if in_entry(f, owner.identity)}
+            fields = {n: f for n, f in fields.items() if in_entry(f, identity)}
         return found.label, fields
 
     def fixed_ref_fields(self, name: str) -> tuple[str, Mapping[str, Field]] | None:
@@ -608,6 +603,7 @@ class _Rules:
             review = replace(
                 review,
                 guards={n: replace(g, guard=checked[n]) for n, g in review.guards.items()},
+                reads=checked["independent"].reads if "independent" in checked else (),
             )
         draw = entity_type.draw_guards
         if draw:

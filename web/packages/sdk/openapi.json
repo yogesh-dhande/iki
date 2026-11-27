@@ -6046,6 +6046,14 @@
             ],
             "description": "How much of each of its records there is (ADR 0139), if it keeps that: drawn, transferred, split into aliquots and adjusted through `/entities/{ref}/amount`, never below zero."
           },
+          "ancestors": {
+            "description": "The types it extends, nearest first, ending with `iki/core.Entity`: its records are each of theirs too (ADR 0282). A type is another when the other is it or among its ancestors.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Ancestors",
+            "type": "array"
+          },
           "description": {
             "anyOf": [
               {
@@ -6286,6 +6294,7 @@
           "abstract",
           "sample",
           "detached",
+          "ancestors",
           "subtypes",
           "hrid_prefix",
           "identity",
@@ -17713,6 +17722,195 @@
         "title": "PreviewRowParams",
         "type": "object"
       },
+      "ProcedureFlowOut": {
+        "properties": {
+          "final": {
+            "title": "Final",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "route": {
+            "description": "Its states in order: the first is where records start.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Route",
+            "type": "array"
+          },
+          "states": {
+            "description": "Every state its records can be in.",
+            "items": {
+              "type": "string"
+            },
+            "title": "States",
+            "type": "array"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "summary",
+          "route",
+          "states",
+          "final"
+        ],
+        "title": "ProcedureFlowOut",
+        "type": "object"
+      },
+      "ProcedureOut": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "flows": {
+            "items": {
+              "$ref": "#/components/schemas/ProcedureFlowOut"
+            },
+            "title": "Flows",
+            "type": "array"
+          },
+          "id": {
+            "description": "`plugin.name@version`, such as `iki/core.result_review@1`.",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/ProcedureSlotOut"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "states": {
+            "items": {
+              "$ref": "#/components/schemas/ProcedureStateOut"
+            },
+            "title": "States",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "slots",
+          "states",
+          "flows"
+        ],
+        "title": "ProcedureOut",
+        "type": "object"
+      },
+      "ProcedureSlotOut": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "ProcedureSlotOut",
+        "type": "object"
+      },
+      "ProcedureStateOut": {
+        "properties": {
+          "by": {
+            "description": "The slots whose holders set it.",
+            "items": {
+              "type": "string"
+            },
+            "title": "By",
+            "type": "array"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "locks": {
+            "title": "Locks",
+            "type": "boolean"
+          },
+          "signed": {
+            "title": "Signed",
+            "type": "boolean"
+          },
+          "signer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who may sign it, or who may not, in words: from its `maker` and `independent_of`.",
+            "title": "Signer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "by",
+          "locks",
+          "signed"
+        ],
+        "title": "ProcedureStateOut",
+        "type": "object"
+      },
       "ProjectCan": {
         "properties": {
           "change_registry": {
@@ -21786,6 +21984,203 @@
           "released_states"
         ],
         "title": "ResultTypeOut",
+        "type": "object"
+      },
+      "ReviewChoiceIn": {
+        "additionalProperties": false,
+        "properties": {
+          "binding": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lab roles for some of its slots; the rest play their `iki/lab_roles` role.",
+            "title": "Binding"
+          },
+          "flow": {
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Flow",
+            "type": "string"
+          },
+          "procedure": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Procedure",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why. Required for the deployment's default.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "procedure",
+          "flow"
+        ],
+        "title": "ReviewChoiceIn",
+        "type": "object"
+      },
+      "ReviewChoiceOut": {
+        "properties": {
+          "binding": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Each slot, to the lab role that plays it.",
+            "title": "Binding",
+            "type": "object"
+          },
+          "chosen_at": {
+            "format": "date-time",
+            "title": "Chosen At",
+            "type": "string"
+          },
+          "chosen_by": {
+            "format": "uuid",
+            "title": "Chosen By",
+            "type": "string"
+          },
+          "entity_type": {
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "flow": {
+            "title": "Flow",
+            "type": "string"
+          },
+          "procedure": {
+            "title": "Procedure",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for the deployment's default.",
+            "title": "Project"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "starter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starter"
+          }
+        },
+        "required": [
+          "entity_type",
+          "project",
+          "procedure",
+          "flow",
+          "binding",
+          "chosen_by",
+          "chosen_at"
+        ],
+        "title": "ReviewChoiceOut",
+        "type": "object"
+      },
+      "ReviewChoicesOut": {
+        "properties": {
+          "default": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewChoiceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The deployment's default."
+          },
+          "effective": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewChoiceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the project's next record is pinned to: its choice for the type or an ancestor, else the deployment's. Null: creating one is refused."
+          },
+          "entity_type": {
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "fitting": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Each installed procedure that fits the type, with the flows that do.",
+            "title": "Fitting",
+            "type": "object"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewChoiceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project's own choice, when a project is given."
+          }
+        },
+        "required": [
+          "entity_type",
+          "default",
+          "fitting"
+        ],
+        "title": "ReviewChoicesOut",
+        "type": "object"
+      },
+      "ReviewClearIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "ReviewClearIn",
         "type": "object"
       },
       "ReviewedCountLine": {
@@ -49180,6 +49575,230 @@
         "summary": "Make someone a registrar",
         "tags": [
           "registries"
+        ]
+      }
+    },
+    "/api/v1/review-choices/{name}": {
+      "get": {
+        "operationId": "iki_server_api_reviews_get_choices",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewChoicesOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A type's review procedure choices",
+        "tags": [
+          "reviews"
+        ]
+      },
+      "put": {
+        "description": "Without ``project``: the deployment's default, for Org Admins, with a reason. With\nit: the project's choice, for its Admins. Records already made keep their procedure.",
+        "operationId": "iki_server_api_reviews_put_choice",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewChoiceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewChoicesOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Choose a type's review procedure",
+        "tags": [
+          "reviews"
+        ]
+      }
+    },
+    "/api/v1/review-choices/{name}/clear": {
+      "post": {
+        "operationId": "iki_server_api_reviews_clear_choice",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewClearIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewChoicesOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Clear a type's review procedure choice",
+        "tags": [
+          "reviews"
+        ]
+      }
+    },
+    "/api/v1/review-procedures": {
+      "get": {
+        "operationId": "iki_server_api_reviews_list_procedures",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProcedureOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "List installed review procedures",
+        "tags": [
+          "reviews"
         ]
       }
     },

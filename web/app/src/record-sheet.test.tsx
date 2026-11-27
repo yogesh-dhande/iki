@@ -45,6 +45,7 @@ const SAMPLE: Schemas["EntityTypeOut"] = {
   sample: true,
   lab_list: false,
   detached: false,
+  ancestors: ["iki/core.Entity"],
   subtypes: [],
   hrid_prefix: "SMP",
   identity: [],
@@ -325,7 +326,7 @@ describe("a sheet of records", () => {
         places: [{ key: "new-1", container: "box", hrid: "BOX-000002", position: "A2" }],
       }),
     );
-    const { user, grid } = open([kd1]);
+    const { user, grid } = await open([kd1]);
     await user.click(nth(within(grid).getAllByRole("gridcell"), 2));
     await user.keyboard("98.5{Enter}");
     const save = screen.getByRole("button", { name: "Review and save" });

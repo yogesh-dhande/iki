@@ -286,7 +286,7 @@ def source_changed(parent: Entity, revision: Revision) -> None:
 
 
 def _fires(spec: Trigger, event: str, entity_type: str, changed: list[str]) -> bool:
-    if spec.on != event or not services.is_a(entity_type, spec.type):
+    if spec.on != event or not registry.is_a(entity_type, spec.type):
         return False
     if event == "entity.state_changed":
         field, state = changed

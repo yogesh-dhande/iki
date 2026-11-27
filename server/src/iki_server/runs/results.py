@@ -40,6 +40,7 @@ from iki_server.files.scan_state import require_usable
 from iki_server.org import permissions
 from iki_server.org.models import registry_of
 from iki_server.org.services import Refused
+from iki_server.reviews.pins import ProcedureNotChosen
 from iki_server.runs import input_files, makings
 from iki_server.runs.models import (
     ActionRun,
@@ -51,7 +52,7 @@ from iki_server.runs.models import (
     RunInput,
     RunUpload,
 )
-from iki_server.runs.services import TIER_PERMISSIONS, is_a
+from iki_server.runs.services import TIER_PERMISSIONS
 from iki_spec import outputs, schemas
 from iki_spec.model import Action, Creates, Software, action_from_dict
 
@@ -280,7 +281,7 @@ class _Installed:
     """:class:`outputs.Types`, from the types this deployment has installed."""
 
     def is_a(self, type_name: str, wanted: str) -> bool:
-        return is_a(type_name, wanted)
+        return registry.is_a(type_name, wanted)
 
     def ref_fields(self, type_name: str) -> frozenset[str]:
         if type_name not in registry.types():
@@ -893,6 +894,9 @@ def _write_creates(
             except Invalid as error:
                 invalid(check, create.pointer, error)
                 continue
+            except ProcedureNotChosen as error:
+                # Its project hasn't chosen how it's reviewed: the run is refused whole.
+                raise Rejected("conflict", str(error)) from None
         if create.receipt is not None:
             try:
                 _place_received(check, create, saved, create.receipt)

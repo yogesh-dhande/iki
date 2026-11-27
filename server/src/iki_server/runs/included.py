@@ -27,7 +27,7 @@ from iki_server.files.scan_state import ScanStatus, statuses_for_blobs
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
 from iki_server.runs.models import ActionRun, RunInclusion, RunInput
-from iki_spec.model import Action, amount_of, included_reference, lineage
+from iki_spec.model import Action, included_reference
 
 
 @dataclass(frozen=True)
@@ -410,12 +410,12 @@ def manifest(run: ActionRun) -> Manifest:
             "id": str(entity.pk),
             "hrid": entity.hrid,
             "type": entity.type,
-            "types": lineage(entity.type, registry.types()),
+            "types": list(registry.effective(entity.type).lineage),
             "schema_version": registry.types()[entity.type].schema_version,
             "revision": row.revision,
             "values": shown,
         }
-        amount = amount_of(entity.type, registry.types())
+        amount = registry.effective(entity.type).amount
         if amount is not None and amount.material is not None:
             item["material_field"] = amount.material
         if (sides := requests.run_sides([entity]).get(entity.pk)) is not None:

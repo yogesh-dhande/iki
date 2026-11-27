@@ -417,6 +417,12 @@ def synced_objects() -> dict[str, list[str]]:
     return {"triggers": triggers, "views": views}
 
 
+def _procedures_installed() -> bool:
+    from iki_server.reviews.models import Procedure
+
+    return Procedure.objects.exists()
+
+
 @pytest.fixture(autouse=True)
 def _keeps_what_sync_made(
     request: pytest.FixtureRequest, django_db_blocker: pytest_django.DjangoDbBlocker
@@ -429,6 +435,15 @@ def _keeps_what_sync_made(
     commits = (marker is not None and marker.kwargs.get("transaction", False)) or bool(
         {"transactional_db", "live_server"} & set(request.fixturenames)
     )
+    if marker is not None or {"db", "transactional_db", "live_server"} & set(request.fixturenames):
+        # A transactional test's flush empties the installed review procedures, which only
+        # a deploy installs (ADR 0302): put them back for the tests after it.
+        request.getfixturevalue("django_db_setup")
+        with django_db_blocker.unblock():
+            from iki_server.reviews import sync as reviews
+
+            if not _procedures_installed():
+                reviews.install_procedures()
     if not commits:
         yield
         return

@@ -192,13 +192,19 @@ def test_an_inherited_amount_unit_change_needs_a_migration_for_records_with_ledg
     from test_amounts import sample
 
     from iki_server.amounts.models import Amount as Balance
-    from iki_server.plugins.preflight_values import amount_findings, amount_unit
+    from iki_server.plugins.preflight_values import amount_findings
+    from iki_spec.effective import resolve_one
     from iki_spec.model import Amount, EntityType
 
     stock = EntityType("acme/lab", "Stock", 1, amount=Amount("uL"))
     batch = EntityType("acme/lab", "Batch", 1, extends=stock.qualified_name)
-    assert amount_unit([batch, stock]) == "uL"
-    new = amount_unit([replace(batch, amount=Amount("mL")), stock])
+
+    def unit(*types: EntityType) -> str | None:
+        found = resolve_one({t.qualified_name: t for t in types}, batch.qualified_name).amount
+        return found.unit if found is not None else None
+
+    assert unit(batch, stock) == "uL"
+    new = unit(replace(batch, amount=Amount("mL")), stock)
     assert new == "mL"
     with_ledger = sample(world, "filled", {"value": 1500, "unit": "uL"})
     sample(world, "empty")

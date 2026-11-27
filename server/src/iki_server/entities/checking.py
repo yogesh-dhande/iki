@@ -96,10 +96,9 @@ class Saving:
 def rules_of(type_name: str) -> tuple[Rule, ...]:
     """Every rule a type's records keep: its ancestors', its own, and those extensions of
     any of them declare."""
-    entity_type = registry.types()[type_name]
-    chain = [*reversed(registry.ancestors(entity_type)), entity_type]
-    names = {t.qualified_name for t in chain}
-    out = [r for t in chain for r in t.rules.values()]
+    declared = registry.effective(type_name)
+    names = set(declared.chain)
+    out = list(declared.rules.values())
     for extension in registry.extensions():
         if extension.extends_type in names:
             out.extend(extension.rules.values())
@@ -139,11 +138,11 @@ def record_variables(type_name: str) -> dict[str, Any]:
 def digest_of(type_name: str) -> str:
     """What a type's records are checked against: its checks, and its plugins' versions
     (a migration may have changed their values)."""
-    entity_type = registry.types()[type_name]
     plugins = registry.plugins()
-    chain = [entity_type, *registry.ancestors(entity_type)]
+    chain = registry.effective(type_name).chain
     owners = sorted(
-        {t.plugin for t in chain} | {r.plugin for r in rules_of(type_name)} & set(plugins)
+        {registry.types()[t].plugin for t in chain}
+        | {r.plugin for r in rules_of(type_name)} & set(plugins)
     )
     data = {
         "checks": [

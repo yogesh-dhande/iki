@@ -4271,6 +4271,62 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/review-choices/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A type's review procedure choices */
+        get: operations["iki_server_api_reviews_get_choices"];
+        /**
+         * Choose a type's review procedure
+         * @description Without ``project``: the deployment's default, for Org Admins, with a reason. With
+         *     it: the project's choice, for its Admins. Records already made keep their procedure.
+         */
+        put: operations["iki_server_api_reviews_put_choice"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/review-choices/{name}/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Clear a type's review procedure choice */
+        post: operations["iki_server_api_reviews_clear_choice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/review-procedures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List installed review procedures */
+        get: operations["iki_server_api_reviews_list_procedures"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/run-approvals/{approval_id}": {
         parameters: {
             query?: never;
@@ -8931,6 +8987,11 @@ export interface components {
             abstract: boolean;
             /** @description How much of each of its records there is (ADR 0139), if it keeps that: drawn, transferred, split into aliquots and adjusted through `/entities/{ref}/amount`, never below zero. */
             amount?: components["schemas"]["TypeAmountOut"] | null;
+            /**
+             * Ancestors
+             * @description The types it extends, nearest first, ending with `iki/core.Entity`: its records are each of theirs too (ADR 0282). A type is another when the other is it or among its ancestors.
+             */
+            ancestors: string[];
             /** Description */
             description: string | null;
             /**
@@ -14109,6 +14170,77 @@ export interface components {
              */
             outcome?: ("create" | "register" | "add" | "reuse" | "same" | "problem")[] | null;
         };
+        /** ProcedureFlowOut */
+        ProcedureFlowOut: {
+            /** Final */
+            final: string;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Route
+             * @description Its states in order: the first is where records start.
+             */
+            route: string[];
+            /**
+             * States
+             * @description Every state its records can be in.
+             */
+            states: string[];
+            /** Summary */
+            summary: string;
+        };
+        /** ProcedureOut */
+        ProcedureOut: {
+            /** Description */
+            description?: string | null;
+            /** Flows */
+            flows: components["schemas"]["ProcedureFlowOut"][];
+            /**
+             * Id
+             * @description `plugin.name@version`, such as `iki/core.result_review@1`.
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /** Slots */
+            slots: components["schemas"]["ProcedureSlotOut"][];
+            /** States */
+            states: components["schemas"]["ProcedureStateOut"][];
+        };
+        /** ProcedureSlotOut */
+        ProcedureSlotOut: {
+            /** Description */
+            description?: string | null;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+        };
+        /** ProcedureStateOut */
+        ProcedureStateOut: {
+            /**
+             * By
+             * @description The slots whose holders set it.
+             */
+            by: string[];
+            /** Description */
+            description?: string | null;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Locks */
+            locks: boolean;
+            /** Signed */
+            signed: boolean;
+            /**
+             * Signer
+             * @description Who may sign it, or who may not, in words: from its `maker` and `independent_of`.
+             */
+            signer?: string | null;
+        };
         /** ProjectCan */
         ProjectCan: {
             /**
@@ -15930,6 +16062,87 @@ export interface components {
              * @description The states that send it back to the asking project, where it stays.
              */
             released_states: string[];
+        };
+        /** ReviewChoiceIn */
+        ReviewChoiceIn: {
+            /**
+             * Binding
+             * @description Lab roles for some of its slots; the rest play their `iki/lab_roles` role.
+             */
+            binding?: {
+                [key: string]: string;
+            } | null;
+            /** Flow */
+            flow: string;
+            /** Procedure */
+            procedure: string;
+            /**
+             * Reason
+             * @description Why. Required for the deployment's default.
+             * @default
+             */
+            reason: string;
+        };
+        /** ReviewChoiceOut */
+        ReviewChoiceOut: {
+            /**
+             * Binding
+             * @description Each slot, to the lab role that plays it.
+             */
+            binding: {
+                [key: string]: string;
+            };
+            /**
+             * Chosen At
+             * Format: date-time
+             */
+            chosen_at: string;
+            /**
+             * Chosen By
+             * Format: uuid
+             */
+            chosen_by: string;
+            /** Entity Type */
+            entity_type: string;
+            /** Flow */
+            flow: string;
+            /** Procedure */
+            procedure: string;
+            /**
+             * Project
+             * @description Null for the deployment's default.
+             */
+            project: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Starter */
+            starter?: string | null;
+        };
+        /** ReviewChoicesOut */
+        ReviewChoicesOut: {
+            /** @description The deployment's default. */
+            default: components["schemas"]["ReviewChoiceOut"] | null;
+            /** @description What the project's next record is pinned to: its choice for the type or an ancestor, else the deployment's. Null: creating one is refused. */
+            effective?: components["schemas"]["ReviewChoiceOut"] | null;
+            /** Entity Type */
+            entity_type: string;
+            /**
+             * Fitting
+             * @description Each installed procedure that fits the type, with the flows that do.
+             */
+            fitting: {
+                [key: string]: string[];
+            };
+            /** @description The project's own choice, when a project is given. */
+            project?: components["schemas"]["ReviewChoiceOut"] | null;
+        };
+        /** ReviewClearIn */
+        ReviewClearIn: {
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
         };
         /** ReviewedCountLine */
         ReviewedCountLine: {
@@ -27689,6 +27902,106 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    iki_server_api_reviews_get_choices: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewChoicesOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_reviews_put_choice: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewChoiceIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewChoicesOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_reviews_clear_choice: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewClearIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewChoicesOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_reviews_list_procedures: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcedureOut"][];
+                };
             };
         };
     };

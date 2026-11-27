@@ -759,7 +759,8 @@ class _Writer:
     @staticmethod
     def _lock(entity_id: uuid.UUID, line: dict[str, Any], values: dict[str, Any]) -> None:
         """Whether the record's state fields, as the bundle has them, lock it (ADR 0125)."""
-        fields = states.state_fields(line["type"])
+        # A reviewed record locks as its pinned procedure says (ADR 0301).
+        fields = states.state_fields_of(Entity.objects.get(pk=entity_id))
         found = states.locking(fields, values)
         if found or line.get("has_been_locked"):
             Entity.objects.filter(pk=entity_id).update(locked_by=found, has_been_locked=True)
@@ -990,7 +991,10 @@ class _Writer:
             spec = requests.result_spec(row.type)
             if spec is None:
                 continue
-            field = states.state_fields(row.type)[spec.released_field]
+            # A reviewed record's states are its pinned flow's (ADR 0301).
+            field = states.state_fields_of(Entity.objects.get(pk=row.entity_id))[
+                spec.released_field
+            ]
             targets = [s for s in spec.released_states if spec.requires_review(field, s)]
             if not targets:
                 continue

@@ -16,14 +16,9 @@ from iki_server.entities.values import is_list_table
 from iki_server.plugins.makemigrations import linear_conversion
 from iki_server.plugins.preflight_types import Finding, Record
 from iki_spec import units
-from iki_spec.model import EntityType, Field
+from iki_spec.model import Field
 from iki_spec.units import UnitError
 from iki_spec.validate import value_problems
-
-
-def amount_unit(lineage: Iterable[EntityType]) -> str | None:
-    """A record's ledger unit comes from the nearest declaration (amounts.services.spec)."""
-    return next((t.amount.unit for t in lineage if t.amount is not None), None)
 
 
 def amount_findings(old_unit: str | None, new_unit: str | None, qualified: str) -> list[Finding]:

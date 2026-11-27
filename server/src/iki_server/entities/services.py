@@ -88,8 +88,9 @@ from iki_server.files.models import FileUse
 from iki_server.notifications import declared
 from iki_server.org.models import Project, registry_of
 from iki_server.org.services import Refused
+from iki_server.reviews import pins
 from iki_server.setup import starter_flows
-from iki_spec.model import EntityType, Field, names_people
+from iki_spec.model import PINNED_FIELDS, EntityType, Field, names_people
 
 __all__ = [
     "Invalid",
@@ -113,6 +114,10 @@ __all__ = [
 
 
 #: Why a state field isn't set with a record's other values.
+PINNED_BY_SERVER = (
+    "is set by Iki when the record is created, from the review procedure its project chose "
+    "(ADR 0302), and never changes."
+)
 STATE_SET_ALONE = (
     "is a state field: it's set on its own, by someone with one of its states' lab roles "
     "(ADR 0125). New records start in its initial state."
@@ -773,7 +778,7 @@ def prepare(
     kept = _kept(form)
     errors: dict[str, list[str]] = {}
     given: dict[str, Any] = {}
-    ledger_field = registry.draws_received(type_name)
+    ledger_field = registry.effective(type_name).draws_received
     for name, value in values.items():
         f = fields.get(name)
         if f is None:
@@ -782,6 +787,8 @@ def prepare(
             errors[name] = [kept[name]]
         elif name == ledger_field:
             errors[name] = ["is recorded by the amounts ledger when material is drawn into it."]
+        elif name in PINNED_FIELDS and pins.review_of(type_name) is not None:
+            errors[name] = [PINNED_BY_SERVER]
         elif f.computed and not by_run:
             errors[name] = ["is computed: only actions set it."]
         elif f.type == "state":
@@ -807,6 +814,9 @@ def prepare(
                 errors.update(problems_of(name, error))
         if f.required and given.get(name) is None and not _wrong(errors, name):
             errors[name] = ["is required."]
+    if not errors:
+        # The procedure its project chose, stamped for the record's life (ADR 0302).
+        given.update(pins.stamp(project, type_name, given))
     if not errors:
         from iki_server.amounts import stock
 
@@ -915,7 +925,7 @@ def update(
             and locked.locked_by
             and locked.released_review_revision is None
         ):
-            returns = states.on_edit(states.state_fields(locked.type), states.values_of(locked))
+            returns = states.on_edit(states.state_fields_of(locked), states.values_of(locked))
         if not returns or set(locked.locked_by) != returns.keys():
             why = states.locked_why(locked)
             if why:
@@ -964,7 +974,7 @@ def update(
         )
         new: dict[str, Any] = {}
         for_entry: dict[str, Any] = {}
-        ledger_field = registry.draws_received(locked.type)
+        ledger_field = registry.effective(locked.type).draws_received
         for name, value in values.items():
             f = fields.get(name)
             if f is None:

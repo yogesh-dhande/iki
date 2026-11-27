@@ -432,7 +432,7 @@ def _consent(
 def input_taking(action: Action, types: Sequence[str]) -> str | None:
     """The first of `action`'s inputs that takes entities of every one of `types`."""
     for name, put in action.inputs.items():
-        if all(is_a(t, put.type) for t in types):
+        if all(registry.is_a(t, put.type) for t in types):
             return name
     return None
 
@@ -897,7 +897,7 @@ def check_inputs(
                 continue
             if entity.archived_at is not None:
                 problems.append(f"{entity.hrid} is archived.")
-            elif not is_a(entity.type, put.type):
+            elif not registry.is_a(entity.type, put.type):
                 problems.append(f"{entity.hrid} is a {entity.type}, not a {put.type}.")
             elif name in updated and not access.can_edit(user, entity, acting_in=project):
                 problems.append(
@@ -1010,13 +1010,6 @@ def _other_side(user: User, entity: Entity, project: Project, fields: Iterable[s
         f"This action changes {listed} of {entity.hrid}, {owner.name}'s side of the "
         f"request: a run in {owner.name} changes {them}, not one in {project.name}."
     )
-
-
-def is_a(entity_type: str, wanted: str) -> bool:
-    if wanted in (entity_type, "iki/core.Entity"):
-        return True
-    own = registry.types().get(entity_type)
-    return own is not None and any(t.qualified_name == wanted for t in registry.ancestors(own))
 
 
 def check_params(

@@ -52,13 +52,7 @@ def _about(user: User, project: Project, spec: dict[str, Any], ref: str | None) 
         raise Refused(
             f"There’s no entity {ref} in {project.name} that you can read.", field="entity"
         )
-    entity_type = registry.types().get(found.type)
-    names = (
-        {entity_type.qualified_name, *(t.qualified_name for t in registry.ancestors(entity_type))}
-        if entity_type
-        else set()
-    )
-    if wanted not in names:
+    if not registry.is_a(found.type, wanted):
         raise Refused(f"{found.hrid} isn’t a {wanted}.", field="entity")
     return found
 

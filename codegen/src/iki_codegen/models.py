@@ -44,6 +44,7 @@ from typing import Any
 
 from iki_spec import naming
 from iki_spec.conditions import WORDS_SEARCHED
+from iki_spec.effective import resolve_one
 from iki_spec.model import FORMATS, EntityType, Extension, Field, Plugin, split_entry
 
 __all__ = ["render_models"]
@@ -343,12 +344,10 @@ def _extension(e: Extension, types: Mapping[str, EntityType]) -> list[str]:
 
 def identity_owner(qualified: str, types: Mapping[str, EntityType]) -> EntityType | None:
     """The type whose identity ``qualified``'s entities have: its own or a parent's."""
-    current = types.get(qualified)
-    while current is not None:
-        if current.identity:
-            return current
-        current = types.get(current.extends) if current.extends else None
-    return None
+    if qualified not in types:
+        return None
+    owner = resolve_one(types, qualified).identity_owner
+    return types[owner] if owner is not None else None
 
 
 def _entry_label(qualified: str) -> str:
@@ -372,7 +371,14 @@ def _with_fields(
             lists.append(_list_model(model, owner, f, plugin, types))
             continue
         model.fields.append(
-            (f.name, _state_column(f, fields) if f.type == "state" else _column(f, plugin, types))
+            (
+                f.name,
+                _review_column(f)
+                if f.procedure
+                else _state_column(f, fields)
+                if f.type == "state"
+                else _column(f, plugin, types),
+            )
         )
         model.constraints.extend(_checks(model.table, f))
         model.indexes.extend(_indexes(model.table, f))
@@ -506,6 +512,20 @@ def _column(
     raise AssertionError(kind)  # pragma: no cover
 
 
+def _review_column(f: Field) -> str:
+    """A reviewed type's review field (ADR 0301): its states are its records' pinned
+    procedure's, so the column names none. ``sync_plugins`` gives the table a foreign key
+    from the pin and this column to the installed procedures' flow states instead."""
+    options: dict[str, Any] = {"max_length": 50}
+    if f.indexed:
+        options["db_index"] = True
+    return _call(
+        "models.CharField",
+        **options,
+        db_comment="A review state (ADR 0301): one of its pinned procedure flow's states.",
+    )
+
+
 def _state_column(f: Field, fields: Mapping[str, Field]) -> str:
     """A state field's column (ADR 0125): one of its states, the initial one to begin with.
     Its states are part of the column, so migrations see them change: records in a state
@@ -630,7 +650,7 @@ def _checks(table: str, f: Field) -> list[str]:
         rules += _text_rules(column, f, item=False)
     elif kind == "enum":
         rules.append(("values", f"Q({column}__in={list(f.values)!r})"))
-    elif kind == "state":
+    elif kind == "state" and not f.procedure:
         rules.append(("known", f"Q({column}__in={list(f.live_states)!r})"))
     elif kind == "int":
         rules += _bounds(column, f)

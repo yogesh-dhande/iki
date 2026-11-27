@@ -1,0 +1,51 @@
+apiVersion: iki/v1
+kind: EntityType
+name: PurityCheck
+label: Purity check
+description: A protein's purity by SEC, reviewed under the procedure its project chose.
+schema_version: 1
+hrid: { prefix: PUC }
+fields:
+  purity:
+    type: float
+    min: 0
+    max: 100
+    description: Main-peak area, percent.
+  analysts:
+    type: list
+    items: { type: person }
+    description: Who ran the column.
+review:
+  needs:
+    final: [signed_off, released]
+  independent_of: [people: [analysts]]
+  guards:
+    measured:
+      on: [signed]
+      check: record.purity != null
+      message: Record the purity before signing.
+---
+apiVersion: iki/v1
+kind: EntityType
+name: ReleaseCase
+label: Release case
+description: Opens a lot's release, whose findings follow the procedure it was opened under.
+schema_version: 1
+hrid: { prefix: RLC }
+fields:
+  lot_code: { type: string, max_length: 40, required: true }
+review: { opens: true }
+---
+apiVersion: iki/v1
+kind: EntityType
+name: CaseFinding
+label: Case finding
+schema_version: 1
+hrid: { prefix: CFD }
+fields:
+  case: { type: ref, to: ReleaseCase, required: true, immutable: true }
+  finding: { type: text, max_length: 2000 }
+review:
+  pinned: { by: case }
+  needs:
+    final: [signed_off, released]

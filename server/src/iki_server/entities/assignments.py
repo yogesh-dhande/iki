@@ -169,13 +169,9 @@ def due_name(type_name: str) -> str:
 @cache
 def due_field_name(type_name: str) -> str | None:
     """The name of the field saying when a type's records are due."""
-    entity_type = registry.types().get(type_name)
-    if entity_type is None:
+    if type_name not in registry.types():
         return None
-    for t in [entity_type, *registry.ancestors(entity_type)]:
-        if t.due is not None:
-            return t.due
-    return None
+    return registry.effective(type_name).due
 
 
 def _can_withdraw(type_name: str) -> bool:
