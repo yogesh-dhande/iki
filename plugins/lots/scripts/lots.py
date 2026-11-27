@@ -106,9 +106,12 @@ class Lot:
     def set(self, name: str, value: Any) -> None:  # noqa: ANN401 - a field's value
         """Changes ``name`` to ``value``, only if it differs, so nothing is written for
         nothing (an empty value stays empty)."""
-        if number(self.values.get(name)) != number(value) or (
-            not isinstance(value, int | float) and self.values.get(name) != value
-        ):
+        before = self.values.get(name)
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            differs = number(before) != number(value)
+        else:
+            differs = before != value
+        if differs:
             self.changes[name] = value
 
     def say(self, level: str, text: str) -> None:
@@ -249,11 +252,20 @@ def plasmid(lot: Lot) -> None:
 
 
 def by_a280(
-    lot: Lot, molar: float | None, weight: float | None, of: str, *, note: str = ""
+    lot: Lot,
+    molar: float | None,
+    weight: float | None,
+    of: str,
+    *,
+    note: str = "",
+    basis: str | None = None,
+    estimate: str = "",
 ) -> None:
     """Its concentration from its A280, with its measured ε280, or ``molar`` (L/(mol·cm))
     over ``weight`` (g/mol), which is in mL/(mg·cm). ``note``: how ``molar`` and ``weight``
-    were worked out, said only if they're what's used."""
+    were worked out, said only if they're what's used. ``basis``: the cysteines' state
+    they assume; ``estimate``: why they're only an estimate, if they are. Both are kept
+    with the ε280 used, so a value that follows the reading says what it rests on."""
     given = lot.get("extinction_coefficient")
     if given is not None and given <= 0:
         epsilon: float | None = None
@@ -267,15 +279,23 @@ def by_a280(
     elif given is not None:
         epsilon = given
         how = "its measured ε280"
+        basis, estimate = "measured", ""
     elif molar and weight:
         epsilon = molar / weight
         how = f"{of}'s ε280, {_shown(molar, 0)} L/(mol·cm), over its {_shown(weight)} g/mol"
         if note:
             print(f"{lot.hrid}: {note}")
+        if estimate:
+            lot.say("warning", f"its ε280 is an estimate: {estimate}")
+            how += ", an estimate"
     else:
         epsilon = None
         how = ""
+    if epsilon is None:
+        basis, estimate = None, ""
     lot.set("a280_extinction", None if epsilon is None else round(epsilon, 4))
+    lot.set("a280_basis", basis)
+    lot.set("a280_estimate", None if epsilon is None else bool(estimate))
     if (lot.values.get("concentration_method") or "a280") != "a280":
         lot.set("a280_concentration", None)
         return
@@ -298,15 +318,24 @@ def by_a280(
     lot.follows("concentration", "a280_concentration", result, "A280")
 
 
+#: Why a sequence's ε280 is an estimate when the lot doesn't say what its cysteines are.
+ASSUMED = (
+    "its cysteines aren't stated, so they're taken as cystines, as a secreted protein's "
+    "are. Say whether they're cystines or reduced, or give a measured ε280."
+)
+
+
 def protein(lot: Lot) -> None:
     found = _included(lot.entity, "protein")
     theirs: Mapping[str, Any] = found["values"] if found else {}
-    oxidized = lot.values.get("cysteines") != "reduced"
+    stated = lot.values.get("cysteines")
+    oxidized = stated != "reduced"
+    basis = "cystines" if oxidized else "reduced"
     weight = number(theirs.get("molecular_weight"))
     if "components" not in theirs:
         reduced = number(theirs.get("extinction_coefficient_reduced"))
         if not oxidized:
-            by_a280(lot, reduced, weight, "its protein")
+            by_a280(lot, reduced, weight, "its protein", basis=basis)
             return
         molar = number(theirs.get("extinction_coefficient_oxidized"))
         # Its oxidized ε280 counts a cystine for every pair of its cysteines; each is two
@@ -322,25 +351,30 @@ def protein(lot: Lot) -> None:
                 f"its protein's {cystines} cystine{'s' if cystines != 1 else ''} take "
                 f"{2 * HYDROGEN * cystines:.2f} g/mol off its sequence's molecular weight"
             )
-        by_a280(lot, molar, weight, "its protein", note=note)
+        # Without a pair of cysteines, the two states are one: nothing is assumed.
+        estimate = ASSUMED if stated is None and cystines else ""
+        by_a280(lot, molar, weight, "its protein", note=note, basis=basis, estimate=estimate)
         return
     molar = number(theirs.get("extinction_coefficient_reduced"))
     bonds = theirs.get("bonds") or []
     # Its own disulfides, and those its parts have of their own (a Fab's, in a complex of
     # the Fab and its antigen), which its composition counted for this project.
     own = sum(1 for b in bonds if b.get("kind") == "disulfide")
-    disulfides = own + int(theirs.get("part_disulfides") or 0) if oxidized else 0
+    placed = own + int(theirs.get("part_disulfides") or 0)
+    disulfides = placed if oxidized else 0
+    estimate = ""
     if oxidized and (
         theirs.get("bond_map") in ("incomplete", "predominant")
         or theirs.get("part_bonds_complete") is False
         or (theirs.get("molecular_formula") and theirs.get("part_disulfides") is None)
     ):
-        lot.say(
-            "warning",
+        estimate = (
             "its complex's disulfides may not all be counted (its Composition tab says "
             "which), so its concentration from its A280 may be off by a cystine's 125 "
-            "L/(mol·cm) for each.",
+            "L/(mol·cm) for each."
         )
+    elif stated is None and placed:
+        estimate = ASSUMED
     note = ""
     if disulfides:
         molar = None if molar is None else molar + CYSTINE * disulfides
@@ -350,7 +384,7 @@ def protein(lot: Lot) -> None:
             f"add {CYSTINE * disulfides} L/(mol·cm) and take {2 * HYDROGEN * disulfides:.2f} "
             "g/mol off"
         )
-    by_a280(lot, molar, weight, "its complex", note=note)
+    by_a280(lot, molar, weight, "its complex", note=note, basis=basis, estimate=estimate)
 
 
 def mean_load(rows: list[Mapping[str, Any]]) -> float | None:
@@ -418,9 +452,11 @@ def conjugate(lot: Lot) -> None:
             result = round(average, 2)
             print(f"{lot.hrid}: DAR {average:.2f}, from {how}")
     lot.set("unconjugated", None if unconjugated is None else round(unconjugated, 2))
-    if lot.values.get("dar_method") == "uv_vis":
-        # Measured by UV/Vis, its DAR is as entered, whatever a distribution gives.
-        lot.set("distribution_dar", None)
+    method = lot.values.get("dar_method")
+    if method is not None and method != lot.values.get("distribution_method"):
+        # Its DAR was measured another way, such as by UV/Vis: it's kept as entered, and
+        # what the distribution gives is kept beside it, so both can be compared.
+        lot.set("distribution_dar", result)
     else:
         lot.follows("dar", "distribution_dar", result, "drug load distribution")
     by_a280(lot, None, None, "a conjugate")

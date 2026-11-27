@@ -30,7 +30,7 @@ from iki_server.org.models import LabRoleGrant
 from iki_server.org.services import Refused
 from iki_server.runs import catalog, queue, results
 from iki_server.runs import services as runs
-from iki_server.runs.models import ActionRun, EffectKind, Job, RunEffect
+from iki_server.runs.models import ActionRun, EffectKind, Job, Lineage, RunEffect
 from iki_server.signatures import proof, signing_keys
 from iki_server.signatures.services import verify
 from iki_spec.compute import Binding
@@ -38,6 +38,8 @@ from iki_spec.compute import Binding
 __all__ = ["database"]
 
 PLUGIN = PLUGINS / "qc_release"
+#: A synthetic manufacturer, as a certificate states its issuer (ICH Q7 §11.43).
+ISSUER = "Synthetic Example Chemicals, 1 Example Way, Example City · +1 555 0100"
 PREFIX = "iki/qc_release."
 
 
@@ -45,8 +47,9 @@ def test_the_installed_qc_plugin_issues_a_signed_coa(tmp_path: Path, database: s
     build = tmp_path / "build"
     built = iki("plugin", "build", *build_order(PLUGIN), "--output", build, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
+    settings = {"review_flow": "regulated_qc", "certificate_issuer": ISSUER}
     (build / "iki_plugin_iki__qc_release" / "settings.json").write_text(
-        '{"review_flow":"regulated_qc"}', encoding="utf-8"
+        json.dumps(settings), encoding="utf-8"
     )
     migrate(build, database)
     sync(build, database)
@@ -69,7 +72,7 @@ def exercise_qc() -> None:
     plate = "iki/plate_assays."
     for person, roles in {
         "editor": (PREFIX + "analyst", PREFIX + "reviewer", PREFIX + "qa", plate + "analyst"),
-        "runner": (PREFIX + "reviewer", plate + "reviewer"),
+        "runner": (PREFIX + "analyst", PREFIX + "reviewer", plate + "reviewer"),
         "admin": (PREFIX + "qa", plate + "qa"),
     }.items():
         membership = project.memberships.get(user=world.users[person])
@@ -271,6 +274,28 @@ def exercise_qc() -> None:
     attachment = File.objects.create(
         blob=blob, project=project, name="Synthetic investigation.txt", media_type="text/plain"
     )
+    # The lab assigns the runner to investigate. Under its written plan the original
+    # preparation is retested: that result informs the investigation and replaces nothing.
+    plan = "Synthetic plan: retest the original preparation once; check the specimen label."
+    services.update(
+        editor,
+        investigation,
+        {"investigator": str(world.users["runner"].pk), "plan": plan},
+        expected_revision=investigation.revision,
+    )
+    investigation.refresh_from_db()
+    retest = made(
+        execute(
+            "record_test",
+            {**inputs, "investigation": [investigation.pk]},
+            purpose="investigational",
+            **params(assay, 98.6),
+        ),
+        "ReleaseTest",
+    )
+    retested = services.current_values_of([retest])[retest.pk]
+    assert (retested["outcome"], retested["purpose"]) == ("oos", "investigational")
+    assert retested["investigation_revision"] == investigation.revision
     services.update(
         editor,
         investigation,
@@ -282,8 +307,9 @@ def exercise_qc() -> None:
         expected_revision=investigation.revision,
     )
     sign("editor", investigation, "submitted")
-    with pytest.raises(Refused, match="independent reviewer"):
-        begin(world, "editor", str(investigation.pk), "reviewed", field="review")
+    for person in ("editor", "runner"):  # The submitter, and the assigned investigator.
+        with pytest.raises(Refused, match="independent reviewer"):
+            begin(world, person, str(investigation.pk), "reviewed", field="review")
     recorder_api, reviewer_api = Api(world.browser("editor")), Api(world.browser("runner"))
     investigation_path = f"/entities/{investigation.pk}"
     viewed = reviewer_api.get(investigation_path)
@@ -292,7 +318,10 @@ def exercise_qc() -> None:
         recorder_api,
         str(investigation.pk),
         {
-            "values": {"findings": "Synthetic correction clarifying the assignable cause."},
+            "values": {
+                "findings": "Synthetic correction clarifying the assignable cause.",
+                "investigator": str(world.users["editor"].pk),
+            },
             "reason": "Clarified the investigation finding.",
         },
         recorder_api.get(investigation_path)["ETag"],
@@ -325,19 +354,34 @@ def exercise_qc() -> None:
         actions.prepare_certificate(omission)
     certificate = made(
         execute(
-            "prepare_certificate", {**evidence, "tests": [moisture.pk, repeat.pk, original.pk]}
+            "prepare_certificate",
+            {**evidence, "tests": [moisture.pk, repeat.pk, retest.pk, original.pk]},
         ),
         "QCCertificate",
     )
     report = services.current_values_of([certificate])[certificate.pk]["report"]
-    assert [test["value"] for test in report["tests"]] == [98.7, 99.8, 0.3]
+    assert [test["value"] for test in report["tests"]] == [98.7, 98.6, 99.8, 0.3]
+    assert report["investigations"][0]["plan"] == plan
     assert report["lot"]["revision"] == pinned["lot_revision"]
     assert report["lot"]["lot_number"] == pinned["lot_number"]
     assert report["investigations"][0]["revision"] == investigation.revision
+    # What the certificate states: the issuer, and each criterion's final result.
+    coa = services.current_values_of([certificate])[certificate.pk]["coa"]
+    assert coa["issuer"] == ISSUER
+    assert [(row["attribute"], row["value"]) for row in coa["results"]] == [
+        (assay["attribute"], 99.8),
+        (drying["attribute"], 0.3),
+    ]
+    assert "intended_use" not in coa
+    assert coa["specification"]["context"] == "Release"
+    assert "investigations" not in coa
 
     reader = Api(world.browser("viewer"))
-    export = f"/entities/{certificate.pk}/export"
-    problem(reader.get(export, format="signed-report-json"), 404, "report_not_issued")
+    # The record holds the evidence: it's audited in Iki, and never exported to send.
+    record_export = reader.get(f"/entities/{certificate.pk}/export", format="signed-report-json")
+    assert record_export.json()["code"] == "no_export", record_export.content
+    with pytest.raises(ValueError, match="Finish signing the certificate record"):
+        execute("issue_certificate", {"certificate": [certificate.pk]})
     sign("editor", certificate, "submitted")
     with pytest.raises(Refused, match="reviewer must be independent"):
         begin(world, "editor", str(certificate.pk), "reviewed", field="review")
@@ -365,29 +409,112 @@ def exercise_qc() -> None:
         assert after.json()["values"] == before.json()["values"]
     assert qa_api.get(certificate_path)["ETag"] == qa_view["ETag"]
     sign("admin", certificate, "released")
+    record_signatures = (
+        Api(world.browser("admin"))
+        .get(f"/entities/{certificate.pk}/signatures?verify=true")
+        .json()["items"]
+    )
+    assert [item["verification"]["valid"] for item in record_signatures] == [True] * 3
+
+    # QA issues the certificate of analysis from the approved record. It's signed on its
+    # own, so what the customer receives holds only what the certificate states.
+    issued = made(
+        execute("issue_certificate", {"certificate": [certificate.pk]}), "CertificateOfAnalysis"
+    )
+    held = services.current_values_of([issued, certificate])
+    assert held[issued.pk]["coa"] == coa
+    # The record names its certificate by its digest, inside Iki only.
+    assert held[issued.pk]["digest"] == held[certificate.pk]["coa_digest"]
+    assert Lineage.objects.filter(entity=issued, parent=certificate).exists()
+    with pytest.raises(Refused):
+        begin(world, "runner", str(issued.pk), "issued", field="review")
+    export = f"/entities/{issued.pk}/export"
+    problem(reader.get(export, format="signed-report-json"), 404, "report_not_issued")
+    sign("admin", issued, "released", reason="Released to the customer")
     downloaded = reader.get(export, format="signed-report-json")
-    assert downloaded.status_code == 200, downloaded.content
+    printable = reader.get(export, format="signed-report-html")
+    assert downloaded.status_code == printable.status_code == 200, downloaded.content
     packet = downloaded.json()
-    assert packet["report"] == report
-    assert packet["record"]["issued_revision"] == certificate.revision
-    assert len(packet["signatures"]) == 3
-    trusted = signing_keys.trusted()
-    documents = []
-    for signed_proof in packet["signatures"]:
-        document = json.loads(signed_proof["document"])
-        documents.append(document)
-        assert all(
-            check.ok
-            for check in proof.check_document(
-                signed_proof["document"], proof.unb64(signed_proof["signature"]), trusted
-            )
-        )
-        assert proof.check_content(document, signed_proof["content"]).ok
-    assert [doc["change"]["to"] for doc in documents] == ["submitted", "reviewed", "released"]
+    assert packet["report"] == coa
+    assert packet["record"] == {
+        "id": str(issued.pk),
+        "hrid": issued.hrid,
+        "type": PREFIX + "CertificateOfAnalysis",
+        "issued_revision": issued.revision,
+    }
+    (signed_proof,) = packet["signatures"]
+    assert signed_proof["signature"] in printable.content.decode()
+
+    # Nothing of the evidence is anywhere in either file: not the failed attempt, its
+    # investigation, the analysts or any of the record's or tests' identities.
+    analyst, reviewer = world.users["editor"], world.users["runner"]
+    internal = [
+        str(original.pk),
+        original.hrid,
+        str(repeat.pk),
+        repeat.hrid,
+        str(moisture.pk),
+        str(investigation.pk),
+        investigation.hrid,
+        str(certificate.pk),
+        certificate.hrid,
+        str(case.pk),
+        case.hrid,
+        str(analyst.pk),
+        analyst.name,
+        analyst.email,
+        str(reviewer.pk),
+        reviewer.name,
+        reviewer.email,
+        "98.7",
+        "Synthetic correction clarifying the assignable cause.",
+        "report belonged to another specimen",
+        str(attachment.pk),
+    ]
+    for shared in (downloaded.content.decode(), printable.content.decode()):
+        assert [text for text in internal if text in shared] == []
+
+    # The recipient verifies exactly the certificate they hold, and an edit fails.
+    def verified(received: dict[str, Any]) -> bool:
+        trusted = signing_keys.trusted()
+        for item in received["signatures"]:
+            document = json.loads(item["document"])
+            content = json.loads(item["content"])
+            if (
+                not all(
+                    check.ok
+                    for check in proof.check_document(
+                        item["document"], proof.unb64(item["signature"]), trusted
+                    )
+                )
+                or not proof.check_content(document, item["content"]).ok
+            ):
+                return False
+            if proof.canonical(content["values"]["coa"]) != proof.canonical(received["report"]):
+                return False
+        return True
+
+    assert verified(packet)
+    assert json.loads(signed_proof["document"])["change"]["to"] == "released"
+    edited = json.loads(downloaded.content)
+    edited["report"]["results"][0]["value"] = 101.0
+    assert not verified(edited)
+    swapped = json.loads(downloaded.content)
+    content = json.loads(swapped["signatures"][0]["content"])
+    content["values"]["coa"]["results"][0]["value"] = 101.0
+    swapped["signatures"][0]["content"] = proof.canonical(content)
+    swapped["report"] = content["values"]["coa"]
+    assert not verified(swapped)
     assert (
-        reader.get(export, format="signed-report-json", revision=certificate.revision).content
+        reader.get(export, format="signed-report-json", revision=issued.revision).content
         == downloaded.content
     )
+    with pytest.raises(results.InvalidOutput) as reissued:
+        run, document = start("issue_certificate", {"certificate": [certificate.pk]})
+        commit(run, actions.issue_certificate(document))
+    assert any("issued already" in issue["detail"] for issue in reissued.value.errors)
+    # The record keeps the full evidence for audit.
+    assert held[certificate.pk]["report"] == report
 
     # The lot's retest date comes due. Its next cycle is a new case after the issued one,
     # which keeps its certificate and takes no more tests. Shelf-life testing of the same

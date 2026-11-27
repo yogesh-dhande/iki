@@ -181,9 +181,11 @@ measured.
   deconvoluted from the charge states. It's compared with the
   oligonucleotide's monoisotopic mass (for a peak resolved to its isotopes)
   or its average mass (for an unresolved one), as the free acid, which the
-  oligo plugin computes from its HELM. The rule `mass_within_tolerance` holds
-  a lot whose difference is outside its tolerance (2 Da by default; set it to
-  your specification) until QA reviews it; a held lot can't be released. It
+  oligo plugin computes from its HELM. Iki assumes no tolerance: a measured
+  mass needs the one the lab's approved identity specification gives, and the
+  lot names that specification in Tolerance from (`mass_specification`), such
+  as `SOP-AN-031 rev 4`. The rule `mass_within_tolerance` holds a lot whose
+  difference is outside it until QA reviews it; a held lot can't be released. It
   reads the measured mass and the oligonucleotide's at every save, not the
   difference the action writes, so an edit out of its tolerance is held as
   it's saved, triggers on or off; `mass_is_checked` holds a measured mass
@@ -220,7 +222,13 @@ measured.
   does each its parts have of their own (a Fab's, in a complex of the Fab and
   its antigen), which its composition counts for the project. When some may
   not be counted (its bonds are said to be incomplete, as an IgG2's are, or its
-  parts' weren't counted yet), the run warns. Hen lysozyme's sequence (UniProt P00698, 19–147) gives 37,970 L/(mol·cm) and
+  parts' weren't counted yet), the run warns. Left empty, a lot's cysteines
+  are taken as cystines, as a secreted protein's are. The lot keeps what its
+  ε280 rested on, in ε280 basis (`a280_basis`: measured, cystines or reduced),
+  and whether it's an estimate (`a280_estimate`): its cysteines weren't
+  stated where they'd make a difference, or its complex's disulfides may not
+  all be counted. The run says what to confirm, and the concentration still
+  follows the reading, so it's clear what it rests on. Hen lysozyme's sequence (UniProt P00698, 19–147) gives 37,970 L/(mol·cm) and
   14,313.0 g/mol, less 8.06 for its four cystines: 37,970 / 14,304.94 = 2.6543
   mL/(mg·cm), within 0.6% of the 2.64 measured at 281.5 nm (Aune & Tanford,
   1969, Biochemistry 8:4579). Trastuzumab (KEGG D03257), two heavy and two light
@@ -240,7 +248,12 @@ measured.
   disitamab vedotin (Thermo Fisher AN002598) is 3.91; Adcetris's reduced
   chains (Agilent 5991-6559EN), an IgG1's, give 3.99 (Agilent: 4.0). Its rules
   keep a distribution to one kind, intact or chains, and a reduced one to both
-  chains. A DAR by UV/Vis is entered, and kept whatever distribution there is.
+  chains. A distribution names how it was measured, its **Distribution by**:
+  HIC and intact LC-MS give intact species, and reduced LC-MS and RP-HPLC give
+  chains. Its DAR follows the distribution when its **DAR by** is the
+  distribution's method, or not given. A DAR measured another way, such as by
+  UV/Vis or by intact LC-MS beside a HIC distribution, is kept as entered, and
+  the distribution's DAR is kept beside it, so the two can be compared.
 - **A polymer's dispersity**: its molar-mass dispersity, Đ = Mw/Mn (IUPAC,
   2009), never below 1: the rule `mw_is_at_least_mn` refuses an Mw below its
   Mn. It's 1 when every chain has the same molar mass, which chains of one

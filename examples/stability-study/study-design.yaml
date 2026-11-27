@@ -17,6 +17,6 @@ conditions:
     humidity_tolerance: 5
 # Example scheduling windows only. These are synthetic lab policy values.
 time_points:
-  - { month: 0, days_before: 0, days_after: 0 }
-  - { month: 3, days_before: 2, days_after: 2 }
-  - { month: 6, days_before: 2, days_after: 2 }
+  - { code: T0, interval: 0, unit: month, days_before: 0, days_after: 0 }
+  - { code: M3, interval: 3, unit: month, days_before: 2, days_after: 2 }
+  - { code: M6, interval: 6, unit: month, days_before: 2, days_after: 2 }

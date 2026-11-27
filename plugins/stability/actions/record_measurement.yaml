@@ -11,7 +11,16 @@ params:
     max_length: 100
     required: true
     description: The test or attribute from the study protocol.
-  value: { type: float, required: true }
+  value: { type: float, description: A numeric test's observed value. }
+  result:
+    type: enum
+    label: Conforms
+    values: [conforms, does_not_conform]
+    description: For a test that conforms or doesn't, which it did.
+  observation:
+    type: text
+    max_length: 2000
+    description: What was seen, such as the solution's colour.
   report:
     type: file
     label: Test report

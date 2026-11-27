@@ -2,10 +2,16 @@ apiVersion: iki/v1
 kind: EntityType
 name: QCOOSInvestigation
 label: Regulated OOS investigation
-schema_version: 2
+schema_version: 3
 extends: OOSInvestigation
 hrid: { prefix: QOI }
 fields:
+  investigator:
+    type: person
+    label: Investigator
+    role: analyst
+    assignment: { field: review, states: [recorded] }
+    description: The QC analyst who investigates, as the lab's procedure assigns it.
   review:
     type: state
     initial: recorded
@@ -43,6 +49,7 @@ fields:
           independent:
             check: >-
               state.from == "submitted" && record.test.observed_by != actor.person &&
+              record.investigator != actor.person &&
               history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
               edits.review.recorded.all(e, e.by != actor.person)
             message: An independent reviewer signs after submission.
@@ -59,7 +66,8 @@ fields:
           independent:
             check: >-
               state.from == "reviewed" && last.review.reviewed.from == "submitted" &&
-              record.test.observed_by != actor.person && history.review[0].by != actor.person &&
+              record.test.observed_by != actor.person && record.investigator != actor.person &&
+              history.review[0].by != actor.person &&
               last.review.submitted.by != actor.person && last.review.reviewed.by != actor.person &&
               edits.review.recorded.all(e, e.by != actor.person)
             message: QA signs independently of the analyst, investigator and reviewer.

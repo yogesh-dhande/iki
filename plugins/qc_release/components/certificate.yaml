@@ -2,7 +2,9 @@ apiVersion: iki/v1
 kind: Component
 name: certificate
 label: Certificate
-description: The pinned specification, release tests and investigation decisions carried by a certificate of analysis.
+description: What a certificate of analysis states, and on its certificate record the release tests and investigation decisions behind it.
 module: ./components/certificate.js
 element: release-certificate
-slots: [{ slot: entity.tab, type: ReleaseCertificate }]
+slots:
+  - { slot: entity.tab, type: ReleaseCertificate }
+  - { slot: entity.tab, type: CertificateOfAnalysis }
