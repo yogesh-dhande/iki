@@ -342,6 +342,23 @@ def test_an_oligo_lots_mass_is_checked_against_its_named_specification() -> None
         assert [row[0].value for row in outcomes] == [ok for _, ok in rows], name
 
 
+def test_what_a_calculation_or_rule_reads_of_a_method_is_fixed() -> None:
+    """A concentration method's calculation, which a lot's run works from, and a molar
+    mass method's averages, which a polymer lot's rules check, are fixed once an option is
+    added (ADR 0143, ADR 0270): a curator can't change what records already made were
+    worked out by; a wrong one is superseded, and its lots moved to the replacement."""
+    plugin = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS]).plugin
+    assert plugin is not None
+    read = {
+        "iki/lots.DNAConcentrationMethod": "calculation",
+        "iki/lots.ProteinConcentrationMethod": "calculation",
+        "iki/lots.MolarMassMethod": "averages",
+    }
+    assert {t: plugin.types[t].fields[f].immutable for t, f in read.items()} == dict.fromkeys(
+        read, True
+    )
+
+
 def test_each_kind_of_lot_works_out_its_values_when_its_recorded_and_measured() -> None:
     result = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS])
     assert result.plugin is not None
