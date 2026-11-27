@@ -614,8 +614,14 @@ export function RecordSheet({
       const problem = problemOf(error);
       setSaveProblem(problem);
       if (error instanceof ApiError && error.status === 412) {
-        const found = (problem as Problem & { rows?: { key: string; hrid: string }[] }).rows ?? [];
-        setStale(found);
+        const said = problem as Problem & {
+          rows?: { key: string; hrid: string }[];
+          places?: { key: string }[];
+        };
+        setStale(said.rows ?? []);
+        // A well the check found was taken since: check every row again, to review where
+        // the new rows go now.
+        if (said.places?.length) setAnswers({});
       } else if (error instanceof ApiError && error.status === 422) {
         // Something changed since the check: check every row again.
         setAnswers({});
