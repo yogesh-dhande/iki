@@ -76,6 +76,7 @@ from iki_spec.model import (
     ReportExport,
 )
 from iki_spec.model import Field as SpecField
+from iki_spec.writers import abi as writer_abi
 
 __all__ = [
     "FORMATS",
@@ -573,25 +574,18 @@ def _plugin_record(
                 f"{entity.hrid}'s {field_name} can't be given in {role.unit}: {error}",
                 "writer_refused",
             ) from None
-    request = plugin_writers.request_of(
-        entity_id=entity.pk,
-        hrid=entity.hrid,
-        name=title,
-        type_name=entity.type,
-        revision=number,
-        latest=number == entity.revision,
-        revised_at=when,
-        roles=roles,
-        withheld=withheld,
-    )
     return PluginRecord(
-        id=entity.pk,
-        hrid=entity.hrid,
-        name=title,
-        revision=number,
-        latest=number == entity.revision,
-        revised_at=when,
-        request=request,
+        writer_abi.Record(
+            id=entity.pk,
+            hrid=entity.hrid,
+            name=title,
+            type=entity.type,
+            revision=number,
+            latest=number == entity.revision,
+            revised_at=when,
+            roles=roles,
+            withheld=tuple(withheld),
+        )
     )
 
 

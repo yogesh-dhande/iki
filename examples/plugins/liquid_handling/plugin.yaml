@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: acme/liquid_handling
-version: 0.1.0
+version: 0.1.1
 title: Liquid handling
 description: >-
   Plates and the transfers between them, downloaded as a Tecan worklist that Freedom

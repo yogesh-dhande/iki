@@ -2,10 +2,10 @@
 # Build a plugin's writer module natively, for the tests here (ADR 0230).
 #
 # A writer is a Rust crate in a plugin, writers/<name>/, beside the digest of its module,
-# writers/<name>.wasm.sha256 ("<hex>  <name>.wasm"). No .wasm is ever tracked in git. This
-# builds the module to writers/<name>.wasm with the toolchain worker/rust-toolchain.toml
-# pins, through worker/crates/iki-writer/build-writer.sh, as the plugin image's writers
-# stage does.
+# writers/<name>.wasm.sha256 ("<hex>  <name>.wasm", and what it was built with). No .wasm
+# is ever tracked in git. This builds the module to writers/<name>.wasm with the writer
+# builder's toolchain (scripts/writer-toolchain.sh), through
+# worker/crates/iki-writer/build-writer.sh, as the plugin image's writers stage does.
 #
 # The digest is of the module built for Linux x86-64. The build is reproducible there,
 # but not across host platforms: rustc links its own precompiled wasm32 standard library,
@@ -67,8 +67,7 @@ if ! command -v rustup >/dev/null 2>&1; then
   echo "build-writer-wasm: no rustup. See https://rustup.rs, or 'brew install rustup'." >&2
   exit 1
 fi
-channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$root/worker/rust-toolchain.toml")
-[ -n "$channel" ] || { echo "build-writer-wasm: no channel in worker/rust-toolchain.toml." >&2; exit 1; }
+channel=$("$root/scripts/writer-toolchain.sh")
 if ! rustup target list --installed --toolchain "$channel" 2>/dev/null | grep -qx wasm32-unknown-unknown; then
   rustup toolchain install "$channel" --profile minimal --target wasm32-unknown-unknown >&2
 fi
@@ -97,7 +96,7 @@ if [ ! -f "$digest" ]; then
   echo "build-writer-wasm: $digest is missing. Run uv run iki plugin writers <plugin dir> --update." >&2
   exit 1
 fi
-want=$(cut -d' ' -f1 <"$digest")
+want=$(sed -n '1s/ .*//p' "$digest")
 
 if [ "$canonical" != yes ]; then
   echo "build-writer-wasm: built $name.wasm, $made, on $(uname -s) $(uname -m)."
