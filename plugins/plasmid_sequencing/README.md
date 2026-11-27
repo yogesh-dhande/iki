@@ -53,6 +53,11 @@ times it passes, on each strand. A one-base deletion in a long homopolymer
 is a candidate nanopore error, to be weighed by its support: the reads
 alone can't settle it.
 
+The record keeps each allele's first 200 bases and its whole length; the
+run's difference table (`differences.tsv`) has each allele whole. A long
+deletion or insertion is shown at its whole length, such as "deletion:
+300 bp → —".
+
 The **Map** tab shows the depth of reads round the plasmid, the stretches
 under the minimum depth, and a mark at each difference, with the same
 information in words and tables. The run keeps the consensus FASTA, the
