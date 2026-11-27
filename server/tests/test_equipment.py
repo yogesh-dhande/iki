@@ -17,13 +17,14 @@ from first_party_dependencies import FIRST_PARTY, PLUGINS, ROOT, build_order
 from org_world import build_world
 from scan_fixtures import clean_blob
 from test_plugin_migrations import database, django, iki, migrate, sync
-from test_signatures import offered, ready, signed, standing
+from test_signatures import begin, ready, signed, standing
 from test_states import roles
 
 from iki_server.amounts import services as amounts
 from iki_server.entities import services, states
 from iki_server.entities.models import Entity
 from iki_server.files.models import File
+from iki_server.org.services import Refused
 from iki_server.runs import catalog, queue, results, triggers
 from iki_server.runs import services as runs
 from iki_server.runs.models import (
@@ -509,6 +510,13 @@ def test_qa_opens_a_case_for_a_result_no_use_was_recorded_for(
     assert checked.returncode == 0, checked.stdout + checked.stderr
 
 
+def refused(run: ActionRun) -> str:
+    """Why the run's output was refused: it wrote nothing."""
+    with pytest.raises(results.InvalidOutput) as refusal:
+        execute(run, PLUGIN)
+    return " ".join(error["detail"] for error in refusal.value.errors)
+
+
 def exercise_manual_case(*, flow: str) -> None:
     """A plate read on a reader whose calibration later failed, with no instrument use
     recorded: Equipment QA opens its case, which then needs the flow's signers as a traced
@@ -516,11 +524,11 @@ def exercise_manual_case(*, flow: str) -> None:
     world = build_world()
     ready(world)
     regulated = flow == "regulated_qc"
-    # The runner is Equipment QA and the performing engineer; in regulated QC the editor
-    # reviews and the admin, a second QA, releases.
+    # The runner is Equipment QA, an equipment reviewer and the performing engineer; in
+    # regulated QC the editor reviews and the admin, a second QA, releases.
     roles(
         world,
-        runner=("iki/lab_roles.engineer", PREFIX + "qa"),
+        runner=("iki/lab_roles.engineer", PREFIX + "qa", PREFIX + "reviewer"),
         editor=(PREFIX + "reviewer",),
         admin=(PREFIX + "qa",) if regulated else (),
     )
@@ -578,8 +586,7 @@ def exercise_manual_case(*, flow: str) -> None:
 
     if not regulated:
         # Only Equipment QA opens a case without a recorded use: the admin isn't QA here.
-        with pytest.raises(results.InvalidOutput, match="Equipment QA"):
-            execute(open_case("admin"), PLUGIN)
+        assert "Equipment QA" in refused(open_case("admin"))
     [case] = execute(open_case("runner"), PLUGIN)
     opened = services.current_values(services.specific(case))
     assert (opened["opened"], opened["opened_by"], opened["use"]) == ("manually", runner.pk, None)
@@ -590,8 +597,7 @@ def exercise_manual_case(*, flow: str) -> None:
     assert case.created_by_id == runner.pk and case.created_at is not None
 
     # A second case for the same result and failure is refused, manual or traced.
-    with pytest.raises(results.InvalidOutput, match="already has an impact case"):
-        execute(open_case("runner", "The same plate, again."), PLUGIN)
+    assert "already has an impact case" in refused(open_case("runner", "The same plate, again."))
     calibration = make(
         PREFIX + "EquipmentService",
         by_run=True,
@@ -645,8 +651,7 @@ def exercise_manual_case(*, flow: str) -> None:
         )
 
     assert execute(traced([case]), PLUGIN) == []
-    with pytest.raises(results.InvalidOutput, match="already has an impact case"):
-        execute(traced([]), PLUGIN)
+    assert "already has an impact case" in refused(traced([]))
     assert Entity.objects.filter(type=PREFIX + "CalibrationImpact").count() == 1
 
     # The disposition, signatures and independence are a traced case's.
@@ -659,10 +664,12 @@ def exercise_manual_case(*, flow: str) -> None:
     )
     if regulated:
         signed(world, "runner", str(case.pk), "submitted", field="review")
-        # Its opener can't review it, and neither can they release it.
-        assert "reviewed" not in offered(world, "runner", str(case.pk))
+        # Its opener, though an equipment reviewer and Equipment QA, can't review or release it.
+        with pytest.raises(Refused, match="reviewer independent of the creator"):
+            begin(world, "runner", str(case.pk), "reviewed", field="review")
         signed(world, "editor", str(case.pk), "reviewed", field="review")
-        assert "released" not in offered(world, "runner", str(case.pk))
+        with pytest.raises(Refused, match="QA signer independent of the review"):
+            begin(world, "runner", str(case.pk), "released", field="review")
         signed(world, "admin", str(case.pk), "released", field="review")
     else:
         signed(world, "runner", str(case.pk), "signed_off", field="review")
