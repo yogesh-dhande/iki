@@ -1567,7 +1567,7 @@ on it. The validator checks that:
 - every `derived_from` and `updates` names an input
 - an input's `include` names references of its type, its own or a parent's
 - a create's `match_on` is a unique field of the type, its own, a parent's,
-  or one this plugin's extension adds
+  or one this plugin's extension adds, and its `on_match` has a `match_on`
 - params follow the rules for settings, and also take `date`, `quantity`
   and `file` (one file, such as one to import, with `media_types` and
   `max_size`; never a default, and never a reference, which is an input)
@@ -2952,6 +2952,12 @@ one output resolve to a single registry entry.
 effects:
   creates: [{ type: lab.Sample, cardinality: many, match_on: lims_id }]
 ```
+
+A record only its first maker writes says `on_match: keep`: a create that
+matches leaves the entity as it is, and the run gives it as the create's
+entity, for a later create's `$create` too. A result's impact case after a
+failed calibration is one: a trace, an instrument use or Equipment QA may
+open it first, and whichever does, the others find it, signed or not.
 
 A file field takes a file the inputs already had, by ID, or one the
 command made:

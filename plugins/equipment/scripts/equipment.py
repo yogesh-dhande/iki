@@ -36,6 +36,12 @@ def key(*values: object) -> str:
     return hashlib.sha256(json.dumps(values).encode("utf-8")).hexdigest()
 
 
+def case_key(failure: str, result: str) -> str:
+    """A result's impact case for a failure: one, whoever opens it (ADR 0239), so a trace, an
+    instrument use and Equipment QA each find the one another opened first."""
+    return key(failure, result)
+
+
 def schedule(run: Record) -> list[Record]:
     (instrument,) = run["inputs"]["instrument"]
     if instrument["values"]["service"] == "retired":
@@ -55,30 +61,60 @@ def schedule(run: Record) -> list[Record]:
 
 
 def record_use(run: Record) -> list[Record]:
+    """An instrument use, with the calibration in force when it was measured (ADR 0194).
+
+    A passing calibration whose validity covers the measurement covers it. A use measured
+    after a signed failed calibration, and before the next passing one, is recorded as not
+    covered, with why, and never refused: its result needs a disposition, so the run opens
+    its impact case too. The instrument's own calibration state says whether it has failed
+    since its last passing check; a use recorded with that stale passing calibration while
+    the instrument is marked Failed isn't covered either, and the trace of the failure, once
+    it's signed, opens its case."""
     inputs = run["inputs"]
     (instrument,) = inputs["instrument"]
     (result,) = inputs["result"]
     (calibration,) = inputs["calibration"]
     reading_time = timestamp(run["params"]["measurement_at"])
-    criteria = calibration["values"]
+    evidence = calibration["values"]
     if (
-        criteria["instrument"] != instrument["id"]
-        or criteria["kind"] != "calibration"
-        or criteria["outcome"] != "in_tolerance"
-        or criteria["review"] not in SIGNED
+        evidence["instrument"] != instrument["id"]
+        or evidence["kind"] != "calibration"
+        or evidence["review"] not in SIGNED
     ):
-        raise ValueError("Select a signed passing calibration for this instrument.")
-    if not timestamp(criteria["performed_at"]) <= reading_time < timestamp(criteria["valid_until"]):
-        raise ValueError("The selected calibration does not cover the measurement time.")
-    if equipments(result) or result["id"] == instrument["id"]:
+        raise ValueError("Select this instrument's signed calibration in force at the measurement.")
+    if result["type"].startswith(PREFIX) or result["id"] == instrument["id"]:
         raise ValueError("Select the actual measured result.")
+    name = instrument["values"].get("name") or instrument.get("hrid") or instrument["id"]
+    failed = evidence["outcome"] == "out_of_tolerance"
+    if failed:
+        if reading_time < timestamp(evidence["suspect_since"]):
+            raise ValueError(
+                "The measurement was before the failed calibration's suspected onset: select "
+                "the passing calibration in force then."
+            )
+        found = timestamp(evidence["performed_at"]).date().isoformat()
+        because: str | None = f"{name} failed calibration on {found}."
+    elif instrument["values"].get("calibration") == "failed":
+        because = f"{name}'s calibration is marked Failed."
+    else:
+        if evidence["outcome"] != "in_tolerance":
+            raise ValueError(
+                "Select this instrument's signed calibration in force at the measurement."
+            )
+        if not (
+            timestamp(evidence["performed_at"]) <= reading_time < timestamp(evidence["valid_until"])
+        ):
+            raise ValueError("The selected calibration does not cover the measurement time.")
+        because = None
     at = reading_time.isoformat()
-    return [
+    use_key = key(instrument["id"], result["id"], result["revision"], at)
+    creates: list[Record] = [
         {
             "type": PREFIX + "InstrumentUse",
+            "key": "use",
             "derived_from": [instrument["id"], result["id"], calibration["id"]],
             "values": {
-                "key": key(instrument["id"], result["id"], result["revision"], at),
+                "key": use_key,
                 "instrument": instrument["id"],
                 "result": result["id"],
                 "result_record_id": result["id"],
@@ -86,9 +122,37 @@ def record_use(run: Record) -> list[Record]:
                 "calibration": calibration["id"],
                 "calibration_revision": calibration["revision"],
                 "measurement_at": at,
+                "covered": because is None,
+                "not_covered_because": because,
             },
         }
     ]
+    if failed:
+        creates.append(
+            {
+                "type": PREFIX + "CalibrationImpact",
+                "derived_from": [instrument["id"], calibration["id"]],
+                "values": {
+                    "key": case_key(calibration["id"], result["id"]),
+                    "instrument": instrument["id"],
+                    "failure": calibration["id"],
+                    "failure_revision": calibration["revision"],
+                    "use": {"$create": "use"},
+                    "result": result["id"],
+                    "measurement_at": at,
+                    "review_flow": evidence["review_flow"],
+                    "opened": "traced",
+                },
+            }
+        )
+        print(f"{because} The use isn't covered, and its result has an impact case to assess.")
+    elif because is not None:
+        print(
+            f"::warning {because} The use isn't covered by the passing calibration selected. "
+            "Once the failed calibration is signed, trace it with this use to open the result's "
+            "impact case."
+        )
+    return creates
 
 
 def trace(run: Record) -> list[Record]:
@@ -145,7 +209,7 @@ def trace(run: Record) -> list[Record]:
             + (f", the last at {within[-1][0].isoformat()}." if within else ".")
         )
         for at, use in measurements:
-            case = key(failure["id"], use["id"])
+            case = case_key(failure["id"], use["values"]["result"])
             if at < start or (cleared is not None and at >= cleared) or case in already:
                 continue
             affected = (failure["id"], use["values"]["result"])
@@ -219,7 +283,7 @@ def open_case(run: Record) -> list[Record]:
             "type": PREFIX + "CalibrationImpact",
             "derived_from": [failure["id"], result["id"]],
             "values": {
-                "key": key(failure["id"], "opened manually", result["id"]),
+                "key": case_key(failure["id"], result["id"]),
                 "instrument": values["instrument"],
                 "failure": failure["id"],
                 "failure_revision": failure["revision"],

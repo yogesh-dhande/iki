@@ -195,6 +195,52 @@ def test_validity_at_measurement_uses_the_selected_instrument_and_final_calibrat
     assert [result.value for [result] in outcomes] == [True, False, False, False, False]
 
 
+def test_a_use_no_calibration_covers_names_its_own_and_says_why(equipment: Plugin) -> None:
+    """Not covered, a use still pins this instrument's signed calibration in force: a
+    failed one, from its suspected onset; and it says why (ADR 0194)."""
+    type_ = equipment.types[PREFIX + "InstrumentUse"]
+    rule = type_.rules["not_covered_says_why"]
+    assert rule.check is not None and rule.when == "record.covered == false"
+    references = {
+        "iki/equipment.Instrument": ("Instrument", {}),
+        "iki/core.Entity": ("Entity", {}),
+        PREFIX + "EquipmentService": (
+            "Equipment service",
+            equipment.types[PREFIX + "EquipmentService"].fields,
+        ),
+    }
+    schema = rules.record_schema(type_.label, type_.fields, references.get)
+    failed = SERVICED | {
+        "instrument": "spectrophotometer",
+        "kind": "calibration",
+        "review": "signed_off",
+        "outcome": "out_of_tolerance",
+        "suspect_since": "2026-01-04T09:00:00Z",
+    }
+    values = {
+        "instrument": {"id": "spectrophotometer"},
+        "calibration": failed,
+        "measurement_at": "2026-01-06T09:00:00Z",
+        "covered": False,
+        "not_covered_because": "Spectrophotometer failed calibration on 2026-01-05.",
+    }
+    cases = [
+        values,
+        values | {"measurement_at": "2026-01-04T08:59:59Z"},
+        values | {"not_covered_because": None},
+        values | {"calibration": failed | {"instrument": "other"}},
+        values | {"calibration": failed | {"review": "scheduled"}},
+        # A passing check before the instrument was marked Failed.
+        values | {"calibration": failed | {"outcome": "in_tolerance", "suspect_since": None}},
+    ]
+    outcomes = rules.evaluate(
+        rules.rule_variables(schema),
+        [(rule.check, rules.CONDITION)],
+        [{"record": record, "now": "2026-02-07T09:00:00Z"} for record in cases],
+    )
+    assert [result.value for [result] in outcomes] == [True, False, False, False, False, True]
+
+
 @pytest.mark.parametrize("automatic", [False, True], ids=["equipment", "facility-policy"])
 def test_failed_calibrations_trace_signed_measurements(
     tmp_path: Path, database: str, automatic: bool
@@ -414,6 +460,58 @@ def exercise_trace(*, automatic: bool) -> None:
         assert record.revision == revision
         [signature] = standing(world, str(record.pk))
         assert signature["verification"]["valid"], signature
+
+    # Uses recorded after the failure, with no passing check since, are recorded, never
+    # refused, as not covered, with why (ADR 0194).
+    instrument.refresh_from_db()
+
+    def use_on(result: Entity, calibrated_by: Entity, at: str) -> tuple[ActionRun, list[Entity]]:
+        used = {"instrument": [instrument.pk], "result": [result.pk]}
+        run = runs.launch(
+            editor,
+            action,
+            project,
+            used | {"calibration": [calibrated_by.pk]},
+            {"measurement_at": at},
+            reuse_results=False,
+        )
+        return run, execute(run, PLUGIN)
+
+    def coverage(use: Entity) -> tuple[bool, str | None]:
+        pinned = services.current_values(services.specific(use))
+        return pinned["covered"], pinned["not_covered_because"]
+
+    # The reference standard, read after the failure: its case opens in the same run.
+    _, made = use_on(tube, failures[-1], "2026-01-07T10:00:00Z")
+    [read], [opened] = (
+        [e for e in made if e.type == PREFIX + t] for t in ("InstrumentUse", "CalibrationImpact")
+    )
+    assert coverage(read) == (
+        False,
+        "Synthetic absorbance reader failed calibration on 2026-01-07.",
+    )
+    tube_case = services.current_values(services.specific(opened))
+    assert (tube_case["failure"], tube_case["failure_revision"]) == (
+        failures[-1].pk,
+        failures[-1].revision,
+    )
+    assert (tube_case["use"], tube_case["result"], tube_case["opened"]) == (
+        read.pk,
+        tube.pk,
+        "traced",
+    )
+    # The measured sample, read again: it has its case for this failure already, which
+    # stands as the trace opened it, signed or not.
+    again, [reread] = use_on(measured, failures[-1], "2026-01-07T11:00:00Z")
+    assert coverage(reread)[0] is False
+    kept = RunEffect.objects.get(run=again, entity=second_case)
+    assert kept.kind == EffectKind.REUSED
+    assert services.current_values(services.specific(second_case))["use"] == use.pk
+    # With the passing check before the failure selected: the instrument says it has
+    # failed, so that check covers nothing now, and the failure's trace opens the case.
+    _, [stale] = use_on(measured, calibration, "2026-01-07T12:00:00Z")
+    assert coverage(stale) == (False, "Synthetic absorbance reader's calibration is marked Failed.")
+    assert Entity.objects.filter(type=PREFIX + "CalibrationImpact").count() == 3
 
 
 def _script() -> Any:
@@ -651,8 +749,14 @@ def exercise_manual_case(*, flow: str) -> None:
         )
 
     assert execute(traced([case]), PLUGIN) == []
-    assert "already has an impact case" in refused(traced([]))
+    # A trace that isn't given the case finds it: the result's one case for this failure,
+    # kept as Equipment QA opened it.
+    without = traced([])
+    assert execute(without, PLUGIN) == []
+    assert RunEffect.objects.get(run=without, entity=case).kind == EffectKind.REUSED
     assert Entity.objects.filter(type=PREFIX + "CalibrationImpact").count() == 1
+    kept = services.current_values(services.specific(case))
+    assert (kept["opened"], kept["use"]) == ("manually", None)
 
     # The disposition, signatures and independence are a traced case's.
     case.refresh_from_db()

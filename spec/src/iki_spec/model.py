@@ -1606,6 +1606,9 @@ class Creates:
     derived_from: tuple[str, ...] = ()
     #: A unique field: a create with a value an entity in the project has updates it.
     match_on: str | None = None
+    #: What a create that matches does: ``update`` the entity with its values, or ``keep``
+    #: it as it is, as whoever made it first made it.
+    on_match: str = "update"
     #: For a fresh physical lot, the singular input naming its storage container.
     receive_into: str | None = None
 
