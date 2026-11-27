@@ -5,7 +5,7 @@
  * such as exporting and archiving, are in its ⋯ menu.
  */
 
-import { ApiError, unwrap } from "@ikisci/sdk";
+import { unwrap } from "@ikisci/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
@@ -18,7 +18,7 @@ import {
   Separator,
 } from "react-aria-components";
 
-import { iki, problemOf, useApiMutation } from "../api";
+import { iki, isStale, problemOf, useApiMutation, useOpenedRevision } from "../api";
 import { useFoundTabs } from "../component-entities";
 import { componentsQuery, entityTabs } from "../components";
 import {
@@ -408,13 +408,10 @@ function ArchiveDialog({
   const client = useQueryClient();
   const archiving = !entity.archived;
   const change = useApiMutation(
-    async () =>
+    async (header: { "If-Match": string }) =>
       unwrap(
         await iki.PATCH("/api/v1/entities/{ref}", {
-          params: {
-            path: { ref: entity.id },
-            header: { "If-Match": `"${String(entity.revision)}"` },
-          },
+          params: { path: { ref: entity.id }, header },
           body: { archived: archiving, reason: reason.trim() },
         }),
       ),
@@ -425,7 +422,9 @@ function ArchiveDialog({
     setReason("");
     change.reset();
   };
-  const stale = change.error instanceof ApiError && change.error.problem.code === "stale";
+  // From the revision it was opened at, which the person reviewed.
+  const opened = useOpenedRevision(entity.revision, { open: isOpen, error: change.error });
+  const stale = isStale(change.error);
   return (
     <ConfirmDialog
       isOpen={isOpen}
@@ -446,7 +445,7 @@ function ArchiveDialog({
       }
       onCancel={close}
       onConfirm={() => {
-        change.mutate(undefined, {
+        change.mutate(opened.ifMatch, {
           onSuccess: (saved) => {
             client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
             close();
