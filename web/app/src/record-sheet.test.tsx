@@ -245,3 +245,136 @@ describe("a sheet of records", () => {
     expect(within(dialog).getByRole("button", { name: "Bring in the latest" })).toBeVisible();
   });
 });
+
+describe("a sheet's lab list cells (ADR 0270)", () => {
+  const METHOD = "acme/protein.PurificationMethod";
+  const PREP: Schemas["EntityTypeOut"] = {
+    ...SAMPLE,
+    name: "acme/protein.Prep",
+    label: "Prep",
+    label_plural: "Preps",
+    sample: false,
+    fields: [
+      field({ name: "name", label: "Name", type: "string", required: true }),
+      field({ name: "method", label: "Method", type: "ref", to: [METHOD] }),
+      field({ name: "polishing", label: "Polishing", type: "list", items: "ref", to: [METHOD] }),
+    ],
+  };
+  const LIST: Schemas["EntityTypeOut"] = {
+    ...SAMPLE,
+    name: METHOD,
+    label: "Purification method",
+    label_plural: "Purification methods",
+    sample: false,
+    lab_list: true,
+    fields: [],
+  };
+  const option = (n: number, code: string, label: string, archived = false) => ({
+    id: `00000000-0000-7000-8000-0000000c000${String(n)}`,
+    hrid: `PUM-00000${String(n)}`,
+    code,
+    label,
+    description: "",
+    position: n,
+    archived,
+    superseded_by: null,
+    values: {},
+    revision: 1,
+    uses: null,
+  });
+  const PROTEIN_A = option(1, "protein_a", "Protein A affinity");
+  const SEC = option(2, "sec", "Size exclusion");
+  const DIALYSIS = option(3, "dialysis", "Dialysis", true);
+
+  function prep() {
+    return entity({
+      id: "00000000-0000-7000-8000-00000000b001",
+      hrid: "PRP-000001",
+      type: PREP.name,
+      revision: 2,
+      values: { name: "Anti-HER2 prep 12", method: DIALYSIS.id, polishing: [] },
+      refs: {
+        [DIALYSIS.id]: {
+          hrid: DIALYSIS.hrid,
+          title: "Dialysis",
+          type: METHOD,
+          archived: true,
+          code: "dialysis",
+          superseded: false,
+          purged: false,
+        },
+      },
+    });
+  }
+
+  function openPreps() {
+    answer("GET /api/v1/entity-types", [PREP, LIST]);
+    answer(`GET /api/v1/lists/${METHOD}/options`, [PROTEIN_A, SEC]);
+    answer(`POST ${PATH}`, (request: { body: { rows: Schemas["SheetEditCheckRowIn"][] } }) => ({
+      rows: request.body.rows.map((r) => checked(r, { values: {}, shown: {} })),
+    }));
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RecordSheet
+          type={PREP}
+          project={KINASE}
+          records={[prep()]}
+          more={{ hasNextPage: false, isFetchingNextPage: false, fetchNextPage: () => undefined }}
+          onClose={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+    return { user, grid: screen.getByRole("grid", { name: "Editing preps as a sheet" }) };
+  }
+
+  it("reads an option by its label, marked when it's archived, and offers the list's options", async () => {
+    const { user, grid } = openPreps();
+    const method = () => nth(within(grid).getAllByRole("gridcell"), 2);
+    await waitFor(() => {
+      expect(method()).toHaveTextContent("Dialysis (archived)");
+    });
+    // Alt+Down opens its options, as a spreadsheet's dropdown cell does.
+    await user.click(method());
+    await user.keyboard("{Alt>}{ArrowDown}{/Alt}");
+    const box = screen.getByRole("combobox", { name: "Method, PRP-000001" });
+    expect(box).toHaveValue("Dialysis");
+    const options = await screen.findByRole("listbox", { name: "Purification methods" });
+    await waitFor(() => {
+      expect(
+        within(options)
+          .getAllByRole("option")
+          .map((o) => o.textContent),
+      ).toEqual(["Protein A affinity protein_a", "Size exclusion sec"]);
+    });
+    // Typed, it narrows them; Enter takes the highlighted one and moves down.
+    await user.clear(box);
+    await user.keyboard("size");
+    expect(within(options).getAllByRole("option")).toHaveLength(1);
+    expect(box).toHaveAttribute("aria-activedescendant");
+    await user.keyboard("{Enter}");
+    expect(method()).toHaveTextContent("Size exclusion");
+    await waitFor(() => {
+      expect(calls("POST", PATH).at(-1)?.body).toMatchObject({
+        rows: [{ cells: { method: "Size exclusion" } }],
+      });
+    });
+  });
+
+  it("takes several options in a list's cell, apart by semicolons", async () => {
+    const { user, grid } = openPreps();
+    const polishing = () => nth(within(grid).getAllByRole("gridcell"), 3);
+    await user.click(polishing());
+    await user.keyboard("{Enter}");
+    const box = screen.getByRole("combobox", { name: "Polishing, PRP-000001" });
+    await screen.findByRole("option", { name: /Protein A affinity/ });
+    await user.click(screen.getByRole("option", { name: /Protein A affinity/ }));
+    expect(box).toHaveValue("Protein A affinity; ");
+    await user.keyboard("sec{Enter}");
+    expect(polishing()).toHaveTextContent("Protein A affinity; Size exclusion");
+    // Escape on an unchanged cell puts it back.
+    await user.click(polishing());
+    await user.keyboard("{Enter}{Escape}{Escape}");
+    expect(polishing()).toHaveTextContent("Protein A affinity; Size exclusion");
+  });
+});

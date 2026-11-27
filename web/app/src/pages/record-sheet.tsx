@@ -12,7 +12,7 @@
 
 import type { Problem } from "@ikisci/sdk";
 import { ApiError } from "@ikisci/sdk";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   useEffect,
@@ -25,7 +25,15 @@ import {
 } from "react";
 
 import { iki, problemOf, signInAgain, type Project } from "../api";
-import { ENTITIES, inSentence, valueText, type Entity, type EntityType } from "../entities";
+import {
+  ENTITIES,
+  inSentence,
+  typesQuery,
+  valueText,
+  type Entity,
+  type EntityType,
+} from "../entities";
+import { listOfItems } from "../lab-lists";
 import {
   AMOUNT,
   baseText,
@@ -69,6 +77,7 @@ import {
   type Write,
 } from "../sheet";
 import { DATE_ORDERS, DECIMALS, plural } from "../spreadsheets";
+import { ListCell } from "./list-cell";
 import {
   Button,
   buttonClass,
@@ -78,6 +87,24 @@ import {
   TextField,
   useMessages,
 } from "../ui";
+
+/** What's become of the lab list options a record's cell names, if no dropdown offers
+ * them any more (ADR 0270): "archived", "superseded", or for a list, how many. */
+function retiredIn(column: SheetColumn, entity: Entity): string {
+  const field = column.field;
+  if (!field) return "";
+  const value = entity.values[field.name];
+  const ids = Array.isArray(value) ? value : value ? [value] : [];
+  const marks = ids.flatMap((id) => {
+    const ref = typeof id === "string" ? entity.refs[id] : undefined;
+    return ref?.code && (ref.superseded || ref.archived)
+      ? [ref.superseded ? "superseded" : "archived"]
+      : [];
+  });
+  if (!marks.length) return "";
+  if (!Array.isArray(value)) return marks[0] ?? "";
+  return `${String(marks.length)} archived or superseded`;
+}
 
 /** A row's height, as the stylesheet draws it (`.record-sheet-row`). */
 const ROW_HEIGHT = 34;
@@ -158,7 +185,11 @@ export function RecordSheet({
   const [anchor, setAnchor] = useState<Point>({ row: 0, col: 1 });
   const [active, setActive] = useState<Point>({ row: 0, col: 1 });
   const selection = rangeOf(anchor, active);
-  const [editing, setEditing] = useState<{ text: string; at: Point } | null>(null);
+  const [editing, setEditing] = useState<{ text: string; at: Point; typed?: boolean } | null>(null);
+  const types = useQuery(typesQuery).data ?? [];
+  /** The lab list (ADR 0270) a column's cells name options of, if they do. */
+  const listAt = (column: SheetColumn | undefined) =>
+    column?.field && !column.readOnly ? listOfItems(column.field, types) : undefined;
   const [note, setNote] = useState("");
   const [locale, setLocale] = useState<SheetLocale>(() => ({
     decimal: null,
@@ -332,14 +363,15 @@ export function RecordSheet({
     const r = rows[active.row];
     const c = columns[active.col];
     if (!r || !c) return;
-    setEditing({ at: active, text: text ?? textAt(state, r, c) });
+    setEditing({ at: active, text: text ?? textAt(state, r, c), typed: text !== undefined });
   };
 
-  const commit = (move?: Point) => {
+  /** Done editing, with what was typed, or `text`: a lab list's option chosen. */
+  const commit = (move?: Point, text?: string) => {
     // Once: the input's blur, as it goes, doesn't commit what Enter or Tab did.
     if (!editing || committed.current === editing) return;
     committed.current = editing;
-    write([{ row: editing.at.row, col: editing.at.col, text: editing.text }]);
+    write([{ row: editing.at.row, col: editing.at.col, text: text ?? editing.text }]);
     setEditing(null);
     if (move) go(move);
     focusGrid();
@@ -468,6 +500,12 @@ export function RecordSheet({
       event.preventDefault();
       setAnchor({ row: 0, col: 0 });
       setActive({ row: rows.length - 1, col: columns.length - 1 });
+      return;
+    }
+    if (event.altKey && key === "ArrowDown" && listAt(columns[active.col])) {
+      // A lab list's cell opens its options, as a spreadsheet's dropdown cell does.
+      event.preventDefault();
+      startEditing();
       return;
     }
     const page = Math.max(1, Math.floor((scroller.current?.clientHeight ?? 340) / ROW_HEIGHT) - 1);
@@ -662,6 +700,9 @@ export function RecordSheet({
       .filter(Boolean)
       .join(" ");
     const isEditing = editing?.at.row === index && editing.at.col === col;
+    const list = listAt(column);
+    // An option no dropdown offers any more, which the record keeps (ADR 0270): marked.
+    const retired = list && row.entity ? retiredIn(column, row.entity) : "";
     return (
       <div
         role="gridcell"
@@ -695,7 +736,43 @@ export function RecordSheet({
           startEditing();
         }}
       >
-        {isEditing ? (
+        {isEditing && list ? (
+          <ListCell
+            label={`${column.label}, ${rowName(row)}`}
+            list={list}
+            projectId={project.id}
+            multiple={column.field?.type === "list"}
+            text={editing.text}
+            typedFirst={editing.typed ?? false}
+            onText={(next) => {
+              setEditing({ ...editing, text: next });
+            }}
+            onCommit={(next, leave) => {
+              const r = editing.at.row;
+              const c = editing.at.col;
+              const to =
+                leave === "down" || leave === "up"
+                  ? {
+                      row: Math.max(0, Math.min(rows.length - 1, r + (leave === "up" ? -1 : 1))),
+                      col: c,
+                    }
+                  : leave === "right" || leave === "left"
+                    ? {
+                        row: r,
+                        col: Math.max(
+                          0,
+                          Math.min(columns.length - 1, c + (leave === "left" ? -1 : 1)),
+                        ),
+                      }
+                    : undefined;
+              commit(to, next);
+            }}
+            onCancel={() => {
+              setEditing(null);
+              focusGrid();
+            }}
+          />
+        ) : isEditing ? (
           <input
             className="record-sheet-input"
             aria-label={`${column.label}, ${rowName(row)}`}
@@ -733,7 +810,10 @@ export function RecordSheet({
             }}
           />
         ) : (
-          <span className="record-sheet-text">{text}</span>
+          <span className="record-sheet-text">
+            {text}
+            {retired && !isChanged ? <span className="muted"> ({retired})</span> : null}
+          </span>
         )}
       </div>
     );
