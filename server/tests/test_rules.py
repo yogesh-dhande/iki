@@ -875,6 +875,97 @@ def test_a_holders_new_fact_is_checked_against_the_other_records_of_the_entry(
         assert not RuleHold.objects.filter(entity_id=mine["id"]).exists()
 
 
+def _superseded(world: World, values: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The editor's record of a mistaken entry, which a registrar supersedes by another
+    project's, registered with ``values``."""
+    from test_registries import registrar
+
+    wrong = create(api_as(world), world.project, {"sequence": "MKVLLLAK"}, PROTEIN).json()
+    right = create(
+        api_as(world, "outsider"), _rival(world), {"sequence": "MKVLLLA", **values}, PROTEIN
+    )
+    assert right.status_code == 201, right.content
+    done = registrar(world).post(
+        f"/entries/{wrong['hrid']}/supersede",
+        {"replacement": right.json()["hrid"], "reason": "Mistyped residue"},
+    )
+    assert done.status_code == 200, done.content
+    return wrong, right.json()
+
+
+def _move(world: World, record: dict[str, Any]) -> Any:
+    return api_as(world).post(f"/entities/{record['id']}/move", {"reason": "Superseded"})
+
+
+def test_a_move_that_breaks_a_rule_by_its_new_entrys_values_is_refused(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The record's values are its new entry's: it's checked by those that differ."""
+    _with_rule(monkeypatch, PROTEIN, _hazard_rule(needs_host=True))
+    wrong, right = _superseded(world, {"hazard": "bsl3", "host": "E. coli"})
+    body = problem(_move(world, wrong), 422, "validation_failed")
+    assert errors(body) == [
+        ("#/values/hazard", "bsl3_needs_a_host", False),
+        ("#/values/host", "bsl3_needs_a_host", False),
+    ]
+    assert Entity.objects.get(pk=wrong["id"]).entry_id != uuid.UUID(right["entry"]["id"])
+
+
+def test_a_move_that_breaks_a_rule_that_holds_holds_the_record_for_its_reason(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _with_rule(monkeypatch, PROTEIN, _hazard_rule(hold=True, needs_host=True))
+    wrong, right = _superseded(world, {"hazard": "bsl3", "host": "E. coli"})
+    moved = _move(world, wrong)
+    assert moved.status_code == 200, moved.content
+    [hold] = RuleHold.objects.filter(entity_id=wrong["id"])
+    assert (hold.reason, hold.held_by) == ("Superseded", world.users["editor"])
+    [seen] = hold.occurrences.all()
+    assert seen.entry_id == uuid.UUID(right["entry"]["id"])
+    # The revision that moved it.
+    assert seen.revision == wrong["revision"] + 1 == moved.json()["revision"]
+
+
+def test_a_move_clears_what_a_check_read_of_the_entry(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """As an edit of what a check reads clears its result (ADR 0080), so does a move to an
+    entry that gives it another value: it's run again, never kept from the old one."""
+    from types import SimpleNamespace
+
+    from iki_server.runs import triggers
+
+    spec = SimpleNamespace(recheck="", qualified_name="acme/protein.check_hazard")
+    asked: list[set[str]] = []
+    fired: list[Any] = []
+
+    def rechecks(type_name: str, changed: set[str]) -> list[Any]:
+        asked.append(set(changed))
+        return [(spec, ("molecular_weight",))] if "hazard" in changed else []
+
+    def recheck_edit(user: Any, entity: Any, revision: Any, s: Any) -> str:
+        fired.append(revision)
+        return ""
+
+    monkeypatch.setattr(triggers, "rechecks", rechecks)
+    monkeypatch.setattr(triggers, "recheck_edit", recheck_edit)
+    wrong, _ = _superseded(world, {"hazard": "bsl3"})
+    record = Entity.objects.get(pk=wrong["id"])
+    entity_services.update(
+        world.users["editor"],
+        record,
+        {"molecular_weight": 30123.4},
+        expected_revision=record.revision,
+        by_run=True,
+    )
+    moved = _move(world, wrong)
+    assert moved.status_code == 200, moved.content
+    assert moved.json()["values"]["molecular_weight"] is None
+    [revision] = fired
+    assert revision.changed_fields == ["molecular_weight"] and revision.reason == "Superseded"
+    assert "hazard" in asked[-1]
+
+
 # --- Records saved before a rule ----------------------------------------------------------------
 
 

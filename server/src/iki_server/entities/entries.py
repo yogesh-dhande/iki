@@ -39,7 +39,16 @@ from django.db.models import Count, Exists, OuterRef, Q, QuerySet
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
-from iki_server.entities import access, breaches, checking, registry, services, states, unique
+from iki_server.entities import (
+    access,
+    breaches,
+    checking,
+    holds,
+    registry,
+    services,
+    states,
+    unique,
+)
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
 from iki_server.entities.values import Invalid, problems_of, row_columns, shape, to_db, to_json
 from iki_server.org import permissions
@@ -428,8 +437,30 @@ def move(user: User, record: Entity, *, reason: str) -> Moved:
                 f"{project.name} has a record of {new.hrid} already: archive this one, or "
                 "move its data there by hand."
             )
+        was = services.current_values(services.specific(locked))
         Entity.objects.filter(pk=locked.pk).update(entry=new, hrid=new.hrid)
+        locked.refresh_from_db()
+        changed, holding = _checked_on(locked, was, said)
         revision = services._revise(locked, RevisionKind.MOVED, [], user, said, moved_from=old.pk)
+        if holding:
+            holds.hold(
+                Entity.objects.select_related("owner_project").get(pk=locked.pk),
+                holding,
+                user=user,
+                reason=said,
+                revision=revision.number,
+                entry_revision=new.revision,
+            )
+        if changed:
+            # What the record's checks read of its entry changed: their results go.
+            services.update(
+                user,
+                locked,
+                {},
+                expected_revision=revision.number,
+                reason=said,
+                _entry_moved=changed,
+            )
         repointed = _repoint(user, project, old, new, said)
         log.record(
             "entity.moved",
@@ -444,6 +475,24 @@ def move(user: User, record: Entity, *, reason: str) -> Moved:
             },
         )
     return Moved(services.specific(Entity.objects.get(pk=locked.pk)), revision, repointed)
+
+
+def _checked_on(
+    record: Entity, was: Mapping[str, Any], reason: str
+) -> tuple[frozenset[str], list[checking.Broken]]:
+    """A moved record checked against its rules (ADR 0127), by the values its new entry
+    gives it that differ from its old one's: one it would break refuses the move; one
+    that holds holds it, for the move's reason. Returns what changed, and what holds it."""
+    form = shape(record.type)
+    now = services.current_values(services.specific(record))
+    changed = frozenset(n for n in form.entry_fields() if was.get(n) != now.get(n))
+    if not changed:
+        return changed, []
+    saving = checking.Saving(now.get, changed, id=record.pk, hrid=record.hrid)
+    found = checking.broken(record.type, [saving])[0]
+    holding = checking.raise_broken(found, hold_reason=reason)
+    checking.kept(record, changed, found)
+    return changed, holding
 
 
 def _repoint(user: User, project: Project, old: Entity, new: Entity, reason: str) -> list[Entity]:

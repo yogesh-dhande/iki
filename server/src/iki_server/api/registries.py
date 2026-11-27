@@ -715,6 +715,9 @@ def move_entity(
     try:
         moved = entries.move(me, record, reason=payload.reason)
     except Invalid as error:
+        if getattr(error, "broken", ()):
+            # Its new entry's values break its type's rules (ADR 0127), each named.
+            raise _invalid(error) from None
         raise Problem(
             422,
             "It can’t be moved as requested.",

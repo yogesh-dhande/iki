@@ -902,6 +902,7 @@ def update(
     _recording_draw: bool = False,
     _recheck_note: str = "",
     _repointing: frozenset[str] = frozenset(),
+    _entry_moved: frozenset[str] = frozenset(),
 ) -> Saved:
     """Changes some of an entity's fields. Fields not named keep their values. Its registry
     entry's are set only while they're empty (see :func:`fill_entry`).
@@ -919,6 +920,10 @@ def update(
     rewrites (ADR 0115, ADR 0270). They change though they're computed or fixed, as what they
     named was a mistake. The rest of the save is as for any other: its rules and holds,
     rechecks, request sides and notifications.
+
+    ``_entry_moved``: its entry's values that changed as the record moved to another entry
+    (ADR 0115). The checks reading them have their results cleared and run again, as an
+    edit of them would.
     """
     with transaction.atomic(), _unique_values():
         locked = Entity.objects.select_for_update().get(pk=entity.pk)
@@ -1072,7 +1077,9 @@ def update(
             raise ClearReasonRequired({"reason": ["Give a reason for clearing this flag."]})
         from iki_server.runs import triggers
 
-        rechecks = triggers.rechecks(locked.type, set(new)) if new else []
+        rechecks = (
+            triggers.rechecks(locked.type, set(new) | _entry_moved) if new or _entry_moved else []
+        )
         for spec, outputs in rechecks:
             for name in outputs:
                 value = "Needs re-verification" if name == spec.recheck else None
