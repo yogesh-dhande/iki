@@ -103,9 +103,10 @@ describe("the plugins' flows", () => {
       "on_hold > released ?",
     ]);
     // Made available from Quarantined, or from On hold only when it was available
-    // before, which only its history knows (ADR 0242).
+    // before, which only its history knows (ADR 0242); and either only when the lot
+    // needs no QA release, which only the record knows (its amendment).
     expect(lot.filter((m) => m.includes("> available"))).toEqual([
-      "quarantined > available",
+      "quarantined > available ?",
       "on_hold > available ?",
     ]);
   });
