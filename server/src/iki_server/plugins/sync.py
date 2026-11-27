@@ -68,6 +68,7 @@ from iki_server.entities import (
     holds,
     hrids,
     lists,
+    narrowings,
     registry,
     requests,
     states,
@@ -109,6 +110,8 @@ class Report:
     guards: list[str] = field(default_factory=list)
     #: The rules the database holds, as ``table:rule``.
     rules: list[str] = field(default_factory=list)
+    #: What subtypes narrow in fields they inherit, as ``table.column:type:part`` (ADR 0283).
+    narrowed: list[str] = field(default_factory=list)
     #: Each type whose records were checked again.
     checked: list[breaches.Checked] = field(default_factory=list)
     #: The lab lists that got starting options, and where (ADR 0270).
@@ -147,6 +150,7 @@ def sync(analyst_role: str | None = None) -> Report:
             cursor, edges.tables((plugin, model, fields) for plugin, model, fields, _ in _tables())
         )
         report.rules = constraints.install(cursor, constraints.wanted())
+        report.narrowed = narrowings.install(cursor, narrowings.wanted())
         report.targets = targets.install(
             cursor,
             targets.tables((plugin, model, fields) for plugin, model, fields, _ in _tables()),
@@ -183,6 +187,7 @@ def describe(report: Report) -> list[str]:
     lines += [f"  unique {key}" for key in report.unique]
     lines += [f"  references of {table}" for table in report.graph]
     lines += [f"  rule {key}" for key in report.rules]
+    lines += [f"  narrowed {key}" for key in report.narrowed]
     for checked in report.checked:
         found = [f"{n} break {rule}" for rule, n in sorted(checked.broken.items())]
         found += [f"{n} held by {rule}" for rule, n in sorted(checked.held.items())]

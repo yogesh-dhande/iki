@@ -29,7 +29,7 @@ from iki_server.plugins.preflight_sql_fields import (
 )
 from iki_server.plugins.preflight_sql_relations import exact_relations
 from iki_server.plugins.preflight_types import Finding, Report, TypeReport
-from iki_server.plugins.preflight_values import amount_findings, amount_unit
+from iki_server.plugins.preflight_values import amount_findings
 from iki_spec import naming
 from iki_spec.model import BUILTIN_TYPES, EntityType, Extension, Field, Plugin, Rule, plugin_to_dict
 
@@ -126,8 +126,13 @@ class _Schema:
                 retired.update(
                     {n: f for n, f in item.fields.items() if f.removed and f.type == "state"}
                 )
+            amount = preflight_records.effective(name, self.plugins).amount
             self._shapes[name] = _Shape(
-                layout(name, self.plugins, chain=chain), rules, scopes, retired, amount_unit(chain)
+                layout(name, self.plugins, chain=chain),
+                rules,
+                scopes,
+                retired,
+                amount.unit if amount is not None else None,
             )
         return self._shapes[name]
 
@@ -137,7 +142,7 @@ class _Schema:
         if name == naming.ENTITY:
             return self.types[name].label, {}
         tables = self.shape(name).tables
-        if any(t.identity for t in self.lineage(name)):
+        if preflight_records.effective(name, self.plugins).identity_owner is not None:
             tables = [t for t in tables if t.entry]
         return self.types[name].label, {n: f for t in tables for n, f in t.fields.items()}
 

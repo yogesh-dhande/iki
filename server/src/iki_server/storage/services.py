@@ -56,20 +56,15 @@ class Wrong(Invalid):
 
 def spec(type_name: str) -> Storage | None:
     """Where ``type_name``'s records are kept: its own ``storage``, or its nearest ancestor's."""
-    entity_type = registry.types().get(type_name)
-    if entity_type is None:
+    if type_name not in registry.types():
         return None
-    for t in [entity_type, *registry.ancestors(entity_type)]:
-        if t.storage is not None:
-            return t.storage
-    return None
+    return registry.effective(type_name).storage
 
 
 def _lineage(type_name: str) -> set[str]:
-    entity_type = registry.types().get(type_name)
-    if entity_type is None:
+    if type_name not in registry.types():
         return set()
-    return {type_name, *(t.qualified_name for t in registry.ancestors(entity_type))}
+    return set(registry.effective(type_name).lineage)
 
 
 def holds(container_type: str, record_type: str) -> bool:
@@ -96,11 +91,7 @@ def storable_types() -> list[str]:
 
 
 def _field_owner(type_name: str, name: str) -> EntityType:
-    entity_type = registry.types()[type_name]
-    for t in [entity_type, *registry.ancestors(entity_type)]:
-        if name in t.fields:
-            return t
-    raise KeyError(name)
+    return registry.types()[registry.effective(type_name).declared_by(name)]
 
 
 # --- Shapes -------------------------------------------------------------------------------------

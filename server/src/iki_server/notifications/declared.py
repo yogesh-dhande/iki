@@ -80,15 +80,14 @@ def of_type(type_name: str) -> tuple[Declared, ...]:
     """The notifications a type's records send: its own and its ancestors'."""
     from iki_server.entities import registry
 
-    found = registry.types().get(type_name)
-    if found is None:
+    if type_name not in registry.types():
         return ()
-    chain = [*reversed(registry.ancestors(found)), found]
-    return tuple(
-        Declared(kinds.key_of(t.qualified_name, n.name), t, n)
-        for t in chain
-        for n in t.notifications.values()
-    )
+    declared = registry.effective(type_name)
+    out = []
+    for name, n in declared.notifications.items():
+        owner = declared.sources[f"notifications.{name}"]
+        out.append(Declared(kinds.key_of(owner, n.name), registry.types()[owner], n))
+    return tuple(out)
 
 
 @cache
@@ -115,10 +114,9 @@ def _of_kind(type_name: str) -> list[str]:
     """A type and its ancestors, nearest first: what a reference to it may name."""
     from iki_server.entities import registry
 
-    found = registry.types().get(type_name)
-    if found is None:
+    if type_name not in registry.types():
         return []
-    return [type_name, *(t.qualified_name for t in registry.ancestors(found)), "iki/core.Entity"]
+    return list(registry.effective(type_name).lineage)
 
 
 # --- Changes ------------------------------------------------------------------------------------

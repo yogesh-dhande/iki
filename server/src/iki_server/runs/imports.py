@@ -92,7 +92,6 @@ from iki_server.runs.models import (
     RunOutput,
     RunStatus,
 )
-from iki_server.runs.services import is_a
 from iki_server.setup import starter_flows
 from iki_spec import schemas
 from iki_spec.model import Action as SpecAction
@@ -1052,7 +1051,9 @@ def _update_matches(imported: RunImport, check: results.Check) -> None:
     # An inherited unique field has one key across all of its concrete types.
     columns: dict[tuple[str, str], list[str]] = {}
     for type_name in staged:
-        effect = next(effect for effect in check.action.creates if is_a(type_name, effect.type))
+        effect = next(
+            effect for effect in check.action.creates if registry.is_a(type_name, effect.type)
+        )
         if effect.match_on is not None:
             part = shape(type_name).part_of(effect.match_on)
             columns.setdefault((part.model._meta.db_table, effect.match_on), []).append(type_name)

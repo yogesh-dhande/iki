@@ -51,7 +51,7 @@ from iki_server.runs.models import (
     RunInput,
     RunUpload,
 )
-from iki_server.runs.services import TIER_PERMISSIONS, is_a
+from iki_server.runs.services import TIER_PERMISSIONS
 from iki_spec import outputs, schemas
 from iki_spec.model import Action, Creates, Software, action_from_dict
 
@@ -280,7 +280,7 @@ class _Installed:
     """:class:`outputs.Types`, from the types this deployment has installed."""
 
     def is_a(self, type_name: str, wanted: str) -> bool:
-        return is_a(type_name, wanted)
+        return registry.is_a(type_name, wanted)
 
     def ref_fields(self, type_name: str) -> frozenset[str]:
         if type_name not in registry.types():

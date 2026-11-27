@@ -1,6 +1,7 @@
 # 0235. A service's own request types carry its fields
 
 - Status: Accepted
+- Amended by [0283](0283-a-subtype-narrows-what-it-inherits.md): `refines` narrows any inherited part, of which these are two
 - Date: 2026-11-26
 - Refines: [0164](0164-a-subtype-says-which-roles-its-rows-take.md),
   [0195](0195-core-facility-requests-return-signed-deliverables.md),

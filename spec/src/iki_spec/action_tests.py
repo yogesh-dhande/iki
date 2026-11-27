@@ -29,9 +29,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from iki_spec import API_VERSION, naming, schemas
+from iki_spec import API_VERSION, schemas
+from iki_spec.effective import lineage, resolve_one
 from iki_spec.formats import FormatRegistry
-from iki_spec.model import Action, EntityType, Field, Input, Plugin, amount_of, included_reference
+from iki_spec.model import Action, EntityType, Field, Input, Plugin, included_reference
 from iki_spec.problems import Path as DocPath
 from iki_spec.problems import Problem, Severity
 from iki_spec.yamlsource import Document, read_documents
@@ -372,33 +373,16 @@ class _Check:
                 )
 
     def _is_request(self, entity_type: EntityType) -> bool:
-        current: EntityType | None = entity_type
-        while current is not None:
-            if current.request is not None:
-                return True
-            current = self.types.get(current.extends) if current.extends else None
-        return False
+        return resolve_one(self.types, entity_type.qualified_name).request is not None
 
     def _is_a(self, entity_type: EntityType, wanted: str) -> bool:
-        if wanted == naming.ENTITY:
-            return True
-        current: EntityType | None = entity_type
-        while current is not None:
-            if current.qualified_name == wanted:
-                return True
-            current = self.types.get(current.extends) if current.extends else None
-        return False
+        return wanted in lineage(self.types, entity_type.qualified_name)
 
     def fields(self, entity_type: EntityType) -> dict[str, Field]:
         """A type's fields as this plugin sees them: its own, its ancestors', and the ones
         this plugin's extensions add, which its actions read and write like any other."""
         out = fields_of(entity_type, self.types)
-        chain = {entity_type.qualified_name}
-        current: EntityType | None = entity_type
-        while current is not None and current.extends:
-            current = self.types.get(current.extends)
-            if current is not None:
-                chain.add(current.qualified_name)
+        chain = set(lineage(self.types, entity_type.qualified_name))
         for extension in self.plugin.extensions:
             if extension.extends_type in chain:
                 out.update(extension.fields)
@@ -406,13 +390,8 @@ class _Check:
 
 
 def fields_of(entity_type: EntityType, types: Mapping[str, EntityType]) -> dict[str, Field]:
-    """A type's fields now, its ancestors' included."""
-    out: dict[str, Field] = {}
-    current: EntityType | None = entity_type
-    while current is not None:
-        out = {**current.current_fields, **out}
-        current = types.get(current.extends) if current.extends else None
-    return out
+    """A type's fields now, its ancestors' included, as its records have them."""
+    return resolve_one(types, entity_type.qualified_name).current_fields
 
 
 def targets_of(f: Field) -> tuple[str, ...]:
@@ -479,7 +458,7 @@ def run_input(
         n += 1
         entity_type = every[type_name]
         prefix = entity_type.hrid_prefix or "ENT"
-        amount = amount_of(type_name, every)
+        amount = resolve_one(every, type_name).amount
         return {
             **({"material_field": amount.material} if amount and amount.material else {}),
             "id": _id(3, n),

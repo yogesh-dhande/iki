@@ -1,6 +1,7 @@
 # 0164. A subtype says which roles its rows take
 
 - Status: Accepted
+- Amended by [0283](0283-a-subtype-narrows-what-it-inherits.md): `refines` narrows any inherited part, of which these are two
 - Date: 2026-11-19
 - Refines: [0137](0137-a-list-can-hold-rows-of-typed-fields.md),
   [0161](0161-a-complex-is-its-parts-and-their-copies.md)

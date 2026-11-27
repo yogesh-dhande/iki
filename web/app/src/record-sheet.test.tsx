@@ -45,6 +45,7 @@ const SAMPLE: Schemas["EntityTypeOut"] = {
   sample: true,
   lab_list: false,
   detached: false,
+  ancestors: ["iki/core.Entity"],
   subtypes: [],
   hrid_prefix: "SMP",
   identity: [],

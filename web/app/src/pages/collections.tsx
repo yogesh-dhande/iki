@@ -20,6 +20,7 @@ import {
   ENTITIES,
   entityProjectsQuery,
   entityQuery,
+  isA,
   typeLabel,
   type Entity,
   type EntitySearch,
@@ -34,14 +35,9 @@ export const COLLECTION = "iki/core.Collection";
 /** Collections' own fields, which their page shows in its own way. */
 export const COLLECTION_FIELDS = new Set(["members", "search"]);
 
-export function isCollection(type: EntityType | undefined, types: EntityType[]): boolean {
-  let current = type;
-  while (current) {
-    if (current.name === COLLECTION) return true;
-    const parent = current.extends;
-    current = types.find((t) => t.name === parent);
-  }
-  return false;
+/** Whether records of `type` are collections: it's `iki/core.Collection` or extends it. */
+export function isCollection(type: EntityType | undefined): boolean {
+  return isA(type, COLLECTION);
 }
 
 /** A dynamic collection's search, as it keeps it. */

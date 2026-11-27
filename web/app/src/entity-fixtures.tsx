@@ -141,6 +141,7 @@ export const PROTEIN: Schemas["EntityTypeOut"] = {
   sample: false,
   lab_list: false,
   detached: false,
+  ancestors: ["iki/core.Entity"],
   subtypes: [],
   hrid_prefix: "PRT",
   identity: ["sequence"],

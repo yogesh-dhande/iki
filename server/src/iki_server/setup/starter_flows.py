@@ -38,7 +38,7 @@ def refused_create(project: Project, types: Iterable[str]) -> str | None:
     from iki_server.setup.starters import CATALOG, effective_flow
 
     for name in types:
-        bases = {name, *(t.qualified_name for t in registry.ancestors(registry.types()[name]))}
+        bases = set(registry.effective(name).lineage)
         for starter in CATALOG:
             if starter.pinned_by is None and starter.result_base in bases:
                 _hold_choice(project)

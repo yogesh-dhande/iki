@@ -11,6 +11,7 @@ from referencing.jsonschema import DRAFT202012
 
 from iki_server.entities import registry
 from iki_spec import API_VERSION, schemas, units
+from iki_spec.effective import lineage
 from iki_spec.model import (
     BUILTIN_TYPES,
     FIELD_TYPES,
@@ -22,6 +23,7 @@ from iki_spec.model import (
     Rule,
     plugin_from_dict,
 )
+from iki_spec.naming import ENTITY
 from iki_spec.validate import RESERVED_FIELD_NAMES, check_compiled_rules, pattern_problems
 
 _PLUGIN = TypeAdapter(Plugin)
@@ -98,15 +100,14 @@ def _named(kind: str, name: str) -> None:
 
 
 def _ancestors(entity_type: EntityType, types: Mapping[str, EntityType]) -> None:
-    seen = {entity_type.qualified_name}
-    parent = entity_type.extends
-    while parent is not None:
-        if parent in seen:
-            raise ValueError(f"Circular inheritance at {parent}.")
-        if parent not in types:
-            raise ValueError(f"Unknown parent type {parent}.")
-        seen.add(parent)
-        parent = types[parent].extends
+    """Each of its ancestors is a type the deployment would have, and none is itself."""
+    chain = lineage(types, entity_type.qualified_name)
+    top = types.get(chain[-2]) if len(chain) > 1 else entity_type
+    parent = top.extends if top is not None else chain[-2]
+    if top is None:
+        raise ValueError(f"Unknown parent type {parent}.")
+    if parent is not None and parent != ENTITY:
+        raise ValueError(f"Circular inheritance at {parent}.")
 
 
 def _fields(fields: Mapping[str, Field], types: Mapping[str, EntityType]) -> None:

@@ -15,38 +15,40 @@
       "const": "EntityType"
     },
     "name": {
-      "description": "The type's name in PascalCase. Elsewhere it is `plugin.Name`.",
+      "description": "The type's name in PascalCase. Elsewhere it is `plugin.Name`. Inheritance: `own`. Not inherited: each type's own.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeName"
     },
     "label": {
+      "description": "What people see for one, such as `Protein`. Defaults to its name in words. Inheritance: `own`. Not inherited: each type's own.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
     },
     "label_plural": {
-      "description": "What people see for more than one, such as `Proteins`. Defaults to the label with an `s`.",
+      "description": "What people see for more than one, such as `Proteins`. Defaults to the label with an `s`. Inheritance: `own`. Not inherited: each type's own.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
     },
     "description": {
+      "description": "What its records are, for the type's page and the API. Inheritance: `own`. Not inherited: each type's own.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
     },
     "schema_version": {
-      "description": "Increase it whenever the fields change. Other plugins' dependencies and actions name the versions they work with.",
+      "description": "Increase it whenever the fields change. Other plugins' dependencies and actions name the versions they work with. Inheritance: `own`. Not inherited: each type's own.",
       "type": "integer",
       "minimum": 1
     },
     "extends": {
-      "description": "A parent type: entities of this type are also entities of the parent, with its fields.",
+      "description": "A parent type: entities of this type are also entities of the parent, with its fields. Inheritance: `own`. Not inherited: each type's own.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
     },
     "abstract": {
-      "description": "Only subtypes have entities; nobody creates one of this type itself.",
+      "description": "Only subtypes have entities; nobody creates one of this type itself. Inheritance: `own`. Not inherited: each type's own.",
       "type": "boolean"
     },
     "sample": {
-      "description": "Its records are samples, or material taken from them: a project's Files are found by the sample they belong to, the files its records hold and those a run that read one read or made. Its subtypes' records are samples too.",
+      "description": "Its records are samples, or material taken from them: a project's Files are found by the sample they belong to, the files its records hold and those a run that read one read or made. Its subtypes' records are samples too. Inheritance: `accumulate`. Inherited and added to: a subtype has every ancestor's and its own, none named as an ancestor's is.",
       "type": "boolean"
     },
     "hrid": {
-      "description": "Human-readable IDs, such as PRT-000123. Never reused.",
+      "description": "Human-readable IDs, such as PRT-000123. Never reused. Inheritance: `own`. Not inherited: each type's own.",
       "type": "object",
       "required": ["prefix"],
       "properties": {
@@ -65,7 +67,7 @@
       "additionalProperties": false
     },
     "identity": {
-      "description": "The fields that make an entity the same as another: its registry entry's identity (ADR 0115). They must be the type's own, immutable, and at least one required: an optional one without a value is null in the identity (ADR 0104).",
+      "description": "The fields that make an entity the same as another: its registry entry's identity (ADR 0115). They must be the type's own, immutable, and at least one required: an optional one without a value is null in the identity (ADR 0104). Inheritance: `once`. Inherited, and declared once in a lineage: a subtype has its ancestor's, and can't declare another.",
       "type": "array",
       "minItems": 1,
       "maxItems": 10,
@@ -75,7 +77,7 @@
       }
     },
     "fields": {
-      "description": "The type's fields, by name.",
+      "description": "The type's fields, by name. Inheritance: `accumulate`. Inherited and added to: a subtype has every ancestor's and its own, none named as an ancestor's is.",
       "type": "object",
       "maxProperties": 500,
       "propertyNames": {
@@ -86,7 +88,7 @@
       }
     },
     "list": {
-      "description": "Its entities are the options of a list the lab curates (ADR 0270), such as lot methods or deviation categories, offered as a dropdown wherever a field refers to it. Each option is a registry entry, identified by its `code`, with a `label`, a `description` and a place in the list's order, which its registry's registrars and list curators change, each with a reason; projects in the registry pick from it. Its other fields are its options' too. `true` for a list with no starting options. Only descriptive vocabulary is a list: a value a guard, state, rule, signature or computation reads stays an `enum`.",
+      "description": "Its entities are the options of a list the lab curates (ADR 0270), such as lot methods or deviation categories, offered as a dropdown wherever a field refers to it. Each option is a registry entry, identified by its `code`, with a `label`, a `description` and a place in the list's order, which its registry's registrars and list curators change, each with a reason; projects in the registry pick from it. Its other fields are its options' too. `true` for a list with no starting options. Only descriptive vocabulary is a list: a value a guard, state, rule, signature or computation reads stays an `enum`. Inheritance: `own`. Not inherited: each type's own.",
       "oneOf": [
         { "const": true },
         {
@@ -107,19 +109,44 @@
       ]
     },
     "refines": {
-      "description": "What this type's records take in fields it inherits, within what its parent's take. For a list of rows whose rows have roles by one of their fields (`by`): every role its rows may have, each with how many rows take it and what their references may refer to (ADR 0164); a specific complex says what its parts are this way. For a reference, or a list of references: the types it may refer to, each with its subtypes (ADR 0235); a service's result says which of its requests it answers this way.",
+      "description": "What this type's records take in fields it inherits, each narrower than its parent's (ADR 0283), so every one of its records is one of its parent's too. A field can be made required, an enum's values or a number's range narrowed, a default given, a reference's types narrowed to some of its parent's or their subtypes (ADR 0235), and a list of rows' roles narrowed to every role its rows may have (ADR 0164): a specific complex says what its parts are this way, and a service's result which of its requests it answers. Iki holds a narrowing where it holds the field's own: in every save, and in the database for `required`, `values`, `min` and `max`. Inheritance: `narrow`. Inherited, and a subtype may only narrow it: its records take what its parent's do or less, never more, so each of them is one of its parent's too. Each refinement is within the one its parent has.",
       "type": "object",
       "minProperties": 1,
-      "maxProperties": 20,
+      "maxProperties": 50,
       "propertyNames": {
         "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
       },
       "additionalProperties": {
-        "description": "The roles of one list of rows it inherits, by the list's name.",
+        "description": "What one inherited field takes in this type's records, by the field's name. Each part left out is its parent's.",
         "type": "object",
-        "oneOf": [{ "required": ["roles"] }, { "required": ["to"] }],
+        "minProperties": 1,
         "additionalProperties": false,
         "properties": {
+          "required": {
+            "description": "Every one of its records has a value. A field its parent's records must have can't be made optional.",
+            "const": true
+          },
+          "values": {
+            "description": "An enum's values, or a list of enums' items': some of those its parent's records take.",
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 500,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/enumValue"
+            }
+          },
+          "min": {
+            "description": "A number's or quantity's least value, in its unit: at least its parent's.",
+            "type": "number"
+          },
+          "max": {
+            "description": "A number's or quantity's greatest value, in its unit: at most its parent's.",
+            "type": "number"
+          },
+          "default": {
+            "description": "What a new record given no value has: one its narrowed field takes. Needed when its parent's default is outside what it narrows the field to."
+          },
           "to": {
             "description": "The types an inherited reference may refer to in this type's records, each with its subtypes: each one of the types its parent's refers to, or a subtype of one.",
             "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typed/properties/to"
@@ -140,18 +167,19 @@
       }
     },
     "rules": {
+      "description": "Rules every save of its records keeps (ADR 0127): CEL checks of the record, fields no two of a project's records share, and ranges none of them overlap. Inheritance: `accumulate`. Inherited and added to: a subtype has every ancestor's and its own, none named as an ancestor's is.",
       "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/rules"
     },
     "draws_received": {
-      "description": "An optional computed JSON field on a record, inherited by its subtypes. Iki appends each material draw into the record here, in the ledger transaction, so reviews sign the quantities and source revisions used.",
+      "description": "An optional computed JSON field on a record, inherited by its subtypes. Iki appends each material draw into the record here, in the ledger transaction, so reviews sign the quantities and source revisions used. Inheritance: `nearest`. Inherited: a subtype has its nearest ancestor's, unless it declares its own, which replaces it.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
     },
     "draw_guards": {
-      "description": "Conditions on taking an amount, including transfers and splits. Each subtype also keeps its ancestors' guards. CEL reads record, now, today (midnight UTC), operation (draw, transfer, split) and purpose (routine or qa_sampling).",
+      "description": "Conditions on taking an amount, including transfers and splits. Each subtype also keeps its ancestors' guards. CEL reads record, now, today (midnight UTC), operation (draw, transfer, split) and purpose (routine or qa_sampling). Inheritance: `accumulate`. Inherited and added to: a subtype has every ancestor's and its own, none named as an ancestor's is.",
       "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/guards"
     },
     "draw_purposes": {
-      "description": "The lab roles allowed to draw for each purpose in the record's project. Routine draws are open to Editors unless restricted. QA sampling requires a declaration. Subtypes inherit each purpose and may narrow its allowed roles.",
+      "description": "The lab roles allowed to draw for each purpose in the record's project. Routine draws are open to Editors unless restricted. QA sampling requires a declaration. Subtypes inherit each purpose and may narrow its allowed roles. Inheritance: `narrow`. Inherited, and a subtype may only narrow it: its records take what its parent's do or less, never more, so each of them is one of its parent's too.",
       "type": "object",
       "propertyNames": {
         "enum": ["routine", "qa_sampling"]
@@ -176,7 +204,7 @@
       }
     },
     "draw_target": {
-      "description": "Accept one ledger draw from the assigned record while in the designated state. A prepared draw also fixes the upstream source, quantity and authorized roles.",
+      "description": "Accept one ledger draw from the assigned record while in the designated state. A prepared draw also fixes the upstream source, quantity and authorized roles. Inheritance: `nearest`. Inherited: a subtype has its nearest ancestor's, unless it declares its own, which replaces it.",
       "type": "object",
       "additionalProperties": false,
       "required": ["from", "state"],
@@ -238,11 +266,11 @@
       }
     },
     "due": {
-      "description": "A date or datetime field of the type (or a parent's) saying when its records are due: My work sorts what's assigned to someone by it, soonest first (ADR 0122).",
+      "description": "A date or datetime field of the type (or a parent's) saying when its records are due: My work sorts what's assigned to someone by it, soonest first (ADR 0122). Inheritance: `nearest`. Inherited: a subtype has its nearest ancestor's, unless it declares its own, which replaces it.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
     },
     "notifications": {
-      "description": "Whom its records tell, and when (ADR 0129): on a state's change or a field's, the people its fields name, holders of a lab role in its project, its creator or its watchers, in Iki and by email. Each by name, which never changes once released: people's choices are kept by it.",
+      "description": "Whom its records tell, and when (ADR 0129): on a state's change or a field's, the people its fields name, holders of a lab role in its project, its creator or its watchers, in Iki and by email. Each by name, which never changes once released: people's choices are kept by it. Inheritance: `accumulate`. Inherited and added to: a subtype has every ancestor's and its own, none named as an ancestor's is.",
       "type": "object",
       "maxProperties": 50,
       "propertyNames": {
@@ -253,7 +281,7 @@
       }
     },
     "request": {
-      "description": "Its records are requests a project sends to another project's service, such as a core facility (ADR 0132). The asking project owns each request; the service it's sent to may change only the fields named here, and set only the state fields named here, while the rest stay the asking project's. Its subtypes are requests too; a subtype may declare `request` with only `service_fields`, naming more of its own fields the service writes, such as a ranking a lab's core keeps (ADR 0232).",
+      "description": "Its records are requests a project sends to another project's service, such as a core facility (ADR 0132). The asking project owns each request; the service it's sent to may change only the fields named here, and set only the state fields named here, while the rest stay the asking project's. Its subtypes are requests too; a subtype may declare `request` with only `service_fields`, naming more of its own fields the service writes, such as a ranking a lab's core keeps (ADR 0232). Inheritance: `merge`. Inherited, and a subtype may add to it: it has its nearest ancestor's, with what each type below adds. A subtype may declare `request` with only `service_fields`: more of its own fields its service writes.",
       "type": "object",
       "properties": {
         "service_fields": {
@@ -324,7 +352,7 @@
       "additionalProperties": false
     },
     "work_item": {
-      "description": "Its records are internal work for a request (ADR 0132). Only the service project creates and keeps them.",
+      "description": "Its records are internal work for a request (ADR 0132). Only the service project creates and keeps them. Inheritance: `nearest`. Inherited: a subtype has its nearest ancestor's, unless it declares its own, which replaces it.",
       "type": "object",
       "required": ["of"],
       "properties": {
@@ -336,7 +364,7 @@
       "additionalProperties": false
     },
     "result": {
-      "description": "Its records are what a service makes for a request (ADR 0132): made in the service's project, which owns them, and sent back to the asking project once the service's own state field says it's released.",
+      "description": "Its records are what a service makes for a request (ADR 0132): made in the service's project, which owns them, and sent back to the asking project once the service's own state field says it's released. Inheritance: `nearest`. Inherited: a subtype has its nearest ancestor's, unless it declares its own, which replaces it.",
       "type": "object",
       "required": ["of", "released"],
       "properties": {
@@ -374,7 +402,7 @@
       "additionalProperties": false
     },
     "display": {
-      "description": "How its records are shown: their title in lists and links, and Iki's viewers on their pages.",
+      "description": "How its records are shown: their title in lists and links, and Iki's viewers on their pages. Inheritance: `nearest`. Inherited: a subtype has its nearest ancestor's, unless it declares its own, which replaces it. Its `title` and its `viewers` each so.",
       "type": "object",
       "properties": {
         "title": {
@@ -395,7 +423,7 @@
       "additionalProperties": false
     },
     "exports": {
-      "description": "The files Iki writes of its records, offered on their pages and through the API at any revision, each download audited (ADR 0171). Configured by naming the fields each file is written from. Its subtypes have them too, unless they declare their own.",
+      "description": "The files Iki writes of its records, offered on their pages and through the API at any revision, each download audited (ADR 0171). Configured by naming the fields each file is written from. Its subtypes have them too, unless they declare their own. Inheritance: `nearest`. Inherited: a subtype has its nearest ancestor's, unless it declares its own, which replaces it.",
       "type": "array",
       "maxItems": 5,
       "items": {
@@ -403,7 +431,7 @@
       }
     },
     "storage": {
-      "description": "Its records are kept somewhere, or keep others (ADR 0180): Iki keeps where each is, in which container and position, who has it, and every move, as a ledger of its own.",
+      "description": "Its records are kept somewhere, or keep others (ADR 0180): Iki keeps where each is, in which container and position, who has it, and every move, as a ledger of its own. Inheritance: `nearest`. Inherited: a subtype has its nearest ancestor's, unless it declares its own, which replaces it.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -545,10 +573,10 @@
         }
       },
       "additionalProperties": false,
-      "description": "Maps a catalogue record to its lots, ledger unit, routine-use reorder threshold, open orders and project alert recipients (ADR 0190)."
+      "description": "Maps a catalogue record to its lots, ledger unit, routine-use reorder threshold, open orders and project alert recipients (ADR 0190). Inheritance: `nearest`. Inherited: a subtype has its nearest ancestor's, unless it declares its own, which replaces it."
     },
     "amount": {
-      "description": "How much of each record there is (ADR 0139): kept in `unit`, never below zero, and changed only by drawing, transferring, splitting into aliquots or adjusting it, each kept in its ledger.",
+      "description": "How much of each record there is (ADR 0139): kept in `unit`, never below zero, and changed only by drawing, transferring, splitting into aliquots or adjusting it, each kept in its ledger. Inheritance: `once`. Inherited, and declared once in a lineage: a subtype has its ancestor's, and can't declare another.",
       "type": "object",
       "required": ["unit"],
       "additionalProperties": false,

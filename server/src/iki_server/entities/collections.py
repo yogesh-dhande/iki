@@ -45,12 +45,7 @@ class NotDynamic(Exception):  # noqa: N818 - reads as "it isn't dynamic"
 
 
 def is_collection(type_name: str) -> bool:
-    entity_type = registry.types().get(type_name)
-    if entity_type is None:
-        return False
-    return any(
-        t.qualified_name == COLLECTION for t in [entity_type, *registry.ancestors(entity_type)]
-    )
+    return registry.is_a(type_name, COLLECTION)
 
 
 def found_now(user: User, data: Mapping[str, Any]) -> list[uuid.UUID]:

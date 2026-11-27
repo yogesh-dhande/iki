@@ -476,7 +476,11 @@ def _viewer(user: User, at: str, props: Mapping[str, Any]) -> list[str]:
     if found is None:
         return [f"{at}, `entity`: {entity} is no entity you can read."]
     entity_type = registry.types().get(found.type)
-    shown = [v.viewer for v in registry.viewers(entity_type)] if entity_type else []
+    shown = (
+        [v.viewer for v in registry.effective(entity_type.qualified_name).viewers]
+        if entity_type
+        else []
+    )
     viewer = props.get("viewer")
     if not shown:
         return [f"{at}, `entity`: {found.hrid}’s type has no viewer."]
@@ -541,13 +545,9 @@ def about(user: User, entity: Entity) -> QuerySet[Entity]:
     it extends) in a project it's in, that the user can read, by name, at most
     :data:`MAX_TABS`. An app shows on the entities of its own projects, as their members
     made it for them, never on others'."""
-    entity_type = registry.types().get(entity.type)
-    if entity_type is None:
+    if entity.type not in registry.types():
         return Entity.objects.none()
-    names = [
-        entity_type.qualified_name,
-        *(t.qualified_name for t in registry.ancestors(entity_type)),
-    ]
+    names = list(registry.effective(entity.type).chain)
     model = cast("type[Entity]", registry.model("iki/core.App"))
     projects = ProjectLink.objects.filter(entity=entity).values("project_id")
     return (

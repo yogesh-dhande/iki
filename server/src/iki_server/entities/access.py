@@ -454,10 +454,7 @@ def can_read(user: Any, entity: Entity) -> bool:  # noqa: ANN401
 
 def edit_action(type_name: str, *, by_run: bool = False) -> Action:
     """The permission for authoring this type, including a subtype of App or View."""
-    own = registry.types().get(type_name)
-    if own and any(
-        t.qualified_name in {"iki/core.App", VIEW} for t in (own, *registry.ancestors(own))
-    ):
+    if registry.is_a(type_name, "iki/core.App") or registry.is_a(type_name, VIEW):
         return Action.RUN_EDIT_APP if by_run else Action.APP_EDIT
     return Action.PROJECT_EDIT
 

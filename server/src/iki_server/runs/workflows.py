@@ -1069,7 +1069,7 @@ def _resolve(run: WorkflowRun, ref: str, runs: Mapping[str, list[ActionRun]]) ->
             .select_related("entity")
             .order_by("run_id", "id")
         )
-        found = [e.entity_id for e in made if services.is_a(e.entity.type, parts[3])]
+        found = [e.entity_id for e in made if registry.is_a(e.entity.type, parts[3])]
     else:
         found = list(
             RunInput.objects.filter(run__in=sources, name=parts[3])

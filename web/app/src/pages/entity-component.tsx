@@ -16,12 +16,11 @@ import { usePlaceEntities } from "../component-entities";
 import {
   componentsQuery,
   entityTabs,
-  lineageOf,
   type EntityTab,
   type PlaceInfo,
   type PluginComponent,
 } from "../components";
-import type { Entity, EntityType } from "../entities";
+import { lineageOf, type Entity, type EntityType } from "../entities";
 import { usePageTitle } from "../layout";
 import { actionsQuery } from "../runs";
 import { useEntity } from "./entity";

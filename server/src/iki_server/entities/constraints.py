@@ -141,8 +141,7 @@ def wanted() -> tuple[Constraint, ...]:
 @cache
 def constraints_of(type_name: str) -> tuple[Constraint, ...]:
     """Those a type's records keep: declared on it, an ancestor, or an extension of one."""
-    entity_type = registry.types()[type_name]
-    names = {type_name} | {t.qualified_name for t in registry.ancestors(entity_type)}
+    names = set(registry.effective(type_name).chain)
     return tuple(c for c in wanted() if c.type_name in names)
 
 

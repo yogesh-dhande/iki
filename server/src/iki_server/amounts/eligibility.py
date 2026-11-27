@@ -20,17 +20,13 @@ from iki_spec.model import Guard
 @cache
 def draw_guards(type_name: str) -> tuple[Guard, ...]:
     """The type's draw guards, including every ancestor's."""
-    entity_type = registry.types()[type_name]
-    chain = [*reversed(registry.ancestors(entity_type)), entity_type]
-    return tuple(g for t in chain for g in t.draw_guards.values())
+    return tuple(registry.effective(type_name).draw_guards.values())
 
 
 @cache
 def purpose_roles(type_name: str) -> dict[str, tuple[str, ...]]:
     """For each declared draw purpose, the roles on the nearest declaring type."""
-    entity_type = registry.types()[type_name]
-    chain = [*reversed(registry.ancestors(entity_type)), entity_type]
-    return {purpose: by for t in chain for purpose, by in t.draw_purposes.items()}
+    return dict(registry.effective(type_name).draw_purposes)
 
 
 def purpose_refusal(
