@@ -55,7 +55,7 @@ within each domain, each from a copy's cysteine to another's.
     `igm`, `ige` and `igd`; a rat's `igg1`, `igg2a`, `igg2b`, `igg2c`, `iga`,
     `igm`, `ige` and `igd`; and a rabbit's `igg`, `iga`, `igm` and `ige`. A
     chimeric or humanized antibody's constant region is human, whatever its
-    variable domains are.
+    variable domains are ([ADR 0265](../../docs/adr/0265-an-antibodys-isotype-is-named-by-its-constant-regions-species.md)).
 
 - **Other architectures.** An antibody of more than one kind of heavy or light
   chain (a bispecific IgG, a CrossMab, a DVD-Ig with two light chains) or more
