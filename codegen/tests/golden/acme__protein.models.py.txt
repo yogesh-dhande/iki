@@ -648,6 +648,93 @@ class Box_History(models.Model):
         db_table = 'acme__protein_box__history'
 
 
+class CaseFinding(Entity):
+    """Case finding (acme/protein.CaseFinding), schema version 1."""
+
+    IKI_TYPE = 'acme/protein.CaseFinding'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    case = models.ForeignKey('ReleaseCase', models.PROTECT, related_name='+')
+    finding = models.TextField(null=True)
+    review = models.CharField(
+        max_length=50,
+        db_comment="A review state (ADR 0301): one of its pinned procedure flow's states.",
+    )
+    review_procedure = models.CharField(max_length=160, null=True, db_index=True)
+    review_flow = models.CharField(max_length=50, null=True, db_index=True)
+
+    class Meta:
+        db_table = 'acme__protein_casefinding'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('finding'), 1),
+                name='acme__protein_casefinding__finding__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=LessThanOrEqual(Length('finding'), 2000),
+                name='acme__protein_casefinding__finding__max_length',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('review_procedure'), 1),
+                name='acme__protein_casefinding__review_procedure__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(review_procedure__regex='[\\r\\n]'),
+                name='acme__protein_casefinding__review_procedure__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('review_flow'), 1),
+                name='acme__protein_casefinding__review_flow__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(review_flow__regex='[\\r\\n]'),
+                name='acme__protein_casefinding__review_flow__one_line',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                SearchVector(Left('finding', 100000), config='simple'),
+                name='finding_fts_3a3da19ab17503eaa8',
+            ),
+            GinIndex(
+                fields=['review_procedure'],
+                opclasses=['gin_trgm_ops'],
+                name='review_pro_trgm_a2e436bbc249e2',
+            ),
+            GinIndex(
+                fields=['review_flow'],
+                opclasses=['gin_trgm_ops'],
+                name='review_flo_trgm_9367572c86525e',
+            ),
+        ]
+
+
+class CaseFinding_History(models.Model):
+    """The history of acme__protein_casefinding: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'CaseFinding'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    case = models.UUIDField(db_column='case_id', null=True)
+    finding = models.TextField(null=True)
+    review = models.TextField(null=True)
+    review_procedure = models.TextField(null=True)
+    review_flow = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_casefinding__history'
+
+
 class ClientRank(Entity):
     """Client rank (acme/protein.ClientRank), schema version 1. Where a core ranks a project it serves (ADR 0232), by the project's slug."""
 
@@ -1033,6 +1120,38 @@ class Lot_inputs(models.Model):
                 name='acme__protein_lot__inputs__position__max_items',
             ),
         ]
+
+
+class GmpLot(Lot):
+    """GMP lot (acme/protein.GmpLot), schema version 1. A lot made under GMP, which names its protein and yields a weighable amount."""
+
+    IKI_TYPE = 'acme/protein.GmpLot'
+
+    lot_ptr = models.OneToOneField(
+        Lot,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+
+    class Meta:
+        db_table = 'acme__protein_gmplot'
+
+
+class GmpLot_History(models.Model):
+    """The history of acme__protein_gmplot: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'GmpLot'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = 'acme__protein_gmplot__history'
 
 
 class MethodCategory(Entity):
@@ -1843,6 +1962,111 @@ class PurificationMethod_Entry_History(models.Model):
         db_table = 'acme__protein_purificationmethod__entry__history'
 
 
+class PurityCheck(Entity):
+    """Purity check (acme/protein.PurityCheck), schema version 1. A protein's purity by SEC, reviewed under the procedure its project chose."""
+
+    IKI_TYPE = 'acme/protein.PurityCheck'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    purity = models.FloatField(null=True)
+    review = models.CharField(
+        max_length=50,
+        db_comment="A review state (ADR 0301): one of its pinned procedure flow's states.",
+    )
+    review_procedure = models.CharField(max_length=160, null=True, db_index=True)
+    review_flow = models.CharField(max_length=50, null=True, db_index=True)
+
+    class Meta:
+        db_table = 'acme__protein_puritycheck'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(purity__gt=float('-inf'), purity__lt=float('inf')),
+                name='acme__protein_puritycheck__purity__finite',
+            ),
+            models.CheckConstraint(
+                condition=Q(purity__gte=0),
+                name='acme__protein_puritycheck__purity__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(purity__lte=100),
+                name='acme__protein_puritycheck__purity__max',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('review_procedure'), 1),
+                name='acme__protein_puritycheck__review_procedure__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(review_procedure__regex='[\\r\\n]'),
+                name='acme__protein_puritycheck__review_procedure__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('review_flow'), 1),
+                name='acme__protein_puritycheck__review_flow__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(review_flow__regex='[\\r\\n]'),
+                name='acme__protein_puritycheck__review_flow__one_line',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['review_procedure'],
+                opclasses=['gin_trgm_ops'],
+                name='review_pro_trgm_23f04a6e06aab7',
+            ),
+            GinIndex(
+                fields=['review_flow'],
+                opclasses=['gin_trgm_ops'],
+                name='review_flo_trgm_e3774c70151a7f',
+            ),
+        ]
+
+
+class PurityCheck_History(models.Model):
+    """The history of acme__protein_puritycheck: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'PurityCheck'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    purity = models.FloatField(null=True)
+    analysts = ArrayField(models.UUIDField(), null=True)
+    review = models.TextField(null=True)
+    review_procedure = models.TextField(null=True)
+    review_flow = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_puritycheck__history'
+
+
+class PurityCheck_analysts(models.Model):
+    """The items of acme/protein.PurityCheck.analysts, in order."""
+
+    IKI_LIST_OF = ('PurityCheck', 'analysts')
+
+    pk = models.CompositePrimaryKey('entity', 'position')
+    entity = models.ForeignKey(
+        'PurityCheck',
+        models.CASCADE,
+        db_column='entity_id',
+        related_name='+',
+    )
+    position = models.PositiveIntegerField()
+    item = models.ForeignKey(User, models.PROTECT, related_name='+')
+
+    class Meta:
+        db_table = 'acme__protein_puritycheck__analysts'
+
+
 class Rack(Entity):
     """Rack (acme/protein.Rack), schema version 1. A freezer rack of four shelves of five boxes (ADR 0180)."""
 
@@ -1927,6 +2151,82 @@ class RankedAssayRequest_History(models.Model):
 
     class Meta:
         db_table = 'acme__protein_rankedassayrequest__history'
+
+
+class ReleaseCase(Entity):
+    """Release case (acme/protein.ReleaseCase), schema version 1. Opens a lot's release, whose findings follow the procedure it was opened under."""
+
+    IKI_TYPE = 'acme/protein.ReleaseCase'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    lot_code = models.CharField(max_length=40)
+    review_procedure = models.CharField(max_length=160, null=True, db_index=True)
+    review_flow = models.CharField(max_length=50, null=True, db_index=True)
+
+    class Meta:
+        db_table = 'acme__protein_releasecase'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('lot_code'), 1),
+                name='acme__protein_releasecase__lot_code__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(lot_code__regex='[\\r\\n]'),
+                name='acme__protein_releasecase__lot_code__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('review_procedure'), 1),
+                name='acme__protein_releasecase__review_procedure__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(review_procedure__regex='[\\r\\n]'),
+                name='acme__protein_releasecase__review_procedure__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('review_flow'), 1),
+                name='acme__protein_releasecase__review_flow__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(review_flow__regex='[\\r\\n]'),
+                name='acme__protein_releasecase__review_flow__one_line',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['review_procedure'],
+                opclasses=['gin_trgm_ops'],
+                name='review_pro_trgm_8ce81e0a0e99cd',
+            ),
+            GinIndex(
+                fields=['review_flow'],
+                opclasses=['gin_trgm_ops'],
+                name='review_flo_trgm_1edf5bf9ebb5aa',
+            ),
+        ]
+
+
+class ReleaseCase_History(models.Model):
+    """The history of acme__protein_releasecase: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'ReleaseCase'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    lot_code = models.TextField(null=True)
+    review_procedure = models.TextField(null=True)
+    review_flow = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_releasecase__history'
 
 
 class Tube(Entity):
