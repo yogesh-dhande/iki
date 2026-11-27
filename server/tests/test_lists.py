@@ -11,10 +11,11 @@ from typing import Any
 import pytest
 from api_client import Api, problem
 from org_world import World, build_world, post
+from test_states import QA
 
 from iki_server.audit.models import AuditEvent
-from iki_server.entities import lists, registry
-from iki_server.entities.models import Entity
+from iki_server.entities import checking, lists, registry
+from iki_server.entities.models import Entity, RuleHold
 from iki_server.notifications.models import Notification
 from iki_server.org.models import (
     ListCurator,
@@ -23,7 +24,7 @@ from iki_server.org.models import (
     ProjectRole,
     Registry,
 )
-from iki_spec.model import ListSpec
+from iki_spec.model import ListSpec, Rule
 
 pytestmark = pytest.mark.django_db
 
@@ -541,6 +542,62 @@ def test_a_wrong_code_is_superseded_and_each_project_moves_its_records(
     assert AuditEvent.objects.get(action="list.references_moved").data["repointed"] == [
         mine["hrid"]
     ]
+
+
+@pytest.mark.parametrize("held", [True, False], ids=["holds", "refuses"])
+def test_moving_records_to_the_replacement_keeps_the_types_rules(
+    world: World, monkeypatch: pytest.MonkeyPatch, held: bool
+) -> None:
+    """A move is a save like any other (ADR 0127): a rule that holds holds the record with
+    the move's reason, and one that refuses keeps every record as it was."""
+    editor, admin = api_as(world, "editor"), registrar(world)
+    old = admin.post(OPTIONS, {"code": "ion_x", "label": "Ion exchange"}, **scope(world)).json()
+    first = prep(editor, world.project, {"name": "Prep 1", "method": old["id"]}).json()
+    second = prep(
+        editor, world.project, {"name": "Prep 2", "steps": [{"method": old["id"], "note": "Q"}]}
+    ).json()
+    new = admin.post(OPTIONS, {"code": "aex", "label": "Anion exchange"}, **scope(world)).json()
+    superseded = admin.post(
+        f"{OPTIONS}/ion_x/supersede",
+        {"replacement": "aex", "reason": "Say which exchange"},
+        **scope(world),
+    )
+    assert superseded.status_code == 200, superseded.content
+    rule = Rule(
+        name="not_anion_exchange",
+        label="Not anion exchange",
+        plugin="acme/protein",
+        check='record.method == null || record.method.code != "aex"',
+        message="Anion exchange preps need QA's review.",
+        hold=(QA,) if held else (),
+        reads=("method",),
+        fields=("method",),
+    )
+    checks = checking.checks_of
+    monkeypatch.setattr(
+        checking, "checks_of", lambda t: (*checks(t), rule) if t == PREP else checks(t)
+    )
+    moved = editor.post(
+        f"{OPTIONS}/ion_x/move", {"project": str(world.project.pk), "reason": "The new code"}
+    )
+    values = {
+        made["hrid"]: editor.get(f"/entities/{made['id']}").json()["values"]
+        for made in (first, second)
+    }
+    if held:
+        assert moved.status_code == 200, moved.content
+        assert moved.json()["moved"] == sorted([first["hrid"], second["hrid"]])
+        assert values[first["hrid"]]["method"] == new["id"]
+        assert values[second["hrid"]]["steps"][0]["method"] == new["id"]
+        hold = RuleHold.objects.get(entity_id=first["id"])
+        assert hold.reason == "The new code" and hold.reviewed_at is None
+        assert not RuleHold.objects.filter(entity_id=second["id"]).exists()
+    else:
+        body = problem(moved, 409, "refused")
+        assert first["hrid"] in body["detail"] and "Anion exchange preps" in body["detail"]
+        assert values[first["hrid"]]["method"] == old["id"]
+        assert values[second["hrid"]]["steps"][0]["method"] == old["id"]
+        assert not AuditEvent.objects.filter(action="list.references_moved").exists()
 
 
 def test_a_download_names_an_option_by_its_code(world: World) -> None:

@@ -414,10 +414,11 @@ def move(user: User, record: Entity, *, reason: str) -> Moved:
 
 def _repoint(user: User, project: Project, old: Entity, new: Entity, reason: str) -> list[Entity]:
     """The project's own records that refer to ``old``, referring to ``new`` instead, each
-    a revision: immutable references too, as the entry they named was a mistake. Archived
-    records keep theirs, as do locked ones (ADR 0125) and those of a detached plugin's
-    types."""
-    done: list[Entity] = []
+    a revision with the reason: immutable references too, as the entry they named was a
+    mistake. Each is saved as any edit is, so its rules and holds are checked, the checks
+    that read what changed are cleared and run again, and whoever watches it is told.
+    Archived records keep theirs, as do locked ones (ADR 0125) and a detached plugin's."""
+    changes: dict[Any, dict[str, Any]] = {}
     own = Entity.objects.filter(
         owner_project=project, archived_at__isnull=True, purged_at__isnull=True, locked_by=[]
     )
@@ -428,11 +429,12 @@ def _repoint(user: User, project: Project, old: Entity, new: Entity, reason: str
         form = shape(qualified)
         if services.frozen(form) is not None:
             continue
+        kept = services._kept(form)
         for part in form.parts:
             if part.entry:
                 continue
             for name, f in part.fields.items():
-                if f.removed:
+                if f.removed or name in kept:
                     continue
                 kind = f.items.type if f.type == "list" and f.items is not None else f.type
                 if kind == "row":
@@ -444,10 +446,12 @@ def _repoint(user: User, project: Project, old: Entity, new: Entity, reason: str
                 ids = _referring(part, f, name, old.pk) & set(
                     own.filter(type=qualified).values_list("pk", flat=True)
                 )
-                for pk in sorted(ids, key=str):
-                    _repoint_one(user, form, part, f, name, pk, old.pk, new.pk, reason)
-                    done.append(Entity.objects.get(pk=pk))
-    return sorted({e.pk: e for e in done}.values(), key=lambda e: e.hrid)
+                for pk in ids:
+                    changes.setdefault(pk, {})[name] = f
+    done = [
+        _repoint_one(user, changes[pk], pk, old, new, reason) for pk in sorted(changes, key=str)
+    ]
+    return sorted(done, key=lambda e: e.hrid)
 
 
 def _referring(part: Any, f: Any, name: str, target: Any) -> set[Any]:  # noqa: ANN401
@@ -470,28 +474,46 @@ def _referring(part: Any, f: Any, name: str, target: Any) -> set[Any]:  # noqa: 
 
 def _repoint_one(
     user: User,
-    form: Any,  # noqa: ANN401 - a Shape
-    part: Any,  # noqa: ANN401 - a Part
-    f: Any,  # noqa: ANN401 - a Field
-    name: str,
-    pk: Any,  # noqa: ANN401
-    old: Any,  # noqa: ANN401
-    new: Any,  # noqa: ANN401
+    fields: Mapping[str, Any],
+    pk: Any,  # noqa: ANN401 - a UUID
+    old: Entity,
+    new: Entity,
     reason: str,
-) -> None:
+) -> Entity:
+    """One record's references to ``old`` naming ``new``, in one save through
+    :func:`services.update`, as every save is: a rule it would break refuses the move, a
+    rule that holds holds the record with the move's reason."""
     locked = Entity.objects.select_for_update().get(pk=pk)
     rows = services.Rows.of(services.specific(locked))
-    current = rows.value(part, f)
-    if f.is_rows:
-        refs = [n for n, cell in f.items.fields.items() if cell.type == "ref"]
-        value = [{n: new if n in refs and v == old else v for n, v in r.items()} for r in current]
-    elif f.type == "list":
-        value = [new if item == old else item for item in current]
-    else:
-        value = new
-    touched = services._write(form, rows, {name: value}, locked.pk)
-    revision = services._revise(locked, RevisionKind.EDITED, [name], user, reason)
-    services._write_history(touched, rows, revision.number)
+    was, now = str(old.pk), str(new.pk)
+    values: dict[str, Any] = {}
+    for name, f in fields.items():
+        current = to_json(f, rows.get(name))
+        if f.is_rows:
+            refs = {n for n, cell in f.items.fields.items() if cell.type == "ref"}
+            values[name] = [
+                {n: now if n in refs and v == was else v for n, v in row.items()} for row in current
+            ]
+        elif f.type == "list":
+            values[name] = [now if item == was else item for item in current]
+        else:
+            values[name] = now
+    try:
+        services.update(
+            user,
+            locked,
+            values,
+            expected_revision=locked.revision,
+            reason=reason,
+            hold_reason=reason,
+            _repointing=frozenset(values),
+        )
+    except Invalid as error:
+        said = " ".join(m for messages in error.errors.values() for m in messages)
+        raise Refused(
+            f"{locked.hrid} can't refer to {new.hrid} instead of {old.hrid}: {said}"
+        ) from None
+    return Entity.objects.get(pk=pk)
 
 
 # --- Adding a record ----------------------------------------------------------------------------
