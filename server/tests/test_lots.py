@@ -45,10 +45,16 @@ __all__ = ["database"]
 
 
 def _lots() -> Any:
+    # The worker runs it from its scripts directory, where it imports `weights` beside it.
+    scripts = str(LOTS / "scripts")
     spec = importlib.util.spec_from_file_location("lots_script", LOTS / "scripts" / "lots.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    sys.path.insert(0, scripts)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.remove(scripts)
     return module
 
 
@@ -342,6 +348,23 @@ def test_an_oligo_lots_mass_is_checked_against_its_named_specification() -> None
         assert [row[0].value for row in outcomes] == [ok for _, ok in rows], name
 
 
+def test_what_a_calculation_or_rule_reads_of_a_method_is_fixed() -> None:
+    """A concentration method's calculation, which a lot's run works from, and a molar
+    mass method's averages, which a polymer lot's rules check, are fixed once an option is
+    added (ADR 0143, ADR 0270): a curator can't change what records already made were
+    worked out by; a wrong one is superseded, and its lots moved to the replacement."""
+    plugin = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS]).plugin
+    assert plugin is not None
+    read = {
+        "iki/lots.DNAConcentrationMethod": "calculation",
+        "iki/lots.ProteinConcentrationMethod": "calculation",
+        "iki/lots.MolarMassMethod": "averages",
+    }
+    assert {t: plugin.types[t].fields[f].immutable for t, f in read.items()} == dict.fromkeys(
+        read, True
+    )
+
+
 def test_each_kind_of_lot_works_out_its_values_when_its_recorded_and_measured() -> None:
     result = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS])
     assert result.plugin is not None
@@ -525,6 +548,60 @@ def test_mass_tolerance_has_no_unstated_margin(
         | {"included": {"oligonucleotide": [{"values": {"molecular_weight": 1000.0}}]}},
     )
     assert "outside ±0.1 Da" in capsys.readouterr().out
+
+
+#: Measured masses just at, inside and outside their tolerance, as a lab's ESI-MS
+#: specification gives them: (expected, basis, measured, tolerance). A difference exactly
+#: at its tolerance is within it, however its decimals land in binary.
+AT_THE_BOUNDS = [
+    (10093.79122, "monoisotopic", 10093.84122, 0.05),
+    (13050.98571, "monoisotopic", 13050.93571, 0.05),
+    (3101.74315, "monoisotopic", 3101.76315, 0.02),
+    (4094.9161, "average", 4097.9161, 3.0),
+    (5554.9825, "monoisotopic", 5555.03254, 0.05001),
+    (5554.9825, "monoisotopic", 5555.03250, 0.05001),
+    (1000.0, "average", 1000.1000005, 0.1),
+    (1000.0, "average", 999.8999995, 0.1),
+    (7182.2, "average", 7180.2, 2.0),
+    (7182.2, "average", 7184.20001, 2.0),
+]
+
+
+def test_the_lots_rule_and_its_run_agree_on_a_mass_at_its_tolerance(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The rule that holds a lot (iki-wasm's CEL, at every save) and the run's log say the
+    same of every measured mass: within it, or outside it."""
+    plugin = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS]).plugin
+    assert plugin is not None
+    spec = plugin.types["iki/lots.OligoLot"]
+    check = spec.rules["mass_within_tolerance"].check
+    assert check is not None
+    masses = {
+        "type": "object",
+        "label": "Oligonucleotide",
+        "fields": {
+            "monoisotopic_mass": {"type": "double"},
+            "molecular_weight": {"type": "double"},
+        },
+    }
+    record = rules.record_schema(spec.label, spec.fields, None)
+    record["fields"]["oligonucleotide"] = masses
+    contexts = []
+    entities = []
+    for i, (expected, basis, measured, tolerance) in enumerate(AT_THE_BOUNDS, 1):
+        field = "monoisotopic_mass" if basis == "monoisotopic" else "molecular_weight"
+        values = {"measured_mass": measured, "mass_basis": basis, "mass_tolerance": tolerance}
+        contexts.append({"record": values | {"oligonucleotide": {field: expected}}})
+        entities.append(
+            lot(i, **values) | {"included": {"oligonucleotide": [{"values": {field: expected}}]}}
+        )
+    held = rules.evaluate(rules.rule_variables(record), [(check, rules.CONDITION)], contexts)
+    compute("oligo", *entities)
+    said = [line for line in capsys.readouterr().out.splitlines() if " Da, " in line]
+    assert [o[0].error for o in held] == [None] * len(AT_THE_BOUNDS)
+    assert [o[0].value for o in held] == [", within ±" in line for line in said]
+    assert [o[0].value for o in held] == [True] * 4 + [False, True, False, False, True, False]
 
 
 @pytest.mark.parametrize(

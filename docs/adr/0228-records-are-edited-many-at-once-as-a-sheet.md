@@ -58,6 +58,15 @@ there. It feels like a plain spreadsheet:
   and says so.
 - Undo and redo (Ctrl/Cmd+Z, Shift+Ctrl/Cmd+Z) step back through every edit,
   paste and fill until Save. **Nothing is written until Save.**
+- **Rows don't move under the person typing.** The table reads its records
+  again as it goes (when the window gets focus, say), and sorted by when they
+  changed, someone else's save moves a record to the top. The sheet keeps each
+  record's row where it first was, shows a record no one has typed in as it is
+  now, adds records it hadn't loaded at the end, and keeps a changed record
+  even when it leaves the table. The selection is held by record, so a typed
+  value or a paste goes where it was aimed.
+- Leaving with changes unsaved (a link, Back, the command palette, closing
+  the tab) asks first; staying keeps them.
 
 Columns are the record's ID, then the type's importable fields in the type's
 order, as its import template lists them, then the new rows' Location and

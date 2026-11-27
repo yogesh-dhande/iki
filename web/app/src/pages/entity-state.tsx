@@ -4,11 +4,11 @@
  * not of the others.
  */
 
-import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
+import { unwrap, type Schemas } from "@ikisci/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 
-import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
+import { fieldErrors, iki, isStale, problemOf, useApiMutation, useOpenedRevision } from "../api";
 import {
   ENTITIES,
   editReturns,
@@ -258,21 +258,20 @@ function SetStateDialog({
   const client = useQueryClient();
   const target = options.find((o) => o.name === state);
   const set = useApiMutation(
-    async () =>
+    async (header: { "If-Match": string }) =>
       unwrap(
         await iki.POST("/api/v1/entities/{ref}/states/{field}", {
-          params: {
-            path: { ref: entity.id, field: field.name },
-            header: { "If-Match": `"${String(entity.revision)}"` },
-          },
+          params: { path: { ref: entity.id, field: field.name }, header },
           body: { state, reason: reason.trim() },
         }),
       ),
     // Its new state may make it someone's work, or no longer (ADR 0122).
     [ENTITIES, WORK],
   );
+  // From the revision the person opened it at, which they reviewed.
+  const opened = useOpenedRevision(entity.revision, { error: set.error });
   const problem = set.error ? problemOf(set.error) : undefined;
-  const stale = set.error instanceof ApiError && set.error.problem.code === "stale";
+  const stale = isStale(set.error);
   const errors = fieldErrors(problem);
   const reasonError =
     errors["reason"] ??
@@ -304,7 +303,7 @@ function SetStateDialog({
           setMissing(true);
           return;
         }
-        set.mutate(undefined, {
+        set.mutate(opened.ifMatch, {
           onSuccess: (saved) => {
             client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
             onClose();

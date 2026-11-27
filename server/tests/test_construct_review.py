@@ -23,9 +23,8 @@ PLUGIN = "acme/construct_review"
 REVIEW = f"{PLUGIN}.ReviewedAssembly"
 
 
-def test_selected_construct_review_checks_current_evidence_and_notifies_its_subscribers(
-    tmp_path: Path, database: str
-) -> None:
+def installed(tmp_path: Path, database: str, exercise: str) -> None:
+    """The construct-review example over plasmid, installed, and ``exercise`` run in it."""
     example = ROOT / "examples/plugins/construct_review"
     dependencies = build_order(PLUGINS / "plasmid")
     made(example, *withs(dependencies), "--check", "--no-input", cwd=ROOT)
@@ -37,12 +36,23 @@ def test_selected_construct_review_checks_current_evidence_and_notifies_its_subs
     orm(
         build,
         database,
-        """
-        from test_construct_review import exercise_review
-        exercise_review()
-        result = {}
-        """,
+        f"from test_construct_review import {exercise}\n{exercise}()\nresult = {{}}",
     )
+
+
+def test_selected_construct_review_checks_current_evidence_and_notifies_its_subscribers(
+    tmp_path: Path, database: str
+) -> None:
+    installed(tmp_path, database, "exercise_review")
+
+
+def test_moving_to_a_corrected_backbone_clears_the_plans_comparison(
+    tmp_path: Path, database: str
+) -> None:
+    """A registrar supersedes the backbone entry an assembly names, and its project moves its
+    records to the replacement: the comparison made against the old backbone is cleared, as
+    any edit of the backbone clears it, so no one verifies the plan on it (ADR 0115)."""
+    installed(tmp_path, database, "exercise_move")
 
 
 def exercise_review() -> None:
@@ -108,3 +118,67 @@ def exercise_review() -> None:
     refused("mixed", "verified", "independent_verifier")
     assert set_(world, "admin", ref, "status", "verified")["locked"]
     assert_recipients("verified")
+
+
+def exercise_move() -> None:
+    from iki_server.entities import entries
+    from iki_server.org import registries
+    from iki_server.org.models import Project, ProjectMembership, ProjectRole, Registry
+
+    world = build_world()
+    reviewer = f"{PLUGIN}.construct_reviewer"
+    roles(world, editor=(f"{PLUGIN}.cloner", reviewer), admin=(reviewer,))
+    editor = world.users["editor"]
+    core = Project.objects.create(team=world.team, name="Vector Core")
+    ProjectMembership.objects.create(project=core, user=editor, role=ProjectRole.EDITOR)
+
+    def make(kind: str, values: dict[str, Any], project: Any = None) -> Entity:
+        entity = services.create(editor, kind, project or world.project, values).entity
+        assert isinstance(entity, Entity)
+        return entity
+
+    # pUC19's backbone was registered with a mistyped base; the core holds the right one.
+    wrong = make("iki/dna.DNASequence", {"bases": "TCGCGCGTTTCGGTGATGAC", "topology": "linear"})
+    right = make(
+        "iki/dna.DNASequence", {"bases": "TCGCGCGTTTCGGTGATGAG", "topology": "linear"}, core
+    )
+    product = make(
+        "iki/dna.DNASequence", {"bases": "TCGCGCGTTTCGGTGATGAC", "topology": "linear"}, core
+    )
+    reviewed = make(
+        REVIEW,
+        {"backbone": str(wrong.entry_id), "method": "gibson", "product": str(product.entry_id)},
+    )
+    ref = str(reviewed.pk)
+    reviewed.refresh_from_db()
+    services.update(
+        world.users["admin"],
+        reviewed,
+        {"matches_product": True},
+        expected_revision=reviewed.revision,
+        by_run=True,
+    )
+    set_(world, "editor", ref, "status", "checked")
+    set_(world, "editor", ref, "status", "built")
+
+    auditor = world.users["auditor"]
+    registries.appoint(Registry.default(), auditor, by=world.users["org_admin"])
+    assert wrong.entry_id is not None and right.entry_id is not None
+    entries.supersede(
+        auditor,
+        Entity.objects.get(pk=wrong.entry_id),
+        Entity.objects.get(pk=right.entry_id),
+        reason="Registered with a mistyped final base",
+    )
+    moved = entries.move(editor, wrong, reason="To the corrected backbone")
+    assert [e.pk for e in moved.repointed] == [reviewed.pk]
+    now = services.current_values_of([reviewed])[reviewed.pk]
+    assert str(now["backbone"]) == str(right.entry_id)
+    assert now["matches_product"] is None
+    # The move queued the comparison against the corrected backbone, as the edit's.
+    firing = TriggerFiring.objects.get(
+        entity=reviewed, trigger__trigger="iki/plasmid.check_stated_product"
+    )
+    assert firing.editor == editor
+    refused = put(world, "admin", ref, "status", "verified")
+    assert problem(refused, 409, "guard_refused")["guard"] == "the_plan_still_matches"

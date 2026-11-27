@@ -44,14 +44,24 @@ permissions of study material when planning the windows.
    appearance that matches its description or doesn't (ICH Q6A).
    - A full design plans every condition at every time point, and every test at
      every pull.
-   - A reduced design, bracketed or matrixed as ICH Q1D describes, plans only
-     some. Under **Test plan** it lists which tests each condition and time point
-     gets. Its **Design justification** says why and where the protocol justifies
-     it. Scheduling refuses a reduced design without one. Scheduling checks the material declared by the lot type against the
-     material on the study. For a strain isolate, choose the same isolate lot as
-     both the material and the lot. List the attributes to measure,
-     the method and its revision, and the reporting unit. Use a new linked study
-     record when the protocol changes.
+   - A reduced schedule plans only some. Under **Test plan** it lists which tests
+     each condition and time point gets, such as a sterility test at the first and
+     last time points only. Its **Design justification** says why and where the
+     protocol justifies it. Scheduling refuses a reduced schedule without one.
+   - A study is one lot, so it isn't an ICH Q1D design by itself. Q1D brackets or
+     matrixes across lots, strengths or container sizes and fills, and it doesn't
+     matrix across test attributes (Q1D §2.3 and §2.4). Iki doesn't lay out a Q1D
+     design across studies. A lab running one plans each lot's study as the design
+     assigns it, and its justification names the design. Under a time-point matrix,
+     Q1D tests every combination at the initial and final time points, and at three
+     or more time points, the initial one included, in the first 12 months (§2.4.2).
+     Iki doesn't check those.
+
+   Scheduling checks the material declared by the lot type against the material on
+   the study. For a strain isolate, choose the same isolate lot as both the material
+   and the lot. List the attributes to measure, the method and its revision, and the
+   reporting unit. Use a new linked study record when the protocol changes.
+
 2. In **Schedule**, run **Schedule stability pulls**. The run generates each
    planned pull with its due date and inclusive opening and closing dates, and
    the tests it gets. A month is a calendar-month anniversary. Shorter months use

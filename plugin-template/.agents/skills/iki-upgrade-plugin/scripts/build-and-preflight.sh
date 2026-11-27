@@ -23,5 +23,13 @@ esac
 
 build=$(mktemp -d "${TMPDIR:-/tmp}/iki-skill-preflight.XXXXXXXX")
 trap 'rm -rf "$build"' EXIT
-iki plugin build "$@" --output "$build" >&2
-iki plugin preflight "$build/iki_plugin_${plugin%/*}__${plugin#*/}/manifest.json" --json
+# A candidate that doesn't build has no report to review: an input error (2), not the
+# review exit (1) that preflight's findings get.
+if ! iki plugin build "$@" --output "$build" >&2; then
+  printf '%s\n' "The candidate didn't build, so it wasn't preflighted: see the errors above." >&2
+  exit 2
+fi
+# Preflight's own exit: 0 clear, 1 findings to review, 2 an input, connection or access error.
+status=0
+iki plugin preflight "$build/iki_plugin_${plugin%/*}__${plugin#*/}/manifest.json" --json || status=$?
+exit "$status"

@@ -83,3 +83,30 @@ def test_refuses_an_unknown_flow(capture: Any) -> None:
     doc["settings"] = {"review_flow": "two_person"}
     with pytest.raises(ValueError, match="supported experiment review flow"):
         capture(doc)
+
+
+@pytest.mark.parametrize("flow", ["author_signed", "research"])
+def test_a_record_captured_for_regulated_qc_finishes_that_review(
+    capture: Any, flow: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ADR 0240: a submission returned for correction isn't closed by a laxer flow the
+    project chose since."""
+    doc = run(
+        observations=[{"observed_at": "2025-07-01T09:30:00Z", "note": "Synthetic"}],
+        review_flow="regulated_qc",
+    )
+    doc["settings"] = {"review_flow": flow}
+    [update] = capture(doc)["updates"]["experiment"]
+    assert update["values"]["review_flow"] == "regulated_qc"
+    assert "stays in that review" in capsys.readouterr().out
+
+
+def test_a_record_not_captured_for_regulated_qc_follows_the_projects_flow(capture: Any) -> None:
+    doc = run(
+        observations=[{"observed_at": "2025-07-01T09:30:00Z", "note": "Synthetic"}],
+        review_flow="research",
+    )
+    doc["settings"] = {"review_flow": "regulated_qc"}
+    assert capture(doc)["updates"]["experiment"][0]["values"]["review_flow"] == "regulated_qc"
+    doc["settings"] = {"review_flow": "author_signed"}
+    assert capture(doc)["updates"]["experiment"][0]["values"]["review_flow"] == "author_signed"
