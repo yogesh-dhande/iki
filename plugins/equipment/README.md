@@ -41,10 +41,18 @@ the appointment and start its review again.
 
 ## Service and use
 
+A new instrument is due for calibration. An instrument outside the calibration
+program, such as a centrifuge, is set to **Not required** by an Engineer or QA,
+who says why. It's still booked and serviced, and its schedule says no
+calibration is due.
+
 1. On the appointment, record the time, performer, outcome and original
-   report. For successful work, enter when the next check is due. Choose
-   calibration intervals based on the written program, the instrument and
-   the measurement requirements. [NIST calibration interval guidance][nist-interval]
+   report: a PDF certificate, the instrument's text or CSV export, a workbook,
+   or a scan or photo of a signed paper record. For a passing calibration,
+   enter when the next check is due. Choose calibration intervals based on the
+   written program, the instrument and the measurement requirements. Completed
+   maintenance gives a next due time when its procedure sets an interval, and
+   is otherwise done once it's signed. [NIST calibration interval guidance][nist-interval]
 2. Use the instrument's Service schedule tab to see upcoming and overdue work.
    Its status uses the latest observed outcome, signed evidence, expiration
    time and the Instrument's own service and calibration states.
@@ -77,8 +85,11 @@ if there is a known calibration failure.
    uses and prior impacts for this instrument. The action opens one case for
    each use at or after the suspected onset and before the next signed
    passing calibration. Until a recovery is available, the window stays
-   open. Trace late evidence again. For a large history, select uses in
-   batches and include the complete calibration history in each batch.
+   open. The run's log says, for each failure, the interval it reviewed, how
+   many of the selected uses fell in it, and whether no recovery bounded it.
+   Only the selected uses are checked: trace late evidence again. For a large
+   history, select uses in batches and include the complete calibration
+   history in each batch.
 3. Open the **Calibration impact** tab, on the failed service record or on
    an affected result's own page, to review the results that need a
    disposition. A new case is pending review. Give each case a reasoned
