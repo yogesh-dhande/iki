@@ -34,12 +34,12 @@ fields:
   cysteines:
     type: enum
     values: [cystines, reduced]
-    default: cystines
     description: >-
       Whether its cysteines are paired as cystines, as a secreted protein's are, or
       reduced, as most of a cell's own proteins' are: which ε280 and molecular weight
       are used. A protein's cystines are its sequence's pairs of cysteines; a
       complex's are the disulfides its bonds place, each two hydrogens lighter and
-      125 L/(mol·cm) more.
+      125 L/(mol·cm) more. Left empty, they're taken as cystines, and its ε280 is
+      marked an estimate.
 display:
   title: "{{ lot_number or hrid }}"

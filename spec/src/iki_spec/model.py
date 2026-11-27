@@ -894,6 +894,8 @@ class DrawTarget:
     ready: str | None
     amount: str | None
     stored: bool = False
+    #: A field naming the planned amount's unit, for a float ``amount`` (ADR 0243).
+    unit: str | None = None
 
 
 @dataclass(frozen=True)

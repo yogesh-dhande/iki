@@ -2346,20 +2346,43 @@ def qc_release(alice: requests.Session, project: dict[str, Any]) -> None:
         or report["investigations"][0]["resolution"] != "invalidated"
     ):
         fail(f"{certificate['hrid']} lost the pinned data: {report}")
+    # The certificate states each criterion's final result and says it's for research,
+    # without the failed attempt or its investigation.
+    coa = certificate["values"]["coa"]
+    if [row["value"] for row in coa["results"]] != [99.9, 0.2] or "research" not in coa.get(
+        "intended_use", ""
+    ):
+        fail(f"{certificate['hrid']} states the wrong results: {coa}")
     sign(certificate, "review", "signed_off")
     proofs = api_call(alice, "GET", f"/entities/{certificate['id']}/signatures?verify=true").json()
     if len(proofs["items"]) != 1 or not proofs["items"][0]["verification"]["valid"]:
         fail(f"{certificate['hrid']} has no verifiable reviewer signature")
-    url = f"/entities/{certificate['id']}/export?format=signed-report-json"
+    # The certificate of analysis is issued, and signed, on its own: what's sent holds
+    # only what it states, and the record keeps the evidence.
+    issued = effect(
+        launch(alice, project, prefix + "issue_certificate", {"certificate": certificate["id"]}),
+        "CertificateOfAnalysis",
+    )
+    if issued["values"]["digest"] != certificate["values"]["coa_digest"]:
+        fail(f"{issued['hrid']} isn't the certificate {certificate['hrid']} names")
+    sign(issued, "review", "issued")
+    url = f"/entities/{issued['id']}/export?format=signed-report-json"
     receipt = api_call(alice, "GET", url)
+    shared = receipt.text
     if (
         receipt.status_code != 200
-        or receipt.json()["report"] != report
+        or receipt.json()["report"] != coa
         or len(receipt.json()["signatures"]) != 1
         or api_call(alice, "GET", url).content != receipt.content
     ):
-        fail(f"{certificate['hrid']} has no reproducible signed certificate download")
-    ok(f"{certificate['hrid']} pins an effective specification, original OOS and signed resolution")
+        fail(f"{issued['hrid']} has no reproducible signed certificate download")
+    held = [original["hrid"], investigation["hrid"], certificate["hrid"], "98.7", "specimen"]
+    if leaked := [text for text in held if text in shared]:
+        fail(f"{issued['hrid']}'s download carries its evidence: {leaked}")
+    ok(
+        f"{certificate['hrid']} pins an effective specification, original OOS and signed "
+        f"resolution; {issued['hrid']} states only its final results"
+    )
 
 
 def signing(
@@ -5001,9 +5024,18 @@ def stability_study(alice: requests.Session, project: dict[str, Any]) -> None:
                     "humidity_tolerance": 5,
                 }
             ],
-            "time_points": [{"month": 0, "days_before": 0, "days_after": 1}],
+            "time_points": [
+                {"code": "T0", "interval": 0, "unit": "month", "days_before": 0, "days_after": 1}
+            ],
             "assignments": [
-                {"condition": "long_term", "month": 0, "tube": tube["id"], "volume_ul": 12}
+                {
+                    "condition": "long_term",
+                    "time_point": "T0",
+                    "replicate": 1,
+                    "tube": tube["id"],
+                    "amount": 12,
+                    "amount_unit": "uL",
+                }
             ],
             "tests": [{"test": "Demo peak area", "method": "Synthetic method v1", "unit": "AU"}],
         },
@@ -5569,6 +5601,7 @@ def lots(alice: requests.Session, project: dict[str, Any]) -> None:
             "measured_mass": 7182.2,
             "mass_basis": "average",
             "mass_tolerance": 2,
+            "mass_specification": "ESI-MS identity, average mass (dev seed)",
         },
         {"value": 500, "unit": "nmol"},
     )
@@ -5614,13 +5647,23 @@ def lots(alice: requests.Session, project: dict[str, Any]) -> None:
         alice,
         project,
         "iki/lots.ProteinLot",
-        {"protein": protein["id"], "a280": 0.53, "dilution_factor": 10, "path_length": 1},
+        {
+            "protein": protein["id"],
+            "a280": 0.53,
+            "dilution_factor": 10,
+            "path_length": 1,
+            "cysteines": "cystines",
+        },
         {"value": 20, "unit": "mg"},
     )
     run = launch(alice, project, "iki/lots.compute_protein_lot", {"lot": lot["id"]})
     got = record(alice, lot["id"])["values"]
     # Its 4 cystines take 8 H off its sequence's 14,313.0 g/mol: 37,970 / 14,304.94.
-    if (got.get("a280_extinction"), got.get("concentration")) != (2.6543, 1.9967):
+    if (got.get("a280_extinction"), got.get("concentration"), got.get("a280_estimate")) != (
+        2.6543,
+        1.9967,
+        False,
+    ):
         fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 1.9967 mg/mL at 2.6543")
     ok(
         f"iki/lots.compute_protein_lot: {lot['hrid']}'s A280 of 0.53, diluted 1 in 10, is "
@@ -6274,7 +6317,13 @@ def fv_lot(alice: requests.Session, project: dict[str, Any], fv: dict[str, Any])
         alice,
         project,
         "iki/lots.ProteinLot",
-        {"protein": fv["entity"], "a280": 0.85, "dilution_factor": 10, "path_length": 1},
+        {
+            "protein": fv["entity"],
+            "a280": 0.85,
+            "dilution_factor": 10,
+            "path_length": 1,
+            "cysteines": "cystines",
+        },
         {"value": 5, "unit": "mg"},
     )
     run = launch(alice, project, "iki/lots.compute_protein_lot", {"lot": lot["id"]})

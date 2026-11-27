@@ -451,8 +451,15 @@ def _check_draw_target(
         raise Wrong({"used_in": [f"Put {container.hrid} in its storage position before drawing."]})
     if policy.amount is None:
         return None
-    unit = _fields(registry.types()[target.type])[policy.amount].unit
-    return Given.of({"value": values[policy.amount], "unit": unit})
+    planned = values[policy.amount]
+    if policy.unit is None:
+        unit = _fields(registry.types()[target.type])[policy.amount].unit
+    else:
+        # A float field's amount in the unit its record names (ADR 0243): 50, not 50.0.
+        unit = values[policy.unit]
+        if isinstance(planned, float) and planned.is_integer():
+            planned = int(planned)
+    return Given.of({"value": planned, "unit": unit})
 
 
 def _confirmed(user: User, entity: Entity, value: str | storage.Confirmation) -> str:

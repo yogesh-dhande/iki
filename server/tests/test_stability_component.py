@@ -61,12 +61,15 @@ def pull(number: int, *, condition: int = 0, **changes: Any) -> dict[str, Any]:
         "values": {
             "condition": settings["code"],
             "condition_label": settings["label"],
-            "month": number,
+            "time_point": f"M{number}",
+            "replicate": 1,
             "opens_on": "2020-03-01",
             "due_on": "2020-03-03",
             "closes_on": "2020-03-05",
             "tube": "a-tube-id",
-            "volume_ul": {"value": 10, "unit": "uL"},
+            "amount": 10,
+            "amount_unit": "uL",
+            "tests": ["Assay"],
             "status": "scheduled",
             **changes,
         },
@@ -81,7 +84,9 @@ def reading(number: int, *, condition: int = 0, **changes: Any) -> dict[str, Any
         "values": {
             "condition": settings["code"],
             "condition_label": settings["label"],
-            "month": number,
+            "time_point": f"M{number}",
+            "elapsed_days": 30 * number,
+            "replicate": 1,
             "pulled_on": "2020-03-08",
             "test": "Assay",
             "method": "Example method 1",
@@ -130,14 +135,20 @@ def test_pull_schedule_distinguishes_overdue_missed_and_late_pulls(
             pull(1),
             pull(2, status="missed"),
             pull(3, condition=1, status="pulled", pulled_on="2020-03-08", window_note="Tube held"),
-            pull(4, condition=1, status="pulled", pulled_on="2020-02-28", volume_ul=13),
+            pull(4, condition=1, status="pulled", pulled_on="2020-02-28", amount=13),
+            # A pull by mass, drawn as a volume at its tube's concentration, in duplicate.
+            pull(
+                5, amount=50, amount_unit="ug", replicate=2, status="pulled", pulled_on="2020-03-03"
+            ),
         ],
         more=True,
     )
     expect(page.get_by_role("button", name="Schedule pulls")).to_have_count(0)
     for status in ("Overdue", "Missed", "Pulled late", "Pulled early"):
         expect(page.get_by_role("list").get_by_text(status, exact=True)).to_be_visible()
-    expect(page.get_by_text("Planned volume", exact=True)).to_have_count(2)
+    expect(page.get_by_text("Planned amount", exact=True)).to_have_count(2)
+    by_mass = page.get_by_role("listitem").filter(has_text="M5 · Replicate 2")
+    expect(by_mass.get_by_text("50 µg", exact=True)).to_be_visible()
     late = page.get_by_role("listitem").filter(has_text="Pulled late")
     expect(late.get_by_text("Mar 8, 2020", exact=True)).to_have_attribute("datetime", "2020-03-08")
     expect(late.get_by_text("10 µL", exact=True)).to_be_visible()
@@ -176,22 +187,36 @@ def test_stability_trend_keeps_only_signed_results_in_the_same_test_series(
         page,
         TREND,
         [
-            reading(1, month=0),
-            reading(2, month=3, review="released", value=99.1),
+            reading(1, time_point="T0", elapsed_days=0),
+            # Weeks and months share one axis by their days from the start.
+            reading(2, time_point="W2", elapsed_days=14, review="released", value=99.1),
             reading(3, review="reviewed", value=123),
             reading(4, method="Example method 2", value=5),
             reading(5, unit="mg/mL", value=48),
             reading(6, condition=1, value=73),
+            # A conforming test's results are a table, not a plot.
+            reading(
+                8,
+                test="Appearance",
+                method="Visual 1",
+                unit=None,
+                kind="conforms",
+                value=None,
+                result="does_not_conform",
+            ),
         ],
         more=True,
     )
-    expect(page.get_by_role("img", name="Assay in % by scheduled month")).to_be_visible()
+    expect(page.get_by_role("img", name="Assay in % by scheduled time point")).to_be_visible()
     expect(page.get_by_role("row")).to_have_count(3)
     expect(page.get_by_text("99.7", exact=True)).to_be_visible()
     expect(page.get_by_text("99.1", exact=True)).to_be_visible()
     expect(page.get_by_text("123", exact=True)).to_have_count(0)
     series = page.get_by_role("combobox", name="Test series")
-    expect(series.locator("option")).to_have_count(4)
+    expect(series.locator("option")).to_have_count(5)
+    series.select_option(label="Appearance · Visual 1 · conforms · 25 °C / 60% RH")
+    expect(page.get_by_role("img")).to_have_count(0)
+    expect(page.get_by_text("Does not conform", exact=True)).to_be_visible()
     series.select_option(label="Assay · Example method 2 · % · 25 °C / 60% RH")
     expect(page.get_by_role("row")).to_have_count(2)
     expect(page.get_by_text("5", exact=True)).to_be_visible()

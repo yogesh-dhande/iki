@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/qc_release
-version: 0.5.0
+version: 0.6.0
 title: QC release testing
 description: Effective-dated lot specifications, out-of-specification investigations and signed certificates of analysis.
 license: Apache-2.0
@@ -33,6 +33,13 @@ settings:
       backdated: it can start on an earlier date, as when importing a history of approved
       versions, and its publication states why. Under every policy a successor starts after
       its predecessor and after every testing date a release case has already pinned.
+  certificate_issuer:
+    type: string
+    required: false
+    label: Certificate issuer
+    description: >-
+      The manufacturer's name, address and telephone, as each certificate of analysis
+      states them (ICH Q7 §11.43). A regulated certificate needs it.
 roles:
   analyst:
     label: QC analyst

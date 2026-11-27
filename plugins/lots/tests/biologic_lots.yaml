@@ -32,7 +32,14 @@ expect:
   output:
     updates:
       lot:
-        - values: { a280_extinction: 2.6543, a280_concentration: 1.9967, concentration: 1.9967 }
+        - values:
+            {
+              a280_extinction: 2.6543,
+              a280_basis: cystines,
+              a280_estimate: false,
+              a280_concentration: 1.9967,
+              concentration: 1.9967,
+            }
 ---
 apiVersion: iki/v1
 kind: ActionTest
@@ -62,7 +69,13 @@ expect:
   output:
     updates:
       lot:
-        - values: { a280_extinction: 2.6179, concentration: 2.0245 }
+        - values:
+            {
+              a280_extinction: 2.6179,
+              a280_basis: reduced,
+              a280_estimate: false,
+              concentration: 2.0245,
+            }
 ---
 apiVersion: iki/v1
 kind: ActionTest
@@ -87,7 +100,8 @@ expect:
   output:
     updates:
       lot:
-        - values: { a280_extinction: 2.64, concentration: 2 }
+        - values:
+            { a280_extinction: 2.64, a280_basis: measured, a280_estimate: false, concentration: 2 }
 ---
 apiVersion: iki/v1
 kind: ActionTest
@@ -111,6 +125,65 @@ expect:
     updates:
       lot:
         - values: { a280_extinction: 2.6543 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: unstated_cysteines_make_its_e280_an_estimate
+description: >-
+  Lysozyme again, its cysteines not stated: they're taken as cystines, as before, and the
+  same 1.9967 mg/mL follows its A280, but the lot records that its ε280 is an estimate
+  and the run says what to confirm.
+action: compute_protein_lot
+inputs:
+  lot:
+    - hrid: PLOT-000001
+      values: { a280: 0.53, dilution_factor: 10, path_length: 1, concentration_method: a280 }
+      included:
+        protein:
+          - type: iki/protein.Protein
+            values:
+              molecular_weight: 14313.0
+              extinction_coefficient_oxidized: 37970
+              extinction_coefficient_reduced: 37470
+expect:
+  output:
+    updates:
+      lot:
+        - values:
+            {
+              a280_extinction: 2.6543,
+              a280_basis: cystines,
+              a280_estimate: true,
+              concentration: 1.9967,
+            }
+    messages:
+      - level: warning
+        text: "PLOT-000001: its ε280 is an estimate: its cysteines aren't stated, so they're taken as cystines, as a secreted protein's are. Say whether they're cystines or reduced, or give a measured ε280."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: without_a_cysteine_pair_nothing_is_assumed
+description: >-
+  A protein with no pair of cysteines has the same oxidized and reduced ε280: four
+  tyrosines at 1,490 L/(mol·cm) each, 5,960 (Pace et al., 1995). With nothing to assume,
+  its ε280 isn't an estimate even with its cysteines unstated. Its 6,000 g/mol is a
+  synthetic round figure: 5,960 / 6,000 = 0.9933 mL/(mg·cm).
+action: compute_protein_lot
+inputs:
+  lot:
+    - values: { a280: 0.5, path_length: 1, concentration_method: a280 }
+      included:
+        protein:
+          - type: iki/protein.Protein
+            values:
+              molecular_weight: 6000.0
+              extinction_coefficient_oxidized: 5960
+              extinction_coefficient_reduced: 5960
+expect:
+  output:
+    updates:
+      lot:
+        - values: { a280_extinction: 0.9933, a280_basis: cystines, a280_estimate: false }
 ---
 apiVersion: iki/v1
 kind: ActionTest
