@@ -5533,8 +5533,9 @@ export interface paths {
         put?: never;
         /**
          * Unlock signing
-         * @description Unlocks someone's signing after failed attempts to sign as them locked it. Org
-         *     Admins only.
+         * @description Unlocks someone's signing after failed attempts to sign as them locked it, saying
+         *     why; the audit log keeps it. Another Org Admin unlocks theirs, signed in to Iki's web
+         *     app: no token, app or AI agent can.
          */
         post: operations["iki_server_api_signatures_unlock_signing"];
         delete?: never;
@@ -20415,6 +20416,14 @@ export interface components {
              */
             symbol: string;
         };
+        /** UnlockIn */
+        UnlockIn: {
+            /**
+             * Reason
+             * @description Why it's safe to unlock: who made the failed attempts.
+             */
+            reason: string;
+        };
         /** UnusedImageBindingOut */
         UnusedImageBindingOut: {
             /**
@@ -29539,7 +29548,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnlockIn"];
+            };
+        };
         responses: {
             /** @description No Content */
             204: {

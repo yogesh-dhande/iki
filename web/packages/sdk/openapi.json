@@ -31632,6 +31632,21 @@
         "title": "UnitOption",
         "type": "object"
       },
+      "UnlockIn": {
+        "properties": {
+          "reason": {
+            "description": "Why it's safe to unlock: who made the failed attempts.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "UnlockIn",
+        "type": "object"
+      },
       "UnusedImageBindingOut": {
         "properties": {
           "environment": {
@@ -53158,7 +53173,7 @@
     },
     "/api/v1/users/{user_id}/signing/unlock": {
       "post": {
-        "description": "Unlocks someone's signing after failed attempts to sign as them locked it. Org\nAdmins only.",
+        "description": "Unlocks someone's signing after failed attempts to sign as them locked it, saying\nwhy; the audit log keeps it. Another Org Admin unlocks theirs, signed in to Iki's web\napp: no token, app or AI agent can.",
         "operationId": "iki_server_api_signatures_unlock_signing",
         "parameters": [
           {
@@ -53172,6 +53187,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnlockIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "204": {
             "description": "No Content"
