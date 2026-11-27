@@ -12,7 +12,8 @@ from typing import Any
 import pytest
 
 from iki_spec import rules
-from iki_spec.model import EntityType, Plugin, as_refined
+from iki_spec.effective import resolve_one
+from iki_spec.model import EntityType, Plugin
 from iki_spec.validate import load_plugin
 
 EXAMPLE = Path(__file__).resolve().parents[1]
@@ -38,10 +39,7 @@ def types() -> dict[str, EntityType]:
 def refused(types: Mapping[str, EntityType], name: str, values: Mapping[str, Any]) -> set[str]:
     """The rules a record of ``name`` with ``values`` breaks."""
     entity_type = types[f"{NAME}.{name}"]
-    lineage = [entity_type]
-    while lineage[-1].extends:
-        lineage.append(types[lineage[-1].extends])
-    fields = {n: as_refined(lineage, n, f) for t in reversed(lineage) for n, f in t.fields.items()}
+    fields = resolve_one(types, entity_type.qualified_name).current_fields
     variables = rules.rule_variables(rules.record_schema(entity_type.label, fields, None))
     checks = [
         (f"!({r.when}) || ({r.check})" if r.when else r.check, rules.CONDITION)
@@ -73,7 +71,6 @@ def test_a_request_sends_the_tubes_to_sequence(types: dict[str, EntityType]) -> 
         ({"data_files": []}, {"reads_returned"}),
         # An unsuccessful tube returns its report and no reads.
         ({"outcome": "unsuccessful"}, set()),
-        ({"material": None, "run_accession": "ERR13376132"}, {"sequenced_tube"}),
     ],
 )
 def test_a_fulfilled_tube_returns_its_reads(
@@ -86,3 +83,9 @@ def test_a_fulfilled_tube_returns_its_reads(
 def test_the_reads_are_checked_again_at_signing(types: dict[str, EntityType]) -> None:
     rule = types[f"{NAME}.SequencingDeliverable"].rules["reads_returned"]
     assert rule.recheck_before_signing
+
+
+def test_a_deliverable_names_the_tube_sequenced(types: dict[str, EntityType]) -> None:
+    # Required as its records have it: the deliverable's material, narrowed (ADR 0283).
+    deliverable = resolve_one(types, f"{NAME}.SequencingDeliverable")
+    assert deliverable.fields["material"].required

@@ -33,7 +33,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from functools import cache
 from typing import Any
 
@@ -60,7 +60,7 @@ from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
-from iki_spec.model import RequestSpec, ResultSpec, WorkItemSpec, amount_of
+from iki_spec.model import RequestSpec, ResultSpec, WorkItemSpec
 
 __all__ = [
     "ASKER",
@@ -99,43 +99,25 @@ def spec_of(type_name: str) -> RequestSpec | None:
     """What makes ``type_name``'s records requests: the ``request`` of it or an ancestor,
     with the service fields each subtype on the way down adds (ADR 0232). None if they
     aren't."""
-    entity_type = registry.types().get(type_name)
-    if entity_type is None:
+    if type_name not in registry.types():
         return None
-    found: RequestSpec | None = None
-    for t in [*reversed(registry.ancestors(entity_type)), entity_type]:
-        if t.request is None:
-            continue
-        if found is None:
-            found = t.request
-        else:
-            added = tuple(n for n in t.request.service_fields if n not in found.service_fields)
-            found = replace(found, service_fields=(*found.service_fields, *added))
-    return found
+    return registry.effective(type_name).request
 
 
 @cache
 def result_spec(type_name: str) -> ResultSpec | None:
     """What makes ``type_name``'s records a request's results, its own or an ancestor's."""
-    entity_type = registry.types().get(type_name)
-    if entity_type is None:
+    if type_name not in registry.types():
         return None
-    for t in [entity_type, *registry.ancestors(entity_type)]:
-        if t.result is not None:
-            return t.result
-    return None
+    return registry.effective(type_name).result
 
 
 @cache
 def work_item_spec(type_name: str) -> WorkItemSpec | None:
     """What makes this type an internal work item, including an inherited declaration."""
-    entity_type = registry.types().get(type_name)
-    if entity_type is None:
+    if type_name not in registry.types():
         return None
-    return next(
-        (t.work_item for t in [entity_type, *registry.ancestors(entity_type)] if t.work_item),
-        None,
-    )
+    return registry.effective(type_name).work_item
 
 
 def work_item_types() -> list[str]:
@@ -286,8 +268,7 @@ def writing(allowed: frozenset[str]) -> Iterator[None]:
 
 def accepted_by(type_name: str) -> list[str]:
     """The names an intake can accept ``type_name``'s records by: it, and its ancestors."""
-    entity_type = registry.types()[type_name]
-    return [type_name, *(t.qualified_name for t in registry.ancestors(entity_type))]
+    return list(registry.effective(type_name).chain)
 
 
 def services_for(asking: Project, type_name: str | None = None) -> QuerySet[Project]:
@@ -672,8 +653,7 @@ def _declared_parents(child: Entity) -> list[uuid.UUID]:
 
     if child.type not in registry.types():
         return []
-    kind = registry.types()[child.type]
-    lineage = {t.qualified_name for t in [kind, *registry.ancestors(kind)]}
+    lineage = set(registry.effective(child.type).chain)
     # The declaration lives on the source type and names a field of the aliquot type.
     fields = shape(child.type).fields()
     names = {
@@ -692,7 +672,7 @@ def _declared_parents(child: Entity) -> list[uuid.UUID]:
     return [
         parent.pk
         for parent in parents
-        if (spec := amount_of(parent.type, registry.types()))
+        if (spec := registry.effective(parent.type).amount)
         and spec.aliquots in lineage
         and spec.aliquots_of in names
         and values.get(spec.aliquots_of) == parent.pk
@@ -728,8 +708,7 @@ def _nearness(request_type: str, result_type: str) -> int | None:
     if spec is None or registry.types()[result_type].abstract:
         return None
     targets = shape(result_type).fields()[spec.of].to
-    entity_type = registry.types()[request_type]
-    lineage = [request_type, *(t.qualified_name for t in registry.ancestors(entity_type))]
+    lineage = registry.effective(request_type).chain
     return next((i for i, name in enumerate(lineage) if name in targets), None)
 
 
@@ -815,7 +794,7 @@ def delivery_refusal(request: Entity) -> str | None:
                 for k, v in values[record.pk].items()
                 if k in fields_of_type
             }
-            template = registry.display_title(registry.types()[record.type])
+            template = registry.effective(record.type).display_title
             labels.append(titles.render(template, shown, record.hrid, fields_of_type))
         return " ".join(f"{label} has no returned result yet." for label in labels)
     if pending:

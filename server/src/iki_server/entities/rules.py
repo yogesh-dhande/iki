@@ -134,7 +134,11 @@ def _viewers(shown: list[Any], viewers: list[str]) -> list[str]:
     seen: set[tuple[Any, str]] = set()
     for entity, viewer in zip(shown, viewers, strict=True):
         entity_type = registry.types().get(entity.type)
-        has = {v.viewer for v in registry.viewers(entity_type)} if entity_type else set()
+        has = (
+            {v.viewer for v in registry.effective(entity_type.qualified_name).viewers}
+            if entity_type
+            else set()
+        )
         if viewer not in has:
             problems.append(f"{entity.hrid}’s type has no {viewer} viewer.")
         if (entity.pk, viewer) in seen:
@@ -315,7 +319,14 @@ def _residues(parts: list[Entity]) -> dict[Any, tuple[str, str]]:
         if entity_type is None:
             continue
         own = shape(part.type).fields()
-        shown = next((v.sequence for v in registry.viewers(entity_type) if v.sequence), None)
+        shown = next(
+            (
+                v.sequence
+                for v in registry.effective(entity_type.qualified_name).viewers
+                if v.sequence
+            ),
+            None,
+        )
         if shown is None or shown not in own:
             shown = next((n for n, f in own.items() if f.format in SEQUENCE_FORMATS), None)
         if shown is not None and own[shown].format in SEQUENCE_FORMATS:
@@ -341,8 +352,8 @@ RULES: dict[str, Rule] = {
 
 def rules_for(entity_type: EntityType) -> list[Rule]:
     """The rules for a type: its own and its parents'."""
-    chain = [entity_type, *registry.ancestors(entity_type)]
-    return [RULES[t.qualified_name] for t in chain if t.qualified_name in RULES]
+    chain = registry.effective(entity_type.qualified_name).chain
+    return [RULES[name] for name in chain if name in RULES]
 
 
 def check(

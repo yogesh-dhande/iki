@@ -8,7 +8,7 @@ import { unwrap, type Schemas } from "@ikisci/sdk";
 import { queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
-import type { EntityType } from "./entities";
+import { lineageOf, type EntityType } from "./entities";
 
 export type PluginComponent = Schemas["ComponentOut"];
 export type ComponentSlot = PluginComponent["slots"][number];
@@ -38,18 +38,6 @@ export const componentsQuery = queryOptions({
   queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/components", { signal: signal })),
   staleTime: 10 * 60_000,
 });
-
-/** A type and the types it extends, nearest first. */
-export function lineageOf(name: string, types: EntityType[]): string[] {
-  const out: string[] = [];
-  let current: string | null | undefined = name;
-  while (current && !out.includes(current)) {
-    out.push(current);
-    const at: string = current;
-    current = types.find((t) => t.name === at)?.extends;
-  }
-  return out;
-}
 
 export interface EntityTab {
   component: PluginComponent;

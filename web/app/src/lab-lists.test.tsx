@@ -54,6 +54,7 @@ function listType(
     sample: false,
     lab_list: true,
     detached: false,
+    ancestors: ["iki/core.Entity"],
     subtypes: [],
     hrid_prefix: "PUM",
     identity: ["code"],

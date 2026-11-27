@@ -44,6 +44,7 @@ from typing import Any
 
 from iki_spec import naming
 from iki_spec.conditions import WORDS_SEARCHED
+from iki_spec.effective import resolve_one
 from iki_spec.model import FORMATS, EntityType, Extension, Field, Plugin, split_entry
 
 __all__ = ["render_models"]
@@ -343,12 +344,10 @@ def _extension(e: Extension, types: Mapping[str, EntityType]) -> list[str]:
 
 def identity_owner(qualified: str, types: Mapping[str, EntityType]) -> EntityType | None:
     """The type whose identity ``qualified``'s entities have: its own or a parent's."""
-    current = types.get(qualified)
-    while current is not None:
-        if current.identity:
-            return current
-        current = types.get(current.extends) if current.extends else None
-    return None
+    if qualified not in types:
+        return None
+    owner = resolve_one(types, qualified).identity_owner
+    return types[owner] if owner is not None else None
 
 
 def _entry_label(qualified: str) -> str:

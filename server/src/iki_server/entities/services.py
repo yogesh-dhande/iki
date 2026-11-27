@@ -773,7 +773,7 @@ def prepare(
     kept = _kept(form)
     errors: dict[str, list[str]] = {}
     given: dict[str, Any] = {}
-    ledger_field = registry.draws_received(type_name)
+    ledger_field = registry.effective(type_name).draws_received
     for name, value in values.items():
         f = fields.get(name)
         if f is None:
@@ -964,7 +964,7 @@ def update(
         )
         new: dict[str, Any] = {}
         for_entry: dict[str, Any] = {}
-        ledger_field = registry.draws_received(locked.type)
+        ledger_field = registry.effective(locked.type).draws_received
         for name, value in values.items():
             f = fields.get(name)
             if f is None:

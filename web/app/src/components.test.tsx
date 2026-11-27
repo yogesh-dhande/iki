@@ -10,7 +10,6 @@ import { START_TIMEOUT_MS } from "./component-frame";
 import {
   entityTabs,
   EVERY_RECORD,
-  lineageOf,
   MAX_FRAME_HEIGHT,
   MAX_SELECTED,
   MIN_FRAME_HEIGHT,
@@ -18,6 +17,7 @@ import {
   readMessage,
   type PluginComponent,
 } from "./components";
+import { lineageOf } from "./entities";
 import { entity, PROTEIN, PROTEIN_ID, renderApp, STRUCTURE, withTypes } from "./entity-fixtures";
 import { ACTION } from "./run-fixtures";
 import { answer, calls, page, project } from "./test-server";
@@ -36,7 +36,12 @@ const RESIDUES: PluginComponent = {
   frame: `/plugin-components/iki/protein.residues/${"ab".repeat(32)}/`,
 };
 
-const CHILD = { ...STRUCTURE, name: "iki/protein.Mutant", extends: "iki/protein.Protein" };
+const CHILD = {
+  ...STRUCTURE,
+  name: "iki/protein.Mutant",
+  extends: "iki/protein.Protein",
+  ancestors: ["iki/protein.Protein", "iki/core.Entity"],
+};
 
 const EVIDENCE: PluginComponent = {
   ...RESIDUES,
@@ -98,6 +103,7 @@ describe("tabs", () => {
     expect(lineageOf("iki/protein.Mutant", types)).toEqual([
       "iki/protein.Mutant",
       "iki/protein.Protein",
+      "iki/core.Entity",
     ]);
     expect(entityTabs("iki/protein.Mutant", types, [RESIDUES])).toEqual([
       { component: RESIDUES, label: "Residues", slot: RESIDUES.slots[0] },

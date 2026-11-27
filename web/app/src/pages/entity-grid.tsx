@@ -397,15 +397,11 @@ export function keyFieldsOf(
   name?: FieldDef,
 ): FieldDef[] {
   // The plugins of the type and its parents: their fields are its own, not extensions'.
-  const lineage = new Set<string>(["iki/core"]);
-  let parent: string | null = type.extends;
-  lineage.add(type.plugin);
-  for (let depth = 0; parent && depth < 16; depth += 1) {
-    const found = types.find((x) => x.name === parent);
-    if (!found) break;
-    lineage.add(found.plugin);
-    parent = found.extends;
-  }
+  const lineage = new Set<string>([
+    "iki/core",
+    type.plugin,
+    ...type.ancestors.map((name) => name.split(".")[0] ?? name),
+  ]);
   const FACTS = new Set(["enum", "quantity", "int", "float", "ref", "date", "datetime", "person"]);
   const rank = (f: FieldDef): number => {
     if (!lineage.has(f.plugin)) return 5;

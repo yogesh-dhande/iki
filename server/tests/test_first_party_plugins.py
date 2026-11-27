@@ -23,8 +23,8 @@ from first_party_dependencies import (
 )
 from test_plugin_migrations import database, iki, migrate, orm, query, sync
 
+from iki_spec.effective import resolve_one
 from iki_spec.identity import Kind, identity_hash
-from iki_spec.model import amount_of
 from iki_spec.naming import app_label
 from iki_spec.validate import load_plugin
 
@@ -68,7 +68,7 @@ def test_lab_stock_lot_inherits_its_material_declaration() -> None:
         stock, plugin="acme/lab", name="LabStock", extends=stock.qualified_name, amount=None
     )
     types = {**loaded.plugin.types, subtype.qualified_name: subtype}
-    amount = amount_of(subtype.qualified_name, types)
+    amount = resolve_one(types, subtype.qualified_name).amount
     assert amount is not None and amount.material == "item"
 
 

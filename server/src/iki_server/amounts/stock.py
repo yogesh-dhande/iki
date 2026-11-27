@@ -31,9 +31,7 @@ def catalogues() -> dict[str, StockCatalogue]:
     configured = {}
     for name, t in registry.types().items():
         if not t.abstract:
-            cfg = next(
-                (i.stock_catalogue for i in [t, *registry.ancestors(t)] if i.stock_catalogue), None
-            )
+            cfg = registry.effective(name).stock_catalogue
             if cfg:
                 configured[name] = cfg
     return configured
@@ -42,10 +40,10 @@ def catalogues() -> dict[str, StockCatalogue]:
 @cache
 def _catalogues_for(*, orders: bool) -> dict[str, StockCatalogue]:
     result = {}
-    for name, t in registry.types().items():
-        chain = {a.qualified_name for a in [t, *registry.ancestors(t)]}
+    for name in registry.types():
+        declared = registry.effective(name)
         for cfg in catalogues().values():
-            if (cfg.orders.type if orders else cfg.lots.type) in chain:
+            if declared.is_a(cfg.orders.type if orders else cfg.lots.type):
                 result[name] = cfg
     return result
 

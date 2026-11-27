@@ -1431,6 +1431,8 @@ class EntityTypeOut(TypedDict):
     abstract: bool
     #: How much of each of its records there is (ADR 0139), if it keeps that: drawn, transferred, split into aliquots and adjusted through `/entities/{ref}/amount`, never below zero.
     amount: NotRequired[TypeAmountOut | None]
+    #: The types it extends, nearest first, ending with `iki/core.Entity`: its records are each of theirs too (ADR 0282). A type is another when the other is it or among its ancestors.
+    ancestors: list[str]
     description: str | None
     #: Its plugin is detached (ADR 0091): its entities can be read, not changed, and no new ones can be made.
     detached: bool

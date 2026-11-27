@@ -1114,7 +1114,11 @@ def _titles(entities: list[Entity]) -> dict[Any, str]:
         fields = shape(e.type).fields()
         shown = {n: to_json(fields[n], v) for n, v in values.get(e.pk, {}).items() if n in fields}
         entity_type = types.get(e.type)
-        template = registry.display_title(entity_type) if entity_type is not None else None
+        template = (
+            registry.effective(entity_type.qualified_name).display_title
+            if entity_type is not None
+            else None
+        )
         out[e.pk] = titles.render(template, shown, e.hrid, fields)
     return out
 

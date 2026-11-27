@@ -6046,6 +6046,14 @@
             ],
             "description": "How much of each of its records there is (ADR 0139), if it keeps that: drawn, transferred, split into aliquots and adjusted through `/entities/{ref}/amount`, never below zero."
           },
+          "ancestors": {
+            "description": "The types it extends, nearest first, ending with `iki/core.Entity`: its records are each of theirs too (ADR 0282). A type is another when the other is it or among its ancestors.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Ancestors",
+            "type": "array"
+          },
           "description": {
             "anyOf": [
               {
@@ -6286,6 +6294,7 @@
           "abstract",
           "sample",
           "detached",
+          "ancestors",
           "subtypes",
           "hrid_prefix",
           "identity",

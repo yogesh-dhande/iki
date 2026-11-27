@@ -679,6 +679,11 @@ class EntityTypeOut(Schema):
         description="Its plugin is detached (ADR 0091): its entities can be read, not changed, "
         "and no new ones can be made."
     )
+    ancestors: list[str] = Field(
+        description="The types it extends, nearest first, ending with `iki/core.Entity`: its "
+        "records are each of theirs too (ADR 0282). A type is another when the other is it or "
+        "among its ancestors."
+    )
     subtypes: list[str] = Field(description="The types that extend it, at any depth.")
     hrid_prefix: str | None
     identity: list[str] = Field(
@@ -1581,14 +1586,18 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "sample": name in registry.sample_types(),
         "lab_list": entity_type.is_list,
         "detached": services.frozen(form) is not None,
+        "ancestors": list(registry.effective(name).ancestors),
         "subtypes": sorted(subtypes(name) - {name}),
         "hrid_prefix": entity_type.hrid_prefix,
         "identity": list(owner.identity) if owner is not None else [],
         "fields": fields,
         "values_schema": schema.for_type(name),
-        "viewers": [_viewer_out(form, v) for v in registry.viewers(entity_type)],
+        "viewers": [
+            _viewer_out(form, v) for v in registry.effective(entity_type.qualified_name).viewers
+        ],
         "exports": [
-            _export_out(entity_type.qualified_name, e) for e in registry.exports(entity_type)
+            _export_out(entity_type.qualified_name, e)
+            for e in registry.effective(entity_type.qualified_name).exports
         ],
         "due": assignments.due_field_name(name) if assignments.due_field(name) else None,
         "rules": [_rule_out(r) for r in checking.rules_of(name)],
@@ -2455,7 +2464,11 @@ def _formerly(ids: set[Any]) -> dict[Any, list[str]]:
 
 def _template(type_name: str) -> str | None:
     entity_type = registry.types().get(type_name)
-    return registry.display_title(entity_type) if entity_type is not None else None
+    return (
+        registry.effective(entity_type.qualified_name).display_title
+        if entity_type is not None
+        else None
+    )
 
 
 def _title(entity: Entity, values: dict[str, Any]) -> str:
