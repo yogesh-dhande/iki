@@ -728,6 +728,153 @@ def test_projects_are_kept_apart(world: World) -> None:
     )
 
 
+# --- A registry entry's changes -----------------------------------------------------------------
+
+PROTEIN = "acme/protein.Protein"
+
+
+def _with_rule(monkeypatch: pytest.MonkeyPatch, type_name: str, rule: Rule) -> None:
+    """``type_name``'s records keep ``rule`` too, as if its plugin declared it."""
+    checks, every = checking.checks_of, checking.rules_of
+    monkeypatch.setattr(
+        checking, "checks_of", lambda t: (*checks(t), rule) if t == type_name else checks(t)
+    )
+    monkeypatch.setattr(
+        checking, "rules_of", lambda t: (*every(t), rule) if t == type_name else every(t)
+    )
+
+
+def _hazard_rule(*, hold: bool = False, needs_host: bool = False) -> Rule:
+    return Rule(
+        name="bsl3_needs_a_host" if needs_host else "not_bsl3",
+        label="A BSL-3 protein names its host" if needs_host else "Not BSL-3",
+        plugin="acme/protein",
+        check='record.hazard != "bsl3"',
+        when="record.host == null" if needs_host else None,
+        message="It's BSL-3.",
+        hold=(QA,) if hold else (),
+        reads=("hazard", "host") if needs_host else ("hazard",),
+    )
+
+
+def _rival(world: World) -> Project:
+    """Another project in the registry, the outsider's alone."""
+    from iki_server.org.models import ProjectMembership, ProjectRole
+
+    rival = Project.objects.create(team=world.team, name="Rival Screens")
+    ProjectMembership.objects.create(
+        project=rival, user=world.users["outsider"], role=ProjectRole.ADMIN
+    )
+    return rival
+
+
+def _curate(world: World, hrid: str, values: dict[str, Any]) -> Any:
+    from test_registries import registrar
+
+    curator = registrar(world)
+    return curator.patch(
+        f"/entries/{hrid}",
+        {"values": values, "reason": "Biosafety committee, 2026-11-17"},
+        headers={"If-Match": curator.get(f"/entries/{hrid}")["ETag"]},
+    )
+
+
+def test_a_registrars_change_that_breaks_a_rule_on_the_entry_alone_is_refused(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every record of the entry would break it alike."""
+    _with_rule(monkeypatch, PROTEIN, _hazard_rule())
+    values = {"sequence": "MKVLLLA", "hazard": "bsl1"}
+    saved = create(api_as(world), world.project, values, PROTEIN)
+    assert saved.status_code == 201, saved.content
+    answer = _curate(world, saved.json()["hrid"], {"hazard": "bsl3"})
+    body = problem(answer, 422, "validation_failed")
+    assert errors(body) == [("#/values/hazard", "not_bsl3", False)]
+    record = api_as(world).get(f"/entities/{saved.json()['id']}").json()
+    assert record["values"]["hazard"] == "bsl1"
+
+
+def test_a_registrars_change_holds_every_record_a_rule_that_holds_reads(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rival = _rival(world)
+    _with_rule(monkeypatch, PROTEIN, _hazard_rule(hold=True))
+    values = {"sequence": "MKVLLLA", "hazard": "bsl1"}
+    mine = create(api_as(world), world.project, values, PROTEIN).json()
+    theirs = create(api_as(world, "outsider"), rival, {"sequence": "MKVLLLA"}, PROTEIN).json()
+    done = _curate(world, mine["hrid"], {"hazard": "bsl3"})
+    assert done.status_code == 200, done.content
+    entry_revision = done.json()["revision"]
+    for record in (mine, theirs):
+        [hold] = RuleHold.objects.filter(entity_id=record["id"])
+        assert (hold.rule, hold.reason) == ("not_bsl3", "Biosafety committee, 2026-11-17")
+        assert hold.held_by == world.users["auditor"]
+        [seen] = hold.occurrences.all()
+        assert (seen.entry_revision, seen.revision) == (entry_revision, record["revision"])
+    assert not RuleBreach.objects.exists()
+
+
+def test_a_registrars_change_is_reported_on_each_record_that_breaks_its_own_rule(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rule that also reads a record's own values isn't the registrar's to know of: the
+    change stands, and each record that breaks it says so."""
+    rival = _rival(world)
+    _with_rule(monkeypatch, PROTEIN, _hazard_rule(needs_host=True))
+    hostless = create(api_as(world), world.project, {"sequence": "MKVLLLA"}, PROTEIN).json()
+    hosted = create(
+        api_as(world, "outsider"), rival, {"sequence": "MKVLLLA", "host": "E. coli"}, PROTEIN
+    ).json()
+    done = _curate(world, hostless["hrid"], {"hazard": "bsl3"})
+    assert done.status_code == 200, done.content
+    assert "Kinase Atlas" not in done.content.decode()
+    [breach] = RuleBreach.objects.filter(entity_id=hostless["id"])
+    assert breach.rule == "bsl3_needs_a_host"
+    assert not RuleBreach.objects.filter(entity_id=hosted["id"]).exists()
+    shown = api_as(world).get(f"/entities/{hostless['id']}").json()
+    assert [b["rule"] for b in shown["breaches"]] == ["bsl3_needs_a_host"]
+    # Keeping the rule again clears it.
+    kept = change(world, hostless["id"], {"host": "E. coli"})
+    assert kept.status_code == 200, kept.content
+    assert not RuleBreach.objects.filter(entity_id=hostless["id"]).exists()
+
+
+@pytest.mark.parametrize("by", ["registering", "editing"])
+@pytest.mark.parametrize("hold", [False, True])
+def test_a_holders_new_fact_is_checked_against_the_other_records_of_the_entry(
+    world: World, monkeypatch: pytest.MonkeyPatch, hold: bool, by: str
+) -> None:
+    """Their own save is checked against their record, as any save is; the entry's other
+    records are held or reported. Who gave the fact isn't told to the other holders (ADR
+    0115): the hold names no one, and no project."""
+    rival = _rival(world)
+    _with_rule(monkeypatch, PROTEIN, _hazard_rule(hold=hold, needs_host=True))
+    mine = create(api_as(world), world.project, {"sequence": "MKVLLLA"}, PROTEIN).json()
+    hosted = {"sequence": "MKVLLLA", "host": "E. coli"}
+    outsider = api_as(world, "outsider")
+    if by == "registering":
+        theirs = create(outsider, rival, {**hosted, "hazard": "bsl3"}, PROTEIN)
+        assert theirs.status_code == 201, theirs.content
+    else:
+        theirs = create(outsider, rival, hosted, PROTEIN)
+        filled = change(world, theirs.json()["id"], {"hazard": "bsl3"}, "outsider")
+        assert filled.status_code == 200, filled.content
+    assert api_as(world).get(f"/entities/{mine['id']}").json()["values"]["hazard"] == "bsl3"
+    assert not RuleBreach.objects.filter(entity_id=theirs.json()["id"]).exists()
+    assert not RuleHold.objects.filter(entity_id=theirs.json()["id"]).exists()
+    if hold:
+        [held] = RuleHold.objects.filter(entity_id=mine["id"])
+        assert held.held_by is None and held.held_agent is None
+        assert held.reason == (
+            f"Its registry entry {mine['hrid']} was given Hazard, which its rules read."
+        )
+        assert not RuleBreach.objects.filter(entity_id=mine["id"]).exists()
+    else:
+        [breach] = RuleBreach.objects.filter(entity_id=mine["id"])
+        assert breach.rule == "bsl3_needs_a_host"
+        assert not RuleHold.objects.filter(entity_id=mine["id"]).exists()
+
+
 # --- Records saved before a rule ----------------------------------------------------------------
 
 

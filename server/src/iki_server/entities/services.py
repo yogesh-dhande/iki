@@ -56,6 +56,7 @@ from iki_server.core.ids import uuid7
 from iki_server.entities import (
     access,
     assignments,
+    breaches,
     checking,
     constraints,
     holds,
@@ -573,12 +574,16 @@ def fill_entry(
     reason: str = "",
     by_run: bool = False,
     explicit: bool = False,
+    besides: frozenset[Any] = frozenset(),
 ) -> Revision | None:
     """Sets those of an entry's values that are empty from ``values`` (as the database
     stores them), as a holder of it may. One it has already is kept: a fact with another
     value is refused, without saying what it has, as only its registrars change it; a
     derived value is its identity's, so another is ignored, unless ``explicit`` (a person
-    changing it, not registering it again), when it's refused too."""
+    changing it, not registering it again), when it's refused too.
+
+    The entry's other records are checked against the rules reading what it sets
+    (:func:`breaches.check_holders`), but ``besides``, which the save itself checks."""
     if not values:
         return None
     locked = Entity.objects.select_for_update().get(pk=entry.pk)
@@ -607,7 +612,23 @@ def fill_entry(
     )
     _write_history(touched, rows, revision.number)
     _use_files(form.fields(), locked.pk, new, revision.number)
+    breaches.check_holders(
+        locked,
+        frozenset(new),
+        # Who gave it is told only to their own project (ADR 0115).
+        user=None,
+        reason=entry_filled(locked, form, new),
+        entry_revision=revision.number,
+        besides=besides,
+    )
     return revision
+
+
+def entry_filled(entry: Entity, form: Shape, new: Mapping[str, Any]) -> str:
+    """Why a record is held by its entry's change, as its other holders are told it."""
+    fields = form.fields()
+    names = ", ".join(fields[n].label or n for n in sorted(new) if n in fields)
+    return f"Its registry entry {entry.hrid} was given {names}, which its rules read."
 
 
 def entry_changes(
@@ -1108,6 +1129,7 @@ def update(
                 reason=reason,
                 by_run=by_run,
                 explicit=not by_run,
+                besides=frozenset({locked.pk}),
             )
         held_entry_revision = entry_revision.number if entry_revision else checked_entry_revision
         if not new:

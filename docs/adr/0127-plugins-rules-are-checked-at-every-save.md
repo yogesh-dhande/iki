@@ -84,6 +84,15 @@ required by a rule about its value. A save that breaks rules is refused with
 422 `validation_failed`, and each error names its `rule` and points at its
 fields: `{"pointer": "#/values/purity", "detail": "…", "rule": "…", "hold": false}`.
 
+A record's registry entry (ADR 0115) is part of what its rules read, so a change
+to the entry's values (a holder setting one the entry lacked, a registrar
+changing a fact) is checked against every record of it, by the rules reading
+what changed. A registrar's change that breaks a rule reading the entry's values
+alone is refused, as every record of it would break it. The other records aren't
+the changer's project's, and the changer isn't told of them, so for them, as at a
+deploy, a rule that holds holds the record for the change's reason, and any other
+is reported as a breach.
+
 **A rule can hold, not refuse** (`hold: {reviewed_by: [lab roles]}`), for
 `check` rules only. A save that breaks only rules that hold is refused with
 422 `hold_reason_required` unless it says why (`hold_reason`). With a reason,

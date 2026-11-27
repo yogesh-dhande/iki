@@ -7,6 +7,9 @@ is what's done to the entry itself, and to the records that name one:
 - **Curating facts.** A holder sets a fact while it's empty. After that only
   the registry's registrars change it, with a reason, audited
   (``registry.facts_changed``) and told to the holders: who, when and why.
+  Either is checked against the type's rules (ADR 0127): a registrar's change
+  breaking a rule that reads the entry alone is refused, and the other records
+  of it are checked, held or reported as a deploy holds or reports them.
 - **Superseding.** A registrar replaces a mistaken entry (CPD-000123, drawn
   with the wrong stereochemistry) with another of the same type in the same
   registry (CPD-000456), with a reason. It can't be undone. The superseded
@@ -36,7 +39,7 @@ from django.db.models import Count, Exists, OuterRef, Q, QuerySet
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
-from iki_server.entities import access, registry, services, states, unique
+from iki_server.entities import access, breaches, checking, registry, services, states, unique
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
 from iki_server.entities.values import Invalid, problems_of, row_columns, shape, to_db, to_json
 from iki_server.org import permissions
@@ -179,11 +182,20 @@ def curate(
             raise Invalid(errors)
         if not new:
             return None
+        _keeps_its_rules(form, locked, rows, new)
         before = {n: to_json(fields[n], rows.get(n)) for n in new}
         touched = services._write(form, rows, new, locked.pk)
         revision = services._revise(locked, RevisionKind.CURATED, sorted(new), user, reason)
         services._write_history(touched, rows, revision.number)
         services._use_files(fields, locked.pk, new, revision.number)
+        # Every record of it, as its registrars' changes are every holder's (ADR 0127).
+        breaches.check_holders(
+            locked,
+            frozenset(new),
+            user=user,
+            reason=reason.strip(),
+            entry_revision=revision.number,
+        )
         log.record(
             "list.option_changed" if listed else "registry.facts_changed",
             actor=user,
@@ -198,6 +210,28 @@ def curate(
             },
         )
     return revision
+
+
+def _keeps_its_rules(
+    form: Any,  # noqa: ANN401 - a Shape
+    entry: Entity,
+    rows: Any,  # noqa: ANN401 - its Rows
+    new: Mapping[str, Any],
+) -> None:
+    """Refuses a change that breaks a rule of the entry's type reading only the entry's
+    values (ADR 0127): every record of it would break it alike. A rule that also reads a
+    record's own values is each record's, checked on them (:func:`breaches.check_holders`),
+    and one that holds holds them."""
+    fields = form.entry_fields()
+    saving = checking.Saving(
+        lambda n: new[n] if n in new else rows.get(n) if n in fields else None,
+        frozenset(new),
+        id=entry.pk,
+        hrid=entry.hrid,
+    )
+    found = checking.broken(entry.type, [saving])[0]
+    refusing = [b for b in found if not b.held and set(b.rule.reads) <= fields.keys()]
+    checking.raise_broken(refusing, hold_reason="")
 
 
 def _registrar(user: User, entry: Entity) -> Registry:

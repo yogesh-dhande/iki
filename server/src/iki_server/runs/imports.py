@@ -1850,6 +1850,16 @@ def _find_fills(cursor: Any, table: str, type_name: str) -> None:  # noqa: ANN40
     )
 
 
+def _made_of(entry_id: uuid.UUID) -> frozenset[uuid.UUID]:
+    """The records of an entry the import makes, whose lines were checked as they were
+    staged."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT entity_id FROM iki_import_resolved WHERE entry_id = %s AND new", [entry_id]
+        )
+        return frozenset(found for (found,) in cursor.fetchall())
+
+
 class _Filling:
     """What the lines compared so far fill, and the errors they make."""
 
@@ -1912,6 +1922,8 @@ class _Filling:
                         project=self.run.project,
                         reason=self.run.change_reason,
                         by_run=True,
+                        # Its own new records' rules are checked with their lines.
+                        besides=_made_of(entry_id),
                     )
                 except Invalid as error:
                     # Another entry's unique value, say: on the line that filled it.
