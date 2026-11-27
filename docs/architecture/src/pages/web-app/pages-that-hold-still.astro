@@ -1,0 +1,85 @@
+---
+import Inferred from "../../components/Inferred.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const APP = "web/app/src";
+
+const H = {
+  short: "Nothing moves under a press",
+  rules: "Tabs, cards, buttons and the test that checks them",
+  ref: "Code",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      This page answers: why doesn't an Iki page shift while it loads, and what keeps it that way?
+      A press that begins on one control and is let go on another clicks neither. So a page that
+      moves while it's loading loses presses, or hands them to a neighbour. Iki's pages avoid that
+      in three ways: loaders read everything that decides a toolbar before the first render; parts
+      that wait on reads are laid out hidden until they've settled; and what changes late above a
+      control is held as it was until the press is let go (<Path p={`${APP}/steady.ts`} />). The
+      entity route's loader, which reads the watch state before the page draws, is the example on{" "}
+      <PageLink to="Pages and routing" hash="example" />.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Tabs and cards that draw where they stay" open>
+        <p>
+          A project's and a record's tab rows draw only once every read that decides which tabs
+          there are, and how wide each is, has answered; until then a quiet bar holds the place of
+          each tab there's sure to be (<Path p={`${APP}/tab-strip.tsx`} />). A project's overview
+          cards are laid out hidden until each reports it has settled, or a time budget runs out; a
+          card that's late draws into a reserve of fixed height, so nothing around it moves (<Path
+            p={`${APP}/settling.tsx`}
+            sym="export function useSettled("
+          />). Changing a filter or the sort keeps the grid's rows in place until the new results
+          come (<Path p={`${APP}/entities.ts`} sym="placeholderData" />).
+        </p>
+      </Rule>
+      <Rule title="Buttons that can't be pressed stay in place">
+        <p>
+          Buttons that can't be pressed set <code>aria-disabled</code> or <code>aria-busy</code>{" "}
+          and swallow the press, rather than using the native <code>disabled</code> attribute (<Path
+            p="web/packages/ui/src/button.ts"
+            sym="if (unavailable) event.preventDefault();"
+          />). <Inferred why="No comment or ADR says why.">That keeps them focusable and in place.</Inferred>
+        </p>
+      </Rule>
+      <Rule title="The browser tests check it">
+        <p>
+          A script installed in every page and frame of a browser test records each press and
+          release and every layout shift; the test fails when a press and its release land on
+          different targets (<Path p="server/tests/conftest.py" sym="def _watch_browser_click_stability(" />,{" "}
+          <Path p="server/tests/click_stability.js" />). <PageLink to="Browser tests" /> has the rest of
+          what every page is checked for.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={`${APP}/steady.ts`} />: holding what changes late above a control</li>
+        <li><Path p={`${APP}/settling.tsx`} />: cards laid out hidden until they settle</li>
+        <li><Path p={`${APP}/tab-strip.tsx`} />: tab rows that draw once</li>
+        <li><Path p="server/tests/click_stability.js" />: the press-and-release check</li>
+      </ul>
+      <p>How reads themselves work is on <PageLink to="Reading data" />.</p>
+    </div>
+  </Layer>
+</Layout>

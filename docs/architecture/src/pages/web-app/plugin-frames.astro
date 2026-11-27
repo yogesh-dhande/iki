@@ -1,0 +1,191 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+import Sequence from "../../components/Sequence.astro";
+
+const FRAME = "web/app/src/component-frame.tsx";
+const CV = "server/src/iki_server/components/views.py";
+const BRIDGE = "server/src/iki_server/components/bridge.js";
+
+const H = {
+  short: "Where a plugin's own view runs",
+  how: "A plugin tab, step by step",
+  example: "A plasmid's map, drawn by its plugin in a frame",
+  rules: "Modules, frames, the bridge and the tests",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A plugin's web component is one bundled JavaScript module, checked by its SHA-256 when the
+      deployment is built and again before it's served. It runs in an <code
+        >iframe sandbox="allow-scripts"</code
+      > whose document has no one's origin, so it can't read Iki's cookies, storage or pages, or
+      call the API as the person. Its policy is <code>connect-src 'none'</code>: the page reads
+      for it, and hands it data over a <code>MessageChannel</code> port. A script that runs first
+      takes away WebRTC and nested frames, which no policy covers. Whatever the component asks
+      for comes back over the port, and the page checks each message itself (<Adr
+        n={[84, 102, 117, 170]}
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <Sequence
+      id="frame-dg"
+      title="Opening /entities/PLS-…/components/iki/plasmid.plasmid_map/"
+      width={900}
+      actors={[
+        { id: "page", label: "Page", sub: "ComponentFrame" },
+        { id: "server", label: "Server" },
+        { id: "frame", label: "Frame", sub: "opaque origin" },
+        { id: "el", label: "Plugin element" },
+      ]}
+      steps={[
+        { id: "list", from: "page", to: "server", label: "GET /api/v1/components: the frame's URL" },
+        { id: "load", from: "page", to: "server", label: "iframe src: /plugin-components/<name>/<digest>/" },
+        { id: "served", from: "server", to: "frame", label: "harden script, module (SRI), bridge; strict CSP", dashed: true },
+        { id: "connect", from: "page", to: "frame", label: "iki-connect, with one MessageChannel port" },
+        { id: "props", from: "frame", to: "el", label: "entity, entities, place" },
+        { id: "event", from: "el", to: "frame", label: "iki-select, iki-more, iki-refine, iki-open, iki-run" },
+        { id: "check", from: "frame", to: "page", label: "over the port; the page decides" },
+      ]}
+    >
+      <div slot="list"><p>The API gives each installed component's frame URL, digest included.</p><p><Path p="server/src/iki_server/api/components.py" sym='"frame": reverse("component_frame"' /></p></div>
+      <div slot="load"><p>The frame is sandboxed with scripts only and no referrer; a frame that hasn't started in 15 seconds shows as failed.</p><p><Path p={FRAME} sym="START_TIMEOUT_MS = 15_000" /></p></div>
+      <div slot="served"><p>404 unless the installed component's SHA-256 is the digest in the URL, and the module on disk still has it. The frame and module are cached for a year, since an address never changes.</p><p><Path p={CV} sym='"connect-src": [CSP.NONE]' />, <Path p="server/src/iki_server/web/frame_harden.js" /></p></div>
+      <div slot="connect"><p>The target origin is <code>"*"</code> because the frame's origin is opaque; the port is what stays private. If the frame loads a second document, the page closes the port and removes it.</p><p><Path p={FRAME} sym="loads.current > 1" /></p></div>
+      <div slot="props"><p>The bridge accepts <code>iki-connect</code> only from its parent, then sets the element's properties. Its own comment calls it a convenience, not a guard.</p><p><Path p={BRIDGE} sym="const PROPERTIES" /></p></div>
+      <div slot="event"><p>Selections, the next page of what fills its place, a narrower query, an entity to open, and an action its place offers (<Adr n={[117, 170]} />).</p></div>
+      <div slot="check"><p>The page acts only on what it gave the frame: it opens an entity it handed over, and runs an action only if the place lists it, by opening the launch page.</p><p><Path p={FRAME} sym="now.place.runs?.includes(message.action)" /></p></div>
+    </Sequence>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      A scientist opens a plasmid's map tab. The entity route has read the record and the installed
+      components (<PageLink to="Pages and routing" hash="example" />). The child route for{" "}
+      <code>components/$</code> renders a <code>ComponentFrame</code> for <code
+        >iki/plasmid.plasmid_map</code
+      >. Inside the frame the plugin's module, bundled from <Path
+        p="plugins/plasmid/web/src/plasmid-map.js"
+      /> and <code>@ikisci/science</code>'s plasmid map, draws the map from the entity the page
+      handed it, with the project's primers it declared it needs:
+    </p>
+    <Excerpt file="plugins/plasmid/components/plasmid_map.yaml" start="^entities:" />
+    <p>
+      Until the plasmid is annotated, the map offers the action that annotates it. If the
+      scientist picks it, the frame sends <code>run</code> over the port, the page checks the place
+      offers that action, and it opens Iki's launch page.
+    </p>
+    <Excerpt file="plugins/plasmid/components/plasmid_map.yaml" start="^events:" />
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="A component is one module, checked by digest" open>
+        <p>
+          A component declares its element, its slots and its events, and points to one bundled ES
+          module of at most 10 MiB with everything it needs, since the frame loads nothing else
+          (<Path p="spec/src/iki_spec/components.py" />). <code>iki deploy build</code> copies the
+          module into the plugin's app after checking it against the digest it had when the plugin
+          was read; the server checks the digest again when it reads it, and answers 404 if the
+          image was changed since (<Adr n="0084" />, <Path
+            p="server/src/iki_server/components/installed.py"
+            sym="class ModuleChanged"
+          />).
+        </p>
+        <p>
+          Components with source under a plugin's <code>web/</code> are bundled by <Path
+            p="scripts/bundle-plugin-components.mjs"
+          /> into one self-contained module each, and <code>pnpm test</code> fails on a stale
+          bundle (<Adr n="0191" />). The other first-party components are the module as checked in.
+        </p>
+      </Rule>
+      <Rule title="The frame's policy">
+        <p>
+          The frame's page allows its harden script and Iki's bridge by hash, the module by address
+          with its hash as the script's integrity, and WebAssembly compilation; nothing else
+          runs. It can't connect anywhere, submit a form, or be framed by anyone but Iki. Its styles
+          are its own to build (<Path p={CV} sym="def frame(" />).
+        </p>
+        <p>
+          The harden script runs first, as a classic script, before any module: it removes WebRTC,
+          whose STUN and TURN traffic no policy covers, and frames of the frame's own, whose globals
+          would be fresh (<Adr n="0102" />, <Path p="server/src/iki_server/web/frame_harden.js" />,{" "}
+          <Path p="server/src/iki_server/web/frames.py" />). Iki's own structure viewer, Mol*, runs
+          in the same kind of frame, with the same script first (<Adr n="0085" />, <Path
+            p="server/src/iki_server/web/viewers.py"
+          />).
+        </p>
+      </Rule>
+      <Rule title="The page checks every message">
+        <p>
+          The bridge shares the frame with the component's code, so nothing it does is a guard. The
+          page reads each message from the port and acts only on what it gave the frame: more of
+          its place's entities, a refinement that narrows and never widens, an entity it was handed,
+          or an action its place offers (<Path p={FRAME} />, <Path p="web/app/src/components.ts" sym="readMessage" />).
+        </p>
+      </Rule>
+      <Rule title="Exfiltration is tested in three browsers">
+        <p>
+          An attacker's server, on another origin, records every request and every datagram. Code in
+          a component's frame tries every way out a page has, and must get nothing out, in Chromium,
+          Firefox and WebKit (<Path
+            p="server/tests/test_browser_exfiltration.py"
+            sym="def test_a_components_code_gets_nothing_out("
+          />).
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            <Adr n="0012" /> says a component fetches its own data with the viewer's permissions.
+            Under <Adr n="0084" /> its frame can't connect anywhere; the page fetches for it.
+          </li>
+          <li>
+            <code>@ikisci/component</code>'s <code>Place</code> type has no <code>runs</code>, though <Adr
+              n="0170"
+            />, the bridge and the app support offering actions (<Path p="web/packages/component/src/index.ts" sym="export interface Place" />).
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={FRAME} />: plugin frames on the page</li>
+        <li><Path p="server/src/iki_server/components" />: serving frames and modules, and the bridge</li>
+        <li><Path p="web/packages/component" />: types and helpers for plugin authors' components</li>
+      </ul>
+      <p>What a plugin declares besides its components is on <PageLink to="What a plugin declares" />.</p>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0012" title /></li>
+        <li><Adr n="0084" title /></li>
+        <li><Adr n="0085" title /></li>
+        <li><Adr n="0102" title /></li>
+        <li><Adr n="0117" title /></li>
+        <li><Adr n="0170" title /></li>
+        <li><Adr n="0191" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

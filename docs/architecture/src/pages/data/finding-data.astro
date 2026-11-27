@@ -1,0 +1,267 @@
+---
+import Adr from "../../components/Adr.astro";
+import Diagram from "../../components/Diagram.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+
+const SEARCH = "server/src/iki_server/entities/search.py";
+const API = "server/src/iki_server/api/entities.py";
+const LISTING = "server/src/iki_server/files/listing.py";
+const EXPORTS = "/data/exports/";
+
+const boxes = [
+  { id: "grid", x: 20, y: 30, w: 190, h: 60, label: "Grid and search box", sub: "words to JSON" },
+  { id: "api", x: 250, y: 30, w: 190, h: 60, label: "Search API", sub: "search, search.csv", strong: true },
+  { id: "compile", x: 480, y: 30, w: 190, h: 60, label: "Condition compiler", sub: "JSON to indexed SQL" },
+  { id: "access", x: 710, y: 30, w: 190, h: 60, label: "Access filter", sub: "readable projects" },
+  { id: "limit", x: 250, y: 150, w: 190, h: 60, label: "Time-limited reads", sub: "15 s; keyset pages" },
+  { id: "special", x: 480, y: 150, w: 190, h: 60, label: "Rules, motifs, graph", sub: "held, breaks, of" },
+  { id: "indexes", x: 710, y: 150, w: 190, h: 60, label: "Postgres indexes", sub: "trigram, full text" },
+  { id: "csv", x: 20, y: 150, w: 190, h: 60, label: "CSV writer", sub: "streamed; formula-safe", href: `${EXPORTS}#how` },
+  { id: "audit", x: 20, y: 270, w: 190, h: 60, label: "Audit log", sub: "each download", href: "/records/audit-trail/" },
+  { id: "trail", x: 250, y: 270, w: 190, h: 60, label: "Audit-trail CSV", sub: "one row per change", href: EXPORTS },
+  { id: "files", x: 480, y: 270, w: 190, h: 60, label: "Record files", sub: "GenBank, FASTA, reports", href: EXPORTS },
+  { id: "bundles", x: 710, y: 270, w: 190, h: 60, label: "Bundles", sub: "signed, with history", href: EXPORTS },
+];
+const edges = [
+  { from: "grid", to: "api" },
+  { from: "api", to: "compile" },
+  { from: "compile", to: "access" },
+  { from: "compile", to: "special" },
+  { from: "access", to: "indexes" },
+  { from: "api", to: "limit" },
+  { from: "api", to: "csv", label: "rows" },
+  { from: "csv", to: "audit", label: "search.exported" },
+  { from: "trail", to: "audit" },
+  { from: "trail", to: "csv", label: "writer" },
+];
+
+const H = {
+  short: "Search is Postgres, over what the reader can read",
+  how: "From a search to its rows",
+  example: "A QA reviewer finds oligo lots held for their mass",
+  rules: "Operators, text, limits, files and lineage",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      This page answers: how does someone find records and files in Iki? Search is Postgres: typed
+      JSON conditions compiled to SQL that indexes serve, with no search engine to keep in step (<Adr
+        n="0037"
+      />). Every search starts from what the caller can read, runs under a time limit, and pages by
+      a signed cursor, so a page costs the same at any depth (<Adr n="0103" />). A file's contents
+      are found through the records parsed from it; files themselves are found by name, format,
+      acquisition date, sample and run (<Adr n="0177" />). How results leave Iki is on <PageLink
+        to="Exports"
+      />.
+    </p>
+    <ul>
+      <li>Records: the grid's filters and search box, per type and project.</li>
+      <li>Files: a project's Files tab, and one Files list across projects at <code>/files/</code>.</li>
+      <li>Everything: ⌘K searches records, requests, runs, files, projects, saved views and people.</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <Diagram
+      id="srch"
+      title="A search, and the four ways records leave: search CSV, audit trail, record files and bundles"
+      width={920}
+      height={350}
+      boxes={boxes}
+      edges={edges}
+      caption="The bottom row is how results leave Iki; each links to Exports."
+    >
+      <div slot="grid">
+        <p>
+          The grid's filters and the search box's words become JSON conditions. Words follow GitHub:{" "}
+          <code>is:held</code>, <code>is:breaking</code>, <code>held:&lt;rule&gt;</code>. Download CSV
+          is a plain link to the server (<Adr n={[135, 175]} />).
+        </p>
+        <p><Path p="web/app/src/filters.ts" />, <Path p="web/app/src/entities.ts" sym="export function searchCsvUrl(" /></p>
+      </div>
+      <div slot="api">
+        <p>
+          <code>POST /entities/search</code> takes a type, a project, free text, conditions, a sort
+          and a cursor; <code>GET /entities/search.csv</code> takes the same as query parameters (<Adr
+            n={[37, 175]}
+          />).
+        </p>
+        <p><Path p={API} sym='@router.post("/entities/search"' />, <Path p={API} sym="def search_csv(" /></p>
+      </div>
+      <div slot="compile">
+        <p>
+          Conditions are checked against one operator table shared by the server, the plugin validator
+          and the web filters, then compiled to Django queries. At most 50 conditions, 6 levels deep
+          (<Adr n="0037" />).
+        </p>
+        <p><Path p="spec/src/iki_spec/conditions.py" sym="OPERATORS: Mapping" />, <Path p={SEARCH} sym="MAX_CONDITIONS = 50" /></p>
+      </div>
+      <div slot="access">
+        <p>
+          Every search starts from the entities the caller can read: an <code>EXISTS</code> on links
+          into projects where they hold a role. Org Admins get no more (<Adr n={[24, 37]} />, <PageLink
+            to="Sharing across projects"
+          />).
+        </p>
+        <p><Path p={SEARCH} sym="access.visible_of(user" />, <Path p="server/src/iki_server/entities/access.py" sym="my_role__isnull=False" /></p>
+      </div>
+      <div slot="limit">
+        <p>
+          Each search runs in its own transaction with a statement timeout and planner settings; a
+          cancelled query becomes 422 <code>search_too_slow</code>. Pages are keyset pages with a
+          signed cursor tied to the sort, and a sort no index serves is refused up front if it would
+          sort more than a million rows (<Adr n="0103" />).
+        </p>
+        <p><Path p={SEARCH} sym="def time_limit(" />, <Path p={SEARCH} sym="UNINDEXED_SORT_MAX = 1_000_000" /></p>
+      </div>
+      <div slot="special">
+        <p>
+          <code>held</code> and <code>breaks</code> match open rule holds and breaches. A sequence
+          motif with ambiguity codes becomes a regular expression, double-stranded records also match
+          the reverse complement, and circular ones across their origin. Graph conditions walk
+          lineage up or down, at most 30 deep (<Adr n={[123, 135, 175]} />).
+        </p>
+        <p><Path p={SEARCH} sym="def caught(" />, <Path p={SEARCH} sym="def having_motif(" />, <Path p="server/src/iki_server/graph/queries.py" sym="MAX_DEPTH = 30" /></p>
+      </div>
+      <div slot="indexes">
+        <p>
+          Codegen gives each plugin field its indexes: an <code>indexed</code> string gets a B-tree and
+          a trigram index, a <code>text</code> field a full-text index with the <code>simple</code>{" "}
+          configuration. Postgres updates them in the write's own transaction (<Adr n={[33, 37]} />).
+        </p>
+        <p><Path p="codegen/src/iki_codegen/models.py" sym="def _indexes(" />, <Path p="server/src/iki_server/entities/lookups.py" /></p>
+      </div>
+      <div slot="csv"><p>One writer for every CSV, streamed in pages.</p></div>
+      <div slot="audit"><p>Every download is audited before its first row.</p></div>
+      <div slot="trail"><p>One record's history, a row per changed field.</p></div>
+      <div slot="files"><p>A record written as a file another tool reads.</p></div>
+      <div slot="bundles"><p>Records with their history, signed, for another deployment.</p></div>
+    </Diagram>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      An oligonucleotide lot whose measured mass is outside its tolerance is saved as measured and
+      held for QA's review. The rule, in <Path
+        p="plugins/lots/types/oligo_lot.yaml"
+        label="iki/lots.OligoLot"
+      />:
+    </p>
+    <Excerpt file="plugins/lots/types/oligo_lot.yaml" start="^  mass_within_tolerance:" />
+    <p>
+      A QA reviewer types <code>held:mass_within_tolerance</code> in the lots grid. The app sends it as
+      a condition on the built-in <code>held</code> field, which the compiler turns into a match on
+      open holds by that rule; an unknown rule name is a 422 listing the type's rules:
+    </p>
+    <Excerpt file={SEARCH} start="^    def caught\(" />
+    <p>
+      Download CSV then writes the same search, and one lot's audit trail shows who saved the mass
+      and who reviewed the hold (<PageLink to="Exports" />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Operators and built-in fields" open>
+        <p>What each kind of field can be compared with, shared by server, validator and app:</p>
+        <Excerpt file="spec/src/iki_spec/conditions.py" start="^OPERATORS: Mapping" />
+        <p>
+          Every entity also has built-in fields: its HRID, type, owner project, the service a request
+          was sent to, who made it and when, assignments, lineage up and down, and what rules caught
+          (<Path p={SEARCH} sym="_BUILT_IN = {" />).
+        </p>
+      </Rule>
+      <Rule title="Free text and full text">
+        <p>
+          <code>q</code> matches HRIDs and the title's text fields as one <code>IN</code> over a{" "}
+          <code>UNION</code>; text shaped like the start of an HRID uses a prefix match. <code
+            >contains</code
+          > and <code>starts_with</code> compile to <code>ILIKE</code> so the trigram index serves
+          them; <code>matches</code> is full-text search with web-search syntax (<Adr n="0037" />, <Path
+            p={SEARCH}
+            sym="def matching("
+          />).
+        </p>
+      </Rule>
+      <Rule title="Searching what files held">
+        <p>
+          A file's contents are searched through the fields parsed from it: sequences by motif on
+          both strands and across a circular origin (<Adr n="0175" />), compounds by substructure and
+          similarity, which <code>iki/small_molecule</code> runs as RDKit actions (<Path
+            p="plugins/small_molecule/actions/substructure_search.yaml"
+          />). Finding a phrase inside a file's text is planned after M1 (<Path p="docs/roadmap.md" />).
+        </p>
+      </Rule>
+      <Rule title="Files">
+        <p>
+          A project's files are those added to it and those its records hold at any revision; across
+          projects, every file the reader can read. Names are found by a trigram index, taking at most
+          5,000 hits, with counts stopping at 1,000. Filters: format (exact or a family such as{" "}
+          <code>image/*</code>), acquisition date, sample and run; sorts include acquisition date,
+          unknown last. A file's page lists Used by: each record and revision span that held it, and
+          each run that read or made it (<Adr n="0177" />, <Path p={LISTING} sym="NAMED_MAX = 5000" />).
+          The file picker is the same view, held to what the field or param takes.
+        </p>
+      </Rule>
+      <Rule title="Lineage">
+        <p>
+          Graph conditions in a search, and the lineage view, walk the record graph's edges (<Path
+            p="server/src/iki_server/graph/models.py"
+          />). Lineage downloads as <code>upstream.csv</code> or <code>downstream.csv</code>, up to
+          100,000 rows (<Adr n="0123" />, <Path
+            p="server/src/iki_server/api/graph.py"
+            sym="MAX_EXPORT = 100_000"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Search everything">
+        <p>
+          ⌘K searches each kind it covers through the same access rules, and finds files as a kind of
+          their own (<Path p="server/src/iki_server/api/everything.py" sym="KINDS = (" />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <Routes tags={["search"]} />
+    <Routes tags={["files"]} paths={/^\/api\/v1\/files/} />
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={SEARCH} />: conditions, free text, limits and cursors</li>
+          <li><Path p={LISTING} />: the Files list</li>
+          <li><Path p="server/src/iki_server/api/everything.py" />: search everything</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0037" title /></li>
+          <li><Adr n="0103" title /></li>
+          <li><Adr n="0123" title /></li>
+          <li><Adr n="0135" title /></li>
+          <li><Adr n="0175" title /></li>
+          <li><Adr n="0177" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

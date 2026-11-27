@@ -1,0 +1,156 @@
+---
+import Adr from "../../components/Adr.astro";
+import Diagram from "../../components/Diagram.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import { page } from "../../lib/nav.ts";
+
+const CHART = "deploy/helm/iki";
+const TPL = "deploy/config-template";
+const href = (label: string) => page(label).href;
+const RELEASES = href("Releases and images");
+
+const boxes = [
+  { id: "source", x: 20, y: 30, w: 190, h: 60, label: "Source", sub: "Wasm as source + SHA-256", href: href("WebAssembly") },
+  { id: "deps", x: 250, y: 30, w: 190, h: 60, label: "Dependency gate", sub: "3 days old; licences", href: href("Dependencies") },
+  { id: "live", x: 480, y: 30, w: 190, h: 60, label: "Live-test gate", sub: "every cloud, the tag", href: href("Live clouds and scale") },
+  { id: "publish", x: 710, y: 30, w: 190, h: 60, label: "publish.yml", sub: "7 images, signed", strong: true, href: RELEASES },
+  { id: "release", x: 710, y: 150, w: 190, h: 60, label: "release.yml", sub: "chart, worker, npm", href: RELEASES },
+  { id: "config", x: 20, y: 150, w: 190, h: 60, label: "Config repository", sub: "one per deployment", href: RELEASES },
+  { id: "build", x: 250, y: 150, w: 190, h: 60, label: "Deployment build", sub: "build, sign, approve", strong: true, href: RELEASES },
+  { id: "customer", x: 480, y: 150, w: 190, h: 60, label: "Customer registry", sub: "licensed images", href: href("Licensed images") },
+  { id: "infra", x: 20, y: 270, w: 190, h: 60, label: "OpenTofu", sub: "GCP and AWS roots", href: href("Cloud infrastructure") },
+  { id: "cluster", x: 250, y: 270, w: 190, h: 60, label: "Cluster", sub: "one Helm chart", strong: true, href: href("The Helm chart") },
+  { id: "admit", x: 480, y: 270, w: 190, h: 60, label: "Admission", sub: "signed or approved", href: RELEASES },
+  { id: "workers", x: 710, y: 270, w: 190, h: 60, label: "Lab workers", sub: "update to signed releases", href: RELEASES },
+];
+const edges = [
+  { from: "source", to: "deps" },
+  { from: "deps", to: "live" },
+  { from: "live", to: "publish" },
+  { from: "publish", to: "release", dashed: true },
+  { from: "publish", to: "build", label: "base images, checked" },
+  { from: "config", to: "build" },
+  { from: "customer", to: "build" },
+  { from: "build", to: "cluster", label: "Deploy PR, GitOps" },
+  { from: "infra", to: "cluster" },
+  { from: "cluster", to: "admit" },
+  { from: "release", to: "workers" },
+];
+
+const H = {
+  short: "How Iki gets from this repository to a lab's cluster",
+  how: "From a tagged release to admitted pods",
+  ref: "Where, and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Each organization gets its own deployment on Kubernetes, from one Helm chart. Iki publishes
+      signed images with provenance and SBOMs, but only after a live deployment to every cloud has
+      passed for the tag. A deployment is a git repository of its own: its CI builds the pinned
+      plugins onto Iki's images, signs the result, approves the images its runs may use, and opens a
+      pull request whose merge is the deploy. In the cluster, run pods are admitted only if Iki
+      signed their image or the deployment approved it. Reference OpenTofu sets up Google Cloud or
+      AWS around the chart.
+    </p>
+    <ul>
+      <li>Single-tenant deployments on Kubernetes, with Helm (<Adr n={[2, 14]} />).</li>
+      <li>GitOps configuration per deployment (<Adr n="0015" />).</li>
+      <li>Signed, attested artifacts verified at deploy time (<Adr n={[17, 63]} />).</li>
+      <li>Deployments supply licensed images Iki doesn't ship (<Adr n="0209" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <Diagram id="deploy" title="From Iki's release to a lab's cluster" width={920} height={350} boxes={boxes} edges={edges}>
+      <div slot="source">
+        <p>No <code>.wasm</code> file is ever in git: the Rust source and a SHA-256 for each module are.</p>
+        <p><Path p="server/iki_wasm.wasm.sha256" /></p>
+      </div>
+      <div slot="deps">
+        <p>Nothing released less than three days ago is locked; vulnerabilities and licences are checked (<Adr n={[17, 19]} />).</p>
+        <p><Path p="scripts/supply-chain/check-deps.sh" /></p>
+      </div>
+      <div slot="live">
+        <p>Both the publish and release workflows refuse a tag until each cloud's live test has passed at it.</p>
+        <p><Path p="deploy/live/live_runs.py" /></p>
+      </div>
+      <div slot="publish">
+        <p>The server, the worker and five first-party tool images, scanned, signed and attested (<Adr n={[17, 65]} />).</p>
+        <p><Path p=".github/workflows/publish.yml" /></p>
+      </div>
+      <div slot="release">
+        <p>The chart, the worker's binaries, and two npm packages, signed (<Adr n="0017" />).</p>
+        <p><Path p=".github/workflows/release.yml" /></p>
+      </div>
+      <div slot="config">
+        <p>One folder per deployment: the Iki version, images by digest, plugins, values and settings (<Adr n={[15, 34]} />).</p>
+        <p><Path p={TPL} /></p>
+      </div>
+      <div slot="build">
+        <p>The deployment's CI builds its images, signs them, approves the images runs use, and opens a Deploy pull request (<Adr n={[34, 63]} />).</p>
+        <p><Path p={`${TPL}/.github/workflows/build.yml`} /></p>
+      </div>
+      <div slot="customer">
+        <p>A licensed image the lab supplies, bound to an environment and a range of plugin releases (<Adr n="0209" />).</p>
+        <p><Path p="spec/src/iki_spec/compute.py" sym="class ImageBinding" /></p>
+      </div>
+      <div slot="infra">
+        <p>Reference OpenTofu for Google Cloud and AWS, with an output of chart values (<Adr n={[97, 107, 109]} />).</p>
+        <p><Path p="deploy/gcp/production" />, <Path p="deploy/aws/production" /></p>
+      </div>
+      <div slot="cluster">
+        <p>Web, tasks, the migrate hook, workers, the provisioner, the egress proxy and network policies (<Adr n={[14, 53, 155]} />).</p>
+        <p><Path p={`${CHART}/templates`} /></p>
+      </div>
+      <div slot="admit">
+        <p>A Sigstore policy on the pods the provisioner makes: Iki's signature or the deployment's approval (<Adr n="0063" />).</p>
+        <p><Path p={`${CHART}/templates/image-policy.yaml`} sym="kind: ClusterImagePolicy" /></p>
+      </div>
+      <div slot="workers">
+        <p>Workers on people's computers update themselves to releases Iki signed (<Adr n="0060" />).</p>
+        <p><Path p="worker/crates/iki-worker/src/update.rs" /></p>
+      </div>
+    </Diagram>
+    <p>Which page covers each part:</p>
+    <ul>
+      <li><PageLink to="Releases and images" />: what a tagged release publishes, how it's signed, a deployment's config repository and build, and what the cluster admits.</li>
+      <li><PageLink to="The Helm chart" />: what runs in the cluster.</li>
+      <li><PageLink to="Cloud infrastructure" />: the OpenTofu for Google Cloud and AWS.</li>
+      <li><PageLink to="Licensed images" />: images a deployment supplies for licensed tools.</li>
+      <li><PageLink to="Dependencies" />: the minimum release age, licences and vulnerabilities.</li>
+      <li><PageLink to="The dev cluster" />: the same chart on a laptop, and in CI.</li>
+      <li><PageLink to="WebAssembly" /> and <PageLink to="Live clouds and scale" />: the Wasm modules, and the live tests a release waits for.</li>
+    </ul>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={CHART} />: the chart</li>
+        <li><Path p={TPL} />: a deployment's config repository</li>
+        <li><Path p="deploy/gcp" />, <Path p="deploy/aws" />: reference infrastructure</li>
+        <li><Path p="docs/supply-chain.md" />: verifying what Iki publishes</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0002" title /></li>
+        <li><Adr n="0014" title /></li>
+        <li><Adr n="0015" title /></li>
+        <li><Adr n="0017" title /></li>
+        <li><Adr n="0063" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

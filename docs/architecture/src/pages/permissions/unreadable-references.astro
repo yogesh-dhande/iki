@@ -1,0 +1,174 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const VALUES = "server/src/iki_server/entities/values.py";
+const ACCESS = "server/src/iki_server/entities/access.py";
+const INCLUDED = "server/src/iki_server/runs/included.py";
+const QUEUE = "server/src/iki_server/runs/queue.py";
+
+const H = {
+  short: "A reference shows only what its reader can read",
+  how: "Where references are masked",
+  example: "A request that names a sample the service can't read",
+  rules: "Readers, runs and leases",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+
+const service = `{
+  "private_sample": "unreadable",
+  "comparison_samples": ["<the shared sample's ID>", "unreadable"],
+  "sample_notes": [{ "sample": "unreadable", "note": "Comparison" }]
+}`;
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A reader can read a record but not everything it refers to. Wherever Iki shows a record's
+      values, a reference to a record the reader can't read is the string <code>unreadable</code>{" "}
+      instead of an ID: no ID, type or title, in single references, lists and rows alike (<Adr
+        n={[66, 132]}
+      />). A run sees its references as its project could at launch: positions it couldn't read are
+      pinned as <code>unreadable</code>, and the worker receives them so. Each lease checks again that
+      the run's project can still read everything else the command will receive, and the run ends if
+      it can't (<Adr n={[66, 105]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      Serializing a value for a reader takes the IDs that reader may identify. Anything else becomes
+      the marker:
+    </p>
+    <Excerpt file={VALUES} start="^def to_json\(" />
+    <p>
+      The IDs come from <code>readable_reference_ids</code>: records linked into a project the
+      reader reads, registry entries they hold a record of, and tombstones of purged records they
+      could read (<Path p={ACCESS} sym="def readable_reference_ids(" />). Values already stored as
+      JSON, such as a revision's, go through the same boundary (<Path
+        p={VALUES}
+        sym="def redact_json_references("
+      />).
+    </p>
+    <p>
+      That covers record and revision values over REST and MCP, search, lists, revisions and their
+      diffs, registry entries' values and history, an amount movement's counterpart, and a project
+      webhook's counterpart (<Path p="server/src/iki_server/api/amounts.py" sym="def movement_out(" />,{" "}
+      <Path p="server/src/iki_server/webhooks/events.py" sym="def project_amount_movement(" />). CSV
+      exports write "An entity you can’t read" in its place. The web app shows the same words, with no
+      link (<Path p="web/app/src/pages/entity.tsx" />, <Path p="web/app/src/entity-values.ts" />).
+    </p>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      A project asks a core for the purity of its kinases and sends one of its samples. The request also names a
+      second sample it doesn't send: a private one, in a single reference, a list beside the shared
+      sample, and a row's cell. The core's technician reads the request, and its values come back as:
+    </p>
+    <pre><code>{service}</code></pre>
+    <p>
+      The <code>refs</code> map holds only the shared sample, and the private sample's ID and HRID
+      appear nowhere in the answer. The asking project's own Editor reads the same request with the
+      private sample's ID. A run the core launches on the request gets the same values in its worker
+      document (<Path
+        p="server/tests/test_requests.py"
+        sym="def test_a_request_indicates_a_reference_the_service_cannot_read("
+      />, <Path
+        p="server/tests/test_run_inclusions.py"
+        sym="def test_a_service_commands_reference_values_match_its_project("
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="A run pins its project's view at launch" open>
+        <p>
+          At launch, Iki walks every typed reference in the run's inputs and included records, at
+          their pinned revisions, and records the positions its project can't identify as the run's{" "}
+          <code>reference_mask</code>. Retries, reuse and exact reproduction keep that view, including
+          after a bundle import, and the mask counts in the reuse key (<Adr n="0105" />, <Path
+            p={INCLUDED}
+            sym="def reference_mask("
+          />, <Path p="server/src/iki_server/runs/reuse.py" sym="reference_mask" />). What else a run
+          pins, and its provenance, is on <PageLink to="Pinning and provenance" />.
+        </p>
+      </Rule>
+      <Rule title="Each lease checks current access">
+        <p>
+          Before a worker gets a job, the lease checks that the launcher can still run on that tier in
+          the project, and builds the command's input document from the pins. That needs every pinned
+          record, every reference it doesn't mask, and every file param to be readable in the run's
+          project now. If one isn't, the attempt ends with a generic reason; a packed command checks
+          each of its runs on its own, and leaves out those that fail (<Adr n="0066" />, <Path p={QUEUE} sym="def lease(" />, <Path
+            p={INCLUDED}
+            sym="def manifest("
+          />):
+        </p>
+        <Excerpt file={INCLUDED} start="^class Unavailable\(" />
+        <p>
+          Results the run already made stay in its project, like a copy someone made while they could
+          read the input (<Path
+            p="server/tests/test_run_inclusions.py"
+            sym="def test_a_lease_requires_the_pinned_records_in_the_run_project("
+          />). How leases work is on <PageLink to="The worker and its leases" />.
+        </p>
+      </Rule>
+      <Rule title="Launching and reproducing need the person's access">
+        <p>
+          A launcher must be able to read each reference an input includes; one they can't is refused
+          with the input it came from (<Path p={INCLUDED} sym="class Unreadable(" />). A reproduction
+          reads what the run read, at those revisions, and is refused if the person can't read them
+          now (<Adr n="0105" />).
+        </p>
+      </Rule>
+      <Rule title="Pages about runs keep each input's place">
+        <p>
+          Run and workflow pages show inputs and inclusions as each reader can read them now. An
+          unreadable one keeps its place in the list, as "An entity you can’t read". A comparison of a
+          reproduction shows record values only to readers who can read what they refer to (<Adr
+            n="0066"
+          />, <Path p="server/src/iki_server/runs/output_refs.py" sym="def comparisons(" />).
+        </p>
+      </Rule>
+      <Rule title="Exact copies need every reference">
+        <p>
+          A signed export or a bundle carries exact history and signed bytes, so it's made only for a
+          reader who can read every reference in it (<Path p={ACCESS} sym="def all_references_readable(" />).
+          Exports are on <PageLink to="Exports" />.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={VALUES} sym='UNREADABLE_REFERENCE = "unreadable"' />: the marker</li>
+        <li><Path p={ACCESS} />: which references a reader or a project can identify</li>
+        <li><Path p={INCLUDED} />: a run's pinned references, its mask and its manifest</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0066" title /></li>
+        <li><Adr n="0105" title /></li>
+        <li><Adr n="0132" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

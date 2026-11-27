@@ -1,0 +1,120 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+import Tree from "../../components/Tree.astro";
+
+const H = {
+  short: "What the reference OpenTofu sets up around the chart",
+  how: "Modules, a production root and a bootstrap, per cloud",
+  rules: "Each cloud's choices, checks and recovery",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Reference OpenTofu for Google Cloud and AWS makes what the chart runs on: the network, the
+      cluster, the database, the files bucket, secrets, the pods' cloud identities and the VM tier,
+      and on Google Cloud also keys, logs, an image registry and Binary Authorization. Each cloud
+      has a production root that puts the modules together and outputs the chart values the cloud
+      decides. They use the clouds' own providers alone, with no third-party modules, so a
+      platform team can read every resource they make (<Adr n={[97, 107, 109]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <Tree dir="deploy/gcp/modules" depth={1} />
+    <Tree dir="deploy/aws/modules" depth={1} />
+    <p>
+      Each cloud's <code>bootstrap</code> is made once, first: the bucket its state lives in and the
+      key that encrypts it. <code>production</code> is one deployment, and its README is the runbook
+      from an empty project or account to Iki serving. Its <code>helm_values</code> output is the
+      chart's values for that cloud, written beside <code>values-production.yaml</code> (<Path
+        p="deploy/gcp/production/outputs.tf"
+        sym='output "helm_values"'
+      />, <Path p="deploy/aws/production/outputs.tf" sym='output "helm_values"' />, <PageLink
+        to="The Helm chart"
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Google Cloud" open>
+        <p>
+          Artifact Registry tags are immutable (<Path
+            p="deploy/gcp/modules/artifact-registry/main.tf"
+            sym="immutable_tags = true"
+          />). Files use Cloud Storage's own API, and the VM tier runs on Compute Engine (<Adr
+            n="0109"
+          />). Binary Authorization admits only the deployment's repositories, Iki's images and
+          listed extras, and denies the rest cluster-wide (<Path
+            p="deploy/gcp/modules/binary-authorization/main.tf"
+            sym="ALWAYS_DENY"
+          />). Pods reach Google through Workload Identity.
+        </p>
+      </Rule>
+      <Rule title="AWS">
+        <p>
+          EKS with Bottlerocket nodes; pods get credentials through EKS Pod Identity, one role each,
+          allowed only what it uses (<Path p="deploy/aws/modules/access/main.tf" sym="aws_eks_pod_identity_association" />).
+          FSx for Lustre is optional, for shared reference data.
+        </p>
+      </Rule>
+      <Rule title="Secrets never enter the state">
+        <p>
+          No module writes a secret's value, so none is in OpenTofu's state; <code>make check-infra</code>{" "}
+          fails if one does. It also runs <code>tofu fmt</code>, <code>validate</code> and each module's
+          tests against mocked providers, and Checkov, per cloud (<Path p="Makefile" sym="check-infra:" />).
+          The real deployments are <PageLink to="Live clouds and scale" />.
+        </p>
+      </Rule>
+      <Rule title="Recovering from a lost region">
+        <p>
+          Both production roots take a <code>recovery</code> variable, set only to stand Iki up again
+          in another region from the same code: the lost deployment's promoted database replica and
+          its files bucket become this one's (<Adr n="0100" />, <Path
+            p="deploy/gcp/production/variables.tf"
+            sym='variable "recovery"'
+          />, <Path p="deploy/aws/production/variables.tf" sym='variable "recovery"' />).
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            <Adr n="0107" /> says files go through Cloud Storage's S3-compatible API; <Adr n="0109" />{" "}
+            and the code use its own API, and 0107's status doesn't say so.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p="deploy/gcp/README.md" />, <Path p="deploy/aws/README.md" />: what each module makes</li>
+        <li><Path p="deploy/gcp/production" />, <Path p="deploy/aws/production" />: the roots and their runbooks</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0097" title /></li>
+        <li><Adr n="0100" title /></li>
+        <li><Adr n="0107" title /></li>
+        <li><Adr n="0109" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

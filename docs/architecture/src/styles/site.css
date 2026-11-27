@@ -1,0 +1,408 @@
+/* The architecture site: Iki's own tokens (@ikisci/ui), one neutral accent, light and dark. */
+@import "@ikisci/ui/fonts.css";
+@import "@ikisci/ui/tokens.css";
+
+:root {
+  --wrap: 1360px;
+  --code-bg: var(--surface-2);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--sidebar-current-text);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+a:hover {
+  color: var(--text);
+}
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+code,
+.mono {
+  font-family: var(--mono);
+  font-size: 0.88em;
+}
+:not(pre) > code {
+  background: var(--code-bg);
+  border-radius: 4px;
+  padding: 1px 4px;
+  overflow-wrap: anywhere;
+}
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.wrap {
+  max-width: var(--wrap);
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+/* Header */
+.site-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.site-header .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  min-height: 56px;
+}
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--text);
+  text-decoration: none;
+}
+.brand b {
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+.brand span {
+  color: var(--muted);
+  font-size: 14px;
+}
+.site-header .note {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Three columns: the site's sections, the page, and the page's own contents. */
+.columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 40px;
+  padding-top: 32px;
+  padding-bottom: 80px;
+}
+.site-nav {
+  flex: 1 1 200px;
+  max-width: 240px;
+  font-size: 14px;
+}
+.site-nav p {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.site-nav ul {
+  list-style: none;
+  margin: 0 0 22px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.site-nav a {
+  display: block;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  text-decoration: none;
+}
+.site-nav a:hover {
+  background: var(--sidebar-hover);
+}
+.site-nav a[aria-current="page"],
+.site-nav a[aria-current="true"] {
+  background: var(--sidebar-current);
+  color: var(--sidebar-current-text);
+  font-weight: 600;
+}
+
+main {
+  flex: 999 1 560px;
+  min-width: 0;
+  max-width: 1000px;
+}
+/* Diagrams use the page's width; prose keeps a readable measure. */
+main > p,
+.layer > p,
+.layer > ul,
+.layer > ol,
+.layer > h3,
+.rules .body > p,
+.rules .body > ul {
+  max-width: 800px;
+}
+main.wide {
+  max-width: none;
+}
+.toc {
+  flex: 1 1 180px;
+  max-width: 220px;
+  font-size: 13px;
+}
+.toc-inner {
+  position: sticky;
+  top: 20px;
+}
+.toc p {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+.toc ol {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.toc a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.toc a:hover {
+  color: var(--text);
+}
+
+.crumb {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+h1 {
+  margin: 0;
+  font-size: 40px;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+h2 {
+  margin: 0 0 12px;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+h3 {
+  margin: 28px 0 8px;
+  font-size: 17px;
+}
+main p,
+main li {
+  font-size: 15.5px;
+}
+main p {
+  margin: 0 0 12px;
+}
+main ul,
+main ol {
+  padding-left: 22px;
+  margin: 0 0 14px;
+}
+main li {
+  margin: 0 0 4px;
+}
+
+/* Layers: in short, how it works, a worked example, the rules in full, reference. */
+.layer {
+  margin-top: 48px;
+  scroll-margin-top: 16px;
+}
+.layer.short {
+  margin-top: 24px;
+}
+.layer.short h2 {
+  font-size: 19px;
+}
+.layer.short > p:first-of-type,
+.layer.short .lede {
+  font-size: 17px;
+  line-height: 1.55;
+}
+.layer.short ul {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+/* The rules in full: one disclosure per rule. */
+.rules {
+  border-top: 1px solid var(--border);
+}
+.rules details {
+  border-bottom: 1px solid var(--border);
+  padding: 12px 0;
+}
+.rules summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-weight: 600;
+  font-size: 15.5px;
+}
+.rules summary::-webkit-details-marker {
+  display: none;
+}
+.rules summary::before {
+  content: "›";
+  display: inline-block;
+  width: 10px;
+  color: var(--muted);
+  transition: transform 0.12s;
+}
+.rules details[open] > summary::before {
+  transform: rotate(90deg);
+}
+.rules .body {
+  padding: 8px 0 0 20px;
+}
+.rules summary .cites {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Citations */
+a.adr.titled {
+  white-space: normal;
+}
+a.adr {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+a.repo-path code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+.inferred {
+  border-bottom: 1px dashed var(--warning);
+  cursor: help;
+}
+.tag-inferred {
+  font-style: italic;
+  color: var(--warning);
+  margin-right: 4px;
+}
+
+/* Reference lists: a heading and its list, one after another. */
+.refs h3 {
+  margin: 20px 0 6px;
+  font-size: 15px;
+}
+.refs ul {
+  margin: 0;
+  padding-left: 20px;
+}
+.refs li {
+  font-size: 14px;
+  margin: 0 0 4px;
+}
+
+/* Tables */
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 12px 0 18px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+th {
+  background: var(--surface-2);
+  text-align: left;
+  font-weight: 600;
+}
+th,
+td {
+  padding: 8px 12px;
+  vertical-align: top;
+  border-top: 1px solid var(--border);
+}
+thead th {
+  border-top: none;
+}
+td.num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.status {
+  color: var(--muted);
+}
+
+.site-footer {
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+  padding: 18px 0 30px;
+}
+
+@media (max-width: 720px) {
+  .wrap {
+    padding: 0 16px;
+  }
+  h1 {
+    font-size: 32px;
+  }
+  .site-nav,
+  .toc {
+    max-width: none;
+  }
+}
+
+/* Two tables side by side where there's room. */
+.pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr));
+  gap: 12px;
+}
+td > code:only-child {
+  white-space: nowrap;
+}
+
+/* A nested group: closed unless it holds the page you're on. */
+.site-nav details {
+  margin: 0 0 6px;
+}
+.site-nav summary {
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.site-nav summary:hover {
+  color: var(--text);
+}
+.site-nav details ul {
+  margin: 2px 0 12px;
+}

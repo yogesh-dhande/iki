@@ -1,0 +1,16 @@
+---
+// A file or directory in the repository, linked to GitHub at main. The build fails if the
+// path doesn't exist, or if `sym` isn't in the file: write it as the source does, such as
+// "def lease(" or "class KubernetesFleet", and it's shown as lease() or KubernetesFleet.
+import { assertContains, githubUrl } from "../lib/repo.ts";
+
+type Props = { p: string; sym?: string; label?: string };
+const { p, sym, label } = Astro.props;
+const href = githubUrl(p);
+if (sym) assertContains(p, sym);
+const shown = sym
+  ?.replace(/^(?:async def|def|fn|pub fn|async fn|pub async fn) (\w+)\($/, "$1()")
+  .replace(/^(?:class|struct|pub struct|enum|pub enum) (\w+).*$/, "$1");
+---
+
+<a class="repo-path" href={href}><code>{label ?? p}</code></a>{shown && <> (<code>{shown}</code>)</>}

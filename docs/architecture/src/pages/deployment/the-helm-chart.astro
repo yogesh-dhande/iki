@@ -1,0 +1,116 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+import Tree from "../../components/Tree.astro";
+
+const CHART = "deploy/helm/iki";
+const T = `${CHART}/templates`;
+
+const H = {
+  short: "What runs in a deployment's cluster",
+  how: "One chart, templates rendered by value",
+  rules: "The migrate hook, the network and where the ADR differs",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      One Helm chart for every environment, requiring Kubernetes 1.33 or later. It runs the web pods
+      (which also serve MCP), the task runner, a migrate hook before every install, upgrade and
+      rollback, an hourly maintenance job, and, as the values turn them on, backend workers, the
+      provisioner for the container and VM tiers, the image policy and the egress proxy. Network
+      policies that deny everything by default are on unless turned off (<Adr n={[14, 53, 155]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <Tree dir={T} depth={1} />
+    <ul>
+      <li>
+        <Path p={`${T}/web-deployment.yaml`} />, with its Service, ingress, autoscaler and disruption
+        budget: the web app, the API and MCP, which is a route on the web pods (<Path
+          p="server/src/iki_server/urls.py"
+          sym='path("mcp"'
+        />).
+      </li>
+      <li><Path p={`${T}/tasks-deployment.yaml`} />: background tasks from the Postgres queue, scaled out with replicas (<PageLink to="Tasks and live updates" />).</li>
+      <li><Path p={`${T}/maintenance-cronjob.yaml`} />: hourly housekeeping, such as expired sessions and tokens, and stored files past their retention.</li>
+      <li><Path p={`${T}/worker-deployment.yaml`} />: backend workers, with <code>backendWorkers.enabled</code>.</li>
+      <li>
+        <Path p={`${T}/provisioner.yaml`} />: the only part of Iki that talks to the Kubernetes API,
+        when the container or VM tier is on (<PageLink to="Compute tiers" />).
+      </li>
+      <li><Path p={`${T}/image-policy.yaml`} />: with the container tier and <code>imagePolicy.enabled</code> (<PageLink to="Releases and images" hash="rules" />).</li>
+      <li><Path p={`${T}/egress-proxy-deployment.yaml`} />: with <code>egressProxy.enabled</code>; until it's on, actions that declare hosts can't run (<PageLink to="Network and secrets" />).</li>
+      <li><Path p={`${T}/monitoring.yaml`} />: Iki's Grafana dashboards and Prometheus alerts (<Adr n="0098" />).</li>
+    </ul>
+    <p>
+      The production roots of <PageLink to="Cloud infrastructure" /> each output the values the cloud
+      decides, to sit beside a <code>values-production.yaml</code>.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="The migrate hook" open>
+        <p>
+          A Helm hook Job runs before install, upgrade and rollback, before any new web pod starts. It
+          migrates the database to this release's build as the schema's owner; on a rollback it
+          reverses the plugin migrations the older build lacks, unless that could lose data (<Adr
+            n="0034"
+          />). The plugins' migrations, the triggers and grants they need, and the app role's grants
+          are one transaction, so the old pods serving meanwhile never write to a table without its
+          guards (<Adr n="0134" />). A failed step fails the install, upgrade or rollback, and the
+          old pods keep serving (<Path p={`${T}/migrate-job.yaml`} />).
+        </p>
+      </Rule>
+      <Rule title="Network policies deny by default">
+        <p>
+          Iki's pods accept and send nothing except what the policy lists. DNS is always allowed;
+          the peers that may reach the web pods, and where workers, run pods and the proxy may go,
+          are values (<Adr n="0155" />, <Path p={`${T}/networkpolicy.yaml`} />). The dev cluster
+          enforces them too (<PageLink to="The dev cluster" />).
+        </p>
+      </Rule>
+      <Rule title="Where the ADR and the code differ">
+        <ul>
+          <li>
+            <Adr n="0014" /> lists mcp and scheduler deployments; MCP is a route on the web pods, and
+            scheduled work is the task runner and the maintenance CronJob. It also names IRSA (the
+            code uses EKS Pod Identity) and MinIO (replaced by SeaweedFS in <Adr n="0022" />).
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={`${CHART}/values.yaml`} />: every value, with what it does</li>
+        <li><Path p={`${CHART}/Chart.yaml`} sym="kubeVersion" />: the Kubernetes it needs</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0014" title /></li>
+        <li><Adr n="0034" title /></li>
+        <li><Adr n="0053" title /></li>
+        <li><Adr n="0134" title /></li>
+        <li><Adr n="0155" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

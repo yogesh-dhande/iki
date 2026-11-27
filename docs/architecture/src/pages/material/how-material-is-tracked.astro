@@ -1,0 +1,161 @@
+---
+import Adr from "../../components/Adr.astro";
+import Diagram from "../../components/Diagram.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import { page } from "../../lib/nav.ts";
+
+const AM = "server/src/iki_server/amounts";
+const ST = "server/src/iki_server/storage";
+const INV = "plugins/inventory/types";
+const at = (label: string) => page(label).href;
+
+const boxes = [
+  { id: "decl", x: 20, y: 30, w: 190, h: 60, label: "Type declarations", sub: "storage: and amount:", href: at("Amounts and the ledger") },
+  { id: "units", x: 250, y: 30, w: 190, h: 60, label: "UCUM units", sub: "exact conversions", href: at("Amounts and the ledger") },
+  { id: "places", x: 480, y: 30, w: 190, h: 60, label: "Inventory places", sub: "freezer, shelf, rack, box, tube", href: at("Places and moves") },
+  { id: "receive", x: 710, y: 30, w: 190, h: 60, label: "Receiving", sub: "receive_into, receipts", href: at("Receipts and counts") },
+  { id: "eligible", x: 20, y: 150, w: 190, h: 60, label: "Draws", sub: "guards, scans, samples", href: at("Draws and samples") },
+  { id: "ledger", x: 250, y: 150, w: 190, h: 60, label: "Amount ledger", sub: "append-only movements", strong: true, href: at("Amounts and the ledger") },
+  { id: "place", x: 480, y: 150, w: 190, h: 60, label: "Place", sub: "container, row, column", href: at("Places and moves") },
+  { id: "events", x: 710, y: 150, w: 190, h: 60, label: "Location ledger", sub: "append-only events", strong: true, href: at("Places and moves") },
+  { id: "graph", x: 20, y: 270, w: 190, h: 60, label: "Graph edges", sub: "aliquot, transfer, used", href: at("Amounts and the ledger") },
+  { id: "balance", x: 250, y: 270, w: 190, h: 60, label: "Balance", sub: "one row; never below 0", href: at("Amounts and the ledger") },
+  { id: "moves", x: 480, y: 270, w: 190, h: 60, label: "Bulk moves", sub: "preview, then commit", href: at("Places and moves") },
+  { id: "counts", x: 710, y: 270, w: 190, h: 60, label: "Counts", sub: "plan_revision pinned", href: at("Receipts and counts") },
+];
+const edges = [
+  { from: "decl", to: "eligible", label: "guards" },
+  { from: "units", to: "ledger", label: "converts" },
+  { from: "eligible", to: "ledger" },
+  { from: "ledger", to: "balance", label: "same transaction" },
+  { from: "ledger", to: "graph", label: "trigger" },
+  { from: "places", to: "place", label: "instances" },
+  { from: "events", to: "place" },
+  { from: "moves", to: "events", label: "one operation" },
+  { from: "counts", to: "events", label: "on completion" },
+  { from: "receive", to: "events", label: "places" },
+];
+
+const H = {
+  short: "Where material is, and how much is left",
+  how: "The two ledgers, what writes to them, and the page for each",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      This is physical material: freezers, boxes, tubes, lots and what's in them. Where files and
+      blobs live is on <PageLink to="Where data is stored" />. Iki's core declares no freezers or tubes:
+      plugins say which types hold others, in what grid, and which types have an amount in what unit.
+      The server keeps two append-only ledgers. One is of amounts, where every draw, transfer, split
+      and adjustment is a movement with the balance after it. The other is of locations, where every
+      placement, move, receipt and hand-over is an event. The current balance and the current place
+      are single rows updated in the same transaction. Moves of many records are previewed, then
+      committed all or none.
+    </p>
+    <ul>
+      <li>A record's amount is a ledger of what moved (<Adr n="0139" />).</li>
+      <li>Where material is, and how it's received, moved and counted (<Adr n="0180" />).</li>
+      <li>Received packs go straight into storage (<Adr n="0190" />).</li>
+      <li>Commit the plan that was reviewed (<Adr n="0207" />).</li>
+      <li>Lots, inventory, samples and requests have separate owners (<Adr n="0211" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      <code>iki/inventory</code> owns Freezer, Shelf, Rack, Box and Tube; <code>iki/lots</code> owns
+      the lot, a batch with its QA disposition; <code>iki/samples</code> owns the sample, a portion
+      drawn for identified work. All three use the same core services for places, scans and amounts.
+      Each box links to the page that covers it.
+    </p>
+    <Diagram id="stor" title="Declarations, the two ledgers, and what writes to them" width={920} height={350} boxes={boxes} edges={edges}>
+      <div slot="decl">
+        <p><code>storage:</code> says what a type holds and its grid; <code>amount:</code> its unit and what a draw also follows (<Adr n={[139, 180]} />).</p>
+        <p><Path p="spec/src/iki_spec/model.py" sym="class Storage:" />, <Path p="spec/src/iki_spec/model.py" sym="class Amount:" /></p>
+      </div>
+      <div slot="units">
+        <p>An amount's unit must add up; conversions are exact fractions from Iki's own UCUM parser (<Adr n="0139" />).</p>
+        <p><Path p="spec/src/iki_spec/units/__init__.py" /></p>
+      </div>
+      <div slot="places">
+        <p>A freezer holds shelves, a shelf racks and boxes, a rack a grid of boxes, a box a grid of tubes (<Adr n={[180, 211]} />).</p>
+        <p><Path p={INV} /></p>
+      </div>
+      <div slot="receive">
+        <p>An action's <code>receive_into</code> places what it creates; a request's tubes are received line by line (<Adr n={[180, 190]} />).</p>
+        <p><Path p={`${ST}/receipts.py`} /></p>
+      </div>
+      <div slot="eligible">
+        <p>Before taking material: holds, draw guards, the guards of what it follows, a scan, and for a sample its one assigned draw (<Adr n={[139, 211]} />).</p>
+        <p><Path p={`${AM}/eligibility.py`} />, <Path p={`${AM}/services.py`} sym="def draw(" /></p>
+      </div>
+      <div slot="ledger">
+        <p>Each movement keeps its kind, the signed change, the balance after it, and who, why and through what (<Adr n="0139" />).</p>
+        <p><Path p={`${AM}/models.py`} sym="class Movement(" /></p>
+      </div>
+      <div slot="place">
+        <p>One row per record: its container and position, or its custodian (<Adr n="0180" />).</p>
+        <p><Path p={`${ST}/models.py`} sym="class Place(" /></p>
+      </div>
+      <div slot="events">
+        <p>Every placement, move, removal, check-out, hand-over and receipt is an event, audited as <code>storage.moved</code> (<Adr n="0180" />).</p>
+        <p><Path p={`${ST}/models.py`} sym="class Event(" /></p>
+      </div>
+      <div slot="graph">
+        <p>A trigger on movements adds aliquot, transfer and used edges to the record graph (<Adr n={[123, 139]} />).</p>
+        <p><Path p="server/src/iki_server/graph/sql.py" sym="MOVEMENTS = (" /></p>
+      </div>
+      <div slot="balance">
+        <p>The current amount is a stored row, never negative; its last change time is its revision (<Adr n="0139" />).</p>
+        <p><Path p={`${AM}/models.py`} sym="class Amount(" /></p>
+      </div>
+      <div slot="moves">
+        <p>Up to 1,536 moves under one reason and one operation, committed only as the preview showed them (<Adr n="0207" />).</p>
+        <p><Path p={`${ST}/services.py`} sym="def move(" /></p>
+      </div>
+      <div slot="counts">
+        <p>A count of a container is refused if anything moved in or out since it started (<Adr n={[180, 207]} />).</p>
+        <p><Path p={`${ST}/reconciliations.py`} /></p>
+      </div>
+    </Diagram>
+
+    <p>Where each part is covered:</p>
+    <ul>
+      <li><PageLink to="Amounts and the ledger" />: declaring an amount, movements, balances, transfers, pools and splits.</li>
+      <li><PageLink to="Draws and samples" />: what a draw checks, tube scans, samples and lot draws.</li>
+      <li><PageLink to="Places and moves" />: containers and grids, the location ledger, custody and bulk moves.</li>
+      <li><PageLink to="Receipts and counts" />: receiving a request's tubes and a supplier's delivery, counts and stability pulls.</li>
+    </ul>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={AM} />: the amount ledger, eligibility and stock</li>
+        <li><Path p={ST} />: places, events, scans, moves, receipts and counts</li>
+        <li><Path p="plugins/inventory" />, <Path p="plugins/lots" />, <Path p="plugins/samples" />: the shipped types</li>
+        <li><Path p="web/app/src/storage-ui.tsx" />: the app's storage dialogs</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0139" title /></li>
+        <li><Adr n="0180" title /></li>
+        <li><Adr n="0190" title /></li>
+        <li><Adr n="0207" title /></li>
+        <li><Adr n="0211" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

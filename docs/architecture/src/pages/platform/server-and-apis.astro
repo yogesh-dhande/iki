@@ -1,0 +1,223 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const S = "server/src/iki_server";
+const T = "deploy/helm/iki/templates";
+const H = {
+  short: "One Django project, one image",
+  how: "What the image runs, and how a request finds its view",
+  rules: "The APIs, MCP and settings",
+  ref: "Django apps and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+const processes = [
+  { cmd: "serve", what: "The web pods: uvicorn running the ASGI app", tpl: "web-deployment.yaml", page: "" },
+  { cmd: "tasks", what: "Background tasks, webhooks and the runner's housekeeping", tpl: "tasks-deployment.yaml", page: "Tasks and live updates" },
+  { cmd: "provision", what: "Starts pods and machines for queued runs", tpl: "provisioner.yaml", page: "Compute tiers" },
+  { cmd: "egress_proxy", what: "The only way out to the network for a run", tpl: "egress-proxy-deployment.yaml", page: "Network and secrets" },
+  { cmd: "migrate_deployment", what: "The migrate Job, before new pods start", tpl: "migrate-job.yaml", page: "Builds and deploys" },
+  { cmd: "maintain", what: "Routine cleanup, as a CronJob", tpl: "maintenance-cronjob.yaml", page: "" },
+];
+const apps: [string, string][] = [
+  ["core", "database roles, IDs, encryption, the server's own commands"],
+  ["web", "the app's shell page, server-rendered pages, CSP, frames"],
+  ["accounts", "people and sign-in"],
+  ["org", "teams, projects, roles, registries, holds"],
+  ["audit", "the append-only audit log"],
+  ["setup", "the setup link and wizard; assay starters"],
+  ["scim", "SCIM provisioning"],
+  ["oauth", "Iki's OAuth 2.1 server"],
+  ["tasks", "background tasks"],
+  ["realtime", "live updates"],
+  ["notifications", "in Iki and by email"],
+  ["webhooks", "signed webhooks"],
+  ["files", "blobs in object storage"],
+  ["entities", "the Entity row, revisions, states"],
+  ["amounts", "how much there is: the ledger"],
+  ["storage", "where each thing is kept"],
+  ["searches", "saved searches"],
+  ["runs", "runs, jobs, the queue, provisioners"],
+  ["spreadsheets", "spreadsheet imports"],
+  ["graph", "edges between records"],
+  ["plugins", "deploys, preflight, purge"],
+  ["bundles", "export and import between deployments"],
+  ["signatures", "Part 11 signatures"],
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      The server is one Django project, <Path p={S} />: Django 6.1 with django-ninja, under ASGI (<Adr
+        n="0004"
+      />). One image runs every server process: the web pods, the task runner, the provisioner,
+      the egress proxy, the migrate Job and a maintenance CronJob, each its own Deployment or Job in
+      the chart. The web pods serve two REST APIs, the public one at <code>/api/v1</code> and the
+      worker's at <code>/worker/v1</code>, plus MCP at <code>/mcp</code> for agents, SCIM at{" "}
+      <code>/scim/v2/</code>, and the pages Django renders itself.
+    </p>
+    <ul>
+      <li>Every public operation is in an OpenAPI document checked into git (<Adr n="0027" />).</li>
+      <li>Workers have their own API, and their wire types are generated from it (<Adr n="0043" />).</li>
+      <li>MCP tools call the REST API, so a tool can do exactly what its endpoint allows (<Adr n="0049" />).</li>
+      <li>All configuration is <code>IKI_*</code> environment variables, so one image serves every deployment.</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      The entry point is <code>iki-server</code> (<Path p="server/pyproject.toml" />), Django's{" "}
+      <code>manage.py</code>. The chart runs each process with its command as the container's
+      argument:
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Command</th><th>What it is</th><th>Chart</th><th>Covered on</th></tr></thead>
+        <tbody>
+          {
+            processes.map((p) => (
+              <tr>
+                <td><code>iki-server {p.cmd}</code></td>
+                <td>{p.what}</td>
+                <td><Path p={`${T}/${p.tpl}`} label={p.tpl} /></td>
+                <td>{p.page ? <PageLink to={p.page} /> : "this page"}</td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+    <p>
+      <code>serve</code> ends open live-update streams when the pod is asked to stop, so it stops in
+      seconds and browsers reconnect to another pod (<Path
+        p={`${S}/core/management/commands/serve.py`}
+        sym="class Server"
+      />). <code>maintain</code> deletes expired sessions, tokens, finished tasks, unfinished uploads,
+      expired drafts and old bundle archives, and sends stock alerts (<Path
+        p={`${S}/core/management/commands/maintain.py`}
+      />).
+    </p>
+    <p>
+      In <Path p={`${S}/urls.py`} />, the views that wait are plain async Django views, mounted
+      before the ninja APIs that share their prefix: the SSE streams under <code>/api/v1/…/events</code>,
+      and the worker's <code>lease</code> and <code>watch</code> long polls. Everything else under{" "}
+      <code>/api/v1/</code> is one <code>NinjaAPI</code>, whose routers are added module by module
+      from <Path p={`${S}/api`} />; the browser app's URLs all return the same shell page (<PageLink
+        to="Pages and routing"
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="/api/v1: the public API" open>
+        <p>
+          A <code>NinjaAPI</code> with bearer and session auth (<Path
+            p={`${S}/api/v1.py`}
+            sym="api = NinjaAPI("
+          />). Every error is an RFC 9457 problem detail, raised as <Path
+            p={`${S}/api/problems.py`}
+            sym="class Problem"
+          /> and also made from ninja's validation, authentication and HTTP errors. Every list uses
+          cursors: a page holds <code>items</code> and <code>next_cursor</code>, and a cursor is
+          signed, so the server refuses one it didn't make (<Path p={`${S}/api/pagination.py`} />,{" "}
+          <Adr n="0027" />).
+        </p>
+        <p>
+          The OpenAPI document is checked in at <Path p="web/packages/sdk/openapi.json" />. <code
+            >make client</code
+          > writes it and generates the TypeScript client and the Python SDK's types from it, and a
+          test fails while the committed document is behind the API (<Path
+            p="server/tests/test_web_app.py"
+            sym="def test_the_published_openapi_document_is_current("
+          />). This site's <PageLink to="Routes">route list</PageLink> is generated from it.
+        </p>
+      </Rule>
+      <Rule title="/worker/v1: the worker API">
+        <p>
+          A second <code>NinjaAPI</code> with worker authentication, "not for people" (<Path
+            p={`${S}/api/worker.py`}
+            sym="api = NinjaAPI("
+          />). <code>make protocol</code> writes its document to <Path
+            p="worker/crates/iki-protocol/worker-openapi.json"
+          /> and generates the Rust wire types from it, and a test fails while that's stale. How
+          workers use it: <PageLink to="The worker and its leases" />.
+        </p>
+      </Rule>
+      <Rule title="/mcp: agents">
+        <p>
+          MCP over Streamable HTTP (<Adr n="0013" />). The view checks the bearer token as the API
+          does, and the Origin header, then hands the request to the MCP SDK (<Path
+            p={`${S}/mcp/views.py`}
+            sym="async def endpoint("
+          />). Each tool calls <code>/api/v1</code> in-process with the agent's token, through all
+          of Django's middleware, marked as made through MCP by a key in the ASGI scope that no
+          client can set (<Path p={`${S}/mcp/api.py`} sym="VIA_KEY" />, <Path
+            p={`${S}/mcp/bridge.py`}
+            sym="async def call("
+          />). Every answer comes fenced as data, inside a marker the data can't guess (<Path
+            p={`${S}/mcp/tools.py`}
+          />). Who an agent acts for: <PageLink to="Tokens and delegation" />.
+        </p>
+      </Rule>
+      <Rule title="Settings">
+        <p>
+          Every setting comes from an <code>IKI_*</code> environment variable. Defaults are the
+          secure choice; anything that weakens security must be turned on, and a required value
+          without a default stops the server at startup (<Path p={`${S}/settings.py`} />). The
+          database must be PostgreSQL, reached through a connection pool with <code
+            >verify-full</code
+          > TLS by default.
+        </p>
+        <p>
+          Plugins' apps are appended to <code>INSTALLED_APPS</code> from the generated <code
+            >iki_installed_plugins</code
+          > package. The server refuses to start on plugins built by another Iki version, on a
+          plugin from a local directory unless <code>IKI_ALLOW_LOCAL_PLUGINS</code> is set, and on
+          plugins fetched from a mirror the deployment doesn't name (<Path
+            p={`${S}/settings.py`}
+            sym="_built_by"
+          />). The core plugin's app, <Path p="server/src/iki_plugin_iki__core" />, is always
+          installed (<Adr n="0038" />). How the package is built: <PageLink to="Builds and deploys" />.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <div>
+        <h3>Django apps in {S}</h3>
+        <ul>
+          {apps.map(([a, what]) => <li><Path p={`${S}/${a}`} label={a} /> {what}</li>)}
+          <li>
+            Packages, not apps: <Path p={`${S}/api`} label="api" />, <Path p={`${S}/mcp`} label="mcp" />,{" "}
+            <Path p={`${S}/components`} label="components" />, <Path p={`${S}/expressions`} label="expressions" />,{" "}
+            <Path p={`${S}/observability`} label="observability" />
+          </li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0004" title /></li>
+          <li><Adr n="0013" title /></li>
+          <li><Adr n="0027" title /></li>
+          <li><Adr n="0038" title /></li>
+          <li><Adr n="0043" title /></li>
+          <li><Adr n="0049" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

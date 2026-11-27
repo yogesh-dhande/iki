@@ -1,0 +1,182 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+
+const ST = "server/src/iki_server/storage";
+const REC = `${ST}/receipts.py`;
+const CNT = `${ST}/reconciliations.py`;
+
+const H = {
+  short: "Checking material in, and counting what's there",
+  how: "Request receipts, supplier deliveries, counts and stability pulls",
+  example: "A reagent delivery, received into storage",
+  rules: "Receipts, counts and pulls in full",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "receipts", label: "Receiving a request's tubes" },
+  { id: "deliveries", label: "Receiving a supplier's delivery" },
+  { id: "counts", label: "Counting a container" },
+  { id: "pulls", label: "Stability pulls" },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A service receives a request's tubes on a receipt: each expected tube is a line, scanned or
+      marked, and completing the receipt takes custody, puts each away and tells the requester of
+      anything that didn't arrive as expected. A supplier delivery arrives through an action that
+      creates lots straight into storage. A count compares what's scanned in a container's positions
+      with what's recorded, and applies its resolutions as one change. Receipts and counts each carry
+      a revision, so a person completes what they reviewed (<Adr
+        n={[180, 190, 207]}
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <h3 id="receipts">Receiving a request's tubes</h3>
+    <p>
+      A request type's <code>receives</code> names the list it's received against and the service's
+      lab roles that may receive it; in <code>iki/requests</code>, the tubes, by its coordinators. A
+      receiver starts a receipt, which has a line for each tube the request expects that no completed
+      receipt received; a request has one open receipt at a time (<Path p={REC} sym="def start(" />, <Path
+        p={`${ST}/models.py`}
+        sym='name="iki_storage_receipt_one_open"'
+      />). Each line is scanned or
+      ticked as matched, missing, damaged or rejected, and a code that isn't expected is an extra line.
+      Every observation is an append-only event with its before and after (<Path
+        p={`${ST}/observations.py`}
+      />).
+    </p>
+    <p>
+      Completing it needs who handed it over, such as a courier and its waybill, every line checked, a
+      note on each damaged, rejected or extra line, and each matched or damaged tube either put away
+      or kept in custody. Then it takes custody of what arrived, puts it away through a reviewed move
+      plan, freezes the receipt, and tells the request's submitter and watchers of what didn't arrive
+      as expected (<Path p={REC} sym="def complete(" />, <Path p={REC} sym="def _tell(" />).
+    </p>
+
+    <h3 id="deliveries">Receiving a supplier's delivery</h3>
+    <p>
+      An action's <code>creates</code> effect with <code>receive_into</code> names the input container
+      each new record goes into. The run makes the record, opens its amount and places it in the run's
+      transaction, with the run as the move's operation; a delivery must create a fresh record (<Path
+        p="server/src/iki_server/runs/results.py"
+        sym="def _place_received("
+      />). A project's stock is the balances of its lots, with physical stock and what's available for
+      routine use shown apart, and an hourly check tells its stock managers once per low-stock episode
+      (<Adr n="0190" />, <Path p="server/src/iki_server/amounts/stock.py" />, <Path
+        p="server/src/iki_server/amounts/stock_alerts.py"
+      />).
+    </p>
+
+    <h3 id="counts">Counting a container</h3>
+    <p>
+      A count notes what's recorded in each of a container's positions as it starts. Each position
+      scanned says what's there, or that it's empty, in any order or from a rack scanner's file. A
+      record is then matched, missing, unexpected or in the wrong position, and each that isn't
+      matched is resolved: moved to where it was found, taken out of storage, put where it was found,
+      or left as recorded with a note. Completing it applies every resolution as one change, and is
+      refused if anything moved into or out of the container since it started (<Path
+        p={CNT}
+        sym="def complete("
+      />, <Path p={CNT} sym="storage.events_since(container, reconciliation.started_at)" />).
+    </p>
+
+    <h3 id="pulls">Stability pulls</h3>
+    <p>
+      A stability pull is the scheduled use of one tube of one lot at a condition and time point.
+      Its <code>draw_target</code> takes one draw from its assigned tube, following its assigned lot, while
+      the pull is scheduled, by a coordinator, once the study revision is pinned and the tube is in
+      storage, in exactly the planned volume (<Adr n="0193" />, <Path
+        p={`server/src/iki_server/amounts/services.py`}
+        sym="def _check_draw_target("
+      />):
+    </p>
+    <Excerpt file="plugins/stability/types/pull.yaml" start="^draw_target:" />
+    <p>How draws are checked in general is on <PageLink to="Draws and samples" />.</p>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      A reagent order arrives. <code>iki/reagents</code>' <code>receive_delivery</code> action creates
+      a stock lot for the delivery line, by mass, volume or count, and puts it in storage as it
+      records it, at the chosen slot or the first free one:
+    </p>
+    <Excerpt file="plugins/reagents/actions/receive_delivery.yaml" start="^effects:" />
+    <p>
+      A volume lot keeps its amount in millilitres, in the catalogue item's stock unit. Every stock
+      lot is an <code>iki/lots.Lot</code>, so it starts quarantined, and until QA releases it only a QA
+      sampling draw may take from it (the lot's guards are on <PageLink
+        to="Draws and samples"
+        hash="checks"
+      />). A repeated delivery line can't post a second receipt, and an occupied position, a stale
+      order or a duplicate leaves the order and stock as they were (<Adr n="0190" />, <Path
+        p="plugins/reagents/types/stock_lot.yaml"
+      />, <Path p="plugins/reagents/types/volume_stock_lot.yaml" />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Receipts" open>
+        <p>
+          Describing, previewing, completing or cancelling a receipt names the revision it was
+          reviewed at, and changing a line's outcome names the line's. A stale one is refused with 409, listing the lines that changed since and their revisions, so the receiver
+          reviews them again (<Path p={REC} sym="class LinesChanged(" />). A put-away position the
+          server allocated must be one the receiver saw in the preview; otherwise completing answers
+          409 <code>moves_plan_changed</code> with the positions it would use now.
+        </p>
+      </Rule>
+      <Rule title="Counts">
+        <p>
+          A count carries a revision too, and editing it advances it (<Path p={CNT} sym="def _advance_plan(" />).
+          A count never passes an empty position to the move planner, which would allocate a free slot
+          of its own: a record is moved or put only at the position it was scanned in. A position not
+          scanned is refused at completion unless the person marks the rest missing (<Adr
+            n={[180, 207]}
+          />).
+        </p>
+      </Rule>
+      <Rule title="Stability pulls">
+        <p>
+          A pull draws once: a second draw for it is refused, and so is one from another tube or lot, or
+          of another volume (<Adr n="0193" />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <Routes tags={["storage"]} paths={/^\/api\/v1\/(receipts|reconciliations|entities\/\{ref\}\/receipts|storage\/(awaiting-put-away|containers\/\{ref\}\/reconciliations))/} />
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={REC} />: receiving a request's material</li>
+        <li><Path p={CNT} />: counting a container</li>
+        <li><Path p={`${ST}/observations.py`} />: the append-only observations of both</li>
+        <li><Path p="plugins/reagents" />, <Path p="plugins/stability" />: deliveries and pulls</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0180" title /></li>
+        <li><Adr n="0190" title /></li>
+        <li><Adr n="0193" title /></li>
+        <li><Adr n="0207" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

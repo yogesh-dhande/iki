@@ -1,0 +1,168 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+
+const M = "server/src/iki_server/runs/models.py";
+const W = "server/src/iki_server/runs/workflows.py";
+const T = "server/src/iki_server/runs/triggers.py";
+
+const H = {
+  short: "Runs that other things launch",
+  how: "Workflows and triggers",
+  example: "A condition, and a schedule",
+  rules: "Steps, approvals, loops and schedules",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A workflow is a DAG of ordinary runs: each step is launched by the same <code>launch</code> as
+      any run, as the person who started the workflow, in its project, once the steps it takes from
+      have succeeded. A trigger launches an action when records change, or on a schedule, once a
+      project's Admin turns it on there. Neither has an execution path of its own, so every launch
+      check, pin, quota and approval applies to their runs too (<Adr n={[11, 79, 80, 81]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <h3>Workflows</h3>
+    <p>
+      Starting a workflow checks its inputs and params as a launch would, and what its steps
+      include of its own inputs, then keeps a <code>WorkflowRun</code> with the workflow as
+      installed, so its steps run as it said then, and its inputs at their revisions. One consent
+      covers what its steps send to outside APIs (<Path p={W} sym="def start(" />, <Path
+        p={M}
+        sym="class WorkflowRun("
+      />). <code>advance</code> moves it on when one of its runs ends, when it starts or is
+      cancelled, and from the task runners' housekeeping. It locks the workflow run, so two never
+      launch a step twice. Each waiting step whose earlier steps succeeded is checked against its{" "}
+      <code>when</code> conditions, may wait for approval, and is then launched, one run or one per
+      entity (<Path p={W} sym="def _advance(" />, <Path p={W} sym="def _launch(" />).
+    </p>
+
+    <h3>Triggers</h3>
+    <p>
+      A plugin declares triggers on <code>entity.created</code>, <code>entity.updated</code> (for
+      given fields), <code>entity.state_changed</code>, <code>entity.registered</code> or a{" "}
+      <code>schedule</code>. None runs until a project's Admin turns it on in that project. A change
+      that fires one is recorded as a <code>TriggerFiring</code> in the change's own transaction, so a
+      firing exists exactly when its change does; a task launches its run once the change commits,
+      and task runners sweep each minute for any left behind (<Path p={T} sym="def noticed(" />, <Path
+        p={T}
+        sym="def _fire("
+      />). Its runs are launched as the Admin who turned it on, with <code>via="trigger"</code>, so
+      those on the container or vm tier, or calling outside APIs, wait for that Admin's approval
+      (<PageLink to="Launching a run" />).
+    </p>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      The spec's test plugin <Path p="spec/tests/plugins/protein/workflows/align_then_weigh.yaml" label="align_then_weigh" />{" "}
+      computes a protein's properties only if its alignment with another is close enough. The
+      second step reads a metric the first step's run reported:
+    </p>
+    <Excerpt file="spec/tests/plugins/protein/workflows/align_then_weigh.yaml" start="^steps:" rest note="from steps: on" />
+    <p>
+      If the alignment's <code>score</code> is below the param, <code>weigh</code> is skipped with{" "}
+      <code>condition_false</code>; if the run didn't report it, with <code>condition_unknown</code>,
+      never taken as false silently (<Path p={W} sym="def _unmet(" />). A scheduled trigger takes no
+      input; this one imports what a LIMS changed since its last successful run:
+    </p>
+    <Excerpt file="examples/plugins/lims_connector/triggers/import_nightly.yaml" start="^on:" rest note="from on: on" />
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Step states" open>
+        <p>
+          A step is waiting, awaiting approval, running, succeeded, failed, cancelled, skipped (an
+          earlier step didn't succeed, its condition didn't hold, or the workflow was cancelled) or
+          declined. A workflow re-run carries over the steps that succeeded and runs the rest again
+          (<Path p={M} sym="class StepState(" />, <Path p={W} sym="def rerun(" />).
+        </p>
+      </Rule>
+      <Rule title="A step can wait for approval">
+        <p>
+          A step with an <code>approval</code> waits, when its turn comes, for someone with that role
+          in the project other than whoever started the workflow, who are told. Nobody deciding within
+          30 days declines it, and the workflow fails (<Path p={W} sym="def _ask(" />, <Path
+            p={M}
+            sym="APPROVAL_EXPIRES_AFTER = timedelta(days=30)"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Triggered runs fire nothing">
+        <p>
+          What a triggered run writes never fires a trigger, so a trigger can't fire itself, or
+          another that fires it back; chaining belongs in workflows (<Path p={T} sym="def writing(" />).
+          A trigger may give other inputs the records related to the one that fired it, through the
+          graph (<Adr n="0123" />, <Path p="spec/src/iki_spec/triggers.py" />).
+        </p>
+      </Rule>
+      <Rule title="Calculations follow what they read">
+        <p>
+          A trigger's <code>watch_included</code> names fields of records its input includes; when
+          one changes, the calculation is queued again for the records that reference it, in the
+          projects that turned it on (<Path p={T} sym="def source_changed(" />). A{" "}
+          <code>recheck</code> trigger runs a deterministic backend calculation, which updates only
+          computed fields of the edited record, under the editor's own credential as they save
+          (<Path p={T} sym="def recheck_edit(" />). Their results are written only if the records
+          they read haven't changed since (<PageLink to="Pinning and provenance" />).
+        </p>
+      </Rule>
+      <Rule title="Schedules">
+        <p>
+          A schedule is cron's five fields in an IANA time zone, at most every five minutes. Its runs
+          are launched as a service account the Admin picked, on that Admin's authority: both must
+          still be able to run the tier, or Iki turns the trigger off and tells the project's Admins.
+          Each time runs at most once and never on top of the last; times missed while Iki was down
+          run once. Each run's input names the time it was for and the last successful run's
+          (<code>since</code>), and scheduled runs never reuse earlier results (<Adr n="0081" />,{" "}
+          <Path p={T} sym="def tick(" />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <h3>Routes</h3>
+    <Routes tags={["workflows"]} />
+    <Routes tags={["triggers"]} />
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={W} /></li>
+          <li><Path p={T} /></li>
+          <li><Path p="spec/src/iki_spec/workflows.py" /></li>
+          <li><Path p="spec/src/iki_spec/triggers.py" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0011" title /></li>
+          <li><Adr n="0079" title /></li>
+          <li><Adr n="0080" title /></li>
+          <li><Adr n="0081" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

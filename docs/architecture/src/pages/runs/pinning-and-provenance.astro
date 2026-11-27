@@ -1,0 +1,203 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const M = "server/src/iki_server/runs/models.py";
+const SV = "server/src/iki_server/runs/services.py";
+const Q = "server/src/iki_server/runs/queue.py";
+const R = "server/src/iki_server/runs/results.py";
+const I = "server/src/iki_server/runs/included.py";
+const RU = "server/src/iki_server/runs/reuse.py";
+
+const H = {
+  short: "What a run fixes, and what it can prove",
+  how: "What a run pins at launch",
+  rules: "Code, results, reuse, reproduction and kept files",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "attempt", label: "What each attempt receives" },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      At launch a run pins everything its results depend on: the plugin's commit, the action as
+      installed, params, settings, reference data builds, an image if one is bound, a seed, each
+      input at its revision, and each record its inputs' references name, at its revision. Every
+      attempt runs that code on those records and nothing newer. Its results are checked against
+      its own copy of the action and written all or nothing, as revisions that name the run. So a
+      run's record says exactly what it read and ran, an identical run can reuse its results, and
+      any run can be reproduced exactly (<Adr n={[35, 44, 47, 57, 105]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Pin</th><th>Kept as</th><th>What it's for</th></tr></thead>
+        <tbody>
+          <tr><td>Plugin version and commit</td><td><code>ActionRun.plugin_version</code>, <code>plugin_sha</code></td><td>Only a worker with that code leases it; reuse and reproduction need the same commit.</td></tr>
+          <tr><td>The action</td><td><code>ActionRun.spec</code></td><td>Results are checked against it, not the action installed now.</td></tr>
+          <tr><td>Params and settings</td><td><code>params</code>, <code>plugin_settings</code></td><td>What the command gets; a file param counts in the reuse key by its content.</td></tr>
+          <tr><td>Reference data builds</td><td><code>volumes</code></td><td>Only a machine that mounts those builds may run it.</td></tr>
+          <tr><td>A bound image</td><td><code>environment_image</code></td><td>Only a worker launched for that image leases it (<PageLink to="Licensed images" />).</td></tr>
+          <tr><td>A seed</td><td><code>seed</code></td><td>Given as <code>IKI_SEED</code>, and again when it's reproduced.</td></tr>
+          <tr><td>Each input</td><td><code>RunInput</code>: entity, revision, registry entry revision</td><td>What it read, append-only.</td></tr>
+          <tr><td>Each included reference</td><td><code>RunInclusion</code>: input, position, field, index, entity, revision</td><td>What it read through its inputs' references, append-only.</td></tr>
+          <tr><td>Unreadable positions</td><td><code>reference_mask</code></td><td>Typed reference positions the project couldn't identify at launch: the worker gets <code>unreadable</code> there.</td></tr>
+          <tr><td>Retries and timeout</td><td><code>timeout</code>, <code>max_attempts</code>, <code>retry_on</code></td><td>How long each attempt may run, and when it's retried.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      <Path p={SV} sym="def _queue(" />, <Path p={SV} sym="def _made(" />, <Path p={M} sym="class ActionRun(" />,{" "}
+      <Path p={M} sym="class RunInput(" />, <Path p={M} sym="class RunInclusion(" />, <Path
+        p={I}
+        sym="def reference_mask("
+      />
+    </p>
+
+    <h3 id="attempt">What each attempt receives</h3>
+    <p>
+      Each lease builds the command's input document from the pins, through one function used for
+      launch, reuse and every lease: each record at its pinned revision, its included records under{" "}
+      <code>included</code>, and <code>unreadable</code> at the masked positions. It refuses if a
+      pinned record was purged, or if the run's project can no longer read every record, reference
+      and file param the command would receive. A lease that's refused ends the attempt with a
+      generic reason, before the worker sees anything (<Adr n={[66, 105]} />, <Path
+        p={I}
+        sym="def manifest("
+      />, <Path p={Q} sym="def lease(" />). The marker and the access check are on <PageLink
+        to="Unreadable references"
+      />. A retry reads the same pins, masked positions included.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="A worker runs only the code the run was launched with" open>
+        <p>
+          The lease matches the job to workers that have the plugin at the run's commit and have
+          built its environment; the worker checks again before it starts. Plugin code from a local
+          directory has no commit, so a worker that fetched it names the bundle, and leases none of
+          that plugin's jobs once another is installed. Each attempt records the environment build's
+          digest (<Adr n="0047" />, <Path p={Q} sym="def _runnable(" />, <Path
+            p="worker/crates/iki-worker/src/plugins.rs"
+            sym="pub fn for_run("
+          />).
+        </p>
+      </Rule>
+      <Rule title="Results are written all or nothing">
+        <p>
+          The output is kept as a <code>RunOutput</code> whatever happens. It may update only the
+          inputs, records and fields the action declares, and create only its declared types, and may
+          attach only the run's own uploads, its file params' files and its inputs' files. Then, in
+          one transaction, values are checked against the types installed now and written as the
+          launcher, with <code>via="run"</code>, after checking the launcher's access again (<Adr
+            n="0044"
+          />, <Path p={R} sym="def checked(" />, <Path p={R} sym="def write(" />).
+        </p>
+        <p>
+          An output that doesn't fit fails the run (<code>invalid_output</code>), or rejects it
+          (<code>schema_changed</code>) if the plugin changed meanwhile. One that fits but can't be
+          written now is rejected: an entity archived, the launcher's access gone, or an update with{" "}
+          <code>require_unchanged</code> to a record changed since the run read it. None is retried
+          (<Path p={Q} sym="def outcome(" />). A run's new records can refer to one another by key
+          (<Adr n="0064" />), and a creates file is checked in chunks of 10,000 lines, staged with
+          COPY, then written in one <code>INSERT … SELECT</code> (<Adr n="0056" />, <Path
+            p="server/src/iki_server/runs/imports.py"
+            sym="CHUNK_LINES = 10_000"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Provenance">
+        <p>
+          Each record a run touched gets a <code>RunEffect</code>: created, updated or reused, and the
+          revision it made, so a value's provenance leads to the run. Each new record gets{" "}
+          <code>Lineage</code> to the inputs it was made from, at the revisions read (<Adr
+            n={[35, 106]}
+          />, <Path p={M} sym="class RunEffect(" />, <Path p={M} sym="class Lineage(" />). Revisions
+          themselves are on <PageLink to="Revisions and history" />.
+        </p>
+      </Rule>
+      <Rule title="Reuse">
+        <p>
+          A deterministic action from a pinned commit gets a reuse key: the SHA-256 of the action, the
+          plugin commit, params (a file by its content), settings, each input's id, revision, type
+          and schema version, included references at their revisions, the reference mask, the
+          image's digest, and the setup build of each volume. The seed never counts. Local plugin
+          code is never reused (<Path p={RU} sym="def key(" />, <Path p={RU} sym="def with_volumes(" />).
+        </p>
+        <p>
+          The newest run with that key that succeeded, ran itself, and is in a project the launcher
+          can read is reused, if none of what it made is archived or kept to its project, and it
+          made no more than 10,000 records. The new run ends succeeded at once, naming it, and those
+          records are linked into its project (<Path p={RU} sym="def find(" />, <Path
+            p={RU}
+            sym="def reuse("
+          />). When it's decided is on <PageLink to="Launching a run" />.
+        </p>
+      </Rule>
+      <Rule title="Exact reproduction">
+        <p>
+          <code>POST /api/v1/runs/{"{ref}"}/reproduce</code> queues a copy with the same action as
+          launched, params, settings, inputs and inclusions at their revisions, mask and seed. It's
+          refused if the plugin version or commit, the bound image or a pinned build differs or is
+          gone, if a pinned record was purged, or if the person can't read what it read or it has left
+          the project. A run that reused another's results reproduces that one. Its output is
+          compared, not written (<Path p={SV} sym="def reproduce(" />, <Path p={RU} sym="def blocked(" />,{" "}
+          <Path p={RU} sym="def compare(" />).
+        </p>
+      </Rule>
+      <Rule title="Checkpoints and artifacts">
+        <p>
+          A checkpointable action's directory is uploaded every ten minutes if it changed, and once
+          more on an ending the run is retried for; the next attempt is leased only once its
+          checkpoint has been checked, and its worker restores it first (<Adr n="0069" />, <Path
+            p="server/src/iki_server/runs/checkpoints.py"
+            sym="def ready_to_resume("
+          />). Files matching <code>artifacts.keep</code> are kept for the action's retention,
+          success or failure; then their bytes are deleted and the record stays (<Adr n="0068" />,{" "}
+          <Path p="server/src/iki_server/runs/artifacts.py" />). Both are stored as <PageLink
+            to="Where data is stored"
+          /> describes.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={I} /></li>
+          <li><Path p={RU} /></li>
+          <li><Path p={R} /></li>
+          <li><Path p="server/src/iki_server/runs/imports.py" /></li>
+          <li><Path p="server/src/iki_server/runs/setups.py" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0044" title /></li>
+          <li><Adr n="0047" title /></li>
+          <li><Adr n="0057" title /></li>
+          <li><Adr n="0066" title /></li>
+          <li><Adr n="0105" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

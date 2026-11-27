@@ -1,0 +1,23 @@
+{
+  "name": "@ikisci/architecture",
+  "version": "0.1.0-dev.0",
+  "private": true,
+  "description": "Iki's internal architecture site, never deployed: `make architecture` serves it on localhost, `make architecture-build` builds and checks it.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev",
+    "site": "ASTRO_TELEMETRY_DISABLED=1 astro build",
+    "check-links": "node scripts/check-links.mjs",
+    "typecheck": "ASTRO_TELEMETRY_DISABLED=1 astro sync && tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ikisci/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@astrojs/markdown-satteri": "^0.4.10",
+    "astro": "^7.4.12",
+    "satteri": "^0.11.7",
+    "yaml": "^2.9.1"
+  }
+}

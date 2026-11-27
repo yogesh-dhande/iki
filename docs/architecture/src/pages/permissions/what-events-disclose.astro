@@ -1,0 +1,179 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const WH = "server/src/iki_server/webhooks";
+const NOTE = "server/src/iki_server/notifications";
+const RT = "server/src/iki_server/realtime";
+
+const H = {
+  short: "Events say that something changed, not what it says",
+  how: "Who hears of a change, and what they're told",
+  rules: "Webhooks, notifications and event streams",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Webhooks, notifications and live-update streams tell people and systems that something changed.
+      They carry identifiers and counts, never a record's values: whoever receives one reads the
+      values through the API, with their own access (<Adr n={[30, 31]} />). Each is checked against
+      access when it's sent, and again where it can be: a webhook an app added before every attempt,
+      a notification in the inbox and before its email, a stream event before it leaves the server
+      (<Adr n={[129, 152, 159]} />). How events are made and delivered is on <PageLink
+        to="Tasks and live updates"
+      />.
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Channel</th><th>Who receives it</th><th>What it carries</th><th>Checked</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Project webhook</td>
+            <td>A URL its project's Admins chose</td>
+            <td>The project's events: identifiers, the actor and the agent; positions and counterparts outside the project hidden</td>
+            <td>When queued and before every attempt</td>
+          </tr>
+          <tr>
+            <td>Organization webhook</td>
+            <td>A URL Org Admins chose</td>
+            <td>Every event, with the same identifiers</td>
+            <td>When queued and before every attempt</td>
+          </tr>
+          <tr>
+            <td>Notification</td>
+            <td>Active people the type names who can read the record</td>
+            <td>The type's message over the record's values, in Iki only</td>
+            <td>When made, when the inbox is read, before the email</td>
+          </tr>
+          <tr>
+            <td>Email</td>
+            <td>The notification's recipient</td>
+            <td>What kind it is, which record and where, and a link</td>
+            <td>Before sending</td>
+          </tr>
+          <tr>
+            <td>Event stream</td>
+            <td>One signed-in person or token</td>
+            <td>That something changed: IDs and counts</td>
+            <td>Before each event, and every 20 seconds</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>A webhook names a record by its identifiers alone:</p>
+    <Excerpt file={`${WH}/events.py`} start="^def entity_data\(" />
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Webhooks send identifiers" open>
+        <p>
+          Events are built from the audit log, in the change's transaction, so a webhook message
+          exists exactly when its change does. An entity's payload is its identifiers, plus the actor
+          and the agent (<Adr n={[31, 72]} />, <Path p={`${WH}/events.py`} sym="def from_audit(" />).
+        </p>
+        <p>
+          A project webhook's copy is narrowed to its project: a storage move keeps an endpoint only
+          when the project can read its container, and an amount movement's counterpart outside the
+          project is <code>unreadable</code> (<Path p={`${WH}/events.py`} sym="def project_movement(" />,{" "}
+          <Path p={`${WH}/events.py`} sym="def project_amount_movement(" />). Org Admins see where each
+          project's webhook sends, its host only, and can turn any of them off; its deliveries carry
+          project data, so they're its managers' (<Path p={`${WH}/services.py`} />).
+        </p>
+      </Rule>
+      <Rule title="An app's webhook lasts as long as its access">
+        <p>
+          A webhook added with a token sends only while the app could still add it: its person's
+          consent and roles as they stand. That's checked as each message is queued and again before
+          every attempt, including retries. When it no longer holds, Iki turns the webhook off and
+          tells its managers. One a person added in the browser is theirs, and always may send (<Adr
+            n="0152"
+          />, <Path p={`${WH}/services.py`} sym="def held(" />, <Path
+            p={`${WH}/tasks.py`}
+            sym="if not services.may_send(webhook):"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Notifications go to those who can read the record">
+        <p>
+          A notification names the record whose change it tells of (<Adr n="0159" />). At send time
+          each candidate must be active and a person, not a service account or an imported placeholder;
+          able to read the record, and for a change to a record it refers to, that one too; not muted
+          or opted out; and not whoever made the change by hand, unless the type says so. An agent's,
+          run's or trigger's change tells the person it was made for (<Adr n="0129" />, <Path
+            p={`${NOTE}/declared.py`}
+            sym="access.readers(record, people)"
+          />).
+        </p>
+        <p>
+          Each firing is audited as <code>notification.sent</code>, with whom it told and whom it
+          didn't and why, so a lab can answer "was QA told?".
+        </p>
+      </Rule>
+      <Rule title="The inbox and email check again">
+        <p>
+          The inbox shows a notification only while its person can still see its project and read its
+          record, and a token limited to some projects sees only theirs (<Path
+            p={`${NOTE}/services.py`}
+            sym="def inbox("
+          />). An email says what kind of notification it is and which record, never the record's
+          values, and is sent only if the inbox would still show it (<Path
+            p={`${NOTE}/tasks.py`}
+            sym="def headline("
+          />, <Path p={`${NOTE}/tasks.py`} sym="no longer theirs to see" />).
+        </p>
+      </Rule>
+      <Rule title="Event streams check before each event">
+        <p>
+          A stream event is addressed to one person or a topic, such as a run, and carries IDs and
+          counts. Before sending each one, the stream checks the session or token again as a request
+          would, and what the caller may see: a notification only if their inbox shows it, a run's
+          events only while they can read the run, a setup build's only for Compute Admins. A
+          credential that's no longer valid ends the stream with <code>signed_out</code> (<Adr
+            n={[30, 152]}
+          />, <Path p={`${RT}/views.py`} sym="Check = Callable[[], bool]" />, <Path
+            p={`${RT}/views.py`}
+            sym="async def _prepare("
+          />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={`${WH}/events.py`} />: the events and their payloads</li>
+        <li><Path p={`${WH}/services.py`} />: who may send, and to whom</li>
+        <li><Path p={`${NOTE}/declared.py`} />: types' notifications and their recipients</li>
+        <li><Path p={`${RT}/views.py`} />: the live-update streams</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0030" title /></li>
+        <li><Adr n="0031" title /></li>
+        <li><Adr n="0129" title /></li>
+        <li><Adr n="0152" title /></li>
+        <li><Adr n="0159" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

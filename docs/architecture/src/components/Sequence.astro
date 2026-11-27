@@ -1,0 +1,207 @@
+---
+import "../styles/diagram.css";
+// A sequence diagram: who calls whom, in order. A step with a named slot of the same id
+// has details (its files and ADRs), shown as Diagram's are: hover or focus to preview,
+// click or Enter to keep. Without JavaScript every step's details are listed in order.
+type Actor = { id: string; label: string; sub?: string };
+type Step = { id?: string; from: string; to: string; label: string; dashed?: boolean };
+type Phase = { phase: string };
+type Props = {
+  id: string;
+  title: string;
+  actors: Actor[];
+  steps: (Step | Phase)[];
+  width?: number;
+  caption?: string;
+};
+const { id, title, actors, steps, width = 880, caption } = Astro.props;
+
+const ROW = 38;
+const TOP = 58;
+const gap = width / actors.length;
+const x = new Map(actors.map((a, i) => [a.id, gap * i + gap / 2]));
+let y = TOP + 18;
+const rows = steps.map((s) => {
+  if ("phase" in s) {
+    const row = { kind: "phase" as const, phase: s.phase, y: y + 4 };
+    y += ROW - 6;
+    return row;
+  }
+  const x1 = x.get(s.from);
+  const x2 = x.get(s.to);
+  if (x1 === undefined || x2 === undefined) {
+    throw new Error(`Sequence ${id}: step "${s.label}" names an actor that isn't there.`);
+  }
+  const row = { kind: "step" as const, step: s, x1, x2, y: y + 14 };
+  y += s.from === s.to ? ROW + 10 : ROW;
+  return row;
+});
+const height = y + 14;
+const details = [];
+for (const s of steps) {
+  if (!("phase" in s) && s.id && Astro.slots.has(s.id)) {
+    details.push({ step: s, html: await Astro.slots.render(s.id) });
+  }
+}
+const live = new Set(details.map((d) => d.step.id));
+let n = 0;
+---
+
+<figure class="dg sq" data-dg id={id}>
+  <div class="dg-canvas">
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      width={width}
+      height={height}
+      role="group"
+      aria-label={title}
+    >
+      <defs>
+        <marker
+          id={`${id}-arrow`}
+          viewBox="0 0 10 10"
+          refX="9"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
+          <path d="M0 0 L10 5 L0 10 z" class="dg-arrowhead"></path>
+        </marker>
+      </defs>
+      {
+        actors.map((a) => (
+          <g class="sq-actor">
+            <line x1={x.get(a.id)} x2={x.get(a.id)} y1={TOP - 6} y2={height - 6} />
+            <rect x={(x.get(a.id) ?? 0) - gap / 2 + 8} y="6" width={gap - 16} height={TOP - 14} rx="8" />
+            <text class="dg-label" x={x.get(a.id)} y={a.sub ? 26 : 34} text-anchor="middle">
+              {a.label}
+            </text>
+            {a.sub && (
+              <text class="dg-sub" x={x.get(a.id)} y="42" text-anchor="middle">
+                {a.sub}
+              </text>
+            )}
+          </g>
+        ))
+      }
+      {
+        rows.map((r) => {
+          if (r.kind === "phase") {
+            return (
+              <g class="sq-phase">
+                <line x1="4" x2={width - 4} y1={r.y} y2={r.y} />
+                <text x="8" y={r.y - 5}>
+                  {r.phase}
+                </text>
+              </g>
+            );
+          }
+          n += 1;
+          const s = r.step;
+          const has = s.id !== undefined && live.has(s.id);
+          const self = s.from === s.to;
+          const d = self
+            ? `M${r.x1 + 2} ${r.y - 8} h34 v16 h-30`
+            : `M${r.x1 + (r.x2 > r.x1 ? 3 : -3)} ${r.y} L${r.x2 + (r.x2 > r.x1 ? -5 : 5)} ${r.y}`;
+          const lx = self ? r.x1 + 44 : (r.x1 + r.x2) / 2;
+          return (
+            <g
+              class:list={["sq-step", { live: has }]}
+              data-node={has ? s.id : undefined}
+              tabindex={has ? "0" : undefined}
+              role={has ? "button" : undefined}
+              aria-label={has ? `Step ${n}: ${s.label}. Show its files and decisions` : undefined}
+              aria-controls={has ? `${id}-${s.id}` : undefined}
+            >
+              <rect
+                class="sq-hit"
+                x={Math.min(r.x1, r.x2) - 6}
+                y={r.y - 24}
+                width={self ? gap : Math.abs(r.x2 - r.x1) + 12}
+                height={self ? 36 : 30}
+              />
+              <path
+                class:list={["dg-edge", { dashed: s.dashed }]}
+                d={d}
+                marker-end={`url(#${id}-arrow)`}
+              />
+              <text
+                class="sq-label"
+                x={lx}
+                y={self ? r.y + 3 : r.y - 6}
+                text-anchor={self ? "start" : "middle"}
+              >
+                {`${n}. ${s.label}`}
+              </text>
+            </g>
+          );
+        })
+      }
+    </svg>
+  </div>
+  {caption && <figcaption>{caption}</figcaption>}
+  <div class="dg-details">
+    <p class="dg-hint">Hover or focus a step to see its files and decisions; click to keep them.</p>
+    {
+      details.map(({ step, html }) => (
+        <section class="dg-detail" id={`${id}-${step.id}`} data-for={step.id}>
+          <h3>{step.label}</h3>
+          <Fragment set:html={html} />
+        </section>
+      ))
+    }
+  </div>
+</figure>
+
+<style is:global>
+  .sq-actor rect {
+    fill: var(--surface-2);
+    stroke: var(--border-strong);
+  }
+  .sq-actor line {
+    stroke: var(--border-strong);
+    stroke-dasharray: 3 4;
+  }
+  .sq-phase line {
+    stroke: var(--border);
+  }
+  .sq-phase text {
+    font-size: 12px;
+    font-weight: 600;
+    fill: var(--muted);
+  }
+  .sq-hit {
+    fill: transparent;
+  }
+  .sq-label {
+    font-size: 12px;
+    fill: var(--text);
+    paint-order: stroke;
+    stroke: var(--surface);
+    stroke-width: 4px;
+    stroke-linejoin: round;
+  }
+  .sq-step.live {
+    cursor: pointer;
+  }
+  .sq-step.live:focus {
+    outline: none;
+  }
+  .sq-step.live:hover .sq-hit,
+  .sq-step.live:focus-visible .sq-hit,
+  .sq-step.current .sq-hit {
+    fill: var(--accent-soft);
+  }
+  .sq-step.current .dg-edge {
+    stroke: var(--accent);
+    stroke-width: 2;
+  }
+  .sq-step.live:focus-visible .sq-hit {
+    stroke: var(--focus);
+  }
+</style>
+
+<script>
+  import "../lib/diagram-client.ts";
+</script>

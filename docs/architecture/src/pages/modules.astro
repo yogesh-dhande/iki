@@ -1,0 +1,107 @@
+---
+// Generated: every package, Django app, crate and web package, with the purpose it states
+// for itself and the sections of this site that cite files inside it.
+import Layout from "../components/Layout.astro";
+import Path from "../components/Path.astro";
+import { djangoApps, pythonPackages, rustCrates, webPackages, type Module } from "../lib/modules.ts";
+
+const groups: { id: string; title: string; intro: string; modules: Module[] }[] = [
+  {
+    id: "python",
+    title: "Python packages",
+    intro: "The uv workspace's members, from the root pyproject.toml; purposes from each package's description.",
+    modules: pythonPackages(),
+  },
+  {
+    id: "django",
+    title: "The server's Django apps",
+    intro:
+      "Each package under iki_server with an apps.py; purposes from its __init__.py docstring, else its models.py docstring, else its app name.",
+    modules: djangoApps(),
+  },
+  {
+    id: "rust",
+    title: "Rust crates",
+    intro: "The worker's workspace; purposes from each Cargo.toml's description.",
+    modules: rustCrates(),
+  },
+  {
+    id: "web",
+    title: "Web packages",
+    intro: "The app and the packages beside it; purposes from each package.json's description.",
+    modules: webPackages(),
+  },
+];
+const uncovered = groups.flatMap((g) => g.modules).filter((m) => m.covered.length === 0);
+const toc = [...groups.map((g) => ({ id: g.id, label: g.title })), { id: "uncovered", label: "Not yet cited" }];
+---
+
+<Layout toc={toc}>
+  <p class="lede">
+    Read from the repository each build. "Covered in" lists the sections whose page source names a
+    path inside the module. A page that builds a path from a shorter constant isn't counted, so
+    the list can miss a section; it never names one that doesn't cite the module.
+  </p>
+  {
+    groups.map((g) => (
+      <section>
+        <h2 id={g.id}>{g.title}</h2>
+        <p>{g.intro}</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Module</th>
+                <th>Purpose</th>
+                <th>Covered in</th>
+              </tr>
+            </thead>
+            <tbody>
+              {g.modules.map((m) => (
+                <tr>
+                  <td>
+                    <Path p={m.dir} label={m.name} />
+                  </td>
+                  <td>
+                    {m.purpose} <Path p={m.from} label="source" />
+                  </td>
+                  <td class="links">
+                    {m.covered.length
+                      ? m.covered.map((c, i) => (
+                          <>
+                            {i > 0 && ", "}
+                            <a href={c.href}>{c.label}</a>
+                          </>
+                        ))
+                      : "none yet"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    ))
+  }
+  <h2 id="uncovered">Not yet cited</h2>
+  <p>
+    {
+      uncovered.length
+        ? `${uncovered.length === 1 ? "One module" : `${uncovered.length} modules`} no section cites yet: ${uncovered.map((m) => m.name).join(", ")}.`
+        : "Every module is cited by at least one section."
+    }
+  </p>
+</Layout>
+
+<style>
+  .lede {
+    max-width: 800px;
+    margin-top: 12px;
+  }
+  td:first-child {
+    white-space: nowrap;
+  }
+  .links {
+    min-width: 180px;
+  }
+</style>

@@ -1,0 +1,171 @@
+---
+// How a plugin's manifests fit together, for reading the browser's pages: each piece, its
+// schema, and what it names. The counts are the repository's, read at build time.
+import "../../styles/browser.css";
+import Layout from "../../components/Layout.astro";
+import Path from "../../components/Path.astro";
+import Adr from "../../components/Adr.astro";
+import PageLink from "../../components/PageLink.astro";
+import { browser, CORE_HREF, LIST_HREF, type PartKind } from "../../lib/browser.ts";
+import { SCHEMA_HREF } from "../../lib/schemas.ts";
+
+const b = browser();
+const n = (k: PartKind) => b.plugins.reduce((s, p) => s + p.parts.filter((x) => x.kind === k).length, 0);
+const lots = b.plugins.find((p) => p.name === "iki/lots");
+const lot = lots?.parts.find((x) => x.kind === "type" && x.name === "Lot");
+const release = b.plugins.find((p) => p.name === "iki/qc_release");
+const S = (name: string) => `${SCHEMA_HREF}${name}/`;
+const rows: { piece: string; where: string; schema: string; kind: PartKind; names: string }[] = [
+  { piece: "Plugin", where: "plugin.yaml", schema: "plugin", kind: "role", names: "dependencies (plugins, and the schema versions of their types), lab roles, settings, file formats, writers, outside APIs, starters" },
+  { piece: "Entity type", where: "types/", schema: "entity-type", kind: "type", names: "its parent (extends), the types its references point to (to), lab roles that set its states, its own fields" },
+  { piece: "Type extension", where: "types/", schema: "entity-type-extension", kind: "extension", names: "the type it adds fields to (extends_type), usually a dependency's" },
+  { piece: "Action", where: "actions/", schema: "action", kind: "action", names: "the types of its inputs and what it creates, an environment of its plugin, the settings it needs, the scripts its command runs" },
+  { piece: "Environment", where: "environments/", schema: "environment", kind: "environment", names: "its image, or the requirements or lockfile and setup script in the plugin" },
+  { piece: "Workflow", where: "workflows/", schema: "workflow", kind: "workflow", names: "its plugin's actions, one a step, and the types of its inputs" },
+  { piece: "Trigger", where: "triggers/", schema: "trigger", kind: "trigger", names: "its plugin's action it runs, and the type whose records fire it" },
+  { piece: "Component", where: "components/", schema: "component", kind: "component", names: "the types it shows and the slots it fills, its plugin's actions it offers, its JavaScript module" },
+  { piece: "Action test", where: "tests/", schema: "action-test", kind: "test", names: "its plugin's action, with fixture records and the output expected" },
+];
+const toc = [
+  { id: "pieces", label: "The pieces" },
+  { id: "names", label: "How a name is resolved" },
+  { id: "example", label: "One type, followed" },
+  { id: "reading", label: "Reading a page here" },
+];
+---
+
+<Layout toc={toc}>
+  <p>
+    A plugin is a directory: <code>plugin.yaml</code> at its root, and its other manifests in one
+    directory per kind, any number of YAML documents in each (<Adr n="0032" />). Everything in them is
+    data Iki reads and checks against a JSON Schema; the only code is what actions run on workers, and
+    what components run in sandboxed frames (<Adr n={[6, 40, 84]} />). The spec's validator reads them
+    in <Path p="spec/src/iki_spec/validate.py" sym="def _read(" />. This browser reads the same files the
+    same way, for every plugin in the repository: <a href={LIST_HREF}>{b.plugins.length} of them</a>.
+  </p>
+  <p>
+    <code>plugin.yaml</code> names the plugin as <code>namespace/name</code> and gives its version, the
+    Iki releases it works with, and the plugins it depends on with the schema versions of their types it
+    expects (<Adr n={[95, 113]} />). It declares what belongs to the plugin as a whole: lab roles, which
+    a state's <code>set_by</code> and an approval name (<Adr n="0116" />); settings a deployment fills
+    in; file formats and the writers of export formats (<Adr n={[213, 230]} />); outside APIs its actions
+    call (<Adr n="0130" />); and the starters it ships, project setup recipes the server keeps in{" "}
+    <Path p="server/src/iki_server/setup/starters.py" /> (<Adr n={[198, 240]} />).
+  </p>
+  <p>
+    Types are the records. Each has fields, each field typed by the <a href={S("field")}>field schema</a>,
+    and a type can extend another to become a subtype with its parent's fields (<Adr n="0007" />). A
+    reference field names the type, or types, it points to (<Adr n="0136" />); a state field's states
+    name the lab roles that may set them (<Adr n="0125" />); rules and guards are checked at every save
+    (<Adr n="0127" />). Every type is an <a href={`${CORE_HREF}#type-Entity`}>iki/core.Entity</a>, and
+    the core types in <Path p="spec/src/iki_spec/core/types" /> are the parents plugins' types share
+    (<Adr n="0038" />). Actions are what runs on records: their inputs and what they create are typed,
+    and each runs in one of its plugin's environments (<Adr n="0040" />). Workflows chain a plugin's
+    actions as steps of ordinary runs, and triggers run one when records change or on a schedule (<Adr
+      n={[79, 80]}
+    />). Components show records in a slot of Iki's pages and can offer their plugin's actions (<Adr
+      n={[117, 170]}
+    />). Tests run an action on fixture records and compare its output (<Adr n="0093" />).
+  </p>
+
+  <h2 id="pieces">The pieces</h2>
+  <p>Each kind, where it lives, its schema, how many the repository has, and what its values name.</p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Piece</th><th>Where</th><th>Schema</th><th>In the repository</th><th>What it names</th></tr>
+      </thead>
+      <tbody>
+        {
+          rows.map((r) => (
+            <tr>
+              <td>{r.piece}</td>
+              <td><code>{r.where}</code></td>
+              <td><a href={S(r.schema)}>{r.schema}</a></td>
+              <td class="num">{r.piece === "Plugin" ? b.plugins.length : n(r.kind)}</td>
+              <td>{r.names}</td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+  <p>
+    The repository's plugins also declare {n("role")} lab roles, {n("setting")} settings, {n("format")} file
+    formats, {n("writer")} writers and {n("starter")} starters. Shared pieces have schemas of their own: a
+    field, a rule or guard, a setting and a unit, each used from the kinds above. All the schemas, with the
+    kinds' directories: <PageLink to="Schemas" />.
+  </p>
+
+  <h2 id="names">How a name is resolved</h2>
+  <p>
+    A part is named <code>namespace/plugin.Part</code> everywhere outside its own manifest, such as{" "}
+    <code>iki/protein.Protein</code> or <code>iki/lots.qa</code>; inside its plugin, a name without a{" "}
+    <code>.</code> is the plugin's own (<Path p="spec/src/iki_spec/model.py" sym="def qualify(" />,{" "}
+    <Path p="spec/src/iki_spec/naming.py" />). So <code>extends: Lot</code> in <code>iki/lots</code> is{" "}
+    <code>iki/lots.Lot</code>, and <code>role: iki/lab_roles.analyst</code> is a dependency's. A workflow's
+    steps, a trigger's <code>run</code>, a component's actions and a test's <code>action</code> name their
+    own plugin's actions, and an action's <code>runs_on.environment</code> its own plugin's environment.
+    An approval's role may be a project role instead (<code>viewer</code>, <code>editor</code>,{" "}
+    <code>runner</code>, <code>admin</code>): <PageLink to="Projects and roles" />.
+  </p>
+  <p>
+    Which values are references comes from the schemas: a value checked by the field schema's{" "}
+    <a href={`${S("field")}#%24defs.typeRef`}>typeRef</a> names a type, by{" "}
+    <a href={`${S("field")}#%24defs.roleRef`}>roleRef</a> a lab role, and by{" "}
+    <a href={`${S("field")}#%24defs.pluginRef`}>pluginRef</a> a plugin. The few that share a plain name
+    schema, such as a step's action, are listed in{" "}
+    <Path p="docs/architecture/src/lib/browser.ts" sym="const VALUE_REFS" />, and the build fails if a
+    schema stops having one of them.
+  </p>
+
+  {
+    lot && lots && (
+      <>
+        <h2 id="example">One type, followed</h2>
+        <p>
+          <a href={`${lots.href}#${lot.anchor}`}>iki/lots.Lot</a> is abstract: each kind of lot extends it
+          with the measurements its kind needs and a reference to what it's a lot of, such as a biologic
+          lot's protein; a generic lot's points at any <a href={`${CORE_HREF}#type-Entity`}>iki/core.Entity</a>.
+          Lot's <code>disposition</code> state is Released only by <code>qa</code>, the lab role declared in{" "}
+          <a href={`${lots.href}#role-qa`}>its plugin.yaml</a>. Other plugins depend on{" "}
+          <code>iki/lots</code> and name its types in their <code>dependencies</code>; on each part,{" "}
+          <em>Extended by</em>, <em>Depended on by</em> and <em>Used by</em> list them.
+          {release && (
+            <>
+              {" "}
+              <a href={release.href}>iki/qc_release</a>, for one, tests lots against effective-dated
+              specifications, issues signed certificates of analysis, and ships the{" "}
+              <code>lot-release-testing</code> starter.
+            </>
+          )}
+        </p>
+      </>
+    )
+  }
+
+  <h2 id="reading">Reading a page here</h2>
+  <ul>
+    <li>
+      <strong>Keys</strong> are linked to the schema node that describes them; hover or focus one for its
+      description. A key with no link is free-form data the schema doesn't describe, such as a test's
+      record values or a JSON Schema held in a field.
+    </li>
+    <li>
+      <strong>Values</strong> with a dotted underline link to what they name, in this plugin or another.
+      A wavy red underline marks a name no plugin in the repository declares; each plugin's page and{" "}
+      <PageLink to="All plugins" hash="list" /> list them.
+    </li>
+    <li>
+      <strong>Parts</strong> list what links to them: <em>Extended by</em> (a subtype or an extension),{" "}
+      <em>Depended on by</em> (another plugin's <code>dependencies</code>), and <em>Used by</em> (every
+      other reference).
+    </li>
+  </ul>
+</Layout>
+
+<style>
+  h2 {
+    margin-top: 40px;
+  }
+</style>

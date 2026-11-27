@@ -1,0 +1,177 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const ACC = "server/src/iki_server/accounts";
+const OAUTH = "server/src/iki_server/oauth";
+const SCIM = "server/src/iki_server/scim";
+const SETUP = "server/src/iki_server/setup";
+
+const H = {
+  short: "Single sign-on for people, OAuth for everything else",
+  how: "From an empty install to a signed-in person",
+  rules: "Setup, provisioning, linking, clients and sessions",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Iki has no local passwords, ever. People sign in through the organization's identity provider,
+      by OpenID Connect or SAML 2.0, and SCIM 2.0 provisions who has access (<Adr n={[23, 26]} />).
+      A one-time setup link connects the provider; there is no administrator account before it. A
+      person's first sign-in links to the account SCIM made for them by what the provider vouches
+      for, strongest first (<Adr n="0151" />). Everything that isn't a browser (the <code>iki</code>{" "}
+      CLI, the Python SDK, MCP clients and other apps) gets OAuth tokens from Iki's own OAuth 2.1
+      server (<Adr n="0028" />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <ol>
+      <li>
+        <strong>The setup link.</strong> Someone with cluster access runs <code
+          >iki-server setup_link</code
+        >. The link works once, for 60 minutes, and a new one revokes earlier ones (<Path
+          p={`${SETUP}/management/commands/setup_link.py`}
+        />).
+      </li>
+      <li>
+        <strong>The wizard.</strong> It names the organization, connects the provider (checking an
+        OIDC discovery document, or reading SAML metadata and pinning the signing certificate), and
+        asks for a sign-in through it before saving anything. The person who signs in becomes the
+        first Org Admin (<Path p={`${SETUP}/views.py`} />).
+      </li>
+      <li>
+        <strong>Provisioning.</strong> The provider pushes people and groups to <code>/scim/v2/</code>.
+        A SCIM group decides a team's members only once an Org Admin links it to the team (<Adr
+          n="0026"
+        />, <Path p={`${SCIM}/services.py`} sym="def link_group(" />).
+      </li>
+      <li>
+        <strong>First sign-in.</strong> The sign-in is linked to a provisioned account, then keyed by
+        the provider's subject identifier from then on (<Path p={`${ACC}/linking.py`} sym="MatchedBy" />).
+      </li>
+      <li>
+        <strong>Session.</strong> The browser holds a session cookie. Its API calls need CSRF for
+        unsafe methods, and only what the person does keeps the session open (<Adr n="0153" />).
+      </li>
+    </ol>
+    <p>
+      Signing a record signs in again at the same provider; that's on <PageLink
+        to="Electronic signatures"
+      /> (<Adr n="0124" />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="One provider at a time" open>
+        <p>
+          Exactly one identity provider is enabled. Each issuer gets its own <code>provider_id</code>,
+          so accounts from one issuer are never matched to subjects from another. Sign-in runs through
+          django-allauth. <code>setup_link --recover</code> runs the same wizard to reconfigure sign-in
+          on an installation that's already set up (<Path
+            p={`${ACC}/models.py`}
+            sym="class IdentityProvider("
+          />, <Path p={`${ACC}/oidc.py`} />, <Path p={`${ACC}/saml.py`} />).
+        </p>
+      </Rule>
+      <Rule title="How a first sign-in finds its account">
+        <p>
+          Iki links by anything other than the subject identifier only once: a person's first sign-in
+          to the account SCIM provisioned for them, or to a placeholder an imported bundle named. It
+          tries, in order:
+        </p>
+        <ol>
+          <li>the person's immutable ID at the provider, sent as SCIM's <code>externalId</code>;</li>
+          <li>the SAML subject, as SCIM's <code>userName</code>;</li>
+          <li>an email address the provider says it verified.</li>
+        </ol>
+        <p>
+          The second and third match names, which an organization can give to someone else, so they
+          link only active accounts. When two accounts answer to the same rule, nobody is linked (<Adr
+            n="0151"
+          />, <Path p={`${ACC}/linking.py`} />).
+        </p>
+      </Rule>
+      <Rule title="SCIM groups and teams">
+        <p>
+          A linked team's members are exactly the members of its linked groups; several groups may
+          feed one team. A team no group is linked to is managed by hand, and one whose group goes
+          away keeps its members. Every SCIM change is audited through the SCIM channel, naming the
+          token that made it (<Path p={`${SCIM}/models.py`} sym="class ScimGroup(" />, <Path
+            p={`${SCIM}/services.py`}
+          />).
+        </p>
+      </Rule>
+      <Rule title="OAuth clients">
+        <p>
+          Iki is its own OAuth 2.1 authorization server, built on django-oauth-toolkit. Its clients
+          are of three kinds: Iki's own CLI and SDK, made by a migration; clients that register
+          themselves, by Dynamic Client Registration or a Client ID Metadata Document, which an Org
+          Admin approves unless the organization allows any client; and credentials an Org Admin
+          makes for a service account (<Adr n={[28, 51]} />, <Path p={`${OAUTH}/models.py`} sym="class Client(" />).
+        </p>
+        <p>
+          People use a client by granting it a consent: some scopes, and all their projects or only
+          the ones they pick. What a token may then do is on <PageLink to="Tokens and delegation" />.
+        </p>
+      </Rule>
+      <Rule title="Sessions">
+        <p>
+          A session ends after an idle timeout (<code>IKI_SESSION_IDLE_TIMEOUT_MINUTES</code>, 8 hours
+          by default) and, however active, an absolute lifetime (<code>IKI_SESSION_MAX_AGE_HOURS</code>,
+          24 hours). Requests a page makes on its own, such as event streams and polls marked <code
+            >Iki-Background: 1</code
+          >, don't move the idle timeout, so an unattended tab still signs out on time (<Adr
+            n="0153"
+          />, <Path p={`${ACC}/session_policy.py`} sym='BACKGROUND_HEADER = "Iki-Background"' />, <Path
+            p="server/src/iki_server/api/security.py"
+            sym="class SessionAuth"
+          />).
+        </p>
+      </Rule>
+      <Rule title="On the dev cluster">
+        <p>
+          The dev cluster runs Keycloak with an <code>iki</code> realm, imported on every start. <code
+            >make dev-sso</code
+          > drives the real setup wizard against it, so dev sign-in goes through the same path as
+          production (<Path p="deploy/dev/manifests/keycloak.yaml" />, <Path p="deploy/dev/sso.py" />).
+          The rest of the dev cluster is on <PageLink to="The dev cluster" />.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={ACC} />: sign-in, account linking, sessions, service accounts</li>
+        <li><Path p={SCIM} />: SCIM 2.0 provisioning</li>
+        <li><Path p={OAUTH} />: the OAuth server, clients and consents</li>
+        <li><Path p={SETUP} />: the setup link and wizard</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0023" title /></li>
+        <li><Adr n="0026" title /></li>
+        <li><Adr n="0028" title /></li>
+        <li><Adr n="0151" title /></li>
+        <li><Adr n="0153" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

@@ -1,0 +1,158 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+import { textChoices } from "../../lib/source.ts";
+
+const M = "server/src/iki_server/entities/models.py";
+const S = "server/src/iki_server/entities/services.py";
+const kinds = textChoices(M, "RevisionKind");
+
+const toc = [
+  { id: "short", label: "Every change is a numbered revision" },
+  { id: "how", label: "What a revision keeps, and how history is read" },
+  { id: "rules", label: "The rules in full" },
+  { id: "ref", label: "Routes, files and decisions" },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title="Every change is a numbered revision">
+    <p>
+      Each change to a record writes a <code>Revision</code>, numbered from 1, saying what kind of
+      change it was, which fields it set, who made it, how, through which agent, and why; and a full
+      row of the record's values into the history table of each table it touched. Both are
+      append-only. The record's current revision number is the API's ETag: a client must send back
+      the one it read to change it. A field's provenance is the latest revision that set it (<Adr
+        n="0035"
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title="What a revision keeps, and how history is read">
+    <p>
+      <Path p={S} sym="def _revise(" /> inserts the <code>Revision</code> and bumps <code
+        >Entity.revision</code
+      > in the change's transaction; <Path p={S} sym="def _write_history(" /> then writes the history
+      rows at that number. A revision keeps:
+    </p>
+    <ul>
+      <li><code>kind</code> and <code>changed_fields</code>, from the table below;</li>
+      <li><code>user</code>, <code>via</code> (web, API, MCP, command line, system, or <code>run</code> for a run's results), <code>client</code> (the OAuth app) and <code>agent</code>;</li>
+      <li><code>reason</code>, when one was given or needed;</li>
+      <li>for a state change, the field and the states from and to, and the signatures that set it, in order;</li>
+      <li>for a record's first revision, the identity as submitted, where it was spelled other than its entry's.</li>
+    </ul>
+    <p>
+      <strong>The ETag.</strong> <code>GET /api/v1/entities/{"{ref}"}</code> sends the revision as{" "}
+      <code>ETag</code>. A change sends it back as <code>If-Match</code>: without one it's refused
+      (428), and a stale one is refused (412) rather than overwriting someone else's change. <code
+        >If-Match: *</code
+      > is refused too, since it would skip the check. Setting a state names the revision the same
+      way.
+    </p>
+    <p>
+      <strong>Reading the past.</strong> A record at revision <em>n</em> is, for each of its tables,
+      the latest history row at or before <em>n</em>. <code>GET …/revisions/{"{number}"}</code>{" "}
+      answers with it. A field's provenance is the latest revision that set it (<Path
+        p={S}
+        sym="def provenance("
+      />); a record of a registry entry reads its entry's values' provenance from the entry's
+      revisions. The record's audit trail, the Audit trail tab and its CSV, is its revisions, and its
+      entry's (<Path p="server/src/iki_server/api/trails.py" />).
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Kind</th><th>Label</th><th>Note in the code</th></tr></thead>
+        <tbody>
+          {kinds.map((k) => <tr><td><code>{k.value}</code></td><td>{k.label}</td><td>{k.note}</td></tr>)}
+        </tbody>
+      </table>
+    </div>
+    <p>The kinds, read from <Path p={M} sym="class RevisionKind" />.</p>
+  </Layer>
+
+  <Layer n={4} title="The rules in full">
+    <div class="rules">
+      <Rule title="What can never change" open>
+        <p>
+          <code>iki_revision</code> and every <code>__history</code> table are append-only twice over:
+          a trigger refuses UPDATE, DELETE and TRUNCATE for every role, the owner included, and the
+          app's role has no UPDATE or DELETE on them (<Path p="server/src/iki_server/plugins/operations.py" sym="class AppendOnly" />,{" "}
+          <Path p="server/src/iki_server/entities/migrations/0002_history_append_only.py" />). The
+          roles and grants are on <PageLink to="Audit trail" hash="roles" />.
+        </p>
+        <p>
+          Only a plugin's migration changes kept history, and only to rename a field or a type or to
+          convert a quantity to a new unit. Each records what it did in <code>iki_history_change</code>,
+          signed by the deployment's key, so a signature made before reads its record through it (<Adr
+            n={[33, 148]}
+          />, <Path p="server/src/iki_server/plugins/models.py" sym="class HistoryChange(" />).
+        </p>
+      </Rule>
+      <Rule title="An agent's changes name the person and the agent" id="agents">
+        <p>
+          A change an agent makes names both: <code>Revision.agent</code> and <code
+            >AuditEvent.agent</code
+          > point to an append-only <code>Agent</code> row, stored once per distinct agent, with
+          the OAuth client's ID and name, the person's grant, the MCP session, and the software and
+          model it reported. The model comes from the <code>Iki-Agent-Model</code> header, which Iki
+          can't check, and is shown as reported (<Adr n="0072" />, <Path
+            p="server/src/iki_server/audit/models.py"
+            sym="class Agent("
+          />, <Path p="server/src/iki_server/api/security.py" sym='MODEL_HEADER = "Iki-Agent-Model"' />).
+          Guards read the agent too, as <code>actor.agent</code> and in each state change's history.
+          What a delegated token may do, and why each lab role must belong to both the service
+          account and the person, is on <PageLink to="Tokens and delegation" />.
+        </p>
+      </Rule>
+      <Rule title="Archive, detach and purge">
+        <p>
+          Records are archived, not deleted: <code>set_archived</code> writes an <code>archived</code>{" "}
+          or <code>restored</code> revision, and is refused for registry entries and locked records
+          (<Adr n="0008" />, <Path p={S} sym="def set_archived(" />). A detached plugin's records are
+          kept and frozen: its tables are read-only to the app (<Adr n="0091" />). Purging a detached
+          plugin's data leaves the core row of each record as a tombstone, with the SHA-256 of its last
+          values, which proves what existed without keeping it (<Adr n="0092" />, <Path
+            p={M}
+            sym="class Tombstone("
+          />, <Path p="server/src/iki_server/plugins/purge.py" />).
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li><Adr n="0007" /> names a <code>PropertyProvenance</code> table; <Adr n="0035" /> dropped it: provenance comes from revisions.</li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title="Routes, files and decisions">
+    <Routes paths={/^\/api\/v1\/entities\/\{ref\}\/(revisions|provenance|contributors)[^]*$/} />
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={M} sym="class Revision(" /></li>
+          <li><Path p={S} sym="def _revise(" /></li>
+          <li><Path p="server/src/iki_server/api/trails.py" />: a record's trail and its CSV</li>
+          <li><Path p="server/src/iki_server/audit/log.py" sym="def current_agent(" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0008" title /></li>
+          <li><Adr n="0035" title /></li>
+          <li><Adr n="0072" title /></li>
+          <li><Adr n="0092" title /></li>
+          <li><Adr n="0148" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

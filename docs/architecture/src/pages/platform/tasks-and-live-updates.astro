@@ -1,0 +1,196 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+import Sequence from "../../components/Sequence.astro";
+
+const S = "server/src/iki_server";
+const H = {
+  short: "Postgres carries both",
+  how: "From a commit to a task and a page",
+  rules: "Tasks, webhooks and streams",
+  ref: "Files and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Background work is Django's Tasks framework on a Postgres backend. A task's row is written in
+      the transaction of the change that asks for it, and <code>NOTIFY iki_tasks</code> wakes a
+      runner when that transaction commits; runners claim rows with <code>FOR UPDATE SKIP
+      LOCKED</code>, so any number share the queue. Live updates also go through Postgres: a change
+      calls <code>pg_notify('iki_events', …)</code>, each web process holds one <code>LISTEN</code>{" "}
+      connection, and it fans each event out to its open Server-Sent Events streams. Events carry
+      identifiers, never content: the page reads what changed through the API.
+    </p>
+    <ul>
+      <li>Postgres is the only stateful service: no Redis, no RabbitMQ, no Celery (<Adr n={[5, 30]} />).</li>
+      <li>A rolled-back change runs no tasks and sends no events.</li>
+      <li>Tasks run at least once, so every task must be idempotent.</li>
+      <li>Webhooks are sent by the task runner, signed (<Adr n="0031" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      What one change sets off, when it asks for background work and has something to tell open
+      pages. The job queue for runs works the same way on its own channel (<PageLink
+        to="The worker and its leases"
+      />).
+    </p>
+    <Sequence
+      id="tasks-seq"
+      title="A change, its task and its live update"
+      width={880}
+      actors={[
+        { id: "web", label: "Web pod", sub: "a request" },
+        { id: "db", label: "Postgres" },
+        { id: "runner", label: "Task runner", sub: "iki-server tasks" },
+        { id: "hub", label: "Hub", sub: "in each web pod" },
+        { id: "tab", label: "Browser tab", sub: "SSE stream" },
+      ]}
+      steps={[
+        { id: "write", from: "web", to: "db", label: "the change, a task row, NOTIFY, pg_notify" },
+        { id: "commit", from: "db", to: "db", label: "commit: notifications go out now, or never" },
+        { phase: "Background work" },
+        { id: "wake", from: "db", to: "runner", label: "iki_tasks wakes an idle thread" },
+        { id: "claim", from: "runner", to: "db", label: "claim: SKIP LOCKED, a lease and a token" },
+        { id: "finish", from: "runner", to: "db", label: "record the outcome, if the token still holds" },
+        { phase: "Live update" },
+        { id: "listen", from: "db", to: "hub", label: "iki_events on the one LISTEN connection" },
+        { id: "fan", from: "hub", to: "tab", label: "to each stream following its topic, once checked" },
+        { id: "read", from: "tab", to: "web", label: "the page reads what changed through /api/v1", dashed: true },
+      ]}
+    >
+      <div slot="write">
+        <p>
+          <code>enqueue()</code> writes to <code>iki_task</code> in the caller's transaction; it must
+          not be wrapped in <code>on_commit</code>. <code>publish_to()</code> refuses a payload over
+          7,000 bytes: Postgres refuses 8,000.
+        </p>
+        <p><Path p={`${S}/tasks/backend.py`} sym="class PostgresBackend" />, <Path p={`${S}/realtime/events.py`} sym="def publish_to(" /></p>
+      </div>
+      <div slot="wake">
+        <p>Runners also poll every 5 seconds, so a missed notification only delays a task.</p>
+        <p><Path p={`${S}/tasks/runner.py`} sym="POLL_EVERY" /></p>
+      </div>
+      <div slot="claim">
+        <p>
+          The highest priority ready task, then the oldest. The claim is a 60-second lease, renewed
+          while the task runs, with a new fencing token each time it's claimed.
+        </p>
+        <p><Path p={`${S}/tasks/runner.py`} sym="def claim(" /></p>
+      </div>
+      <div slot="finish">
+        <p>
+          A runner presumed dead that comes back can't overwrite the attempt that replaced it.
+        </p>
+      </div>
+      <div slot="listen">
+        <p>
+          A dedicated connection, not a pooled one. If it drops, the hub reconnects with backoff and
+          tells every stream to <code>resync</code>.
+        </p>
+        <p><Path p={`${S}/realtime/hub.py`} sym="class Hub" /></p>
+      </div>
+      <div slot="fan">
+        <p>
+          A topic is a person's ID, or a thing many may follow such as <code>run:&lt;id&gt;</code>.
+          Which events reach whom: <PageLink to="What events disclose" />.
+        </p>
+        <p><Path p={`${S}/realtime/views.py`} sym="async def events(" /></p>
+      </div>
+    </Sequence>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Retries and failures" open>
+        <p>
+          A task declared with <code>max_attempts</code> is retried with exponential backoff: 30
+          seconds, doubling, at most an hour, with ±20% jitter. Raising <code>Retry</code> chooses
+          the delay; <code>GiveUp</code> fails at once. An attempt whose runner stopped renewing its
+          lease goes back to the queue (<Path p={`${S}/tasks/runner.py`} sym="def backoff(" />).{" "}
+          <code>maintain</code> deletes finished tasks after a week and failed ones after 30 days.
+        </p>
+      </Rule>
+      <Rule title="The runner's housekeeping">
+        <p>
+          Every 15 seconds each runner renews its leases and returns expired attempts. The same
+          thread ends jobs whose workers went away and setup builds' likewise, moves on workflow runs
+          nothing moved on, fires scheduled triggers, recovers bulk and spreadsheet imports, and
+          sends budget alerts, so any runner can do it and none is special (<Path
+            p={`${S}/tasks/runner.py`}
+            sym="def _housekeep("
+          />). Those mechanisms are on <PageLink to="The worker and its leases" /> and <PageLink
+            to="Workflows and triggers"
+          />.
+        </p>
+      </Rule>
+      <Rule title="Webhooks">
+        <p>
+          A delivery is a task, retried on the Standard Webhooks schedule: eight attempts over
+          about 28 hours (<Path p={`${S}/webhooks/tasks.py`} sym="SCHEDULE" />). Each message is
+          signed with HMAC-SHA256 over its ID, timestamp and body, and carries two signatures while
+          a secret rotates (<Path p={`${S}/webhooks/signing.py`} />). The sender resolves the host
+          once and connects only to public addresses, unless the operator allowed a network for
+          receivers inside it; it keeps TLS on the real name, follows no
+          redirects, and keeps only the status code (<Path p={`${S}/webhooks/sender.py`} />, <Adr
+            n="0031"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Live-update streams">
+        <p>
+          <code>GET /api/v1/events</code> is one stream per tab, with the session or a bearer token
+          with <code>read</code> scope; runs, batches, workflow runs and setup builds have streams of
+          their own. The person's stream starts with <code>ready</code>, the unread notification
+          count. A stream sends a comment every 20 seconds so
+          proxies keep it open, and ends after about 30 minutes or at shutdown; browsers reconnect by
+          themselves. Before each event and at each comment it checks the session or token again,
+          ending with <code>signed_out</code> when it's no longer valid (<Path
+            p={`${S}/realtime/views.py`}
+            sym="MAX_LIFETIME"
+          />).
+        </p>
+        <p>
+          A stream holds no database connection while it waits. A stream that falls 100 events
+          behind is emptied and sent <code>resync</code>, so a stuck client refetches rather than
+          holding memory. A web process holds at most 2,000 streams, 20 per person.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <div>
+        <h3>Files</h3>
+        <ul>
+          <li><Path p={`${S}/tasks`} /> the backend, runner and <code>tasks</code> command</li>
+          <li><Path p={`${S}/realtime`} /> publishing, the hub, the stream views</li>
+          <li><Path p={`${S}/webhooks`} /> events, signing, sending</li>
+          <li><Path p="deploy/helm/iki/templates/tasks-deployment.yaml" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0005" title /></li>
+          <li><Adr n="0030" title /></li>
+          <li><Adr n="0031" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

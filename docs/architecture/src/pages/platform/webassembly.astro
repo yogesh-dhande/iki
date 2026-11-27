@@ -1,0 +1,210 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const W = "worker/crates/iki-wasm";
+const H = {
+  short: "One Rust crate, the same bytes in the browser and the server",
+  how: "The modules, where each runs, and its digest",
+  rules: "Loading, building and checking",
+  ref: "Files and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+const modules = [
+  {
+    name: "iki_wasm.wasm",
+    src: W,
+    build: "scripts/build-wasm.sh",
+    runs: "The browser's Web Worker; the server and the validator, under wasmtime",
+    digest: "server/iki_wasm.wasm.sha256",
+    adr: [90, 127],
+  },
+  {
+    name: "plasmid-tools.wasm",
+    src: `${W}/standalone/plasmid-tools`,
+    build: "scripts/build-plasmid-tools-wasm.sh",
+    runs: "iki/plasmid's actions: primers, melting temperatures, digests",
+    digest: "plugins/plasmid/data/plasmid-tools.wasm.sha256",
+    adr: [200],
+  },
+  {
+    name: "dna-annotation.wasm",
+    src: `${W}/standalone/dna-annotation`,
+    build: "scripts/build-dna-annotation-wasm.sh",
+    runs: "iki/plasmid's annotation action",
+    digest: "plugins/plasmid/data/dna-annotation.wasm.sha256",
+    adr: [206],
+  },
+  {
+    name: "oligo-checks.wasm",
+    src: `${W}/standalone/oligo-checks`,
+    build: "scripts/build-oligo-checks-wasm.sh",
+    runs: "iki/dna's primer checks",
+    digest: "plugins/dna/data/oligo-checks.wasm.sha256",
+    adr: [201],
+  },
+  {
+    name: "oligo-measurement.wasm",
+    src: `${W}/standalone/oligo.rs`,
+    build: "scripts/build-oligo-wasm.sh",
+    runs: "iki/dna's fixed-condition measurement",
+    digest: "plugins/dna/data/oligo-measurement.sha256",
+    adr: [],
+  },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      <Path p={W} label="iki-wasm" /> is a Rust crate compiled to WebAssembly. It holds CEL for
+      plugins' rules and guards and apps' expressions, and parsers such as FASTA. The browser runs
+      it in a Web Worker; the server and the plugin validator run the same bytes under wasmtime, so
+      a rule means the same wherever it's checked (<Adr n={[12, 127, 128]} />). A few first-party
+      actions also call small standalone modules, built from the same crates, under wasmtime on a
+      worker.
+    </p>
+    <ul>
+      <li>Plugins don't ship Wasm of their own: their CEL runs in iki-wasm.</li>
+      <li>Git holds each module's source and SHA-256, never its bytes.</li>
+      <li>The server image carries precompiled native code, checked against its digest.</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Module</th><th>Built from</th><th>Built by</th><th>Runs in</th><th>Digest in git</th></tr></thead>
+        <tbody>
+          {
+            modules.map((m) => (
+              <tr>
+                <td><code>{m.name}</code>{m.adr.length > 0 && <> (<Adr n={m.adr} />)</>}</td>
+                <td><Path p={m.src} label={m.src.replace(`${W}/`, "")} /></td>
+                <td><Path p={m.build} label={m.build.replace("scripts/", "")} /></td>
+                <td>{m.runs}</td>
+                <td><Path p={m.digest} /></td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+    <p>
+      iki-wasm's exports are listed once, in <Path p="spec/src/iki_spec/wasm.py" sym="EXPORTS" />:
+      checking expressions, checking and evaluating rules, which origin states a guard rules
+      out, HELM, DNA annotation and melting temperature. It's Rust so the same code can run natively
+      when Iki has a desktop app (<Path p={`${W}/src/lib.rs`} />, <Adr n="0088" />). Annotation's feature library, <Path
+        p="worker/crates/iki-wasm/data/dna_features.json"
+      />, is compiled in.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="In the browser" open>
+        <p>
+          The page hands a file's bytes to the parsers' Web Worker and gets JSON back; the worker
+          has no page to reach. It's created through a Trusted Types policy that only allows the
+          app's own worker scripts (<Path p="web/app/src/reading.ts" />). <code>@ikisci/science</code>{" "}
+          ships the same module for its parsers (<Path p="web/packages/science/src/parsers.ts" />,{" "}
+          <PageLink to="Packages and the SDK" />).
+        </p>
+      </Rule>
+      <Rule title="In the server: wasmtime, with fuel">
+        <p>
+          Apps' expressions are checked when an app is saved; plugins' rules and guards when a plugin
+          is validated, and at each save and state change. Each thread has its own instance, and
+          each call a budget of 200 million instructions' fuel, so no expression can hold anything
+          up however it's written (<Path p="spec/src/iki_spec/wasm.py" sym="FUEL" />).
+        </p>
+        <p>
+          In the server image the module is precompiled: <code>/opt/iki/wasm</code> holds <code
+            >iki_wasm.cwasm</code
+          > and its manifest, built for the image's platform; both platforms' digests are pinned
+          in git. It's loaded only if every directory and file
+          on that path is root-owned and unwritable, and the manifest names this host's target, the
+          installed wasmtime version, fuel metering, and the SHA-256 of both the Wasm it was built
+          from and the native code itself. Otherwise the server logs why and compiles the packaged
+          Wasm instead (<Path p="spec/src/iki_spec/wasm.py" sym="def _image_module(" />, <Path
+            p="scripts/build-server-aot.sh"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Standalone modules for plugins' actions">
+        <p>
+          An action's script loads its module from the plugin's <code>data/</code> directory and
+          calls it under wasmtime (<Path p="plugins/dna/scripts/oligos.py" sym="MODULE" />). <code
+            >git archive</code
+          > of a pinned plugin has the digest but not the module, so <code>iki deploy build</code>{" "}
+          takes the module from <code>iki_spec</code>, checks it against the digest in the plugin's
+          tree, and writes it into the plugin before bundling it for workers. A module that is
+          missing, has no digest or doesn't match is refused, so a worker gets bytes someone
+          vouched for and needs no Rust (<Path p="cli/src/iki_cli/workers.py" sym="def prepared_source(" />,{" "}
+          <Path p="spec/src/iki_spec/modules/__init__.py" />).
+        </p>
+      </Rule>
+      <Rule title="SHA-256 in git, never the bytes">
+        <p>
+          <code>*.wasm</code> is ignored by git (<Path p=".gitignore" />), and stays that way: what's
+          committed is the Rust, the build script and the digest. The digests are of modules built
+          on Linux x86-64, where the builds are reproducible; on other hosts the scripts build for
+          tests and say the digest isn't compared there (<Path
+            p="scripts/build-plasmid-tools-wasm.sh"
+          />).
+        </p>
+        <p>
+          The server image builds every module in its <code>wasm</code> stage on linux/amd64, and its{" "}
+          <code>verified-wasm</code> stage checks all of them against the digests before anything is
+          copied on (<Path p="server/Dockerfile" />, <Path p="scripts/verify-server-wasm.sh" />). CI
+          builds that payload once, in a reusable workflow, verifies it, and gives the same files to
+          both platforms' image builds (<Path p=".github/workflows/build-server-wasm.yml" />); the
+          Rust job rebuilds each standalone module with <code>--check</code> (<Path
+            p=".github/workflows/ci.yml"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Building it locally">
+        <p>
+          <Path p="scripts/build-wasm.sh" /> builds iki-wasm for <code>wasm32-unknown-unknown</code>{" "}
+          with rustup and the toolchain <Path p="worker/rust-toolchain.toml" /> names, copies it to
+          the web app, <code>@ikisci/science</code> and <code>iki_spec</code>, and builds the oligo
+          measurement. Each standalone module has its own script.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <div>
+        <h3>Files</h3>
+        <ul>
+          <li><Path p={W} /> the crate, and <Path p={`${W}/standalone`} label="standalone/" /> modules</li>
+          <li><Path p="spec/src/iki_spec/wasm.py" /> the server's and validator's loader</li>
+          <li><Path p="spec/src/iki_spec/modules" /> where built standalone modules go</li>
+          <li><Path p="server/iki_wasm.amd64.cwasm.sha256" />, <Path p="server/iki_wasm.arm64.cwasm.sha256" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0012" title /></li>
+          <li><Adr n="0088" title /></li>
+          <li><Adr n="0090" title /></li>
+          <li><Adr n="0127" title /></li>
+          <li><Adr n="0200" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

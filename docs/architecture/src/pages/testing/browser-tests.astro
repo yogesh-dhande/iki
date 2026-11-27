@@ -1,0 +1,114 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const TB = "server/tests/test_browser.py";
+
+const H = {
+  short: "What every page is checked for, and in which browsers",
+  how: "Real browsers against a real server",
+  rules: "Accessibility, the policy, presses and traces",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Browser tests run in Chromium, Firefox and WebKit, against the real server with its
+      production settings and content security policy. Every page they visit is checked with axe
+      for WCAG 2.2 AA in light and dark, for policy violations and for page errors, and a fixture
+      fails any test where a press and its release land on different targets (<Adr n={[29, 102]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      The tests drive Playwright against the server as it's deployed: production settings, the
+      collected static files and uvicorn, with Trusted Types enforced (<Path
+        p={TB}
+        sym='BROWSERS = ["chromium", "firefox", "webkit"]'
+      />). They need the built web app (<code>make web</code>) and the browsers the locked
+      Playwright asks for (<code>make test-browsers</code>); without a browser, pytest fails and
+      says how to install it. A test is a browser test when it uses the browser or Playwright
+      fixtures, or is marked <code>browser</code> or <code>built_web_app</code>, and CI runs those
+      in the three browser shards (<PageLink to="Gates and CI" hash="rules" />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Every page passes axe and breaks no rule" open>
+        <p>
+          A test calls <code>assert_clean</code> on each page it visits: no policy violations, no
+          page errors, and nothing axe finds against WCAG 2.2 AA. It waits for fades to finish first,
+          since text mid-fade has less contrast than it ends with (<Path p={TB} sym="def assert_clean(" />).
+          The production policy is the one in force, so a page that would break it in production
+          fails here (<PageLink to="Serving and security policy" />).
+        </p>
+        <p>
+          On a few pages Playwright's Firefox crashes its content process when axe runs, so those
+          pass <code>axe_in_firefox=False</code> and leave axe to the other two engines; the DOM axe
+          checks is the same in each. Helpers find elements by role rather than by label, since
+          Firefox also crashes on labels after axe.
+        </p>
+      </Rule>
+      <Rule title="Presses that land where they began">
+        <p>
+          An autouse fixture installs a script in every page and frame of a browser test's contexts.
+          It records each press and release and every layout shift, and the test fails when a press
+          and its release land on different targets (<Path
+            p="server/tests/conftest.py"
+            sym="def _watch_browser_click_stability("
+          />, <Path p="server/tests/click_stability.py" sym="def finish(" />). <code
+            >IKI_CLICK_STABILITY=report</code
+          > records without failing; CI keeps each shard's reports for a week. Why pages hold still,
+          and how, is on <PageLink to="Pages that hold still" />.
+        </p>
+      </Rule>
+      <Rule title="Nothing gets out of a page">
+        <p>
+          The exfiltration tests run in all three browsers: code in a plugin's frame tries every way
+          out, and values written to attack Iki's own pages must render only as text (<Path
+            p="server/tests/test_browser_exfiltration.py"
+          />). <PageLink to="Plugin frames" hash="rules" /> has what each refusal rests on.
+        </p>
+      </Rule>
+      <Rule title="Failing traces are kept">
+        <p>
+          When a browser test fails, CI keeps its context traces for three days as an artifact of
+          the shard; a local gate leaves them under <code>build/browser-failures/</code>, and the test
+          VM's wrapper fetches them back (<Path p="scripts/ci/with-browser-traces.sh" />, <Path
+            p="CONTRIBUTING.md"
+          />). Traces come from disposable test contexts, but they hold what the test saw and sent.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={TB} />: the fixtures and the app's own browser tests</li>
+        <li><Path p="server/tests/click_stability.js" />: the press recorder</li>
+        <li><Path p="server/tests/test_oligo_components.py" />: a plugin's components, tested in their frames</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0029" title /></li>
+        <li><Adr n="0102" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

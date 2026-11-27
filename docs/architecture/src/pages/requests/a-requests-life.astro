@@ -1,0 +1,217 @@
+---
+import Adr from "../../components/Adr.astro";
+import Diagram from "../../components/Diagram.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Sequence from "../../components/Sequence.astro";
+import { page } from "../../lib/nav.ts";
+
+const REQ = "server/src/iki_server/entities/requests.py";
+const ACCESS = "server/src/iki_server/entities/access.py";
+const MODELS = "server/src/iki_server/entities/models.py";
+const TYPES = "plugins/requests/types";
+const at = (label: string) => page(label).href;
+
+const boxes = [
+  { id: "registry", x: 20, y: 30, w: 190, h: 60, label: "Registry", sub: "identities; registrars", href: at("Identity and HRIDs") },
+  { id: "asking", x: 250, y: 30, w: 190, h: 60, label: "Asking project", sub: "owns the request", href: at("Asking and serving") },
+  { id: "intake", x: 480, y: 30, w: 190, h: 60, label: "Intake", sub: "types and sources", href: at("Asking and serving") },
+  { id: "service", x: 710, y: 30, w: 190, h: 60, label: "Service project", sub: "serves it", href: at("Asking and serving") },
+  { id: "entries", x: 20, y: 150, w: 190, h: 60, label: "Entries and records", sub: "registry XOR project", href: at("Identity and HRIDs") },
+  { id: "submit", x: 250, y: 150, w: 190, h: 60, label: "Submit", sub: "one service, for good", strong: true, href: at("Asking and serving") },
+  { id: "links", x: 480, y: 150, w: 190, h: 60, label: "Project links", sub: "via_request", href: at("Sharing across projects") },
+  { id: "guard", x: 710, y: 150, w: 190, h: 60, label: "Side guard", sub: "iki.request_side", href: at("Asking and serving") },
+  { id: "share", x: 20, y: 270, w: 190, h: 60, label: "shareable_into", sub: "one sharing check", href: at("Sharing across projects") },
+  { id: "result", x: 250, y: 270, w: 190, h: 60, label: "Deliverable", sub: "made in the service", href: at("Request and deliverable types") },
+  { id: "release", x: 480, y: 270, w: 190, h: 60, label: "Release", sub: "signed; then final", strong: true, href: at("Release and completion") },
+  { id: "told", x: 710, y: 270, w: 190, h: 60, label: "Audit and notices", sub: "both sides told", href: at("Release and completion") },
+  { id: "complete", x: 480, y: 390, w: 190, h: 60, label: "Completion", sub: "every subject covered", href: at("Release and completion") },
+  { id: "work", x: 710, y: 390, w: 190, h: 60, label: "Work items", sub: "the service's alone", href: at("Asking and serving") },
+];
+const edges = [
+  { from: "registry", to: "asking" },
+  { from: "asking", to: "submit" },
+  { from: "intake", to: "service" },
+  { from: "submit", to: "intake", label: "must match" },
+  { from: "submit", to: "links" },
+  { from: "registry", to: "entries" },
+  { from: "entries", to: "submit" },
+  { from: "service", to: "guard", label: "writes its fields" },
+  { from: "share", to: "submit", label: "checks" },
+  { from: "result", to: "release" },
+  { from: "release", to: "links", label: "back to the asker" },
+  { from: "release", to: "told" },
+  { from: "release", to: "complete", label: "counts toward" },
+  { from: "service", to: "work", via: [[922, 60], [922, 420]] as [number, number][] },
+];
+
+const H = {
+  short: "What a request is",
+  how: "The parts of a request, and the page for each",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "flow", label: "One request, from asking to release" },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A request is a record in the project that asks, sent once to another project that serves it.
+      Both sides write the same record: the asker its own fields, the service the fields the plugin
+      gave it, and a database trigger keeps each to its side. Sending links the request and the
+      records it names into the service. The service keeps its bench work in private work items and
+      makes deliverables in its own project. A deliverable reaches the asking project only when it's
+      released, usually by a signed state; released, it's final. The service marks the request
+      delivered only once every recorded deliverable is back and every expected subject is covered.
+    </p>
+    <ul>
+      <li>A request is owned by the project that asks, and served by another (<Adr n="0132" />).</li>
+      <li>A result leaves its service only by release (<Adr n="0149" />).</li>
+      <li>A corrected result goes back for review (<Adr n="0179" />).</li>
+      <li>Core facility requests return signed deliverables (<Adr n="0195" />).</li>
+      <li><code>iki/requests</code> owns the request, work item and deliverable types (<Adr n="0211" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      A request type is an ordinary plugin type with a <code>request:</code> block; a deliverable type
+      has a <code>result:</code> block naming the request field and the released states. The core adds
+      a <code>Request</code> row, the service's intake, and the links that carry records across. Each
+      box links to the page that covers it.
+    </p>
+    <Diagram id="reqs" title="Projects, a request between them, and its released deliverable" width={940} height={470} boxes={boxes} edges={edges}>
+      <div slot="registry">
+        <p>Every project is in one registry; requests stay within it (<Adr n={[115, 132]} />).</p>
+        <p><Path p="server/src/iki_server/org/models.py" sym="class Registry(" /></p>
+      </div>
+      <div slot="asking">
+        <p>The asking project owns the request: its Editors fill it in and send it (<Adr n="0132" />).</p>
+        <p><Path p={MODELS} sym="class Request(" /></p>
+      </div>
+      <div slot="intake">
+        <p>A service's Admins say which request types it takes, and from whom (<Adr n="0132" />).</p>
+        <p><Path p={MODELS} sym="class Intake(" />, <Path p={REQ} sym="def set_intake(" /></p>
+      </div>
+      <div slot="service">
+        <p>The project that serves requests. Its coordinators are told as one arrives (<Adr n="0142" />).</p>
+        <p><Path p="server/src/iki_server/notifications/declared.py" sym="def sent(" /></p>
+      </div>
+      <div slot="entries">
+        <p>For a reference to a registry entry, the asker's own record of it is what's sent (<Adr n="0115" />).</p>
+        <p><Path p={REQ} sym="def sent_records(" /></p>
+      </div>
+      <div slot="submit">
+        <p>Sending checks the asker, the revision, the intake and sharing, then links and audits both sides (<Adr n="0132" />).</p>
+        <p><Path p={REQ} sym="def submit(" /></p>
+      </div>
+      <div slot="links">
+        <p>Links a request made carry <code>via_request</code>, and stay while they're needed (<Adr n="0132" />).</p>
+        <p><Path p={MODELS} sym="class ProjectLink(" />, <Path p={REQ} sym="def why_kept(" /></p>
+      </div>
+      <div slot="guard">
+        <p>A trigger on each request type's tables refuses the other side's columns (<Adr n={[120, 132]} />).</p>
+        <p><Path p="server/src/iki_server/entities/migrations/0015_requests.py" sym="iki_request_guard()" /></p>
+      </div>
+      <div slot="share">
+        <p>One check decides what a project may use; unreleased results and work items are left out (<Adr n={[67, 149]} />).</p>
+        <p><Path p={ACCESS} sym="def shareable_into(" /></p>
+      </div>
+      <div slot="result">
+        <p>A deliverable must be made in the project the request was sent to, for a subject on the request (<Adr n={[149, 211]} />).</p>
+        <p><Path p={REQ} sym="def check_result(" />, <Path p={TYPES} /></p>
+      </div>
+      <div slot="release">
+        <p>A released state links the deliverable into the asking project once; after an independent review it's final (<Adr n={[149, 179]} />).</p>
+        <p><Path p={REQ} sym="def released(" /></p>
+      </div>
+      <div slot="told">
+        <p><code>request.submitted</code>, <code>request.received</code> and <code>request.result_released</code>, each in its own project (<Adr n="0142" />).</p>
+        <p><Path p="server/src/iki_server/notifications/declared.py" sym="def released(" /></p>
+      </div>
+      <div slot="complete">
+        <p>The request's completed state needs every recorded deliverable returned and every commissioned subject covered (<Adr n={[132, 211]} />).</p>
+        <p><Path p={REQ} sym="def delivery_refusal(" /></p>
+      </div>
+      <div slot="work">
+        <p>Scheduling and notes live on work items no other project can link or reference (<Adr n="0132" />).</p>
+        <p><Path p={`${TYPES}/work_item.yaml`} />, <Path p={REQ} sym="def check_work_item(" /></p>
+      </div>
+    </Diagram>
+
+    <h3 id="flow">One request, from asking to release</h3>
+    <Sequence
+      id="flow-seq"
+      title="A Regulated QC request to a sequencing core"
+      width={900}
+      actors={[
+        { id: "asker", label: "Asking project", sub: "an Editor" },
+        { id: "server", label: "Server" },
+        { id: "service", label: "Core facility", sub: "coordinator, analyst, QA" },
+        { id: "db", label: "Postgres" },
+      ]}
+      steps={[
+        { id: "intake", from: "service", to: "server", label: "Admin: intake takes QC requests from the asker" },
+        { id: "create", from: "asker", to: "server", label: "create the request, naming a tube" },
+        { id: "submit", from: "asker", to: "server", label: "POST /entities/{ref}/submit" },
+        { id: "link", from: "server", to: "db", label: "Request row; links into the service, via_request" },
+        { id: "receive", from: "service", to: "server", label: "receipt: scan the tube in, put it away" },
+        { id: "work", from: "service", to: "server", label: "accept, assign, in progress: service fields only" },
+        { id: "deliver", from: "service", to: "server", label: "deliverable: submitted, reviewed, signed" },
+        { id: "release", from: "service", to: "server", label: "QA signs Released" },
+        { id: "back", from: "server", to: "db", label: "link the deliverable back; released_review_revision" },
+        { id: "complete", from: "service", to: "server", label: "status Delivered: every tube covered" },
+        { id: "read", from: "asker", to: "server", label: "GET /entities/{ref}/request: results, receipts" },
+      ]}
+    >
+      <div slot="intake"><p>Until the intake accepts the type, sending fails with the same 404 whether the service exists or not.</p><p><Path p={REQ} sym="def not_a_service(" /></p></div>
+      <div slot="create"><p>An unsent request is the asker's alone; its service fields keep their defaults.</p><p><Path p={`${TYPES}/qc_request.yaml`} />, <Path p={`${TYPES}/request.yaml`} /></p></div>
+      <div slot="submit"><p>A request goes to one service, for good. A stale revision gets 412, as any write does.</p><p><Path p="server/src/iki_server/api/requests.py" /></p></div>
+      <div slot="link"><p>Only the records the request's <code>sends</code> fields name are linked; another of the asker's tubes isn't.</p><p><Path p={REQ} sym="def _link(" /></p></div>
+      <div slot="receive"><p>The core's coordinators receive the tubes against the request: <PageLink to="Receipts and counts" />.</p><p><Path p="server/src/iki_server/storage/receipts.py" /></p></div>
+      <div slot="work"><p>The server writes as the service side inside a savepoint; the database refuses anything else.</p><p><Path p={REQ} sym="def writing(" /></p></div>
+      <div slot="deliver"><p>The deliverable's states decide who signs, and keep the reviewer from releasing what they reviewed (<Adr n={[125, 128, 195]} />).</p><p><Path p={`${TYPES}/qc_deliverable.yaml`} /></p></div>
+      <div slot="release"><p>The signed document names the reviewed revision when the type needs a review before release (<Adr n="0179" />).</p><p><Path p="server/src/iki_server/signatures/services.py" sym='document["reviewed"] = reference' /></p></div>
+      <div slot="back"><p>Linked into the asking project for this request, audited, and its watchers told.</p><p><Path p={REQ} sym="def released(" /></p></div>
+      <div slot="complete"><p>Refused while a tube has no returned result or a recorded deliverable isn't back.</p><p><Path p={REQ} sym="def delivery_refusal(" /></p></div>
+      <div slot="read"><p>The receipts are read from the <code>request.result_released</code> audit events, not a table of their own.</p><p><Path p="server/src/iki_server/api/requests.py" sym="class ResultReleaseOut(" /></p></div>
+    </Sequence>
+
+    <p>Where each part is covered:</p>
+    <ul>
+      <li><PageLink to="Asking and serving" />: intake, sending, the two sides, work items and the queue.</li>
+      <li><PageLink to="Request and deliverable types" />: the <code>request:</code> and <code>result:</code> blocks, and the Plain, Research and QC pairs.</li>
+      <li><PageLink to="Release and completion" />: release, what's final after it, and when a request is delivered.</li>
+      <li><PageLink to="Sharing across projects" />: what each project can read, and why a record is held back.</li>
+      <li><PageLink to="Identity and HRIDs" />: registries, entries and the project records a request sends.</li>
+    </ul>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={REQ} />: intake, sending, the two sides, release and completion</li>
+        <li><Path p="plugins/requests" />: the shipped request, work item and deliverable types</li>
+        <li><Path p="server/src/iki_server/api/requests.py" />: the request routes</li>
+        <li><Path p="web/app/src/requests.ts" />: the app's request queries</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0132" title /></li>
+        <li><Adr n="0142" title /></li>
+        <li><Adr n="0149" title /></li>
+        <li><Adr n="0179" title /></li>
+        <li><Adr n="0195" title /></li>
+        <li><Adr n="0211" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

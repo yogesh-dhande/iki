@@ -1,0 +1,187 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Inferred from "../../components/Inferred.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const REQ = "server/src/iki_server/entities/requests.py";
+const STATES = "server/src/iki_server/entities/states.py";
+const MODELS = "server/src/iki_server/entities/models.py";
+const TEST = "server/tests/test_core_facility.py";
+
+const H = {
+  short: "When a deliverable goes back, and when a request is done",
+  how: "Release, what's final after it, and coverage",
+  example: "Long-read sequencing from a core facility, released and delivered",
+  rules: "Release, correction and completion in full",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "release", label: "Release" },
+  { id: "final", label: "What's final after it" },
+  { id: "completion", label: "Completion and coverage" },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A deliverable is the service's alone until it's set to one of its type's released states. Then
+      it's linked into the asking project once, for its request, audited
+      as <code>request.result_released</code>, and the request's creator and watchers are told. Released
+      after a signed independent review, it's final. The service can set the request to its completed
+      state only when at least one deliverable is back, every recorded deliverable is back, and every
+      commissioned subject is covered by a returned deliverable: directly, through a recorded aliquot,
+      or through the draw that took a sample from it (<Adr n={[132, 149, 179, 211]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <h3 id="release">Release</h3>
+    <p>
+      Every state change calls <code>released()</code>. When the field and state are the ones the
+      type releases on, it finds the request sent to the deliverable's project, checks again that the
+      deliverable's subject is on the request, and links the deliverable into the asking project
+      with <code>via_request</code>. A deliverable already linked back for this request isn't linked or told
+      again. One already in the asking project some other way is marked as released there, so it stays.
+      A service that has stopped sharing its entities can't release (<Path p={REQ} sym="def released(" />, <Path p={STATES} sym="requests.released(" />). Until release, the asking project can't read the
+      deliverable or its files: <PageLink to="Sharing across projects" /> says how that's held.
+    </p>
+    <p>
+      The audit event carries the reviewed, signed and released revisions,
+      and <code>GET /entities/&#123;ref&#125;/request</code> reads them back as the request's release
+      receipts (<Path p="server/src/iki_server/api/requests.py" sym="class ResultReleaseOut(" />).
+    </p>
+
+    <h3 id="final">What's final after it</h3>
+    <p>
+      When the release signature follows a separately signed review, the signed document names the
+      reviewed revision and Iki keeps it as <code>released_review_revision</code>. The database holds
+      that such a deliverable stays locked, at exactly two revisions past the reviewed one, and its
+      values and states can't change again (<Path p={MODELS} sym='name="iki_released_review_locked"' />, <Path p={STATES} sym="def _final_release(" />). Before release, a reasoned correction under lock
+      returns each state to its <code>on_edit</code> target, and the deliverable is submitted and
+      reviewed again (<Adr n="0179" />, <PageLink to="Locks and corrections" />).
+    </p>
+
+    <h3 id="completion">Completion and coverage</h3>
+    <p>
+      A request type's <code>completed</code> names the service state that closes it, Delivered
+      in <code>iki/requests</code>. Setting it asks <code>delivery_refusal()</code>, which refuses while:
+    </p>
+    <ul>
+      <li>a commissioned subject has no returned deliverable: "Tube B has no returned result yet";</li>
+      <li>
+        a recorded deliverable isn't returned: not in a released state, not linked back for this
+        request, or, for a signed release, without signatures on its last transition;
+      </li>
+      <li>no deliverable has been returned at all.</li>
+    </ul>
+    <p>
+      The commissioned subjects are the project records in the request's <code>materials</code> fields;
+      a registry entry names a molecule, not a tube, so it isn't one (<Path
+        p={REQ}
+        sym="def materials_of("
+      />, <Path p={REQ} sym="def delivery_refusal(" />, <Path p={STATES} sym="requests.delivery_refusal(entity)" />). A
+      deliverable covers the subjects its <code>material</code> reaches:
+    </p>
+    <Excerpt file={REQ} start="^def _covered_subjects\(" />
+    <p>
+      For an <code>iki/samples.Sample</code>, the ledger decides, not the sample's declared source:
+      the <code>drawn</code> movement whose <code>used_in</code> is the sample names the tube or lot it
+      debited. From a tube, the walk follows its <code>aliquot</code> movement back to the tube it was
+      split from, through any number of splits, or a registered aliquot's declared parent. A sample
+      drawn from an unrelated tube covers nothing, and several deliverables on one tube cover it once
+      (<Adr n={[132, 211]} />). Drawing is on <PageLink to="Draws and samples" />.
+    </p>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      The core in <Path p={TEST} sym="def _sequencing(" /> sequences tube CEY652, which the asking
+      project split twice before sending. The deliverable names the second aliquot and run
+      ERR13376132, and covers CEY652 through both splits. It's corrected after review, submitted and
+      reviewed again, and released by QA. Then:
+    </p>
+    <ol>
+      <li>
+        The request's release receipt names the corrected review's revision, the signed revision and
+        the released revision; the earlier report stays readable in the deliverable's history.
+      </li>
+      <li>
+        The asker adds Tube B to the request. Delivered is refused with "Tube B has no returned result
+        yet" until a released deliverable covers it, and an unsuccessful outcome covers it too.
+      </li>
+      <li>A recorded draft deliverable blocks Delivered until it's released as well.</li>
+      <li>Once the request is Delivered, a new deliverable for it is refused as already delivered.</li>
+    </ol>
+    <p>
+      <Path p={TEST} sym="def exercise_sample_delivery(" /> runs the same rule through samples for each
+      pair: a Plain sample drawn from a sent tube, a Research sample drawn directly from a sent lot,
+      and a QC sample drawn from an aliquot of an aliquot. In each, a deliverable on a sample is
+      refused before its draw. In the Research case, one on a sample drawn from a core tube that holds
+      the lot is refused too, since that draw debited the tube, not the lot.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Release, and after it" open>
+        <p>
+          A release is told once: a deliverable already linked back for this request isn't linked again,
+          and one released, set back and released again isn't released twice. Release is refused if its
+          material isn't covered by the request any more (<Path p={REQ} sym="MATERIAL_REFUSAL = (" />). The
+          released states neither declare nor receive an <code>on_edit</code> return, so a
+          correction can't release (<PageLink to="Request and deliverable types" hash="rules" />).
+        </p>
+        <p>
+          <Inferred why="Read from ResultSpec.requires_review; no test asserts it.">
+            A Research deliverable is released by a single review signature, so no earlier reviewed
+            revision is kept and its receipt has none.
+          </Inferred>
+        </p>
+      </Rule>
+      <Rule title="Recording a deliverable">
+        <p>
+          A deliverable must be made in the project the request was sent to. Its material must be a
+          subject on the request, a recorded aliquot of one, or a sample drawn from either; one for a
+          request with no subjects names none. Once the request is in its completed state, no new
+          deliverable is recorded for it (<Path p={REQ} sym="def check_result(" />).
+        </p>
+      </Rule>
+      <Rule title="Who is told">
+        <p>
+          The asking project's people its type names are told as each deliverable comes back;
+          in <code>iki/requests</code>, the request's creator and watchers (<Adr n="0142" />, <Path
+            p="plugins/requests/types/request.yaml"
+          />). What events reveal to whom is on <PageLink to="What events disclose" />.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={REQ} sym="def released(" />, <Path p={REQ} sym="def delivery_refusal(" />: release and completion</li>
+        <li><Path p={TEST} />: the facility flows, end to end</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0142" title /></li>
+        <li><Adr n="0149" title /></li>
+        <li><Adr n="0179" title /></li>
+        <li><Adr n="0211" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

@@ -1,0 +1,126 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const SDK = "web/packages/sdk/src/index.ts";
+
+const H = {
+  short: "What the app is built from",
+  how: "The four packages",
+  rules: "The SDK, generated and checked",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      The React app, <code>@ikisci/app</code>, is private. It builds on four packages under <Path
+        p="web/packages"
+      />: the API client generated from the server's OpenAPI document, the design tokens and basic
+      elements, the scientific elements and functions, and the types plugin authors' components are
+      written against. Each package exports by entry point, so a page or a plugin takes only what it
+      imports (<Adr n="0191" />). A server change that breaks a page fails to compile, because the
+      client's types are regenerated from the server and checked for drift.
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <ul>
+      <li>
+        <Path p="web/packages/sdk" label="@ikisci/sdk" />: <code>openapi-fetch</code> over a schema{" "}
+        <code>openapi-typescript</code> makes from <Path p="web/packages/sdk/openapi.json" />. It
+        signs requests with a bearer token, or, in Iki's own pages, sets the page's CSRF token on
+        every unsafe method, and turns a problem response into an <code>ApiError</code> (<Adr
+          n={[27, 29]}
+        />, <Path p={SDK} sym="export function createIkiClient(" />).
+      </li>
+      <li>
+        <Path p="web/packages/ui" label="@ikisci/ui" />: tokens, the Inter font and three custom
+        elements: a button, a page header and the sidebar. No runtime dependencies. This site uses
+        its tokens too (<Path p="web/packages/ui/src/button.ts" />, <Path
+          p="web/packages/ui/src/page-header.ts"
+        />, <Path p="web/packages/ui/src/sidebar.ts" />).
+      </li>
+      <li>
+        <Path p="web/packages/science" label="@ikisci/science" />: scientific custom elements and
+        functions, each its own entry point: the sequence and alignment viewers, plasmid maps,
+        virtual gels, box maps, quantity and sequence inputs, the structure viewer, the iki-wasm
+        parsers and more (<Adr n={[87, 174, 191, 202]} />, <Path
+          p="web/packages/science/src/sequence-viewer.tsx"
+          sym='customElements.define("iki-sequence-viewer"'
+        />, <Path p="web/packages/science/package.json" />).
+      </li>
+      <li>
+        <Path p="web/packages/component" label="@ikisci/component" />: what Iki gives a plugin's
+        component and what it may ask for, as types, with helpers that send its events (<Path
+          p="web/packages/component/src/index.ts"
+        />). <PageLink to="Plugin frames" /> is where those components run.
+      </li>
+    </ul>
+    <p>
+      In the repository each package also exports its source under the <code>@ikisci/source</code>{" "}
+      condition, which the app's Vite build and type checks and the plugin bundler resolve, so
+      they read the packages' source rather than their built files (<Path
+        p="web/app/vite.config.ts"
+        sym='conditions: ["@ikisci/source"'
+      />). The release publishes <code>@ikisci/science</code> and <code>@ikisci/ui</code>{" "}
+      to npm with provenance (<PageLink to="Releases and images" />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="The SDK, generated and checked" open>
+        <p>
+          <code>make client</code> writes the OpenAPI document from the server, then the
+          TypeScript schema from it, and the Python SDK's types too (<Path p="Makefile" sym="client:" />).
+          Three checks catch drift: a server test compares the committed document with the live
+          schema; <code>make check-web</code> regenerates the TypeScript and diffs it; and a codegen
+          test does the same for the Python SDK's types (<Path
+            p="server/tests/test_web_app.py"
+            sym="def test_the_published_openapi_document_is_current("
+          />, <Path p="scripts/check-client.sh" />, <Path
+            p="codegen/tests/test_codegen.py"
+            sym="def test_the_python_sdk_types_are_current("
+          />). The <PageLink to="Routes" /> page on this site is read from the same document.
+        </p>
+      </Rule>
+      <Rule title="Plugin components are bundled from source">
+        <p>
+          A plugin component with source under its plugin's <code>web/</code> imports from these
+          packages, and <code>pnpm bundle:plugins</code> bundles it into one self-contained module;{" "}
+          <code>pnpm test</code> fails on a stale bundle (<Path p="scripts/bundle-plugin-components.mjs" />,{" "}
+          <Path p="package.json" />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p="web/app/package.json" />: the app, and what it depends on</li>
+        <li><Path p="web/packages" />: the four packages</li>
+        <li><Path p="sdk/python" />: the Python SDK, whose types come from the same document</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0027" title /></li>
+        <li><Adr n="0029" title /></li>
+        <li><Adr n="0191" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

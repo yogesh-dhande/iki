@@ -44,6 +44,8 @@ export default tseslint.config(
       // Plugins the tests built.
       ".pytest_cache/**",
       "**/.static/**",
+      // The architecture site's generated Astro types (docs/architecture).
+      "docs/architecture/.astro/**",
       // The web app's build output, and the client generated from the API.
       "server/src/iki_server/web/static/app/**",
       "server/src/iki_server/web/static/viewers/**",
@@ -73,6 +75,13 @@ export default tseslint.config(
   {
     files: ["**/*.{js,mjs}"],
     ...tseslint.configs.disableTypeChecked,
+  },
+  {
+    // The architecture site's link check: a Node script.
+    files: ["docs/architecture/scripts/*.mjs"],
+    languageOptions: {
+      globals: { console: "readonly", process: "readonly" },
+    },
   },
   {
     // Django's static scripts run in the browser as plain scripts, without a bundler.

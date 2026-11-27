@@ -1,0 +1,91 @@
+---
+// The descriptions behind a page's YAML keys, shown beside a key on hover or focus. Each
+// key links to its schema node; `data-k` numbers its entry in this page's table, so a
+// description is sent once however often its key appears.
+import type { KeyDocTable } from "../lib/browser.ts";
+
+type Props = { table: KeyDocTable };
+const { table } = Astro.props;
+---
+
+<script type="application/json" id="key-docs" set:html={table.json()} />
+<div id="key-doc" class="key-doc" role="tooltip" hidden></div>
+
+<script>
+  type Entry = [html: string, where: string, href: string];
+  const data = JSON.parse(document.getElementById("key-docs")?.textContent ?? "[]") as Entry[];
+  const pop = document.getElementById("key-doc");
+  let current: HTMLElement | null = null;
+  let hideTimer: number | undefined;
+
+  function para(cls: string, html?: string, text?: string) {
+    const el = document.createElement("p");
+    el.className = cls;
+    if (html !== undefined) el.innerHTML = html;
+    if (text !== undefined) el.textContent = text;
+    return el;
+  }
+
+  function show(el: HTMLElement) {
+    if (!pop) return;
+    window.clearTimeout(hideTimer);
+    if (current === el && !pop.hidden) return;
+    const entry = data[Number(el.dataset["k"])];
+    if (!entry) return;
+    const [html, where, href] = entry;
+    const target = el.dataset["t"];
+    const place = para("kd-where");
+    const link = document.createElement("a");
+    link.setAttribute("href", href);
+    link.textContent = where;
+    place.append(link);
+    pop.replaceChildren(
+      place,
+      html ? para("kd-body", html) : para("kd-body kd-none", undefined, "The schema gives this key no description."),
+      ...(target ? [para("kd-ref", undefined, `Links to ${target}`)] : []),
+    );
+    pop.hidden = false;
+    current = el;
+    el.setAttribute("aria-describedby", "key-doc");
+    const r = el.getBoundingClientRect();
+    const width = Math.min(440, window.innerWidth - 24);
+    pop.style.width = `${width}px`;
+    const left = Math.max(12, Math.min(r.left, window.innerWidth - width - 12));
+    const below = r.bottom + 6;
+    pop.style.left = `${left + window.scrollX}px`;
+    const h = pop.offsetHeight;
+    const top = below + h > window.innerHeight - 8 && r.top - h - 6 > 8 ? r.top - h - 6 : below;
+    pop.style.top = `${top + window.scrollY}px`;
+  }
+
+  function hideSoon() {
+    window.clearTimeout(hideTimer);
+    hideTimer = window.setTimeout(hide, 180);
+  }
+
+  function hide() {
+    if (!pop) return;
+    pop.hidden = true;
+    current?.removeAttribute("aria-describedby");
+    current = null;
+  }
+
+  const keyOf = (t: EventTarget | null) =>
+    t instanceof Element ? t.closest<HTMLElement>("[data-k]") : null;
+
+  document.addEventListener("mouseover", (e) => {
+    const el = keyOf(e.target);
+    if (el) show(el);
+    else if (pop && e.target instanceof Node && pop.contains(e.target)) window.clearTimeout(hideTimer);
+    else if (current) hideSoon();
+  });
+  document.addEventListener("focusin", (e) => {
+    const el = keyOf(e.target);
+    if (el) show(el);
+    else if (!(pop && e.target instanceof Node && pop.contains(e.target))) hide();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") hide();
+  });
+  window.addEventListener("scroll", () => current && hide(), { passive: true });
+</script>

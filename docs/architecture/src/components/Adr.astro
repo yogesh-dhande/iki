@@ -1,0 +1,30 @@
+---
+// A citation of one or more ADRs: "ADR 0120" or "ADRs 0118, 0120". The build fails if
+// any number doesn't exist, and each link's title is the ADR's own.
+import { adr, adrHref } from "../lib/adrs.ts";
+
+type Props = { n: string | number | (string | number)[]; title?: boolean };
+const { n, title = false } = Astro.props;
+const list = (Array.isArray(n) ? n : [n]).map((x) => adr(x));
+---
+
+{
+  list.length === 1 ? (
+    <a class:list={["adr", { titled: title }]} href={adrHref(list[0]!.number)} title={`${list[0]!.number}. ${list[0]!.title}`}>
+      ADR {list[0]!.number}
+      {title && <span>: {list[0]!.title}</span>}
+    </a>
+  ) : (
+    <span>
+      ADRs{" "}
+      {list.map((a, i) => (
+        <>
+          {i > 0 && ", "}
+          <a class="adr" href={adrHref(a.number)} title={`${a.number}. ${a.title}`}>
+            {a.number}
+          </a>
+        </>
+      ))}
+    </span>
+  )
+}

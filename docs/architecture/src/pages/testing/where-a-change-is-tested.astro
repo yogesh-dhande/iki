@@ -1,0 +1,221 @@
+---
+import Adr from "../../components/Adr.astro";
+import Diagram from "../../components/Diagram.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import { page } from "../../lib/nav.ts";
+
+const CI = ".github/workflows/ci.yml";
+const href = (label: string) => page(label).href;
+const GATES = href("Gates and CI");
+
+const boxes = [
+  { id: "change", x: 20, y: 30, w: 190, h: 60, label: "A change", sub: "worktree and branch", href: GATES },
+  { id: "hook", x: 250, y: 30, w: 190, h: 60, label: "Pre-commit hook", sub: "Ruff, mypy, Prettier", href: GATES },
+  { id: "check", x: 480, y: 30, w: 190, h: 60, label: "make check", sub: "local full gate", href: GATES },
+  { id: "vm", x: 710, y: 30, w: 190, h: 60, label: "Test VM", sub: "vm-run, IKI_VM_RUN", href: GATES },
+  { id: "changes", x: 20, y: 150, w: 190, h: 60, label: "What changed", sub: "docs or code", href: GATES },
+  { id: "shards", x: 250, y: 150, w: 190, h: 60, label: "Python shards", sub: "by measured durations", strong: true, href: GATES },
+  { id: "harness", x: 480, y: 150, w: 190, h: 60, label: "pytest harness", sub: "containers, gate skips", href: GATES },
+  { id: "guards", x: 710, y: 150, w: 190, h: 60, label: "Generated-file guards", sub: "trees, core, bundles, Wasm", href: GATES },
+  { id: "jobs", x: 20, y: 270, w: 190, h: 60, label: "Other CI jobs", sub: "web, Rust, images, infra", href: GATES },
+  { id: "cluster", x: 250, y: 270, w: 190, h: 60, label: "Dev cluster", sub: "kind; e2e; restore", href: href("The dev cluster") },
+  { id: "ok", x: 480, y: 270, w: 190, h: 60, label: "CI passed", sub: "the one required check", strong: true, href: GATES },
+  { id: "live", x: 710, y: 270, w: 190, h: 60, label: "Live clouds", sub: "gate every release", href: href("Live clouds and scale") },
+  { id: "browser", x: 250, y: 420, w: 190, h: 60, label: "Browser tests", sub: "3 engines, axe, CSP", href: href("Browser tests") },
+  { id: "plugin", x: 480, y: 420, w: 190, h: 60, label: "Plugin tests", sub: "actions, upgrades", href: href("Plugin tests") },
+];
+const edges = [
+  { from: "change", to: "hook" },
+  { from: "hook", to: "check" },
+  { from: "check", to: "vm" },
+  { from: "check", to: "harness" },
+  { from: "vm", to: "harness", dashed: true },
+  { from: "guards", to: "harness" },
+  { from: "change", to: "changes", label: "push" },
+  { from: "changes", to: "shards" },
+  { from: "changes", to: "jobs" },
+  {
+    from: "changes",
+    to: "cluster",
+    via: [
+      [115, 240],
+      [345, 240],
+    ] as [number, number][],
+  },
+  { from: "shards", to: "ok" },
+  {
+    from: "jobs",
+    to: "ok",
+    via: [
+      [115, 355],
+      [575, 355],
+    ] as [number, number][],
+  },
+  { from: "cluster", to: "ok" },
+  { from: "ok", to: "live", dashed: true },
+  {
+    from: "harness",
+    to: "browser",
+    via: [
+      [690, 240],
+      [690, 390],
+      [345, 390],
+    ] as [number, number][],
+    at: [520, 382] as [number, number],
+    label: "kinds of test",
+  },
+  {
+    from: "harness",
+    to: "plugin",
+    via: [
+      [690, 240],
+      [690, 390],
+      [575, 390],
+    ] as [number, number][],
+  },
+];
+
+const H = {
+  short: "What has to pass, and where it runs",
+  how: "From a change to CI passed, and on to a release",
+  example: "A change to the oligo plugin's Chemistry tab",
+  ref: "Decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "example", label: H.example },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      One job, "CI passed", is the only required check, and it passes only when every job it needs
+      passed or was skipped. A change that touches only docs runs Prettier and the docs tests; any
+      other change runs every code job: Python in sixteen shards balanced by measured durations,
+      TypeScript, Rust, images, infrastructure, Slurm and a full dev cluster with a restore test.
+      Locally, <code>make check</code> runs most of the same, and the test VM runs it off the laptop.
+      Generated files are checked against what generates them, and each release waits for a live
+      deployment to every cloud.
+    </p>
+    <ul>
+      <li>Monorepo with uv, pnpm and cargo workspaces and hardened CI (<Adr n="0019" />).</li>
+      <li>Plugin action tests run fixtures through the worker (<Adr n="0093" />).</li>
+      <li>Authorization is fuzzed with another project's objects (<Adr n="0101" />).</li>
+      <li>Restores are checked, and tested automatically (<Adr n="0099" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <Diagram id="gates" title="Where a change is tested, locally and in CI" width={920} height={500} boxes={boxes} edges={edges}>
+      <div slot="change">
+        <p>Work happens on a branch, in its own worktree.</p>
+        <p><Path p="CONTRIBUTING.md" /></p>
+      </div>
+      <div slot="hook">
+        <p>Ruff, mypy, the workspace imports on Python 3.12, and Prettier, on what's staged.</p>
+        <p><Path p="scripts/git-hooks/pre-commit" /></p>
+      </div>
+      <div slot="check">
+        <p>Eight targets, in order: the local full gate (<Adr n="0019" />).</p>
+        <p><Path p="Makefile" sym="check: check-workflows" /></p>
+      </div>
+      <div slot="vm">
+        <p>A machine that runs a full check off the laptop, through a host-side wrapper.</p>
+        <p><Path p="scripts/ci/with-browser-traces.sh" /></p>
+      </div>
+      <div slot="changes">
+        <p>Whether a change is docs only, and whether it needs the server image.</p>
+        <p><Path p="scripts/ci/changes.sh" sym="is_docs() {" /></p>
+      </div>
+      <div slot="shards">
+        <p>Plain, worker and browser tests, dealt out a whole file at a time by measured durations.</p>
+        <p><Path p="scripts/ci/pytest_shards.py" sym="def assign(" /></p>
+      </div>
+      <div slot="harness">
+        <p>Test containers, and inside a gate, no unexpected skips.</p>
+        <p><Path p="server/tests/conftest.py" />, <Path p="scripts/ci/pytest_gate_skips.py" /></p>
+      </div>
+      <div slot="guards">
+        <p>Tests that fail when a generated file is behind what generates it (<Adr n={[38, 114, 191]} />).</p>
+        <p><Path p="spec/tests/test_first_party.py" /></p>
+      </div>
+      <div slot="jobs">
+        <p>TypeScript, Rust, images, OpenTofu, dependencies and Slurm.</p>
+        <p><Path p={CI} /></p>
+      </div>
+      <div slot="cluster">
+        <p>A kind cluster with the real chart, then the end-to-end checks and the restore test (<Adr n={[14, 99]} />).</p>
+        <p><Path p="deploy/dev/e2e.sh" />, <Path p="deploy/dev/restore-test.sh" /></p>
+      </div>
+      <div slot="ok">
+        <p>The one required status check.</p>
+        <p><Path p={CI} sym="name: CI passed" /></p>
+      </div>
+      <div slot="live">
+        <p>A real deployment to Google Cloud and to AWS. Never in CI; every release waits for it (<Adr n={[97, 107]} />).</p>
+        <p><Path p="deploy/live/live_runs.py" /></p>
+      </div>
+      <div slot="browser">
+        <p>Chromium, Firefox and WebKit, with axe, the production policy, and press stability (<Adr n="0102" />).</p>
+        <p><Path p="server/tests/test_browser.py" /></p>
+      </div>
+      <div slot="plugin">
+        <p>Every plugin's action tests through the worker, and upgrades from an earlier commit (<Adr n={[93, 94]} />).</p>
+        <p><Path p="server/tests/test_worker_local.py" />, <Path p="server/tests/test_plugin_migrations.py" /></p>
+      </div>
+    </Diagram>
+    <p>Which page covers each part:</p>
+    <ul>
+      <li><PageLink to="Gates and CI" />: the hook, <code>make check</code>, the test VM, CI's jobs and shards, the harness and the generated-file guards.</li>
+      <li><PageLink to="Browser tests" />: the three engines, and what every page is checked for.</li>
+      <li><PageLink to="Plugin tests" />: plugins' action tests and upgrade tests.</li>
+      <li><PageLink to="Live clouds and scale" />: the live cloud tests that gate a release, and the nightly load tests.</li>
+      <li><PageLink to="The dev cluster" />: the kind cluster CI brings up, and its restore test.</li>
+    </ul>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      A change to the oligo plugin's Chemistry tab, whose source is <Path
+        p="plugins/oligo/web/src/chemistry.js"
+      />. Rebuild the bundle with <code>pnpm bundle:plugins</code>, which rewrites <Path
+        p="plugins/oligo/components/chemistry.js"
+      />; forgetting it fails <code>pnpm test</code>. Run <code>make first-party</code> after the
+      last edit, since it records the plugin's current tree; forgetting it fails the first-party
+      test (<Path p="spec/tests/test_first_party.py" sym="def test_every_plugins_current_tree_is_listed(" />).
+      The focused browser test is <Path p="server/tests/test_oligo_components.py" />, in three
+      engines, with axe in light and dark.
+    </p>
+    <p>
+      On the pull request, the change script finds code, not docs, because a plugin's files never
+      count as docs. So every code job runs. The browser test lands in a browser shard, the
+      first-party test in a plain shard, and the oligo plugin's action tests in the worker shard,
+      through the one test that runs every plugin's (<PageLink to="Gates and CI" hash="example" />{" "}
+      follows the script and the shards). The oligo plugin isn't among the paths a live cloud test
+      exercises, so <code>make live-due</code> wouldn't ask for one (<PageLink
+        to="Live clouds and scale"
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0019" title /></li>
+        <li><Adr n="0093" title /></li>
+        <li><Adr n="0094" title /></li>
+        <li><Adr n="0099" title /></li>
+        <li><Adr n="0101" title /></li>
+        <li><Adr n="0102" title /></li>
+        <li><Adr n="0158" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

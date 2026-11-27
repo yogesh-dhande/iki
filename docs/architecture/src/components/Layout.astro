@@ -1,0 +1,111 @@
+---
+// Every page: the site's sections on the left, the page, and its own contents on the right.
+import "../styles/site.css";
+import { NAV, section } from "../lib/nav.ts";
+import { headCommit } from "../lib/repo.ts";
+
+type Props = {
+  /** Only for a page inside a section, such as one ADR: a section's page takes its name. */
+  title?: string;
+  toc?: { id: string; label: string }[];
+  wide?: boolean;
+};
+const { title: given, toc = [], wide = false } = Astro.props;
+const here = Astro.url.pathname;
+const sec = section(here);
+const isPage = sec?.href === here;
+if (isPage && given) {
+  throw new Error(`${here} is the "${sec.label}" page, which takes its name from the navigation.`);
+}
+const title = isPage ? sec.label : given;
+if (!title) throw new Error(`${here} needs a title: it isn't a page in the navigation.`);
+const commit = headCommit();
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>{title} · Iki architecture</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/"><b>iki</b><span>architecture</span></a>
+        <span class="note">Internal, local only. Built from <code>{commit}</code>.</span>
+      </div>
+    </header>
+    <div class="wrap columns">
+      <nav class="site-nav" aria-label="Sections">
+        {
+          NAV.filter((g) => g.items.length > 0).map((group) => {
+            const holds = group.items.some((i) => i.href === sec?.href);
+            const list = (
+              <ul>
+                {group.items.map((item) => (
+                  <li>
+                    <a
+                      href={item.href}
+                      aria-current={
+                        item.href === here ? "page" : item.href === sec?.href ? "true" : undefined
+                      }
+                    >
+                      {item.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            );
+            return group.nested ? (
+              <details open={holds}>
+                <summary>{group.heading}</summary>
+                {list}
+              </details>
+            ) : (
+              <>
+                <p>{group.heading}</p>
+                {list}
+              </>
+            );
+          })
+        }
+      </nav>
+      <main class={wide ? "wide" : undefined}>
+        {
+          sec && (
+            <p class="crumb">
+              {isPage ? sec.group : <a href={sec.href}>{sec.label}</a>}
+            </p>
+          )
+        }
+        <h1>{title}</h1>
+        <slot />
+      </main>
+      {
+        toc.length > 0 && (
+          <aside class="toc" aria-label="On this page">
+            <div class="toc-inner">
+              <p>On this page</p>
+              <ol>
+                {toc.map((t) => (
+                  <li>
+                    <a href={`#${t.id}`}>{t.label}</a>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </aside>
+        )
+      }
+    </div>
+    <footer class="site-footer">
+      <div class="wrap">
+        Every "why" cites its ADR and every "where" names a file that the build checked exists.
+        Claims marked <span class="tag-inferred">inferred</span> weren't read in the code or an ADR.
+      </div>
+    </footer>
+  </body>
+</html>

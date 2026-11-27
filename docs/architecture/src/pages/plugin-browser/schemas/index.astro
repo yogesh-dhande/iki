@@ -1,0 +1,114 @@
+---
+// The iki/v1 JSON Schemas: what each checks, and the manifest kinds a plugin holds.
+import "../../../styles/browser.css";
+import Layout from "../../../components/Layout.astro";
+import Path from "../../../components/Path.astro";
+import Adr from "../../../components/Adr.astro";
+import PageLink from "../../../components/PageLink.astro";
+import { browser } from "../../../lib/browser.ts";
+import { manifestKinds } from "../../../lib/manifests.ts";
+import { rich, schemas, SCHEMA_HREF } from "../../../lib/schemas.ts";
+
+const b = browser();
+const all = [...schemas().values()].sort((x, y) => x.name.localeCompare(y.name));
+const kinds = manifestKinds();
+const docCount = (name: string) =>
+  b.plugins.reduce((n, p) => n + p.yaml.reduce((m, f) => m + f.docs.filter((d) => d.schema === name).length, 0), 0);
+const useCount = (name: string) =>
+  [...b.uses.entries()].filter(([k]) => k.startsWith(`${name}#`)).reduce((n, [, u]) => n + u.count, 0);
+const undescribed = [...b.undescribed.values()].sort((x, y) => y.count - x.count);
+const toc = [
+  { id: "kinds", label: "Manifest kinds" },
+  { id: "schemas", label: "Every schema" },
+  ...(undescribed.length ? [{ id: "undescribed", label: "Keys without a description" }] : []),
+];
+---
+
+<Layout toc={toc} wide>
+  <p>
+    Every manifest is checked against a JSON Schema in <Path p="spec/src/iki_spec/schemas" />,
+    published at <code>https://ikisci.org/schemas/&lt;name&gt;/v1</code>; the schemas refer to each
+    other by those URLs (<Adr n="0032" />). Each page here is one schema, read at build time, with
+    its descriptions as written: they're the documentation the YAML's keys link to. How they're read
+    and checked: <PageLink to="What a plugin declares" />.
+  </p>
+
+  <h2 id="kinds">Manifest kinds</h2>
+  <p>
+    What a plugin's YAML can declare, and where each kind lives in a plugin, read from <Path
+      p="spec/src/iki_spec/validate.py"
+      sym="DIRECTORIES = {"
+    />. A plugin's <code>tests/</code> hold <code>ActionTest</code> documents too.
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Kind</th><th>Schema</th><th>Where in a plugin</th><th>Documents in the repository</th></tr></thead>
+      <tbody>
+        {
+          [...kinds, { kind: "ActionTest", schema: "action-test", directory: "tests/" }].map((k) => (
+            <tr>
+              <td><code>{k.kind}</code></td>
+              <td><a href={`${SCHEMA_HREF}${k.schema}/`}>{k.schema}</a></td>
+              <td><code>{k.directory}</code></td>
+              <td class="num">{docCount(k.schema)}</td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="schemas">Every schema</h2>
+  <p>
+    Besides the kinds: shared parts (<code>field</code>, <code>rule</code>, <code>settings</code>,{" "}
+    <code>unit</code>), a deployment's files (<code>plugin-lock</code>, <code>compute</code> and its
+    documents), and what runs and bundles exchange (<code>run-input</code>, <code>run-output</code>,{" "}
+    <code>setup-input</code>, <code>bundle</code>). Uses counts the keys in this repository's plugins
+    that a schema describes.
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Schema</th><th>What it is</th><th>Kind</th><th>Uses</th></tr></thead>
+      <tbody>
+        {
+          all.map((s) => (
+            <tr>
+              <td><a href={`${SCHEMA_HREF}${s.name}/`}><code>{s.name}</code></a></td>
+              <td><strong>{s.title}.</strong> <Fragment set:html={rich(s.description)} /></td>
+              <td>{s.kind ? <code>{s.kind}</code> : ""}</td>
+              <td class="num">{useCount(s.name) || ""}</td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+
+  {
+    undescribed.length > 0 && (
+      <>
+        <h2 id="undescribed">Keys without a description</h2>
+        <p>
+          Keys the repository's plugins use whose schema node gives no <code>description</code>, by
+          how often they're used. Their links still go to the node.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Schema node</th><th>Uses</th></tr></thead>
+            <tbody>
+              {undescribed.map((u) => {
+                const e = b.keyDocs.get(`${u.loc.schema}#${u.loc.ptr}`);
+                return (
+                  <tr>
+                    <td><a href={e?.href ?? `${SCHEMA_HREF}${u.loc.schema}/`}><code>{e?.where ?? u.loc.ptr}</code></a></td>
+                    <td class="num">{u.count}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </>
+    )
+  }
+</Layout>

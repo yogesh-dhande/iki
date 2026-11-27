@@ -1,0 +1,127 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const APP = "web/app/src";
+const ROUTER = "web/app/src/router.tsx";
+const TESTS = "server/tests/test_web_app.py";
+
+const H = {
+  short: "How a URL becomes a page",
+  how: "Routes, loaders and the frame around them",
+  example: "A plasmid's page, read before it's drawn",
+  rules: "Routes the server serves",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      TanStack Router, with every route written in code in one file. A route's loader reads what
+      its page needs through the query cache before the page renders; most pages are split out
+      and loaded when they're needed, and links preload on intent. Every path the router has is
+      also a Django route that serves the same shell page, and a test reads the route tree to
+      check that each one answers 200 (<Adr n={[29, 176]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      The root route's loader reads who's signed in and the role names every page shows, before
+      the first render (<Path p={ROUTER} sym="createRootRouteWithContext" />). Under it, each
+      route names its parent, its path, any search parameters it accepts, and a loader. Loaders
+      read through TanStack Query, which does the caching, so the router keeps no cache of its own
+      (<code>defaultPreloadStaleTime: 0</code>). Hovering or focusing a link preloads the route's
+      code and its loader's reads (<Path p={ROUTER} sym='defaultPreload: "intent"' />). Paths always
+      end in a slash, as Django's do.
+    </p>
+    <p>
+      Pages are split out with <code>lazyRouteComponent</code>, so a person who never opens the
+      compute pages never downloads them. How the reads themselves behave, and why they're read
+      before a page draws, is <PageLink to="Reading data" />.
+    </p>
+    <p>
+      Every page sits in the same frame: a skip link, the sidebar, the top bar and the page, plus
+      the ⌘K search palette (<Path p={`${APP}/layout.tsx`} sym="export function Layout(" />). The
+      sidebar reads the same navigation file as the server-rendered pages, so both kinds of page
+      list the same sections (<Adr n="0176" />, <Path p="server/src/iki_server/web/navigation.json" />,{" "}
+      <Path p="server/src/iki_server/web/navigation.py" />).
+    </p>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      A scientist opens a plasmid's map tab. Django serves the shell for the path, the router
+      matches the entity route, and its loader reads, in parallel, the record, the installed types
+      and the installed components. Once the record is in, it reads whether the reader watches it,
+      because the watch button arriving later would move the others along. An HRID that several
+      of the reader's projects have a record of answers with a choice of project rather than an
+      error (<Adr n="0115" />):
+    </p>
+    <Excerpt file={ROUTER} start="^const entityRoute = createRoute\(\{" />
+    <p>
+      The child route for <code>components/$</code> takes the rest of the path, since a
+      component's name is <code>namespace/plugin.component</code>. Its page is split out, and it
+      renders the plugin's component in a frame: <PageLink to="Plugin frames" /> follows it from
+      there.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Every routed page is served" open>
+        <p>
+          The app routes in the browser, but a person can open any of its addresses directly, or
+          reload one. So every path the router has is also a Django route that serves the shell
+          page (<Path p="server/src/iki_server/urls.py" />). A test reads the route tree out of{" "}
+          <code>router.tsx</code>, fills each parameter with a sample, and checks every page answers
+          200 from Django, so a page added to the router can't be missing from the server's (<Path
+            p={TESTS}
+            sym="def test_every_page_the_app_routes_loads_it("
+          />). Another checks that each sidebar item is a page, and that the app routes those the
+          navigation file says it does (<Path
+            p={TESTS}
+            sym="def test_the_sidebars_items_are_pages_and_the_app_routes_those_it_says("
+          />).
+        </p>
+      </Rule>
+      <Rule title="What Django serves on those routes">
+        <p>
+          The same template for every app path, with no data in it, after the sign-in check: <PageLink
+            to="Serving and security policy"
+          /> has what's in it and the policy it carries.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={ROUTER} />: every route and loader</li>
+        <li><Path p={`${APP}/layout.tsx`} />: the frame around every page</li>
+        <li><Path p="server/src/iki_server/urls.py" />: the server's routes, the app's among them</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0029" title /></li>
+        <li><Adr n="0115" title /></li>
+        <li><Adr n="0176" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

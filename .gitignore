@@ -68,3 +68,6 @@ deploy/gcp/*/.teardown-key-rings
 
 # Claude Code's git worktrees: other checkouts of this repository.
 .claude/worktrees/
+
+# The architecture site (docs/architecture): what Astro generates and builds.
+docs/architecture/.astro/

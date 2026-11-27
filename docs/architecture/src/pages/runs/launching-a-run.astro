@@ -1,0 +1,215 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+
+const M = "server/src/iki_server/runs/models.py";
+const SV = "server/src/iki_server/runs/services.py";
+const Q = "server/src/iki_server/runs/queue.py";
+const AP = "server/src/iki_server/runs/approvals.py";
+
+const H = {
+  short: "What a launch does",
+  how: "The checks, in order",
+  rules: "Projects, reuse, batches and approval",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "writes", label: "What it writes" },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A launch checks everything that could make a run fail for a reason other than its own work,
+      so a worker never starts something that can't be committed. Then, in one transaction, it
+      decides whether an identical earlier run's results can be reused, checks budgets, consent,
+      approval and the queued quota, and writes the <code>ActionRun</code>, its pinned inputs and
+      its first <code>Job</code>. Once that commits, <code>pg_notify</code> wakes the tier's workers
+      (<Adr n="0042" />, <Path p={SV} sym="def launch(" />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>Before the transaction, each refusal names what's wrong:</p>
+    <ol>
+      <li>
+        <strong>The tier and the deployment.</strong> The caller has the tier's permission in the
+        project (Editor for self-hosted and backend, Runner for container and vm, edit for the{" "}
+        <code>server</code> tier), the project isn't archived, and the action can run here: its
+        plugin isn't detached, its required settings and secrets are set, the egress proxy is on if
+        it declares hosts, its outside APIs are usable, and its environment is bound to a template
+        on its tier (<Path p={SV} sym="def may_launch(" />, <Path p={Q} sym="TIER_ACTIONS = {" />,{" "}
+        <Path p="server/src/iki_server/runs/catalog.py" sym="def availability(" />).
+      </li>
+      <li>
+        <strong>Labels</strong>, only for a self-hosted run (<Adr n="0112" />, <Path
+          p={SV}
+          sym="def launch_labels("
+        />).
+      </li>
+      <li>
+        <strong>Inputs.</strong> Each is a record the caller can read, of the input's type, not
+        archived. One the action updates must be editable as the run's project, not another side's
+        fields of a request, not locked, and needs a reason if a lock on it was lifted (<Path
+          p={SV}
+          sym="def check_inputs("
+        />).
+      </li>
+      <li>
+        <strong>Params</strong> fit their fields; a file param is one of the project's files (<Path
+          p={SV}
+          sym="def check_params("
+        />).
+      </li>
+      <li>
+        <strong>Included references.</strong> What each input's <code>include</code> names is
+        resolved now; one the caller can't read refuses the launch (<Adr n="0105" />, <Path
+          p="server/src/iki_server/runs/included.py"
+          sym="def resolve("
+        />).
+      </li>
+      <li>
+        <strong>The project.</strong> Every input, and everything its references name, is in the
+        run's project (see below).
+      </li>
+      <li>
+        <strong>Outside APIs</strong> the action calls are approved in the project (<PageLink
+          to="Network and secrets"
+        />).
+      </li>
+    </ol>
+    <p>Then, inside one transaction:</p>
+    <ol>
+      <li>Outside inputs are linked into the project, if the caller asked.</li>
+      <li>
+        The setup builds of the environment's volumes are pinned, the reuse key is made, and an
+        identical run is looked for. If one is found, the new run ends here (<Path
+          p={SV}
+          sym="def _made("
+        />).
+      </li>
+      <li>Enforced budgets (<PageLink to="Quotas and cost" />).</li>
+      <li>Consent to what the action sends to outside APIs (<Adr n="0130" />).</li>
+      <li>Approval, for an unattended costly run (below).</li>
+      <li>The quota on waiting runs, unless the run waits for approval.</li>
+    </ol>
+
+    <h3 id="writes">What it writes</h3>
+    <p>
+      <code>_queue</code> creates the <code>ActionRun</code>, which pins what the run will read and
+      run (the plugin commit, the action as installed, params, settings, setup builds, an image if
+      one is bound, a seed); a <code>RunInput</code> for each input at its revision and a{" "}
+      <code>RunInclusion</code> for each record its references name, both append-only; and one{" "}
+      <code>Job</code> with the tier, environment, labels and resources (the environment's, raised to
+      what the action asks). <PageLink to="Pinning and provenance" /> says what each pin is for.
+      The job is <code>queued</code>, or <code>awaiting_approval</code>, where no worker leases it
+      (<Path p={SV} sym="def _queue(" />, <Path p={M} sym="class Job(" />).
+    </p>
+    <p>
+      <code>queue.notify</code> sends <code>pg_notify</code> on the <code>iki_jobs</code> channel
+      with the tier's name, on commit, so a worker never wakes for a job it can't see yet (<Path
+        p={Q}
+        sym="def notify("
+      />). How the web processes listen is on <PageLink to="Tasks and live updates" />. The launch is
+      audited as <code>run.launched</code>.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="A run reads only what's in its project" open>
+        <p>
+          Every input, and everything its included references name, must be in the run's project;
+          otherwise the launch is refused with 409 <code>inputs_outside_project</code>, unless the
+          caller asks to link them in first, which is audited as the link API's links are. One whose
+          project doesn't allow sharing can't be linked. Reproduction refuses if an input has since
+          left (<Adr n={[66, 67, 105]} />, <Path p={SV} sym="def outside_project(" />). How links
+          work is on <PageLink to="Sharing across projects" />.
+        </p>
+      </Rule>
+      <Rule title="Reuse is decided at launch">
+        <p>
+          A deterministic run's reuse key is made in the launch's transaction, before budgets,
+          consent and approval. If a run with the same key succeeded, the new run is written{" "}
+          <code>succeeded</code> at once, naming it, with no job, and needs no budget, approval or
+          quota. A run whose volumes have no ready build yet isn't matched: it waits, and the
+          provisioner pins the first ready build and completes its key (<Path
+            p={SV}
+            sym="def pin_waiting("
+          />). What the key covers is on <PageLink to="Pinning and provenance" />.
+        </p>
+      </Rule>
+      <Rule title="Batches">
+        <p>
+          <code>launch_each</code> launches one run for each record given as one input, with the
+          others shared, or none at all. They share a <code>RunBatch</code> and one approval; runs
+          that reuse results need none. The API takes up to 1000 records at once, the web app 200
+          (<Adr n="0055" />, <Path p={SV} sym="def launch_each(" />, <Path
+            p="server/src/iki_server/api/runs.py"
+            sym="MAX_BATCH = 1000"
+          />). Packing a batch's runs into one job happens at lease time (<PageLink
+            to="The worker and its leases"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Unattended costly runs wait for their person">
+        <p>
+          A run launched through MCP or by a trigger waits for approval when it's on the container or
+          vm tier, or calls outside APIs. One request is one decision, even for a batch. An OAuth
+          token can't approve, so an agent can't approve its own request; an ask nobody decides
+          within 7 days expires, and the run ends <code>declined</code>. Approving checks again that
+          the person may run the tier, the budgets, the outside APIs' approval and the queued quota,
+          and for an action that sends data out it's the person's consent (<Adr
+            n={[13, 50, 130]}
+          />, <Path p={AP} sym="def needed(" />, <Path p={AP} sym="def approve(" />, <Path
+            p={AP}
+            sym="EXPIRES_AFTER = timedelta(days=7)"
+          />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <h3>Routes</h3>
+    <Routes paths={/^\/api\/v1\/(actions|batches|run-approvals)/} />
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={SV} /></li>
+          <li><Path p="server/src/iki_server/runs/included.py" /></li>
+          <li><Path p={AP} /></li>
+          <li><Path p="server/src/iki_server/runs/catalog.py" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0042" title /></li>
+          <li><Adr n="0050" title /></li>
+          <li><Adr n="0055" title /></li>
+          <li><Adr n="0066" title /></li>
+          <li><Adr n="0105" title /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Where the ADRs and code differ</h3>
+        <ul>
+          <li><Adr n="0042" /> caps a batch at 100 runs; <Adr n="0055" /> and the code (<code>MAX_BATCH = 1000</code>) say 1000.</li>
+          <li><Adr n="0050" /> holds only MCP runs for approval; the code also holds triggers' runs, and runs that call outside APIs on any tier.</li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

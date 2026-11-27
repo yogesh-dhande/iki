@@ -1,0 +1,186 @@
+---
+import "../styles/diagram.css";
+// A box-and-arrow diagram in hand-placed SVG. Each box with a named slot of the same id
+// has details (its files and ADRs): hover or focus a box to preview them, click or press
+// Enter to keep them. Without JavaScript every box's details are listed below the drawing.
+type Box = {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label: string;
+  sub?: string | string[];
+  /** A box drawn stronger: the thing the diagram is about. */
+  strong?: boolean;
+  /** The page that covers the box, linked from its details as "Its page". */
+  href?: string;
+};
+type Edge = {
+  from: string;
+  to: string;
+  label?: string;
+  dashed?: boolean;
+  /** Waypoints between the two boxes, for an edge that bends. */
+  via?: [number, number][];
+  /** Where the label sits, if not at the middle of the line. */
+  at?: [number, number];
+  both?: boolean;
+};
+type Region = { x: number; y: number; w: number; h: number; label: string };
+type Props = {
+  id: string;
+  title: string;
+  width: number;
+  height: number;
+  boxes: Box[];
+  edges?: Edge[];
+  regions?: Region[];
+  caption?: string;
+};
+const { id, title, width, height, boxes, edges = [], regions = [], caption } = Astro.props;
+
+const byId = new Map(boxes.map((b) => [b.id, b]));
+function centre(b: Box): [number, number] {
+  return [b.x + b.w / 2, b.y + b.h / 2];
+}
+/** Where a line from the box's centre towards (tx, ty) leaves its edge, plus a small gap. */
+function exit(b: Box, tx: number, ty: number, gap = 4): [number, number] {
+  const [cx, cy] = centre(b);
+  const dx = tx - cx;
+  const dy = ty - cy;
+  const hw = b.w / 2 + gap;
+  const hh = b.h / 2 + gap;
+  const t = Math.min(dx ? hw / Math.abs(dx) : Infinity, dy ? hh / Math.abs(dy) : Infinity);
+  return [cx + dx * t, cy + dy * t];
+}
+const lines = edges.map((e) => {
+  const a = byId.get(e.from);
+  const b = byId.get(e.to);
+  if (!a || !b) throw new Error(`Diagram ${id}: an edge names a box that isn't there.`);
+  const via = e.via ?? [];
+  const first = via[0] ?? centre(b);
+  const last = via[via.length - 1] ?? centre(a);
+  const start = exit(a, first[0], first[1]);
+  const end = exit(b, last[0], last[1], 6);
+  const points = [start, ...via, end];
+  const d = points.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ");
+  const mid =
+    e.at ??
+    (via.length
+      ? (via[Math.floor((via.length - 1) / 2)] as [number, number])
+      : ([(start[0] + end[0]) / 2, (start[1] + end[1]) / 2] as [number, number]));
+  return { e, d, mid };
+});
+const details = [];
+for (const b of boxes) {
+  if (Astro.slots.has(b.id)) details.push({ box: b, html: await Astro.slots.render(b.id) });
+}
+const subs = (b: Box): string[] => (b.sub === undefined ? [] : Array.isArray(b.sub) ? b.sub : [b.sub]);
+---
+
+<figure class="dg" data-dg id={id}>
+  <div class="dg-canvas">
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      width={width}
+      height={height}
+      role="group"
+      aria-label={title}
+    >
+      <defs>
+        <marker
+          id={`${id}-arrow`}
+          viewBox="0 0 10 10"
+          refX="9"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
+          <path d="M0 0 L10 5 L0 10 z" class="dg-arrowhead"></path>
+        </marker>
+      </defs>
+      {
+        regions.map((r) => (
+          <g class="dg-region">
+            <rect x={r.x} y={r.y} width={r.w} height={r.h} rx="12" />
+            <text x={r.x + 12} y={r.y + 18}>
+              {r.label}
+            </text>
+          </g>
+        ))
+      }
+      {
+        lines.map(({ e, d }) => (
+          <path
+            class:list={["dg-edge", { dashed: e.dashed }]}
+            d={d}
+            marker-end={`url(#${id}-arrow)`}
+            marker-start={e.both ? `url(#${id}-arrow)` : undefined}
+          />
+        ))
+      }
+      {
+        lines
+          .filter(({ e }) => e.label)
+          .map(({ e, mid }) => (
+            <text class="dg-edge-label" x={mid[0]} y={mid[1] + 4} text-anchor="middle">
+              {e.label}
+            </text>
+          ))
+      }
+      {
+        boxes.map((b) => {
+          const has = details.some((x) => x.box.id === b.id);
+          const lineCount = 1 + subs(b).length;
+          const top = b.y + b.h / 2 - (lineCount - 1) * 8 + 4;
+          return (
+            <g
+              class:list={["dg-node", { strong: b.strong, live: has }]}
+              data-node={has ? b.id : undefined}
+              tabindex={has ? "0" : undefined}
+              role={has ? "button" : undefined}
+              aria-label={has ? `${b.label}: show its files and decisions` : undefined}
+              aria-controls={has ? `${id}-${b.id}` : undefined}
+            >
+              <rect x={b.x} y={b.y} width={b.w} height={b.h} rx="9" />
+              <text class="dg-label" x={b.x + b.w / 2} y={top} text-anchor="middle">
+                {b.label}
+              </text>
+              {subs(b).map((s, i) => (
+                <text class="dg-sub" x={b.x + b.w / 2} y={top + 16 * (i + 1)} text-anchor="middle">
+                  {s}
+                </text>
+              ))}
+            </g>
+          );
+        })
+      }
+    </svg>
+  </div>
+  {caption && <figcaption>{caption}</figcaption>}
+  <div class="dg-details">
+    <p class="dg-hint">Hover or focus a box to see its files and decisions; click to keep them.</p>
+    {
+      details.map(({ box, html }) => (
+        <section class="dg-detail" id={`${id}-${box.id}`} data-for={box.id}>
+          <h3>
+            {box.label}
+            {box.href && (
+              <a class="dg-more" href={box.href}>
+                Its page
+              </a>
+            )}
+          </h3>
+          <Fragment set:html={html} />
+        </section>
+      ))
+    }
+  </div>
+</figure>
+
+
+<script>
+  import "../lib/diagram-client.ts";
+</script>

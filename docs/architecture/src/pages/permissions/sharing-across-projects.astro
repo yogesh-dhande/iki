@@ -1,0 +1,199 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+
+const PERM = "server/src/iki_server/org/permissions.py";
+const ACCESS = "server/src/iki_server/entities/access.py";
+const MODELS = "server/src/iki_server/entities/models.py";
+const SERVICES = "server/src/iki_server/entities/services.py";
+const REQ = "server/src/iki_server/entities/requests.py";
+
+const H = {
+  short: "A record is read through the projects it's linked into",
+  how: "How a read is scoped, and how a record reaches another project",
+  rules: "What may be shared, and what stays",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "requests", label: "What each project in a request can read" },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Every record has an owner project and a <code>ProjectLink</code> into it. Reading a record takes
+      a role in any project it's linked into; changing it takes Editor in its owner project. Sharing a
+      record with another project adds a link, never a copy, and only when its owner project allows
+      sharing and both are in the same registry (<Adr n={[35, 67, 115]} />). A request between
+      projects links what it sends into the service, and its released results back, marking each link{" "}
+      <code>via_request</code>: what a request linked is read there, and never passed on (<Adr
+        n={[132, 149]}
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <ol>
+      <li>
+        <strong>Visible projects.</strong> Those with a membership for the caller, or every project
+        for an Org Admin; none without the <code>read</code> scope; and only the token's projects (<Path
+          p={PERM}
+          sym="def visible_projects("
+        />).
+      </li>
+      <li>
+        <strong>Readable projects.</strong> Of those, the ones where the caller has a role. That's why
+        an Org Admin sees a project but not its data (<Path p={ACCESS} sym="def readable_projects(" />).
+      </li>
+      <li>
+        <strong>Readable records.</strong> Those with a link into a readable project. A view is
+        readable only if every record it shows is too, and a purged record's tombstone stays readable
+        to those who could read it (<Adr n={[92, 110]} />, <Path p={ACCESS} sym="def visible_of" />, <Path
+          p={ACCESS}
+          sym="def tombstones("
+        />).
+      </li>
+      <li>
+        <strong>Readable files.</strong> Those added to a readable project, or used by a record the
+        caller reads, at any revision (<Path p={ACCESS} sym="def readable_files(" />). Files themselves
+        are on <PageLink to="How data links to records" />.
+      </li>
+    </ol>
+    <p>A link is a row per record and project, unique for the pair:</p>
+    <Excerpt file={MODELS} start="^class ProjectLink\(" />
+    <p>
+      An Editor in a project links a record they read into it with <code
+        >PUT /entities/{"{ref}"}/projects/{"{project_id}"}</code
+      >. The link is audited as <code>entity.linked</code>, since it changes who can read the record.
+      Unlinking takes it out again, except from its owner project, and except what a request still
+      needs (<Path p={SERVICES} sym="def link(" />, <Path p={SERVICES} sym="def unlink(" />).
+    </p>
+
+    <h3 id="requests">What each project in a request can read</h3>
+    <p>
+      A request is owned by the project that asks. Sending it links the request and the records its{" "}
+      <code>sends</code> fields name into the service's project; records named later, when the asker
+      edits a sent request, go too. Releasing a result links it back into the asking project. Each of
+      those links names the request in <code>via_request</code> (<Path p={REQ} sym="def _link(" />).
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>What</th><th>The asking project</th><th>The service</th></tr></thead>
+        <tbody>
+          <tr><td>The request</td><td>Owns it</td><td>Reads it; it stays as the service's record of what it was asked</td></tr>
+          <tr><td>Records it sends</td><td>Owns them</td><td>Reads them; the link stays while the request names them</td></tr>
+          <tr><td>A result, before release</td><td>Can't read it</td><td>Owns it; nobody can share it</td></tr>
+          <tr><td>A result, once released</td><td>Reads it, for good</td><td>Owns it</td></tr>
+          <tr><td>A work item</td><td>Can't read it</td><td>Owns it; it's usable only there</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Neither side can share onward what it reads through a request: <code>shareable_into</code> counts
+      only links the person reads a record through their own way, those with no <code
+        >via_request</code
+      >. A service that doesn't allow sharing can't release. How requests are asked, served and
+      completed is on <PageLink to="A request's life" />.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Every kind of sharing goes through one check" open>
+        <p>
+          Linking, references from another project's records, adding a run's inputs to its project,
+          reuse, and sending with a request all ask <code>shareable_into</code>: the records the person reads that this project may use.
+          They're its own, those already in it, and those whose project allows sharing and is in its
+          registry, which the person reads other than through a request, and which aren't results
+          awaiting release. A work item is usable only in its own project (<Adr n={[67, 115, 132]} />):
+        </p>
+        <Excerpt file={ACCESS} start="^def shareable_into\(" />
+      </Rule>
+      <Rule title="Why a record is held back">
+        <p>
+          When a project may not use a record the person reads, <code>why_held</code> says which of
+          five reasons it is, and the refusal or the reference's error says it in words (<Path
+            p={SERVICES}
+            sym="def unshareable("
+          />):
+        </p>
+        <Excerpt file={ACCESS} start="^def why_held\(" />
+        <p>
+          Files have their own, <code>why_held_file</code>: another registry, read through a request,
+          or a project that doesn't allow sharing. A file that came with a request is read with the
+          records it came on, and nothing else refers to it anew (<Path p={ACCESS} sym="def shareable_files(" />).
+        </p>
+      </Rule>
+      <Rule title="What a request's links keep">
+        <p>
+          A link a request made can't be taken out while the request needs it: the request in its
+          service, a record it still sends, and a result released back. A release is told once: a
+          result already linked back for this request isn't linked again, and one already in the
+          asking project some other way is marked released where it is (<Path
+            p={REQ}
+            sym="def why_kept("
+          />, <Path p={REQ} sym="Released already: a release is told once." />).
+        </p>
+      </Rule>
+      <Rule title="Registries share nothing">
+        <p>
+          Projects in different registries share no records. A registry entry belongs to no project:
+          it's readable by whoever can read a record of it, so its ID alone grants nothing (<Adr
+            n="0115"
+          />, <Path p={ACCESS} sym="def visible_entries(" />). Registries are on <PageLink
+            to="Identity and HRIDs"
+          />.
+        </p>
+      </Rule>
+      <Rule title="Runs read only what's in their project">
+        <p>
+          A run's inputs must be linked into its project. A launcher who reads one from elsewhere is
+          asked to add it, which is a link like any other; MCP agents aren't offered it, because
+          widening who can read data is the person's decision (<Adr n="0066" />). What a run reads of
+          the references its inputs name is on <PageLink to="Unreadable references" />.
+        </p>
+      </Rule>
+      <Rule title="Tested with another project's objects">
+        <p>
+          The access matrix lists every operation, and the IDOR tests replay each with another
+          project's objects. Requests are fuzzed both ways: of every record either project holds, each
+          side reads, lists and searches exactly what the table above says (<Adr n={[101, 132]} />, <Path
+            p="server/tests/test_api_access.py"
+          />, <Path p="server/tests/test_api_idor.py" />, <Path p="server/tests/test_worker_idor.py" />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Routes</h3>
+      <Routes paths={/^\/api\/v1\/entities\/\{ref\}\/projects/} />
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={ACCESS} />: what a caller can read and share</li>
+        <li><Path p={MODELS} sym="class ProjectLink(" />: the links</li>
+        <li><Path p={REQ} />: the links a request makes</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0035" title /></li>
+        <li><Adr n="0067" title /></li>
+        <li><Adr n="0115" title /></li>
+        <li><Adr n="0132" title /></li>
+        <li><Adr n="0149" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

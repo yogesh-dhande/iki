@@ -1,0 +1,117 @@
+---
+// One ADR, rendered from docs/adr, with what it refines and what refines it.
+import { getCollection, render } from "astro:content";
+import Layout from "../../components/Layout.astro";
+import { groupOf } from "../../lib/adr-groups.ts";
+import Path from "../../components/Path.astro";
+import { adr, adrs, type Adr } from "../../lib/adrs.ts";
+
+export async function getStaticPaths() {
+  const entries = await getCollection("adr");
+  return entries
+    .filter((e) => !e.id.startsWith("0000"))
+    .map((entry) => ({ params: { n: entry.id.slice(0, 4) }, props: { entry } }));
+}
+
+const { entry } = Astro.props;
+const a: Adr = adr(Astro.params.n);
+const { Content } = await render(entry);
+const all = adrs();
+const named = (ns: string[]) => ns.map((n) => all.get(n)).filter((x): x is Adr => !!x);
+const links: [string, Adr[]][] = [
+  ["Refines", named(a.out.refines)],
+  ["Extends", named(a.out.extends)],
+  ["Amends", named(a.out.amends)],
+  ["Supersedes", named(a.out.supersedes)],
+  ["Related", named(a.out.related)],
+  ["Refined by", named(a.in.refines)],
+  ["Extended by", named(a.in.extends)],
+  ["Amended by", named([...new Set([...a.amendedBy, ...a.in.amends])])],
+  ["Superseded by", named([...new Set([...a.supersededBy, ...a.in.supersedes])])],
+];
+const group = groupOf().get(a.number);
+if (!group) throw new Error(`ADR ${a.number} has no subsystem.`);
+const prev = all.get(String(Number(a.number) - 1).padStart(4, "0"));
+const next = all.get(String(Number(a.number) + 1).padStart(4, "0"));
+---
+
+<Layout title={`${a.number}. ${a.title}`}>
+  <p class="adr-meta">
+    <span class="status">{a.state}</span>
+    <span>{a.date}</span>
+    <a href={`/adrs/#${group.id}`}>{group.name}</a>
+    <Path p={a.file} />
+  </p>
+  <div class="adr-links">
+    {
+      links
+        .filter(([, list]) => list.length)
+        .map(([label, list]) => (
+          <p>
+            <b>{label}</b>{" "}
+            {list.map((o, i) => (
+              <>
+                {i > 0 && " · "}
+                <a href={`/adrs/${o.number}/`} title={o.title}>
+                  {o.number}
+                </a>{" "}
+                <span class="t">{o.title}</span>
+              </>
+            ))}
+          </p>
+        ))
+    }
+  </div>
+  <article class="adr-body">
+    <Content />
+  </article>
+  <nav class="adr-pager" aria-label="Neighbouring ADRs">
+    {prev ? <a href={`/adrs/${prev.number}/`}>← {prev.number}. {prev.title}</a> : <span />}
+    {next && <a href={`/adrs/${next.number}/`}>{next.number}. {next.title} →</a>}
+  </nav>
+</Layout>
+
+<style>
+  .adr-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    align-items: center;
+    margin: 14px 0 8px;
+    font-size: 13.5px;
+    color: var(--muted);
+  }
+  .adr-links {
+    font-size: 13.5px;
+    padding: 10px 14px;
+    background: var(--surface-2);
+    border-radius: 10px;
+    margin-bottom: 18px;
+  }
+  .adr-links p {
+    margin: 2px 0;
+    font-size: 13.5px;
+  }
+  .adr-links .t {
+    color: var(--muted);
+  }
+  .adr-body :global(h1) {
+    display: none;
+  }
+  .adr-body :global(h2) {
+    margin-top: 28px;
+    font-size: 20px;
+  }
+  .adr-body :global(ul:first-of-type) {
+    color: var(--muted);
+  }
+  .adr-pager {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 13.5px;
+  }
+</style>

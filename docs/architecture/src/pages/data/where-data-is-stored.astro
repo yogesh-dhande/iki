@@ -1,0 +1,236 @@
+---
+import Adr from "../../components/Adr.astro";
+import Inferred from "../../components/Inferred.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+import Sequence from "../../components/Sequence.astro";
+
+const ST = "server/src/iki_server/files/storage.py";
+const SV = "server/src/iki_server/files/services.py";
+const M = "server/src/iki_server/files/models.py";
+
+const H = {
+  short: "Bytes in object storage, everything else in Postgres",
+  how: "An upload, checked before it's a file",
+  rules: "Checksums, data in place, sizes, encryption and retention",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      This page answers: where do a file's bytes live, how does Iki know they're the right bytes,
+      and how long are they kept? A file's bytes are in object storage: S3 or an S3-compatible
+      store, or Google Cloud Storage through Google's own client (<Adr n={[36, 109]} />). Everything
+      about the file (its hash, name, media type, project, who added it) and everything parsed from
+      it is in Postgres (<Adr n="0005" />). Bytes go straight between clients and the store by signed
+      URL, never through web pods. A file Iki stores is checked against the SHA-256 its sender
+      declared and kept once per content. A file can also stay where it is, in a lab's own versioned
+      bucket, pinned to one object version.
+    </p>
+    <ul>
+      <li>A <code>Blob</code> is content; a <code>File</code> is a blob as someone added it. Neither ever changes.</li>
+      <li>Only the server writes under <code>blobs/sha256/</code>, and only after checking the bytes.</li>
+      <li>Without a bucket configured, the files API answers 503 (<Adr n="0036" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <Sequence
+      id="upload-seq"
+      title="Adding a file by upload"
+      width={900}
+      actors={[
+        { id: "client", label: "Client", sub: "web app or SDK" },
+        { id: "api", label: "API", sub: "/uploads" },
+        { id: "store", label: "Object storage" },
+        { id: "task", label: "Task runner" },
+        { id: "db", label: "Postgres" },
+      ]}
+      steps={[
+        { id: "start", from: "client", to: "api", label: "name, type, size, SHA-256" },
+        { id: "urls", from: "api", to: "client", label: "a staging object and a URL per part", dashed: true },
+        { id: "put", from: "client", to: "store", label: "PUT each part (64 MiB)" },
+        { id: "done", from: "client", to: "api", label: "complete: every part arrived" },
+        { id: "hash", from: "task", to: "store", label: "read the bytes back, hash them" },
+        { id: "move", from: "task", to: "store", label: "match: move to blobs/sha256/<hash>" },
+        { id: "file", from: "task", to: "db", label: "Blob (or the existing one) and File" },
+      ]}
+    >
+      <div slot="start">
+        <p>The caller hashes the file first; the web app and SDK do. Upload sizes are capped by <code>IKI_FILES_MAX_UPLOAD_SIZE</code>, 100 GiB by default.</p>
+        <p><Path p={SV} sym="def start(" />, <Path p="server/src/iki_server/settings.py" sym="IKI_FILES_MAX_UPLOAD_SIZE" /></p>
+      </div>
+      <div slot="urls">
+        <p>Each part has its own URL, signed for an hour; a slow upload asks for fresh ones and resumes. Parts are 64 MiB, or larger so a file needs at most 10,000.</p>
+        <p><Path p={ST} sym="UPLOAD_URL_SECONDS = 3600" />, <Path p={ST} sym="DEFAULT_PART_SIZE = 64 * 1024**2" /></p>
+      </div>
+      <div slot="put">
+        <p>Browsers send parts to the store's own origin, so the bucket's CORS allows <code>PUT</code> from Iki's address; <code>iki-server setup_storage</code> sets it or checks it.</p>
+        <p><Path p="server/src/iki_server/files/management/commands/setup_storage.py" /></p>
+      </div>
+      <div slot="done"><p>Iki checks every part arrived at its size, assembles them, and queues the check.</p><p><Path p={SV} sym="def complete(" /></p></div>
+      <div slot="hash">
+        <p>A mismatch in size or SHA-256 deletes what arrived and fails the upload; nothing is kept.</p>
+        <p><Path p={SV} sym="def check(" /></p>
+      </div>
+      <div slot="move">
+        <p>If the content is already stored, the checked copy is dropped and the existing blob used. Every upload still sends its bytes, so a hash can't be used to learn whether content exists.</p>
+        <p><Path p={M} sym="iki_blob_content" /></p>
+      </div>
+      <div slot="file">
+        <p>The file is ready, with its acquisition date read from the checked bytes; <code>upload.finished</code> arrives on the event stream.</p>
+        <p><Path p={SV} sym="def _finish(" /></p>
+      </div>
+    </Sequence>
+    <p>
+      Downloads go the other way: <code>GET /files/{"{id}"}/content</code> checks access and
+      redirects to a URL signed for five minutes, which saves the file as an attachment from the
+      store's origin, not Iki's (<Path p={ST} sym="DOWNLOAD_URL_SECONDS = 300" />). Workers and run
+      pods get URLs signed per job for their own inputs and results (<PageLink
+        to="How data links to records"
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Blobs and files never change" open>
+        <p>
+          <code>iki_blob</code>, <code>iki_file</code> and <code>iki_file_use</code> are append-only:
+          the app's role may only add and read them, and triggers refuse changes from any role (<Adr
+            n={[25, 36]}
+          />, <Path p={M} sym="class Blob(" />). Two files can share a blob, so the same bytes can
+          carry different names. A file's acquisition date is set once; a wrong one is fixed by
+          adding the file again (<Adr n="0177" />). How this bears on versions is on <PageLink
+            to="Versioning"
+          />.
+        </p>
+      </Rule>
+      <Rule title="Data in place">
+        <p>
+          Bioinformatics data often sits in a lab's own bucket already, and copying hundreds of
+          gigabytes would double its storage. Iki registers such an object where it is when:
+        </p>
+        <ul>
+          <li>
+            its location is on the list administrators approved, <code
+              >IKI_FILES_REGISTER_LOCATIONS</code
+            > (<Path p="server/src/iki_server/settings.py" sym="IKI_FILES_REGISTER_LOCATIONS" />);
+          </li>
+          <li>
+            its bucket keeps versions, and the object has one: Iki pins the file to that version, so
+            a later write to the key can't change it;
+          </li>
+          <li>a task has read that version once to learn its SHA-256, as for an upload.</li>
+        </ul>
+        <p>
+          A registered blob is keyed by its location and version, so registering the same version
+          again reuses it. Registering is audited with the location, version and hash (<Path
+            p={SV}
+            sym="def register("
+          />, <Path p={M} sym="class Registration(" />). Sequencing read sets and MS files are meant to
+          be registered this way (<Path p="plugins/sequencing/types/read_set.yaml" />, <Path
+            p="plugins/proteomics/types/ms_file.yaml"
+          />). The source bucket's own retention governs how long its versions last, so labs put object
+          lock or a retention policy on buckets that hold primary records (<Adr n="0036" />).
+        </p>
+      </Rule>
+      <Rule title="Run volumes are for reference data">
+        <p>
+          Shared file systems, bucket volumes and disk snapshots hold reference data that actions
+          read, such as sequence databases and model weights, built by setup builds; they aren't
+          where a lab's own files are kept (<Adr n={[75, 77, 78]} />, <PageLink to="Compute tiers" />).
+        </p>
+      </Rule>
+      <Rule title="Sizes">
+        <p>
+          An upload is at most <code>IKI_FILES_MAX_UPLOAD_SIZE</code> (100 GiB by default). Each file
+          field and param sets its own <code>max_size</code> below that. Viewers and importers have
+          their own limits, listed on <PageLink to="Formats" />.
+        </p>
+      </Rule>
+      <Rule title="Encryption">
+        <p>
+          The reference AWS module encrypts the bucket with a customer-managed KMS key and a bucket
+          key, keeps versions and blocks public access (<Path p="deploy/aws/modules/storage/main.tf" />).
+          On Cloud Storage, <code>setup_storage</code> checks the bucket has a default Cloud KMS key
+          (<Path p="server/src/iki_server/files/management/commands/setup_storage.py" />).
+        </p>
+      </Rule>
+      <Rule title="Retention">
+        <ul>
+          <li>
+            A file's content is kept for good: uploads of the <code>file</code> kind are
+            content-addressed and never deleted (<Path p={M} sym="class UploadKind(" />). A detached
+            plugin's records, and so their files, are kept and frozen (<Adr n="0091" />).
+          </li>
+          <li>
+            The other kinds of upload are kept apart, each under its own key: a run's checkpoints
+            until the run ends, an uploaded bundle until it's applied or discarded.
+          </li>
+          <li>
+            An upload left unfinished for 24 hours is cancelled and what arrived deleted (<Path
+              p={SV}
+              sym="UPLOAD_LIFETIME = timedelta(hours=24)"
+            />).
+          </li>
+          <li>
+            Run artifacts (logs, intermediate files) are kept for their action's retention or{" "}
+            <code>IKI_FILES_ARTIFACT_RETENTION</code>, 90 days by default, then their bytes are
+            deleted and their record, with its SHA-256, stays (<Path
+              p="server/src/iki_server/runs/artifacts.py"
+            />, <Adr n="0068" />).
+          </li>
+          <li>
+            A legal hold keeps a held project's artifacts past retention, and blocks purging a
+            detached plugin's data (<Adr n="0092" />).
+          </li>
+          <li>
+            The reference GCP module keeps deleted objects restorable for a soft-delete period and can
+            enable object retention (<Path p="deploy/gcp/modules/storage/main.tf" />).
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={M} />: blobs, files, uses, uploads, registrations</li>
+          <li><Path p={ST} />: S3 and signed URLs; <Path p="server/src/iki_server/files/gcs.py" /> for Cloud Storage</li>
+          <li><Path p={SV} />: uploads, checks, registrations, expiry</li>
+          <li><Path p="deploy/dev/manifests/seaweedfs.yaml" />: the dev cluster's store (<Adr n="0022" />)</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0036" title /></li>
+          <li><Adr n="0068" title /></li>
+          <li><Adr n="0109" title /></li>
+          <li><Adr n="0022" title /></li>
+        </ul>
+      </div>
+    </div>
+    <p>
+      <Inferred why="Read from the reference OpenTofu modules, not a rule in the server.">
+        Encryption and soft delete are what the reference modules set; a deployment that brings its
+        own bucket sets its own.
+      </Inferred>
+    </p>
+  </Layer>
+</Layout>

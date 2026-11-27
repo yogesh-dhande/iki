@@ -1,0 +1,188 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Inferred from "../../components/Inferred.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+import Sequence from "../../components/Sequence.astro";
+
+const API = "server/src/iki_server/api/entities.py";
+const CSVS = "server/src/iki_server/api/csvs.py";
+const TRAILS = "server/src/iki_server/api/trails.py";
+
+const H = {
+  short: "Four ways out, each audited",
+  how: "A search's CSV, step by step",
+  rules: "CSVs, audit trails, record files and bundles",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      This page answers: how does data leave Iki, and what's recorded when it does? Four ways, each
+      written to the audit log before the first byte leaves: a search's results as CSV (<Adr
+        n="0175"
+      />), one record's audit trail as CSV, a record written as a file such as GenBank (<Adr
+        n="0171"
+      />), and a signed bundle that carries records with their history to another deployment (<Adr
+        n="0096"
+      />). A single file is downloaded by a short-lived signed URL (<PageLink
+        to="Where data is stored"
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <Sequence
+      id="csv-dg"
+      title="GET /api/v1/entities/search.csv"
+      width={900}
+      actors={[
+        { id: "browser", label: "Browser" },
+        { id: "api", label: "search_csv" },
+        { id: "search", label: "search.py" },
+        { id: "db", label: "Postgres" },
+        { id: "audit", label: "Audit log" },
+      ]}
+      steps={[
+        { id: "open", from: "browser", to: "api", label: "the grid's link: type, project, where, columns" },
+        { id: "build", from: "api", to: "search", label: "check the JSON; the readable queryset" },
+        { id: "first", from: "search", to: "db", label: "first page of 500, under the time limit" },
+        { id: "record", from: "api", to: "audit", label: "search.exported, the search as given" },
+        { id: "stream", from: "api", to: "browser", label: "header row and the first page", dashed: true },
+        { id: "next", from: "search", to: "db", label: "each next page, its own time limit" },
+        { id: "stop", from: "api", to: "browser", label: "or a row saying where it stopped", dashed: true },
+      ]}
+    >
+      <div slot="open"><p>The file is named after the project and the type.</p><p><Path p={API} sym="def _download_name(" /></p></div>
+      <div slot="build"><p>The columns are the grid's: ID, type, state fields, other fields, project when the search spans several, then when it last changed, its revision and its UUID (<Adr n="0175" />). How the search itself runs is on <PageLink to="Finding data" />.</p><p><Path p="server/src/iki_server/entities/search_exports.py" /></p></div>
+      <div slot="first"><p>The first page is read before anything is recorded, so a search that can't run records nothing. Each page is read in one database snapshot, so a row's values are those of the revision and time it ends with, whatever's edited while the file streams (<Adr n="0207" />).</p><p><Path p={API} sym="with snapshot(), search.time_limit():" /></p></div>
+      <div slot="record"><p>The event is written in its own transaction, before any row leaves.</p><p><Path p={API} sym='"search.exported",' /></p></div>
+      <div slot="stream"><p>Under ASGI each chunk is made in the request's thread. Responses are <code>no-store</code>.</p><p><Path p={CSVS} sym="thread_sensitive=True" /></p></div>
+      <div slot="next"><p>Each page re-runs the readable queryset, with its references and people resolved as the reader can read them.</p></div>
+      <div slot="stop"><p>A page that runs out of time ends the file with "The download stopped here", rather than failing a half-sent response.</p><p><Path p={API} sym="The download stopped here" /></p></div>
+    </Sequence>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="One CSV writer" open>
+        <p>
+          Every CSV Iki writes goes through one writer: every cell quoted, and a cell that starts like
+          a formula prefixed with <code>'</code> unless it's a number. Rows stream in pages of 500
+          (<Adr n="0175" />, <Path p={CSVS} sym="QUOTE_ALL" />, <Path p={API} sym="EXPORT_PAGE = 500" />).
+        </p>
+      </Rule>
+      <Rule title="A record's audit trail">
+        <p>
+          <code>/api/v1/entities/&lt;ref&gt;/revisions.csv</code> is one record's history as an inspector
+          reads it: one row per changed field, the record's revisions then its registry entry's, with
+          who, when, how, the agent if one acted, the reason, signatures and holds. A change made
+          through a project the reader can't read shows what changed, not who or when. The export
+          event records the record's revision and its entry's, read together, and the file holds
+          those and earlier ones only, however late it's read (<Adr n={[25, 176, 207]} />, <Path
+            p={TRAILS}
+            sym="def trail_csv("
+          />). Its columns:
+        </p>
+        <Excerpt file={TRAILS} start="^COLUMNS = \[" />
+      </Rule>
+      <Rule title="Record files">
+        <p>
+          A type can declare formats its records export as. Iki writes the file from one revision's
+          values, so the same revision is always the same file, and the <code>entity.exported</code>{" "}
+          event keeps its SHA-256. The <code>Iki-Left-Out</code> header counts what the format couldn't
+          hold, and the event lists it (<Adr n="0171" />).
+        </p>
+        <Excerpt file="server/src/iki_server/entities/exports.py" start="^FORMATS: dict" />
+      </Rule>
+      <Rule title="Bundles">
+        <p>
+          A project's Admin exports a signed <code>.tar.gz</code> of NDJSON: people, agents, files,
+          entries, entities, runs and signatures, all read at one moment. Exporting needs the
+          project's Admin role, and a token the <code>admin</code> scope. At most 10,000 entities can
+          be picked by hand; a search goes in as a dynamic collection. The bundle is signed with
+          Ed25519, kept 7 days, and reading it checks the Admin role again each time. Importing it
+          needs Org Admin as well as the project's Admin (<Adr n={[15, 96, 152]} />, <Path
+            p="server/src/iki_server/bundles/exports.py"
+            sym="MAX_PICKED = 10_000"
+          />, <Path p="server/src/iki_server/bundles/exports.py" sym="KEPT = timedelta(days=7)" />).
+        </p>
+        <p>
+          A bundle carries each stored blob's bytes once, by SHA-256. A file registered in place goes
+          as its location, object version and SHA-256 instead, and the importing deployment must be
+          able to read it there (<Path p="server/src/iki_server/bundles/export.py" sym="def _file(" />).
+          Offline verification checks the files a signature names against their hashes (<PageLink
+            to="Versioning"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Lineage">
+        <p>
+          Lineage downloads as CSV too, through the same writer; it's described with the graph on <PageLink
+            to="Finding data"
+          />.
+        </p>
+      </Rule>
+      <Rule title="Access during a download">
+        <p>
+          <Inferred why="Each page re-runs the lazy queryset; not tested directly.">
+            Access revoked during a long download drops rows from later pages, since each page runs
+            the readable filter again.
+          </Inferred>
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            <Adr n="0175" /> says the CSV's columns are the grid's, but the grid's Rules column has no
+            CSV form, so a CSV of a <code>held</code> search doesn't say which rule held each row.
+          </li>
+        </ul>
+      </Rule>
+      <Rule title="Planned">
+        <p>
+          Large search exports that finish in the background and can be downloaded again are on the
+          roadmap after M1, with reports (<Path p="docs/roadmap.md" />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <Routes tags={["bundles"]} />
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p="server/src/iki_server/entities/search_exports.py" />: a search's CSV columns</li>
+          <li><Path p={CSVS} />: the shared CSV writer</li>
+          <li><Path p={TRAILS} />: the audit-trail CSV</li>
+          <li><Path p="server/src/iki_server/entities/exports.py" />: record files</li>
+          <li><Path p="server/src/iki_server/bundles" />: bundle export and import</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0096" title /></li>
+          <li><Adr n="0171" title /></li>
+          <li><Adr n="0175" title /></li>
+          <li><Adr n="0207" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

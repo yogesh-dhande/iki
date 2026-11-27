@@ -1,0 +1,183 @@
+---
+// Every plugin in the repository, found as directories with a plugin.yaml: Iki's own, the
+// author examples, and the test and fixture plugins, with what each declares.
+import "../../../styles/browser.css";
+import Layout from "../../../components/Layout.astro";
+import Path from "../../../components/Path.astro";
+import Adr from "../../../components/Adr.astro";
+import PageLink from "../../../components/PageLink.astro";
+import { browser, GROUPS, PART_LABELS, pluginDirs, type PartKind } from "../../../lib/browser.ts";
+
+const b = browser();
+const COUNTED: PartKind[] = ["type", "extension", "action", "environment", "workflow", "trigger", "component", "role", "setting", "format", "writer", "starter", "test"];
+const count = (p: (typeof b.plugins)[number], k: PartKind) => p.parts.filter((x) => x.kind === k).length;
+const byName = (n: string) => b.plugins.find((p) => p.name === n);
+const dirs = pluginDirs();
+if (dirs.length !== b.plugins.length) throw new Error("The plugin list and the repository's plugin.yaml files disagree.");
+const extra = [
+  ...(b.unresolved.length ? [{ id: "unresolved", label: "Unresolved references" }] : []),
+  ...(b.undeclared.length ? [{ id: "undeclared", label: "Keys no schema declares" }] : []),
+];
+const toc = extra.length ? [{ id: "list", label: "The plugins" }, ...extra] : [];
+---
+
+<Layout toc={toc} wide>
+  <p>
+    The {b.plugins.length} directories in the repository with a <code>plugin.yaml</code>, read at build
+    time: {
+      GROUPS.map((g, i) => {
+        const n = b.plugins.filter((p) => p.group === g.id).length;
+        return (
+          <>
+            {i > 0 && (i === GROUPS.length - 1 ? " and " : ", ")}
+            {n} {g.label.toLowerCase()} ({g.id === "test" ? "elsewhere" : <code>{g.where}</code>})
+          </>
+        );
+      })
+    }. Iki's own plugins are in the <code>iki</code> namespace (<Adr n="0113" />); the examples and
+    test plugins use <code>acme</code> or a namespace of their own (<Adr n="0218" />). Each page shows
+    a plugin's YAML with its keys linked to their schema and its references linked to what they name:
+    how they fit together is <PageLink to="How the pieces fit" />.
+  </p>
+  <div class="pb-filter" role="search">
+    <label for="pb-q">Filter</label>
+    <input id="pb-q" type="search" placeholder="Name, title, dependency or directory" />
+    <fieldset>
+      <legend class="sr">Kind</legend>
+      {GROUPS.map((g) => <label><input type="checkbox" name="group" value={g.id} checked /> {g.label}</label>)}
+    </fieldset>
+    <span class="pb-count" id="pb-count" aria-live="polite"></span>
+  </div>
+  <div class="table-wrap pb-list" id="list">
+    <table>
+      <thead>
+        <tr>
+          <th>Plugin</th>
+          <th>Version</th>
+          <th>What it does</th>
+          <th>Depends on</th>
+          <th>Declares</th>
+        </tr>
+      </thead>
+      <tbody>
+        {
+          b.plugins.map((p) => (
+            <tr
+              data-dir={p.dir}
+              data-group={p.group}
+              data-text={[p.name, p.title, p.description, p.dir, ...p.dependencies.map((d) => d.name)].join(" ").toLowerCase()}
+            >
+              <td>
+                <a href={p.href}><code>{p.name}</code></a>
+                <div><span class={`badge g-${p.group}`}>{GROUPS.find((g) => g.id === p.group)!.one}</span></div>
+                <div class="dir"><Path p={p.dir} /></div>
+              </td>
+              <td class="num">{p.version}</td>
+              <td class="desc">
+                {p.title && p.title !== p.name && <strong>{p.title}. </strong>}
+                {p.description}
+              </td>
+              <td>
+                <span class="comma">
+                  {p.dependencies.map((d) => {
+                    const t = byName(d.name);
+                    return t ? <a href={t.href}><code>{d.name}</code></a> : <code class="unres">{d.name}</code>;
+                  })}
+                </span>
+              </td>
+              <td class="counts">
+                <span class="comma">
+                  {COUNTED.filter((k) => count(p, k)).map((k) => (
+                    <span>
+                      <b>{count(p, k)}</b> {(count(p, k) === 1 ? PART_LABELS[k][0] : PART_LABELS[k][1]).toLowerCase()}
+                    </span>
+                  ))}
+                </span>
+              </td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+
+  {
+    b.unresolved.length > 0 && (
+      <>
+        <h2 id="unresolved">Unresolved references</h2>
+        <p>
+          Values that name a part, by their schema, which no plugin in the repository declares. They're
+          marked with a wavy underline where they appear.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Plugin</th><th>Where</th><th>Value</th><th>Why</th></tr></thead>
+            <tbody>
+              {b.unresolved.map((u) => (
+                <tr>
+                  <td><a href={u.plugin.href}><code>{u.plugin.name}</code></a></td>
+                  <td><a href={u.href}><code>{u.file.slice(u.plugin.dir.length + 1)}</code></a> <span class="size">{u.path}</span></td>
+                  <td><code>{u.value}</code></td>
+                  <td>{u.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </>
+    )
+  }
+  {
+    b.undeclared.length > 0 && (
+      <>
+        <h2 id="undeclared">Keys no schema declares</h2>
+        <p>Keys this site found no schema node for. They're marked with a dashed underline.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Plugin</th><th>File</th><th>Key</th></tr></thead>
+            <tbody>
+              {b.undeclared.map((u) => (
+                <tr>
+                  <td><a href={u.plugin.href}><code>{u.plugin.name}</code></a></td>
+                  <td><code>{u.file.slice(u.plugin.dir.length + 1)}</code></td>
+                  <td><code>{u.path}</code></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </>
+    )
+  }
+</Layout>
+
+<style>
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+</style>
+
+<script>
+  const input = document.querySelector<HTMLInputElement>("#pb-q");
+  const boxes = [...document.querySelectorAll<HTMLInputElement>('input[name="group"]')];
+  const rows = [...document.querySelectorAll<HTMLTableRowElement>("#list tbody tr")];
+  const counter = document.querySelector("#pb-count");
+  function apply() {
+    const words = (input?.value ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+    const groups = new Set(boxes.filter((b) => b.checked).map((b) => b.value));
+    let shown = 0;
+    for (const row of rows) {
+      const text = row.dataset["text"] ?? "";
+      row.hidden = !groups.has(row.dataset["group"] ?? "") || !words.every((w) => text.includes(w));
+      if (!row.hidden) shown += 1;
+    }
+    if (counter) counter.textContent = `${shown} of ${rows.length}`;
+  }
+  input?.addEventListener("input", apply);
+  for (const b of boxes) b.addEventListener("change", apply);
+  apply();
+</script>

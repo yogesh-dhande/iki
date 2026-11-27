@@ -1,0 +1,77 @@
+---
+// One iki/v1 JSON Schema, as a tree of its keys and branches, each linked to where the
+// repository's plugins use it.
+import "../../../styles/browser.css";
+import Layout from "../../../components/Layout.astro";
+import Path from "../../../components/Path.astro";
+import { browser, fileAnchor, GROUPS } from "../../../lib/browser.ts";
+import { schemaNodeHtml } from "../../../lib/browser-html.ts";
+import { rich, schemaTree, schemas, type SchemaFile } from "../../../lib/schemas.ts";
+
+export function getStaticPaths() {
+  return [...schemas().values()].map((s) => ({ params: { name: s.name }, props: { schema: s } }));
+}
+
+const { schema } = Astro.props as { schema: SchemaFile };
+const b = browser();
+const tree = schemaTree(schema.name);
+const docs = b.plugins.flatMap((p) =>
+  p.yaml.flatMap((f) => f.docs.filter((d) => d.schema === schema.name).map((d) => ({ p, f, d }))),
+);
+const perPlugin = new Map<string, { p: (typeof docs)[number]["p"]; n: number; href: string }>();
+for (const { p, f, d } of docs) {
+  const e = perPlugin.get(p.id) ?? { p, n: 0, href: `${p.href}#${d.part?.anchor ?? fileAnchor(f.rel)}` };
+  e.n += 1;
+  perPlugin.set(p.id, e);
+}
+const toc = [
+  { id: "top", label: "Keys" },
+  ...(tree.defs.length ? [{ id: "defs", label: "Definitions ($defs)" }] : []),
+  ...(perPlugin.size ? [{ id: "documents", label: "Documents it checks" }] : []),
+];
+---
+
+<Layout title={schema.title} toc={toc} wide>
+  <p>
+    {schema.description && <Fragment set:html={rich(schema.description)} />}{" "}
+    <Path p={schema.file} />{schema.kind && <> checks every <code>kind: {schema.kind}</code> document.</>}
+  </p>
+  <p class="size">
+    Each key shows its type and its schema's description, and where the repository's plugins use it.
+    Branches (<em>when</em>, <em>one of</em>) apply to values that match them. A <code>→</code> link goes
+    to a shared definition, here or in another schema.
+  </p>
+  <section class="pb-section">
+    <Fragment set:html={schemaNodeHtml(b, tree.root)} />
+  </section>
+  {
+    tree.defs.length > 0 && (
+      <section class="pb-section" id="defs">
+        <h2>Definitions ($defs)</h2>
+        {tree.defs.map((d) => <Fragment set:html={schemaNodeHtml(b, d)} />)}
+      </section>
+    )
+  }
+  {
+    perPlugin.size > 0 && (
+      <section class="pb-section" id="documents">
+        <h2>Documents it checks</h2>
+        {GROUPS.map((g) => {
+          const list = [...perPlugin.values()].filter((e) => e.p.group === g.id);
+          return list.length ? (
+            <p>
+              <strong>{g.label}:</strong>{" "}
+              <span class="comma">
+                {list.map((e) => (
+                  <span>
+                    <a href={e.href}>{e.p.name}</a> <span class="size">{e.n}</span>
+                  </span>
+                ))}
+              </span>
+            </p>
+          ) : null;
+        })}
+      </section>
+    )
+  }
+</Layout>

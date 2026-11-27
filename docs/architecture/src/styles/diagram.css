@@ -1,0 +1,131 @@
+/* Interactive diagrams: Diagram, Sequence and the ADR graph. */
+.dg {
+  margin: 20px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.dg-canvas {
+  overflow-x: auto;
+  padding: 16px;
+}
+.dg svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  font-family: var(--font);
+}
+.dg-region rect {
+  fill: var(--surface-2);
+  stroke: var(--border);
+  stroke-dasharray: 4 4;
+}
+.dg-region text {
+  fill: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.dg-edge {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.4;
+}
+.dg-edge.dashed {
+  stroke-dasharray: 5 4;
+}
+.dg-arrowhead {
+  fill: var(--muted);
+}
+.dg-edge-label {
+  font-size: 11px;
+  fill: var(--muted);
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 5px;
+  stroke-linejoin: round;
+}
+.dg-node rect {
+  fill: var(--surface-2);
+  stroke: var(--border-strong);
+  stroke-width: 1.2;
+}
+.dg-node.strong rect {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+  stroke-width: 1.8;
+}
+.dg-node.live {
+  cursor: pointer;
+}
+.dg-node.live:hover rect,
+.dg-node.live:focus-visible rect {
+  stroke: var(--accent);
+}
+.dg-node.live:focus {
+  outline: none;
+}
+.dg-node.live:focus-visible rect {
+  stroke-width: 2.6;
+}
+.dg-node.current rect {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+  stroke-width: 2.4;
+}
+.dg-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  fill: var(--text);
+}
+.dg-sub {
+  font-size: 11.5px;
+  fill: var(--muted);
+}
+.dg figcaption {
+  padding: 0 18px 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.dg-details {
+  border-top: 1px solid var(--border);
+  padding: 14px 20px 6px;
+  background: var(--surface);
+  border-radius: 0 0 12px 12px;
+}
+.dg-details h3 {
+  margin: 4px 0 8px;
+  font-size: 15px;
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+.dg-more {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.dg-detail {
+  padding-bottom: 8px;
+}
+.dg-detail p,
+.dg-detail li {
+  font-size: 14px;
+}
+.dg-hint {
+  display: none;
+  font-size: 13px;
+  color: var(--muted);
+}
+/* With the script: one box's details at a time. */
+.dg.js .dg-hint:not([hidden]) {
+  display: block;
+}
+.dg.js .dg-detail {
+  display: none;
+}
+.dg.js .dg-detail.shown {
+  display: block;
+}
+.dg.js .dg-details {
+  min-height: 140px;
+}

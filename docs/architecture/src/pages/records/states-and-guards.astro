@@ -1,0 +1,206 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+
+const ST = "server/src/iki_server/entities/states.py";
+const G = "server/src/iki_server/entities/guards.py";
+const PV = "plugins/lots/types/plasmid_verification.yaml";
+
+const toc = [
+  { id: "short", label: "A state is a field, and each state says who sets it" },
+  { id: "how", label: "Setting a state, check by check" },
+  { id: "example", label: "A plasmid verification's review" },
+  { id: "rules", label: "Roles, guards and removed states" },
+  { id: "ref", label: "Routes, files and decisions" },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title="A state is a field, and each state says who sets it">
+    <p>
+      A type's workflow is its state fields: <code>type: state</code>, with an <code>initial</code>{" "}
+      and its <code>states</code>. A record can have several, one per question: a lot's production
+      status beside its QA disposition. Each state says which lab roles may set the field to it
+      (<code>set_by</code>), whether it locks the record, needs a reason, needs signatures, where an
+      edit returns it (<code>on_edit</code>), whether it holds the record's amount, and its <code
+        >guards</code
+      >. There's no transition graph in core: which state may follow which is a guard on <code
+        >state.from</code
+      >. A state is never set by an edit; it's set on its own, as a revision of its own (<Adr
+        n={[125, 128]}
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title="Setting a state, check by check">
+    <p>
+      <code>POST /api/v1/entities/{"{ref}"}/states/{"{field}"}</code> calls <Path
+        p={ST}
+        sym="def set_state("
+      />. Under the record's row lock, in order:
+    </p>
+    <ol>
+      <li>It's a project's record, not a registry entry, and the type has the field.</li>
+      <li>The state exists and isn't removed; the revision the client read is current; the field isn't in that state already; the record wasn't finally released (<PageLink to="Locks and corrections" hash="final" />).</li>
+      <li>
+        If the field's current state was entered by signing, the states it can go to change: a
+        return to an earlier signed state needs a reason, and a move to an unsigned one becomes a
+        signed reversal (<PageLink to="Electronic signatures" hash="reversals" />).
+      </li>
+      <li>A state that needs signatures is refused here: its last signature sets it.</li>
+      <li>Who: a role in the owning project that may set states, a token allowed to, and one of the state's <code>set_by</code> lab roles (<Path p={ST} sym="def refusal(" />).</li>
+      <li>The record's conditions: a request's completed state needs every expected subject covered (<PageLink to="Release and completion" />); open holds block a locking state; then the state's guards.</li>
+      <li>The reason, if the state requires one, at most 2,000 characters.</li>
+    </ol>
+    <p>
+      Then <Path p={ST} sym="def write(" /> clears <code>locked_by</code> for its own write, writes a{" "}
+      <code>state_changed</code> revision naming the field and both states, sets <code>locked_by</code>{" "}
+      again from the new states, and records <code>entity.state_changed</code> in the audit log with
+      the states, the revision, the reason and any signatures. Whoever the new state makes it the
+      work of is told (<Adr n="0122" />). The app reads each state's options, with why this person
+      may not set it, from the record's <code>can</code> (<Path p={ST} sym="def options(" />).
+    </p>
+  </Layer>
+
+  <Layer n={3} title="A plasmid verification's review">
+    <p>
+      <Path p={PV} label="iki/lots.PlasmidVerification" /> is a reviewer's assessment of one plasmid
+      prep's sequencing evidence. It uses nearly everything in this group: computed, immutable pins;
+      plugin rules read at pinned revisions; a state field with two review flows; guards that keep the
+      signers independent; signatures; locks; and reopening (<Adr n="0184" />).
+    </p>
+    <p>
+      Its <code>review</code> state starts at <code>recorded</code>. Under the research flow, the
+      assigned reviewer signs it off (<em>verification</em>). Under the regulated QC flow, the analyst
+      submits (signing <em>authorship</em>), the assigned, independent reviewer reviews (signing{" "}
+      <em>review</em>), then QA releases (signing <em>approval</em>). Which flow applies is <code
+        >review_flow</code
+      >, which the verification action records and nobody can change. This is the released state, as
+      the file says today:
+    </p>
+    <Excerpt file={PV} start="^      released:" note="the review field's last state" />
+    <p>
+      <code>qc_release</code> says which state it follows: Reviewed, itself entered from Submitted.{" "}
+      <code>independent_qa</code> is four-eyes written as a guard: the person releasing may not be the
+      creator (<code>history.review[0].by</code>), the submitting analyst, the reviewer, or anyone who
+      edited it while Recorded. There's no four-eyes feature in core; the plugin says it in CEL.
+    </p>
+    <p>
+      Every signed state locks the record. Because each is entered by signing, reopening one is a
+      signed reversal back to Recorded, by someone who holds a lab role that could have given the
+      signature it reverses (QA, to reverse a release) and may set Recorded, with a reason; every edit after that needs a reason too. How that's signed is
+      on <PageLink to="Electronic signatures" hash="reversals" />; how the lock is held, on <PageLink
+        to="Locks and corrections"
+      />. And one of its save rules, which runs only when its <code>when</code> holds:
+    </p>
+    <Excerpt file={PV} start="^  explain_alignment_override:" />
+    <p>
+      It reads the alignment at the revision the record pinned (<code>reference_revisions</code>) and
+      runs again before each signature (<code>recheck_before_signing</code>). The pins are why the
+      record can be trusted later: <code>plasmid_revision</code> and <code>alignment_revision</code>{" "}
+      are <code>computed</code> (only a run may write them) and <code>immutable</code> (refused once
+      set), so a later edit to the plasmid can't change what this verification says it examined.
+    </p>
+  </Layer>
+
+  <Layer n={4} title="Roles, guards and removed states">
+    <div class="rules">
+      <Rule title="Lab roles gate states" open>
+        <p>
+          Plugins declare lab roles; a project's Admin grants them on a membership, or a team's, as{" "}
+          <code>namespace/plugin.role</code>. A grant counts only while the holder has a role in the
+          project and an installed plugin declares it. A state's <code>set_by</code> names the lab
+          roles that may set it, any one of them; guards can test <code>actor.roles</code> (<Adr
+            n={[116, 125]}
+          />, <Path p="server/src/iki_server/org/permissions.py" sym="def lab_roles(" />). A token
+          limited to some projects has no lab roles elsewhere, and a service account acting for a
+          person uses only the lab roles both hold (<Adr n="0210" />, <PageLink to="Tokens and delegation" />).
+          How project roles work is on <PageLink to="Projects and roles" />.
+        </p>
+      </Rule>
+      <Rule title="Guards">
+        <p>
+          A guard is a CEL condition on entering a state, type-checked when the plugin is validated
+          and evaluated by iki-wasm on the server and in browsers. It reads <code>actor</code> (the
+          person, the agent acting for them, their lab roles, whether it's a service account),{" "}
+          <code>record</code>, <code>state</code> (field, from, to), <code>history</code> and{" "}
+          <code>last</code> (each state field's changes, with who, which agent, when and why), <code
+            >edits</code
+          > (who set which value fields since the record last entered a state), <code>holds</code>,{" "}
+          <code>draws</code>, <code>covered_subjects</code>, <code>signatures</code>, and the time
+          (<Path p={G} sym="def variables_of(" />). Every guard must be true; one that's false
+          refuses with its message, and one that can't be worked out refuses too: guards fail closed.
+          They run after <code>set_by</code>, under the row lock, and again at each signature, with
+          the signer acting and the signatures given so far (<Adr n="0128" />, <Path
+            p={G}
+            sym="def refusals("
+          />).
+        </p>
+      </Rule>
+      <Rule title="Holds block locking states">
+        <p>
+          A record held for review by a rule can't be set to a state that locks it until its holds
+          are reviewed, so a lot isn't released while a result is being investigated (<Adr
+            n="0127"
+          />, <Path p="server/src/iki_server/entities/holds.py" sym="def blocks_locking(" />). Holds
+          themselves are on <PageLink to="Saving and validation" />.
+        </p>
+      </Rule>
+      <Rule title="A plugin can't strand records in a state it removes">
+        <p>
+          A plugin that drops a state keeps it as <code>removed: true</code> with <code>moved_to</code>.
+          Its migration moves the records in it, each with a revision by no one, via the system, and
+          sets every record's <code>locked_by</code> from the states that lock now. The reverse
+          migration moves them back (<Adr n="0121" />, <Path
+            p="server/src/iki_server/plugins/operations.py"
+            sym="class SyncStates"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Assignments and held amounts">
+        <p>
+          A person field with an <code>assignment</code> puts the record on that person's My work
+          while its state field is in the states it names (<Adr n="0122" />). A state with <code
+            >holds_amount</code
+          > keeps any of the record's amount from being drawn: <PageLink to="Amounts and the ledger" />.
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li><Adr n="0118" />'s transitions and <Adr n="0119" />'s <code>not_by</code> are superseded by <Adr n="0125" /> and guards (<Adr n="0128" />).</li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title="Routes, files and decisions">
+    <Routes paths={/^\/api\/v1\/entities\/\{ref\}\/states[^]*$/} />
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={ST} /></li>
+          <li><Path p={G} /></li>
+          <li><Path p="server/src/iki_server/org/lab_roles.py" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0116" title /></li>
+          <li><Adr n="0121" title /></li>
+          <li><Adr n="0122" title /></li>
+          <li><Adr n="0125" title /></li>
+          <li><Adr n="0128" title /></li>
+          <li><Adr n="0184" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

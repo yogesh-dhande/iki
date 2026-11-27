@@ -1,0 +1,14 @@
+---
+// A link to another page of this site by its navigation label, so the link's text is the
+// page's one name. The build fails on a label the navigation doesn't have. `hash` names an
+// element on that page; the link check verifies it. A slot replaces the text.
+import { page } from "../lib/nav.ts";
+
+type Props = { to: string; hash?: string };
+const { to, hash } = Astro.props;
+const p = page(to);
+const href = hash ? `${p.href}#${hash}` : p.href;
+const custom = Astro.slots.has("default");
+---
+
+<a href={href}>{custom ? <slot /> : p.label}</a>

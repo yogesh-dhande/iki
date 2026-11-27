@@ -1,0 +1,212 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const ACQ = "server/src/iki_server/files/acquired.py";
+
+const H = {
+  short: "Core stores every format; plugins understand them",
+  how: "Where format knowledge lives",
+  ref: "Each format, and who handles it",
+  rules: "Limits and rules",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "ref", label: H.ref },
+  { id: "rules", label: H.rules },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      This page answers: which file formats does Iki handle, and is it core or a plugin that does?
+      Core stores any file, of any format, checked against its SHA-256 (<PageLink
+        to="Where data is stored"
+      />). Core also reads a few formats itself: the acquisition date that instruments stamp in
+      their files, spreadsheets for import, FASTA in the browser for the alignment viewer, and
+      GenBank and FASTA when it writes sequence records out. Everything else a lab means by "parsing
+      a file" is a plugin's worker action: a script that reads the file on a worker and writes typed
+      records (<Adr n={[6, 52]} />).
+    </p>
+    <ul>
+      <li>There is no central format registry. A field or param names the media types it takes.</li>
+      <li>Parsed content is stored as typed fields of records in Postgres, not as file sidecars.</li>
+      <li>Iki's own viewers are configured, not coded: a type names fields for them (<Adr n="0085" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <ul>
+      <li>
+        <strong>Media types by extension.</strong> Browsers don't know most scientific formats, so
+        the web app maps extensions to media types (<code>.pdb</code> to <code>chemical/x-pdb</code>,{" "}
+        <code>.ab1</code> to <code>application/x-abi</code>) and that wins over the browser's guess
+        (<Path p="web/app/src/media.ts" />). The worker guesses a result file's type the same way
+        when a plugin doesn't state it (<Path p="worker/crates/iki-worker/src/files.rs" />).
+      </li>
+      <li>
+        <strong>Fields and params.</strong> A file field or file param says which{" "}
+        <code>media_types</code> it takes and its <code>max_size</code>; the server refuses others (<Adr
+          n={[36, 52]}
+        />).
+      </li>
+      <li>
+        <strong>Acquisition dates.</strong> Core reads when an instrument says the data was acquired,
+        from the file's own header, by ranged reads of at most 4 MiB, never the upload time (<Path
+          p={ACQ}
+        />, <Adr n="0177" />).
+      </li>
+      <li>
+        <strong>Viewers.</strong> A type's <code>display.viewers</code> names fields for Iki's{" "}
+        <code>sequence</code>, <code>structure</code> and <code>alignment</code> viewers (<Path
+          p="spec/README.md"
+        />). Plugins' own views run in sandboxed frames (<PageLink to="Plugin frames" />).
+      </li>
+      <li>
+        <strong>Parsers.</strong> Each plugin's <code>scripts/</code> hold the readers its actions
+        run on workers (<PageLink to="Launching a run" />).
+      </li>
+    </ul>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <p>
+      "Core" means the server, web app or worker does it for every deployment; a plugin name means
+      it happens only where that plugin is installed. Every format is also stored as a plain file.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Format</th><th>Core</th><th>Plugins</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Any file</td>
+            <td>Stored once per SHA-256, downloaded as an attachment under its name (<Path p="server/src/iki_server/files/storage.py" sym="def content_disposition(" />)</td>
+            <td>Fields such as an OOS investigation's attachments take PDFs and images (<Path p="plugins/qc_release/types/oos_investigation.yaml" />)</td>
+          </tr>
+          <tr>
+            <td>CSV, XLSX</td>
+            <td>The spreadsheet importer: map columns, preview, then commit in one run. Legacy and encrypted workbooks are refused (<Path p="server/src/iki_server/spreadsheets/workbooks.py" />, <Adr n="0178" />)</td>
+            <td><code>iki/plate_assays</code> reads a BMG LABTECH MARS endpoint export and joins it to wells (<Path p="plugins/plate_assays/scripts/reader.py" />)</td>
+          </tr>
+          <tr>
+            <td>FASTA, GenBank, SnapGene <code>.dna</code></td>
+            <td>Writes a sequence record as GenBank or FASTA (<Path p="server/src/iki_server/entities/sequence_files.py" />, <Adr n="0171" />)</td>
+            <td><code>iki/dna</code> imports them as DNA sequences (<Path p="plugins/dna/actions/import_sequences.yaml" />); <code>iki/protein</code> imports protein FASTA (<Path p="plugins/protein/actions/import_proteins.yaml" />)</td>
+          </tr>
+          <tr>
+            <td>FASTA alignments</td>
+            <td>The alignment viewer parses them in the browser with iki-wasm, up to 64 MiB (<Path p="worker/crates/iki-wasm/src/lib.rs" sym="pub const MAX_BYTES: usize = 64 * 1024 * 1024;" />)</td>
+            <td>Alignment actions in <code>iki/dna</code> and <code>iki/protein</code> write them</td>
+          </tr>
+          <tr>
+            <td>AB1 (Sanger traces)</td>
+            <td>Acquisition date from <code>RUND</code>/<code>RUNT</code> (<Path p={ACQ} sym="def _abif(" />)</td>
+            <td><code>align_reads</code> trims and aligns them to a reference (<Path p="plugins/dna/scripts/reads.py" />)</td>
+          </tr>
+          <tr>
+            <td>FASTQ, gzipped or not</td>
+            <td>Stored or registered in place</td>
+            <td><code>iki/sequencing</code>'s read sets (up to 100 GiB a file) and QC summaries (<Path p="plugins/sequencing/types/read_set.yaml" />, <Path p="plugins/sequencing/scripts/fastq.py" />); <code>iki/plasmid_sequencing</code>'s whole-plasmid checks (<Adr n={[196, 208]} />)</td>
+          </tr>
+          <tr>
+            <td>SAM, BAM</td>
+            <td>Acquisition date from the header's <code>@RG DT</code> (<Path p={ACQ} sym="def _sam(" />)</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>VCF, featureCounts, AIRR TSV</td>
+            <td>—</td>
+            <td><code>iki/sequencing_analysis</code> imports a result: the file kept, a bounded preview, the selected sample's rows (<Path p="plugins/sequencing_analysis/scripts/import_result.py" />, <Adr n="0197" />)</td>
+          </tr>
+          <tr>
+            <td>mzML and raw MS files</td>
+            <td>mzML's acquisition date (<Path p={ACQ} sym="def _mzml(" />)</td>
+            <td><code>iki/proteomics</code>'s MS files, up to 500 GiB, registered in place (<Path p="plugins/proteomics/types/ms_file.yaml" />)</td>
+          </tr>
+          <tr>
+            <td>mzTab, MaxQuant, DIA-NN, FragPipe</td>
+            <td>—</td>
+            <td><code>iki/proteomics</code> imports search reports (<Path p="plugins/proteomics/actions/import_search.yaml" />)</td>
+          </tr>
+          <tr>
+            <td>LC-MS peak lists, peptide maps (TSV)</td>
+            <td>—</td>
+            <td><code>iki/biologics_ms</code> compares them with registered masses (<Path p="plugins/biologics_ms/actions/characterize.yaml" />)</td>
+          </tr>
+          <tr>
+            <td>PDB, mmCIF</td>
+            <td>The structure viewer (Mol*, in a sandboxed frame), up to 256 MiB a file (<Path p="web/app/src/pages/structure-viewer.tsx" sym="export const MAX_STRUCTURE_BYTES = 256 * 1024 * 1024;" />, <Adr n="0085" />)</td>
+            <td><code>iki/protein</code> imports and fetches structures (<Path p="plugins/protein/actions/import_structure.yaml" />)</td>
+          </tr>
+          <tr>
+            <td>SDF, MOL</td>
+            <td>—</td>
+            <td><code>iki/small_molecule</code> imports compounds with RDKit and keeps conformer sets (<Path p="plugins/small_molecule/actions/import_sdf.yaml" />, <Path p="plugins/small_molecule/types/conformer_set.yaml" />). The server exports them as a Molfile or an SDF from each compound's stored Molfile (<Path p="server/src/iki_server/entities/compound_files.py" />, <Adr n="0229" />)</td>
+          </tr>
+          <tr>
+            <td>FCS, JCAMP-DX, TIFF and OME-TIFF, JPEG</td>
+            <td>Acquisition date only (<Path p={ACQ} sym="def _fcs(" />, <Path p={ACQ} sym="def _jcamp(" />, <Path p={ACQ} sym="def _image(" />)</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>Reference catalogues (MGI reports and others)</td>
+            <td>—</td>
+            <td>Registration actions such as <code>iki/mouse_strains</code>' (<Path p="plugins/mouse_strains/actions/register_mgi_strain.yaml" />)</td>
+          </tr>
+          <tr>
+            <td>Gels</td>
+            <td>Drawn from computed fragments, not stored as images (<Path p="web/app/src/pages/entity-gel.tsx" />, <Adr n="0202" />)</td>
+            <td>Digests in <code>iki/plasmid</code> compute the fragments</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="What a parser may assume" open>
+        <p>
+          A parser runs on a worker, never in the server or the page. It gets the run's files
+          already checked against their size and SHA-256 (<PageLink to="How data links to records" />), and
+          writes what it read as records, each of which may say which file and record it came from
+          (<Adr n="0052" />).
+        </p>
+      </Rule>
+      <Rule title="Spreadsheets are untrusted">
+        <p>
+          Only cell values are read; nothing in a workbook runs, macros included. Before parsing,
+          the importer checks the first bytes, counts decompressed bytes against a limit and a
+          ratio (zip bombs), and refuses XML with a document type. A workbook is at most 100 MiB,
+          with at most a million rows and 1,000 columns a sheet (<Path
+            p="server/src/iki_server/spreadsheets/workbooks.py"
+            sym="MAX_ROWS = 1_000_000"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Acquisition dates are never guessed">
+        <p>
+          A date is only as precise as the file states it, with an offset only when the file gives
+          one. A malformed or ambiguous date (a two-digit year, <code>DD/MM/YY</code>) is unknown,
+          not guessed. A file without one keeps the date its uploader gave, or stays unknown (<Path
+            p={ACQ}
+          />, <Adr n="0177" />).
+        </p>
+      </Rule>
+      <Rule title="Planned">
+        <p>
+          On the roadmap after M1, each to be scoped: workers on the lab network that reach
+          instruments and file shares, with readings kept as an append-only series; a sequence
+          workbench that shows Sanger chromatograms; a structure workbench on Mol*; and finding a
+          phrase inside a file (<Path p="docs/roadmap.md" />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+</Layout>

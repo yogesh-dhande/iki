@@ -1,0 +1,138 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const LOG = "server/src/iki_server/audit/log.py";
+const AM = "server/src/iki_server/audit/models.py";
+const R = "server/src/iki_server/core/db_roles.py";
+
+const toc = [
+  { id: "short", label: "An append-only log, held by the database" },
+  { id: "how", label: "What's audited, and how" },
+  { id: "roles", label: "The migrator and the app" },
+  { id: "rules", label: "The rules in full" },
+  { id: "ref", label: "Files and decisions" },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title="An append-only log, held by the database">
+    <p>
+      Every action Iki audits is an <code>AuditEvent</code>, written in the same transaction as the
+      change it describes, so it exists exactly when the change does. Once the transaction commits,
+      the event is also written to the <code>iki.audit</code> log stream, so a SIEM keeps its own
+      copy. No role can change or delete an event: a trigger refuses UPDATE, DELETE and TRUNCATE,
+      and the app connects as a role that may only insert and read them. A record's own changes are
+      its revisions, which are append-only the same way (<Adr n="0025" />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title="What's audited, and how">
+    <p>
+      <Path p={LOG} sym="def record(" /> refuses an action that isn't in <Path p={LOG} sym="ACTIONS" />,
+      the list of every action with how the audit page describes it. An event keeps the action, the
+      actor and their email at the time, the channel (<code>via</code>), the target and its name at
+      the time, the project or team, details (never secrets), the request ID, the client's address,
+      the OAuth client, and the agent, if one acted for the person (<Path p={AM} sym="class AuditEvent(" />).
+    </p>
+    <p>
+      For records, the audit log has what isn't a value: states set (<code>entity.state_changed</code>,
+      with both states, the revision and the reason), holds and their reviews, sharing into and out of
+      projects, assignments, moves to a superseding entry, amount movements, exports, and every step
+      of signing. A plain create or edit writes no audit event: its revision is its trail, with who,
+      how, which agent and why (<PageLink to="Revisions and history" />). A record's Audit trail tab
+      and its CSV read its revisions, and downloading the CSV is itself audited (<code
+        >entity.trail_exported</code
+      >).
+    </p>
+    <p>The channel a change came through:</p>
+    <Excerpt file={AM} start="^class Via\(" />
+    <p>
+      Auditors read the log at <code>/admin/audit/</code> and export it as CSV (<Path
+        p="server/src/iki_server/audit/views.py"
+      />). What each event, webhook and notification tells whom is on <PageLink to="What events disclose" />.
+    </p>
+
+    <h3 id="roles">The migrator and the app</h3>
+    <p>
+      Postgres has two roles for Iki (<Path p={R} />). The <strong>migrator</strong> owns every table
+      and is used only by the Helm migrate Job, to run <code>migrate_deployment</code>, which grants
+      the app its privileges in the transaction that migrates the plugins (<Adr n="0134" />). The{" "}
+      <strong>app</strong> role, used by web pods and maintenance jobs, reads and writes rows but
+      can't create, alter or drop anything. Its grants (<Path p={R} sym="def grant(" />):
+    </p>
+    <ul>
+      <li>no CREATE on the schema, and no TRUNCATE, REFERENCES or TRIGGER on any table;</li>
+      <li>no UPDATE or DELETE on any append-only table, every model with <code>APPEND_ONLY = True</code>: the audit log and its agents, revisions, every <code>__history</code> table, signatures, the amounts ledger's movements, and more (<Path p={R} sym="def append_only_tables(" />);</li>
+      <li>read only on the graph's edges, kept history changes, Django's and plugins' migration history, plugins' states, and every table of a detached plugin (<Path p={R} sym="READ_ONLY_TABLES" />).</li>
+    </ul>
+    <p>
+      A web pod whose role is too powerful never turns ready: the readiness check fails if the role is
+      a superuser, can create roles or databases, bypasses row-level security, can create in the
+      schema, owns tables, or can change an append-only or read-only table (<Path
+        p={R}
+        sym="def problems("
+      />, <Path p="server/src/iki_server/health.py" sym="def check_database_role(" />). Granting
+      privileges refuses to run when the two roles are the same (<Path
+        p="server/src/iki_server/core/management/commands/grant_app_privileges.py"
+        sym="The app and the migrator are both"
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title="The rules in full">
+    <div class="rules">
+      <Rule title="Triggers hold for the owner too" open>
+        <p>
+          <code>iki_refuse_audit_change()</code> refuses UPDATE and DELETE on each row and TRUNCATE on
+          the table, for <code>iki_audit_event</code> and <code>iki_audit_agent</code>, whatever the
+          role (<Path p="server/src/iki_server/audit/migrations/0001_initial.py" />). Revisions,
+          history tables, signatures and the ledger get the same from the <code>AppendOnly</code>{" "}
+          migration operation (<Path p="server/src/iki_server/plugins/operations.py" sym="class AppendOnly" />).
+          The grants keep the app from trying; the triggers hold even for the migrator outside a
+          migration.
+        </p>
+      </Rule>
+      <Rule title="Agents are stored once">
+        <p>
+          Each distinct agent is one append-only <code>Agent</code> row, which events and revisions
+          point to: <PageLink to="Revisions and history" hash="agents" />.
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            <Adr n="0025" /> lists the audit channels as web, API, MCP, command line or system; the
+            code adds <code>scim</code> and <code>trigger</code>, from <Adr n={[26, 80]} />.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title="Files and decisions">
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p="server/src/iki_server/audit" />: the log, its page and agents</li>
+          <li><Path p={R} />: the app role's grants and checks</li>
+          <li><Path p="server/src/iki_server/api/trails.py" />: a record's trail</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0025" title /></li>
+          <li><Adr n="0072" title /></li>
+          <li><Adr n="0134" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

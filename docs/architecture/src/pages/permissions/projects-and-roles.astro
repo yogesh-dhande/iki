@@ -1,0 +1,174 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+
+const PERM = "server/src/iki_server/org/permissions.py";
+const MODELS = "server/src/iki_server/org/models.py";
+const LAB = "server/src/iki_server/org/lab_roles.py";
+
+const H = {
+  short: "Three kinds of role, each decided in one place",
+  how: "Org roles, project roles and lab roles",
+  rules: "Who may do what in a project",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "lab", label: "Lab roles, declared by plugins" },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Org roles cover the organization: Org Admin, Compute Admin and Auditor. Project roles cover a
+      project's data: Viewer, Editor, Runner and Admin, each including the ones below it (<Adr
+        n="0003"
+      />). A project role comes only from a membership, for one person or one team, and someone's
+      role is the highest of their own and their teams' (<Adr n="0024" />). Lab roles, such as Analyst
+      or QA, are declared by plugins and given with a membership; they grant nothing by themselves,
+      but a state, signature, draw or approval can require one (<Adr n={[116, 125]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      Project roles are numbers, so "at least Editor" is a comparison. Each project action names the
+      lowest role it needs:
+    </p>
+    <Excerpt file={MODELS} start="^class ProjectRole\(" />
+    <Excerpt file={PERM} start="^_PROJECT_ACTION_ROLE = \{" />
+    <p>
+      Org actions name the org roles that may take them: Org Admins manage people, teams, settings,
+      webhooks, registries and outside APIs; Compute Admins manage compute; Auditors read the audit
+      log; all three read costs (<Path p={PERM} sym="_ORG_ACTION_ROLES = {" />). Registries have
+      registrars of their own, appointed by Org Admins; being an Org Admin doesn't make someone one
+      (<Adr n="0115" />, <Path p={PERM} sym="def is_registrar(" />). Registries themselves are on <PageLink
+        to="Identity and HRIDs"
+      />.
+    </p>
+
+    <h3 id="lab">Lab roles, declared by plugins</h3>
+    <p>
+      A plugin declares lab roles under <code>roles:</code>. Iki's own shared ones are in the <code
+        >iki/lab_roles</code
+      > plugin, which other first-party plugins depend on (<Adr n="0211" />):
+    </p>
+    <Excerpt file="plugins/lab_roles/plugin.yaml" start="^roles:" />
+    <p>
+      A role is named <code>namespace/plugin.role</code>. A state's <code>set_by</code> names the lab
+      roles that may set it; here, who may move a reviewed sample to In testing:
+    </p>
+    <Excerpt file="plugins/samples/types/reviewed_sample.yaml" start="^      in_testing:" />
+    <p>
+      A project's Admin grants lab roles on a membership. Someone holds the lab roles of their own
+      membership and their teams'. A grant counts only while its holder has a project role there and
+      an installed plugin declares the role, and being an Admin or an Org Admin holds none (<Path
+        p={PERM}
+        sym="def _held_lab_roles("
+      />, <Path p={LAB} sym="def declared(" />). Under a delegation, only the roles both identities
+      hold count: <PageLink to="Tokens and delegation" hash="example" />.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Org Admins see projects, not their data" open>
+        <p>
+          Without a membership an Org Admin may only see a project (its name, team, description and
+          members) and manage its members, which includes adding themselves: that's how an orphaned
+          project is recovered. Reading its data takes a project role like anyone else (<Adr
+            n="0024"
+          />, <Path p={PERM} sym="_ORG_ADMIN_PROJECT_ACTIONS" />).
+        </p>
+        <p>
+          Importing a bundle needs Org Admin as well as the project's Admin, because it can add people
+          as placeholders (<Adr n="0096" />, <Path p={PERM} sym="_ALSO_ORG_ADMIN" />).
+        </p>
+      </Rule>
+      <Rule title="Teams and new projects">
+        <p>
+          Any member of a team can create a project in it, and becomes its Admin. Org Admins manage
+          teams; members see their own. An archived team gets no new projects (<Path
+            p={PERM}
+            sym="def teams_for_new_project("
+          />).
+        </p>
+      </Rule>
+      <Rule title="Archived projects">
+        <p>
+          An archived project allows only seeing, reading, managing (which includes restoring it),
+          dashboards, members and export (<Adr n="0024" />, <Path
+            p={PERM}
+            sym="_ARCHIVED_PROJECT_ACTIONS"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Lab roles in states, guards and other checks">
+        <p>
+          A grant's role is checked by the database against the lab-role name pattern, and a
+          membership's lab roles go when it does (<Path p={MODELS} sym="class LabRoleGrant" />). Setting a
+          state needs only a project role to reach it; what decides it is one of the state's <code
+            >set_by</code
+          > roles (<Adr n="0125" />, <Path p={PERM} sym="PROJECT_SET_STATE = " />). Guards see the
+          actor's roles as <code>actor.roles</code>: each role in full, and the guard's own plugin's
+          roles by their short names too (<Adr n="0128" />, <Path
+            p="spec/src/iki_spec/rules.py"
+            sym="def role_names("
+          />). How states and guards run is on <PageLink to="States and guards" />.
+        </p>
+      </Rule>
+      <Rule title="Service accounts">
+        <p>
+          A service account is a user of its own kind, with an address in a reserved <code
+            >.invalid</code
+          > domain. It's given project roles and lab roles like a person, and can't be an Org Admin
+          (<Adr n="0027" />, <Path p="server/src/iki_server/accounts/models.py" sym="SERVICE_ACCOUNT_DOMAIN" />,{" "}
+          <Path p="server/src/iki_server/org/services.py" sym="Service accounts can’t be Org Admins." />).
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            <Adr n="0003" /> says Editors run on "backend and client tiers"; the code's actions are <code
+              >run.self_hosted</code
+            > and <code>run.backend</code> for Editors, since <Adr n="0112" /> made the client tier <code
+              >self_hosted</code
+            >.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Routes</h3>
+      <Routes paths={/projects\/\{project_id\}\/members|\/lab-roles$/} />
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={PERM} />: roles, actions and who holds what</li>
+        <li><Path p={MODELS} />: memberships, roles and lab-role grants</li>
+        <li><Path p={LAB} />: which lab roles exist and what needs them</li>
+        <li><Path p="plugins/lab_roles" />: Iki's shared lab roles</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0003" title /></li>
+        <li><Adr n="0024" title /></li>
+        <li><Adr n="0116" title /></li>
+        <li><Adr n="0125" title /></li>
+        <li><Adr n="0211" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

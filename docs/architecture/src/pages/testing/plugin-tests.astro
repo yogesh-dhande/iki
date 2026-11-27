@@ -1,0 +1,121 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const H = {
+  short: "How a plugin's actions and upgrades are tested",
+  how: "Action tests, and upgrade tests",
+  example: "A published antisense oligonucleotide, as a test",
+  rules: "Where they run",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A plugin's <code>ActionTest</code> documents run one action on given values through <code
+        >iki-worker run --local</code
+      >, with no server, and compare its output with what the test expects. <code
+        >iki plugin test --upgrade-from REF</code
+      > builds the plugin as it was at an earlier commit and as it is now, makes sample data with
+      the earlier build, upgrades it, compares every revision's values, and rolls back. In CI, one
+      test runs every first-party plugin's action tests, and the template's (<Adr n={[93, 94, 158]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      Action tests live in a plugin's <code>tests/</code> directory. Each names an action, its
+      params and inputs, and the output it expects: the entities it creates or updates, with their
+      values, numbers within a relative tolerance unless the test sets one. <code>iki plugin test</code>{" "}
+      checks each against the plugin, makes the run input the server would give the action's
+      command, runs it through the worker, and says where the output differs (<Path
+        p="spec/src/iki_spec/action_tests.py"
+      />, <Path p="cli/src/iki_cli/testing.py" />).
+    </p>
+    <p>
+      An upgrade test builds the plugin at the earlier commit and now, and runs three steps in a
+      scratch PostgreSQL database: <code>before</code> makes the samples from the earlier commit's
+      action tests, <code>after</code> upgrades them with the current build, and <code>rollback</code>{" "}
+      goes back with the earlier one. Each sample is made in two revisions, and each revision's values
+      must come through as its migrations say, renamed or converted, and otherwise as they were
+      (<Path p="cli/src/iki_cli/upgrade_test.py" />, <Path
+        p="server/tests/test_plugin_migrations.py"
+        sym="def test_an_upgrade_keeps_each_revisions_values_as_its_migrations_say("
+      />). How migrations keep history is on <PageLink to="Migrations and versions" />.
+    </p>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      The oligo plugin's tests register nusinersen from its HELM notation and expect the formula,
+      weights and modifications its published sources give, each cited where it's from. What it expects:
+    </p>
+    <Excerpt file="plugins/oligo/tests/oligos.yaml" start="^expect:" note="the first test, nusinersen" />
+    <p>
+      <code>iki plugin test plugins/oligo</code> runs it locally; in CI it runs in the worker shard.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Every first-party plugin's action tests, in one test" open>
+        <p>
+          One parametrized test finds every first-party plugin with an action test, and the template,
+          and runs each with the plugins it depends on. The template's runs through the test skill it
+          ships to plugin authors, as a lab would (<Path
+            p="server/tests/test_worker_local.py"
+            sym="def test_first_party_plugins_and_the_template_pass_their_action_tests("
+          />, <Path p="plugin-template/.agents/skills/iki-test-plugin" />). It needs iki-worker built,
+          so it's a worker test, in CI's worker shard (<PageLink to="Gates and CI" hash="rules" />).
+        </p>
+      </Rule>
+      <Rule title="A plugin's own repository">
+        <p>
+          The plugin template's CI downloads the released iki-worker, refuses it unless Iki's
+          release workflow attested it, and runs <code>iki plugin test</code> with it, with <code
+            >--upgrade-from</code
+          > the pull request's base when there is one (<Path p="plugin-template/.github/workflows/ci.yml" />).
+        </p>
+      </Rule>
+      <Rule title="Components and migrations">
+        <p>
+          A plugin's web components are tested in their frames, in three browsers (<Path
+            p="server/tests/test_oligo_components.py"
+          />, <PageLink to="Browser tests" />). Its migrations are made and run on PostgreSQL
+          by <Path p="server/tests/test_plugin_migrations.py" />.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p="cli/src/iki_cli/testing.py" />: <code>iki plugin test</code></li>
+        <li><Path p="cli/src/iki_cli/upgrade_test.py" />: <code>--upgrade-from</code></li>
+        <li><Path p="spec/src/iki_spec/action_tests.py" />: what an action test says, and how it's compared</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0093" title /></li>
+        <li><Adr n="0094" title /></li>
+        <li><Adr n="0158" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

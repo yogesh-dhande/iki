@@ -1,5 +1,7 @@
 packages:
   - "web/app"
+  # The internal architecture site, served locally only: `make architecture`.
+  - "docs/architecture"
   - "web/packages/*"
   # Builds the small_molecule plugin's depiction component from RDKit.js.
   - "plugins/small_molecule/web"
@@ -15,8 +17,13 @@ onlyBuiltDependencies: []
 allowBuilds:
   "@scarf/scarf": false
 strictDepBuilds: true
-# pdf.js (file previews, ADR 0226) offers a native canvas for rendering in Node. The app
-# renders in browsers, and a canvas in jsdom would change what the app's tests run.
+# Optional native dependencies nothing here uses:
+# - sharp: Astro's optional image service. Nothing here resizes images, and its libvips
+#   builds are LGPL. Only the architecture site (docs/architecture) uses Astro.
+# - @napi-rs/canvas: pdf.js (file previews, ADR 0226) offers a native canvas for rendering
+#   in Node. The app renders in browsers, and a canvas in jsdom would change what the
+#   app's tests run.
 ignoredOptionalDependencies:
+  - sharp
   - "@napi-rs/canvas"
 engineStrict: true

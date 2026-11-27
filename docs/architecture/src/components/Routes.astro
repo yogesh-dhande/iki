@@ -1,0 +1,45 @@
+---
+// Routes from the OpenAPI documents, filtered by tag or path, each linked to the function
+// that serves it. Generated at build time, so the list is the API as it is.
+import Path from "./Path.astro";
+import { routes } from "../lib/openapi.ts";
+
+type Props = {
+  doc?: "api" | "worker";
+  tags?: string[];
+  paths?: RegExp;
+  limit?: number;
+};
+const { doc = "api", tags, paths, limit } = Astro.props;
+const list = routes(doc)
+  .filter((r) => !tags || tags.includes(r.tag))
+  .filter((r) => !paths || paths.test(r.path));
+if (!list.length) throw new Error("A route list matched no routes.");
+const shown = limit ? list.slice(0, limit) : list;
+---
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>Route</th><th>What it does</th><th>Served by</th></tr></thead>
+    <tbody>
+      {
+        shown.map((r) => (
+          <tr>
+            <td class="num">
+              <code>{r.method} {r.path}</code>
+            </td>
+            <td>{r.summary || r.description}</td>
+            <td>
+              {r.source ? (
+                <Path p={r.source.file} label={`${r.source.file.split("/").pop()}`} sym={`def ${r.source.func}(`} />
+              ) : (
+                <code>{r.operationId || "?"}</code>
+              )}
+            </td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>
+{limit && list.length > limit && <p class="crumb">{list.length - limit} more on the <a href="/routes/">route list</a>.</p>}

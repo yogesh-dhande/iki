@@ -1,0 +1,10 @@
+---
+// One rule in "The rules in full": a disclosure whose summary names the rule.
+type Props = { title: string; open?: boolean; id?: string };
+const { title, open = false, id } = Astro.props;
+---
+
+<details open={open} id={id}>
+  <summary>{title}</summary>
+  <div class="body"><slot /></div>
+</details>

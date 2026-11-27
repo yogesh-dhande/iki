@@ -1,0 +1,208 @@
+---
+import Adr from "../../components/Adr.astro";
+import Diagram from "../../components/Diagram.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+import { page } from "../../lib/nav.ts";
+
+const APP = "web/app/src";
+const ROUTER = "web/app/src/router.tsx";
+const href = (label: string) => page(label).href;
+
+const boxes = [
+  { id: "shell", x: 20, y: 30, w: 190, h: 60, label: "Django page shell", sub: "one template, no data", href: href("Serving and security policy") },
+  { id: "build", x: 250, y: 30, w: 190, h: 60, label: "Vite build", sub: "/static/app/, immutable", href: href("Serving and security policy") },
+  { id: "router", x: 480, y: 30, w: 190, h: 60, label: "Router", sub: "routes with loaders", strong: true, href: href("Pages and routing") },
+  { id: "layout", x: 710, y: 30, w: 190, h: 60, label: "Layout", sub: "sidebar, palette", href: href("Pages and routing") },
+  { id: "query", x: 480, y: 150, w: 190, h: 60, label: "Query cache", sub: "page reads, 30 s stale", href: href("Reading data") },
+  { id: "sdk", x: 250, y: 150, w: 190, h: 60, label: "@ikisci/sdk", sub: "generated from OpenAPI", href: href("Packages and the SDK") },
+  { id: "api", x: 20, y: 150, w: 190, h: 60, label: "/api/v1 and events", sub: "session, CSRF, SSE", href: href("Server and APIs") },
+  { id: "ui", x: 710, y: 150, w: 190, h: 60, label: "@ikisci/ui", sub: "tokens, button, sidebar", href: href("Packages and the SDK") },
+  { id: "science", x: 710, y: 270, w: 190, h: 60, label: "@ikisci/science", sub: "viewers and inputs", href: href("Packages and the SDK") },
+  { id: "workers", x: 480, y: 270, w: 190, h: 60, label: "Workers and iki-wasm", sub: "rules, parsers, apps", href: href("WebAssembly") },
+  { id: "frames", x: 250, y: 270, w: 190, h: 60, label: "Plugin frames", sub: "sandboxed, by digest", href: href("Plugin frames") },
+  { id: "still", x: 20, y: 270, w: 190, h: 60, label: "Stability checks", sub: "lint rules, press tests", href: href("Pages that hold still") },
+];
+const edges = [
+  { from: "shell", to: "build" },
+  { from: "build", to: "router" },
+  { from: "router", to: "layout" },
+  { from: "router", to: "query", label: "loaders" },
+  { from: "query", to: "sdk" },
+  { from: "sdk", to: "api" },
+  { from: "layout", to: "ui" },
+  { from: "ui", to: "science", dashed: true },
+  { from: "science", to: "workers" },
+  {
+    from: "router",
+    to: "frames",
+    label: "plugin tabs",
+    via: [
+      [460, 110],
+      [460, 240],
+      [345, 240],
+    ] as [number, number][],
+    at: [400, 232] as [number, number],
+  },
+  { from: "still", to: "frames", dashed: true },
+];
+
+const H = {
+  short: "What the browser runs",
+  how: "From a URL to a page that holds still",
+  hybrid: "Which pages are React, and which stay server-rendered",
+  rules: "Where the ADRs and the code differ",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "hybrid", label: H.hybrid },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      The web app is a React app that Django serves as one template for every app path, with no
+      data in it. TanStack Router's loaders read through TanStack Query, and every read goes through
+      a TypeScript client generated from the server's OpenAPI document, so a server change that
+      breaks a page fails a check. Scientific views come from <code>@ikisci/science</code>, the
+      basic controls and tokens from <code>@ikisci/ui</code>, and plugins draw their own views in
+      sandboxed frames the page talks to over a private port. Pages read what decides their buttons
+      before they render, so nothing moves under a press, and the browser tests fail if it does.
+    </p>
+    <ul>
+      <li>React pages served by Iki, beside server-rendered ones (<Adr n="0029" />).</li>
+      <li>Plugin components run in sandboxed frames (<Adr n={[84, 102]} />).</li>
+      <li>Web components are published by entry point (<Adr n="0191" />).</li>
+      <li>The app is laid out around a sidebar, and what you can read (<Adr n="0176" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <Diagram id="webapp" title="The web app's parts, from the page shell to plugin frames" width={920} height={350} boxes={boxes} edges={edges}>
+      <div slot="shell">
+        <p>Every app path is also a Django route that serves <code>web/app.html</code>, after the sign-in check.</p>
+        <p><Path p="server/src/iki_server/web/views.py" sym="def app(" /></p>
+      </div>
+      <div slot="build">
+        <p>Vite builds into Django's static files, named by content hash.</p>
+        <p><Path p="web/app/vite.config.ts" sym='base: "/static/app/"' /></p>
+      </div>
+      <div slot="router">
+        <p>Every route and loader, written in code in one file.</p>
+        <p><Path p={ROUTER} /></p>
+      </div>
+      <div slot="layout">
+        <p>The skip link, sidebar, top bar and ⌘K palette around every page.</p>
+        <p><Path p={`${APP}/layout.tsx`} sym="export function Layout(" /></p>
+      </div>
+      <div slot="query">
+        <p>The query client: reads that can be cancelled, and stop with the page.</p>
+        <p><Path p={`${APP}/api.ts`} sym="class PageQueryClient extends QueryClient" />, <Path p={`${APP}/page-reads.ts`} /></p>
+      </div>
+      <div slot="sdk">
+        <p><code>openapi-fetch</code> over a schema generated from the server's OpenAPI document (<Adr n="0029" />).</p>
+        <p><Path p="web/packages/sdk/src/index.ts" sym="export function createIkiClient(" /></p>
+      </div>
+      <div slot="api">
+        <p>The REST API with the session cookie, and one event stream per tab (<Adr n="0030" />).</p>
+        <p><Path p={`${APP}/events.ts`} /></p>
+      </div>
+      <div slot="ui">
+        <p>Tokens, the Inter font and three custom elements (<Adr n="0191" />).</p>
+        <p><Path p="web/packages/ui" /></p>
+      </div>
+      <div slot="science">
+        <p>Scientific custom elements and functions, each its own entry point (<Adr n="0191" />).</p>
+        <p><Path p="web/packages/science" /></p>
+      </div>
+      <div slot="workers">
+        <p>iki-wasm in a Web Worker: the server's parsers and CEL, in the browser (<Adr n={[90, 127]} />).</p>
+        <p><Path p={`${APP}/workers/expressions.ts`} />, <Path p={`${APP}/reading.ts`} /></p>
+      </div>
+      <div slot="frames">
+        <p>A plugin's component in <code>iframe sandbox="allow-scripts"</code>, served by its digest (<Adr n={[84, 102]} />).</p>
+        <p><Path p={`${APP}/component-frame.tsx`} /></p>
+      </div>
+      <div slot="still">
+        <p>Lint rules that keep reads cancellable, and a browser-test fixture that catches a page moving under a press.</p>
+        <p><Path p="eslint.config.js" sym="const QUERY_SIGNAL" />, <Path p="server/tests/click_stability.py" /></p>
+      </div>
+    </Diagram>
+    <p>Which page covers each part:</p>
+    <ul>
+      <li><PageLink to="Pages and routing" />: the router, its loaders, the layout, and why every routed page is also a Django route.</li>
+      <li><PageLink to="Reading data" />: the query client and the lint rules on reads.</li>
+      <li><PageLink to="Pages that hold still" />: why nothing moves under a press while a page loads.</li>
+      <li><PageLink to="Plugin frames" />: plugin components in sandboxed frames, the bridge and the port.</li>
+      <li><PageLink to="Packages and the SDK" />: the four packages under <code>web/packages</code>, and the generated client.</li>
+      <li><PageLink to="Serving and security policy" />: the shell page, static files, the content security policy and Trusted Types.</li>
+      <li><PageLink to="WebAssembly" /> and <PageLink to="Tasks and live updates" />: iki-wasm in the browser, and the event stream.</li>
+    </ul>
+
+    <h3 id="hybrid">{H.hybrid}</h3>
+    <p>
+      A hybrid, as GitHub does it (<Adr n="0029" />). Home, projects, records, runs, files, storage,
+      requests and the admin pages for compute, costs, webhooks and outside APIs are the React app. Sign-in, setup, OAuth consent and the
+      device flow, teams, people, org settings and the audit log stay server-rendered: they're simple
+      forms, visited rarely, and where security matters most. Both kinds share one stylesheet and
+      draw the same sidebar, from one navigation file (<Adr n="0176" />, <Path
+        p="server/src/iki_server/web/navigation.json"
+      />).
+    </p>
+    <p>
+      The shell page holds no data and is the same for everyone. The app reads only <code>/api/v1</code>,
+      with the session cookie and the page's CSRF token, and no tokens in JavaScript, so the API's
+      authorization is the only authorization: an outsider gets the same shell as a member, then a
+      404 from the API. When the session ends, the next read answers 401 and the app sends the person
+      to sign in (<Path p={`${APP}/api.ts`} sym="export function signInAgain(" />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Where the ADRs and the code differ" open>
+        <ul>
+          <li>
+            <Adr n="0029" /> describes the app as home and the project pages; it now also routes
+            records, runs, storage, files, requests and admin pages (<Adr n="0176" />, <Path
+              p={ROUTER}
+            />).
+          </li>
+          <li>
+            Others are on the pages they concern: <PageLink to="Plugin frames" hash="rules" /> and <PageLink
+              to="Serving and security policy"
+              hash="rules"
+            />.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p="web/app" />: the React app</li>
+        <li><Path p="web/packages" />: the packages it and plugins build on</li>
+        <li><Path p="server/src/iki_server/web" />: the page shell, static files and frames</li>
+        <li><Path p="server/src/iki_server/components" />: serving plugins' frames, and the bridge</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0012" title /></li>
+        <li><Adr n="0029" title /></li>
+        <li><Adr n="0176" title /></li>
+        <li><Adr n="0191" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

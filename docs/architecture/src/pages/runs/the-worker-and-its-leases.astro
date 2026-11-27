@@ -1,0 +1,285 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+import Sequence from "../../components/Sequence.astro";
+import { textChoices } from "../../lib/source.ts";
+
+const M = "server/src/iki_server/runs/models.py";
+const Q = "server/src/iki_server/runs/queue.py";
+const A = "server/src/iki_server/api/worker.py";
+const J = "worker/crates/iki-worker/src/job.rs";
+const runStates = textChoices(M, "RunStatus");
+const jobStates = textChoices(M, "JobState");
+
+const H = {
+  short: "What the worker is",
+  how: "Registering and leasing",
+  rules: "States, heartbeats, retries and cancelling",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "protocol", label: "One job between worker, server and storage" },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      <code>iki-worker</code> is one static Rust binary for every tier (<Adr n="0010" />). It
+      registers once, then long-polls the server for a job it can run. Each lease carries a new
+      token and lasts 60 seconds unless a heartbeat renews it; every report names the token, so a
+      worker that was cut off can't change what replaced it. Nothing connects in to a worker. An
+      attempt that ends badly is retried as a new <code>Job</code>, never by reusing the old one (<Adr
+        n={[43, 46]}
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <h3>Registering</h3>
+    <p>
+      A worker registers with a Compute admin's registration token (<code>iki_wreg_…</code>), or, on
+      a machine Iki started, with that launch's one-use token (<code>iki_wlch_…</code>). It gets its
+      own token (<code>iki_wkr_…</code>) and states its capacity and the plugin code and environments
+      it has. What a launched machine may run comes from its launch, not from what it says: its
+      environment, image, plugin commit and template (<Path p={A} sym="def register(" />, <Path
+        p="server/src/iki_server/runs/workers.py"
+      />, <Path p="server/src/iki_server/runs/launches.py" />).
+    </p>
+
+    <h3>Leasing</h3>
+    <p>
+      <code>POST /worker/v1/lease</code> waits up to 30 seconds; each web process holds one{" "}
+      <code>LISTEN</code> connection for every worker waiting on it, and a missed notification costs
+      only the rest of the wait (<Path p={A} sym="MAX_WAIT = 30.0" />, <Path
+        p="server/src/iki_server/runs/wakeup.py"
+      />). The lease then picks a queued job on the worker's tier that:
+    </p>
+    <ul>
+      <li>fits its capacity (a Slurm cluster's worker leases by its templates instead);</li>
+      <li>
+        was launched with plugin code the worker has, in an environment it has built (<PageLink
+          to="Pinning and provenance"
+        />);
+      </li>
+      <li>needs the reference data builds its machine has, and, on a later attempt, has its checkpoint checked;</li>
+      <li>on a machine Iki started, is for its environment, image and kind of machine;</li>
+      <li>on a self-hosted worker, is in a project its teams cover and needs no label it lacks (<Adr n="0112" />);</li>
+      <li>isn't in a scope at its running quota or past an enforced budget (<PageLink to="Quotas and cost" />).</li>
+    </ul>
+    <p>
+      Of those, it weighs each project's next few jobs, projects with fewer jobs running first, then
+      priority, then age, and locks one with <code>FOR UPDATE SKIP LOCKED</code>, so workers never
+      wait on each other (<Adr n="0108" />, <Path p={Q} sym="def _shortlist(" />). Before handing it
+      over it checks the run again: the launcher must still have the tier's permission, the plugin
+      must still be attached, and the run's project must still be able to read everything pinned for
+      it (<PageLink to="Unreadable references" />). A run that fails one ends without starting. For a
+      batchable action, up to <code>batchable - 1</code> more queued jobs of the same batch, code,
+      image, tier and environment are packed into the leased one (<Adr n="0055" />, <Path
+        p={Q}
+        sym="def _pack("
+      />). The job gets a fresh <code>lease_token</code> and its expiry (<Path p={Q} sym="def lease(" />,{" "}
+      <Path p={Q} sym="LEASE_TTL = timedelta(seconds=60)" />).
+    </p>
+
+    <h3 id="protocol">One job between worker, server and storage</h3>
+    <p>
+      The calls between a worker, the server and object storage for one job. Paths are constants in
+      the generated protocol crate; the worker API's full route list is on <PageLink
+        to="Routes"
+        hash="worker">Routes</PageLink
+      >.
+    </p>
+    <Sequence
+      id="wire"
+      title="One job between worker, server and storage"
+      width={900}
+      actors={[
+        { id: "cmd", label: "Command", sub: "the action's process" },
+        { id: "worker", label: "iki-worker" },
+        { id: "server", label: "Server", sub: "/worker/v1" },
+        { id: "storage", label: "Object storage" },
+      ]}
+      steps={[
+        { phase: "Before any job" },
+        { id: "register", from: "worker", to: "server", label: "POST register (or PUT me): capacity, plugin code" },
+        { id: "plugins", from: "worker", to: "server", label: "GET plugins/{name}/{sha}, if it fetches code" },
+        { phase: "One job" },
+        { id: "lease", from: "worker", to: "server", label: "POST lease?wait=20" },
+        { id: "input", from: "server", to: "worker", label: "200 run-input/v1 with lease_token, or 204", dashed: true },
+        { id: "beat", from: "worker", to: "server", label: "heartbeat every 20 s; watch; logs" },
+        { id: "files", from: "worker", to: "server", label: "POST jobs/{id}/files/{file}: a signed URL" },
+        { id: "get", from: "worker", to: "storage", label: "GET the bytes; check size and SHA-256" },
+        { id: "spawn", from: "worker", to: "cmd", label: "run, with IKI_INPUT, IKI_OUTPUT, IKI_SEED" },
+        { id: "out", from: "cmd", to: "worker", label: "output.json, files in IKI_OUT_DIR", dashed: true },
+        { id: "up", from: "worker", to: "server", label: "POST uploads: part URLs" },
+        { id: "put", from: "worker", to: "storage", label: "PUT each part" },
+        { id: "complete", from: "worker", to: "server", label: "POST complete {lease_token, output}" },
+        { id: "status", from: "server", to: "worker", label: "run_status: succeeded, failed, rejected…", dashed: true },
+      ]}
+    >
+      <div slot="register">
+        <p>The answer is the worker's own token. The plugin code it states decides which runs it may lease (<Adr n={[43, 47]} />).</p>
+        <p><Path p={A} sym="def register(" />, <Path p={A} sym="def update_me(" /></p>
+      </div>
+      <div slot="plugins">
+        <p>Workers on people's machines and container pods fetch the plugin bundle by commit and check its SHA-256, then build its environment (<Adr n="0059" />).</p>
+        <p><Path p={A} sym="def download_plugin(" />, <Path p="worker/crates/iki-worker/src/bundles.rs" /></p>
+      </div>
+      <div slot="lease">
+        <p>An async long poll: the server waits up to 30 s; this worker asks for 20.</p>
+        <p><Path p="worker/crates/iki-worker/src/worker.rs" sym="const LEASE_WAIT" /></p>
+      </div>
+      <div slot="input">
+        <p>
+          The payload names each input and included record at its pinned revision with its values,
+          the plugin's name and commit, params, settings, files, proxy and secrets, and the job's
+          timeout and resources. The <code>input.json</code> the command reads keeps only the job's
+          ID, timeout and resources of that <code>job</code> section (<Adr n="0054" />).
+        </p>
+        <p><Path p={Q} sym="def payload(" />, <Path p={J} sym="fn stage_input(" /></p>
+      </div>
+      <div slot="beat">
+        <p>Each report carries the <code>lease_token</code>; a stale one gets 409 <code>stale_lease</code>. <code>watch</code> waits for a cancel, so it reaches the command at once.</p>
+        <p><Path p={Q} sym="def heartbeat(" />, <Path p={Q} sym="def _holds(" /></p>
+      </div>
+      <div slot="files">
+        <p>Only files the job's run input lists can be fetched, by URLs good for five minutes (<Adr n="0066" />).</p>
+        <p><Path p={A} sym="def download(" />, <Path p="server/src/iki_server/runs/input_files.py" sym="def download(" /></p>
+      </div>
+      <div slot="get">
+        <p>The worker fetches straight from storage with no Iki credentials, and checks what it got.</p>
+        <p><Path p="worker/crates/iki-worker/src/files.rs" /></p>
+      </div>
+      <div slot="spawn">
+        <p>
+          The command runs in its own process group from the plugin's directory, with only the
+          variables it needs, never the worker's token. Its network goes through the egress proxy
+          (<PageLink to="Network and secrets" />).
+        </p>
+        <p><Path p={J} sym={'"IKI_SEED"'} />, <Path p={J} sym="fn supervise(" /></p>
+      </div>
+      <div slot="out">
+        <p>A creates file (JSON Lines) can carry millions of records; the server stages it in chunks and writes it in one transaction (<Adr n="0056" />).</p>
+        <p><Path p="server/src/iki_server/runs/imports.py" /></p>
+      </div>
+      <div slot="up">
+        <p>Uploads land in object storage like any other upload (<PageLink to="Where data is stored" />).</p>
+        <p><Path p={A} sym="def start_upload(" /></p>
+      </div>
+      <div slot="put"><p>Multipart, straight to the bucket.</p></div>
+      <div slot="complete">
+        <p>A failing command posts <code>fail</code> with <code>failed</code>, <code>timed_out</code>, <code>interrupted</code> or <code>cancelled</code> instead.</p>
+        <p><Path p={A} sym="def complete(" />, <Path p={Q} sym="def complete(" /></p>
+      </div>
+      <div slot="status">
+        <p><code>running</code> means a bulk import is still committing; <code>parked</code> means the run waits on an outside API's job (<Adr n="0130" />).</p>
+      </div>
+    </Sequence>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Run and job states" open>
+        <p>Read from <Path p={M} sym="class RunStatus" /> and <Path p={M} sym="class JobState" />:</p>
+        <div class="pair">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Run</th><th>Note in the code</th></tr></thead>
+              <tbody>{runStates.map((s) => <tr><td><code>{s.value}</code></td><td>{s.note}</td></tr>)}</tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Job</th><th>Note in the code</th></tr></thead>
+              <tbody>{jobStates.map((s) => <tr><td><code>{s.value}</code></td><td>{s.note}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </div>
+      </Rule>
+      <Rule title="Heartbeats move a job only forward">
+        <p>
+          A heartbeat renews the lease and may move the job on: leased, staging, pending (only on a
+          Slurm cluster), running, uploading. It never goes back. A Slurm cluster's leases last ten
+          minutes, so a login node can reboot without losing a job (<Path p={Q} sym="PHASES = (" />,{" "}
+          <Path p="server/src/iki_server/runs/slurm.py" sym="LEASE_TTL = timedelta(minutes=10)" />).
+        </p>
+      </Rule>
+      <Rule title="Retries are new jobs">
+        <p>
+          When an attempt ends with a reason in the run's <code>retry_on</code> and attempts remain,
+          a new <code>Job</code> is queued with the next attempt number, 10 seconds times the attempt
+          later. By default an action is retried twice on <code>worker_lost</code> or{" "}
+          <code>interrupted</code>, and not at all if it declares hosts or outside APIs (<Path
+            p="spec/src/iki_spec/actions.py"
+            sym="retry_max="
+          />, <Path p={Q} sym="RETRY_BACKOFF = timedelta(seconds=10)" />). Otherwise the reason
+          decides how the run ends: a lost worker, an interruption, an unavailable machine or an
+          unplaceable job ends it failed; losing permission ends it rejected; a detached plugin ends
+          it cancelled (<Path p={Q} sym="def _end_attempt(" />).
+        </p>
+      </Rule>
+      <Rule title="Lost workers and timeouts">
+        <p>
+          The task runner ends attempts whose lease ran out as interrupted, and those running five
+          minutes past their timeout as timed out (<Path p={Q} sym="def recover_expired(" />, <Path
+            p={Q}
+            sym="TIMEOUT_GRACE = timedelta(minutes=5)"
+          />). The worker itself stops a command on cancel, timeout or a lost lease: SIGTERM to its
+          process group, then SIGKILL after 10 seconds (<Path p={J} sym="pub const STOP_GRACE" />).
+          Revoking a worker interrupts its jobs, which are retried elsewhere.
+        </p>
+      </Rule>
+      <Rule title="Cancelling">
+        <p>
+          Whoever may launch the run's tier in its project may cancel it. A run no worker holds ends
+          cancelled at once; otherwise its worker, watching the job, stops the command within a
+          second. A packed job stops once every run in it is cancelled (<Path
+            p="server/src/iki_server/runs/services.py"
+            sym="def cancel("
+          />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <h3>The worker API</h3>
+    <Routes doc="worker" />
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={Q} /></li>
+          <li><Path p={A} /></li>
+          <li><Path p="worker/crates/iki-worker/src" /></li>
+          <li><Path p="worker/crates/iki-protocol/src/generated.rs" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0010" title /></li>
+          <li><Adr n="0043" title /></li>
+          <li><Adr n="0046" title /></li>
+          <li><Adr n="0108" title /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Where the ADRs and code differ</h3>
+        <ul>
+          <li><Adr n="0108" /> names an index <code>iki_job_queued_by_project</code>; the code's is <code>iki_job_queued_by_labels</code>, since <Adr n="0112" /> added labels.</li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>
