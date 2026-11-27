@@ -1,0 +1,20 @@
+apiVersion: iki/v1
+kind: Action
+name: fit_5pl
+label: Fit a five-parameter logistic
+description: >-
+  The lab's own method. Each result records fit_version acme/5PL-WLS/1 and the review flow
+  matching the class it creates.
+inputs:
+  read: { type: iki/plate_assays.PlateRead, schema: ">=4", include: [measurements] }
+  sample: { type: iki/core.Entity }
+effects:
+  creates:
+    - {
+        type: iki/plate_assays.ResearchAssayResult,
+        cardinality: many,
+        derived_from: [read, sample],
+      }
+    - { type: iki/plate_assays.QCAssayResult, cardinality: many, derived_from: [read, sample] }
+runs_on: { tier: backend, environment: fits }
+command: [python, ./scripts/fit.py]

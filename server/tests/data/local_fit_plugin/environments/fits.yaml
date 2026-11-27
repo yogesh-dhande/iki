@@ -1,0 +1,7 @@
+apiVersion: iki/v1
+kind: Environment
+name: fits
+label: Local fits
+tiers: [backend]
+resources: { cpu: 0.25, memory: 512Mi }
+python: { version: "3.12", requirements: requirements.txt }

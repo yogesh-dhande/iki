@@ -49,7 +49,7 @@ def fit() -> dict[str, Any]:
     ]
     return {
         "fit_status": "fitted",
-        "fit_version": "Synthetic fit for display",
+        "fit_version": "4PL-OLS/1",
         "normalization": "none",
         "endpoint_kind": "IC50",
         "qualifier": "within_range",
@@ -110,6 +110,24 @@ def test_extrapolated_and_unreportable_results(
     assert page.locator("polyline.curve").count() == 0
     assert page.locator("circle.included").count() == 5
     assert not page.get_by_text("95% confidence interval", exact=False).count()
+    page.context.close()
+
+
+def test_only_the_shipped_method_s_curve_is_drawn(
+    browser: Browser, frame_server: str, fit: dict[str, Any]
+) -> None:
+    """A lab's own method may record a bottom, top and slope that mean another curve: its
+    endpoint, readings and parameters show, and no 4PL line is drawn for it."""
+    fit.update(fit_version="acme/5PL-WLS/1")
+    page = open_frame(browser, frame_server, MODULE, {"values": fit})
+    page.get_by_role("img", name="Concentration–response plot").wait_for()
+    assert page.get_by_text("1 uM", exact=True).is_visible()
+    assert page.get_by_text("95% confidence interval 0.8–1.2 uM").is_visible()
+    assert page.locator("polyline.curve").count() == 0
+    assert page.locator("circle.included").count() == 5
+    assert page.get_by_text("No line is drawn: this view draws only 4PL-OLS/1 fits.").is_visible()
+    assert page.get_by_text("acme/5PL-WLS/1", exact=True).is_visible()
+    assert page.get_by_text("Hill slope", exact=True).is_visible()
     page.context.close()
 
 

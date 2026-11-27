@@ -60,12 +60,20 @@ function responseAt(logDose, fit) {
   return fit.bottom + (fit.top - fit.bottom) / (1 + Math.exp(exponent));
 }
 
-function hasCurve(fit) {
+// The methods whose recorded parameters are this four-parameter logistic. A lab's own
+// method may name its parameters alike and mean another curve, so it isn't drawn.
+const DRAWN_METHODS = new Set(["4PL-OLS/1"]);
+
+function hasParameters(fit) {
   return (
     fit.fit_status === "fitted" &&
     fit.endpoint_value > 0 &&
     [fit.endpoint_value, fit.bottom, fit.top, fit.hill_slope].every(Number.isFinite)
   );
+}
+
+function hasCurve(fit) {
+  return DRAWN_METHODS.has(fit.fit_version) && hasParameters(fit);
 }
 
 function graph(fit, points) {
@@ -149,6 +157,8 @@ function graph(fit, points) {
   const key = ["Dots show included readings."];
   if (visible.some((p) => p.exclusion_reason)) key.push("Crosses show exclusions.");
   if (curve) key.push("The line shows the recorded four-parameter fit.");
+  else if (hasParameters(fit))
+    key.push(`No line is drawn: this view draws only ${[...DRAWN_METHODS].join(", ")} fits.`);
   if (visible.length !== points.length)
     key.push(`${visible.length} of ${points.length} readings have plottable positive doses.`);
   figure.append(node("figcaption", key.join(" ")));
@@ -209,7 +219,7 @@ class DoseResponse extends HTMLElement {
       this.shadowRoot.replaceChildren(node("style", STYLE), out);
       return;
     }
-    if (hasCurve(fit)) {
+    if (fit.fit_status === "fitted" && fit.endpoint_value > 0) {
       const qualifier = {
         within_range: "Within tested range",
         above_range: "Above tested range",
@@ -245,7 +255,7 @@ class DoseResponse extends HTMLElement {
       ["Method", fit.fit_version],
       ["Normalization", fit.normalization],
     ];
-    if (hasCurve(fit))
+    if (hasParameters(fit))
       fields.push(
         ["Bottom", number(fit.bottom)],
         ["Top", number(fit.top)],

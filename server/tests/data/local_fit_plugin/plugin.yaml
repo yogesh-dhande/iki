@@ -1,0 +1,11 @@
+apiVersion: iki/v1
+kind: Plugin
+name: acme/local_fits
+version: 0.1.0
+title: Local fits
+description: A lab's own, locally qualified dose-response fit, recorded as plate assay results.
+iki: ">=0.1"
+license: Apache-2.0
+dependencies:
+  iki/plate_assays:
+    types: { PlateRead: ">=4", ResearchAssayResult: ">=1", QCAssayResult: ">=1" }

@@ -155,10 +155,45 @@ def test_fit_from_committed_measurements(actions, flow, request_id, kind):
         "exclusion_reason": "bubble",
     }
     assert evidence["measurements"] == [point["reading"] for point in evidence["points"]]
+    assert evidence["fit_version"] == "4PL-OLS/1"
     with pytest.raises(ValueError, match="outside this sample"):
         actions.fit_output({**run, "params": {"exclusions": "A9: a control"}})
     with pytest.raises(ValueError, match="authenticated"):
         actions.fit_output({**run, "run": {}})
+
+
+def fit_run(read, **params):
+    return {
+        "run": {"requested_by": uid(8)},
+        "inputs": {"read": [read], "sample": [{"id": uid(6), "entry_id": uid(5)}]},
+        "settings": {"review_flow": "research"},
+        "params": params,
+    }
+
+
+def test_a_fit_names_its_method_and_version(actions):
+    read = committed_read(actions)
+    named = actions.fit_output(fit_run(read, method="4PL-OLS"))["creates"][0]["values"]
+    assert named == actions.fit_output(fit_run(read))["creates"][0]["values"]
+    assert named["fit_version"] == "4PL-OLS/1"
+    with pytest.raises(ValueError, match="fit method this plugin ships: 4PL-OLS"):
+        actions.fit_output(fit_run(read, method="5PL-WLS"))
+
+
+def test_the_result_class_is_the_flow_s_whatever_the_method(actions, monkeypatch):
+    read = committed_read(actions)
+    seen = []
+
+    def local(points, endpoint):
+        seen.append((len(points), endpoint))
+        return {"fit_status": "unreportable", "fit_version": "local/1", "fit_reason": "test"}
+
+    monkeypatch.setattr(actions, "methods", lambda: {"local": local})
+    (made,) = actions.fit_output(fit_run(read, method="local", endpoint_kind="EC50"))["creates"]
+    assert made["type"] == "iki/plate_assays.ResearchAssayResult"
+    assert seen == [(8, "EC50")]
+    assert made["values"]["fit_version"] == "local/1"
+    assert len(made["values"]["points"]) == 8
 
 
 def test_commit_requires_the_clean_preview_of_the_current_input(actions):
