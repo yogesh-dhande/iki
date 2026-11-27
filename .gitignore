@@ -39,6 +39,8 @@ server/src/iki_server/web/static/viewers/
 web/app/wasm/
 *.wasm
 spec/src/iki_spec/rust-standard-library.html
+# iki-wasm's pin, copied from server/ by iki-spec's build backend.
+spec/src/iki_spec/iki_wasm.wasm.sha256
 # The iki-writer SDK, copied in from worker/crates by iki-spec's build backend (ADR 0230).
 spec/src/iki_spec/writers/sdk/
 # The plugin runtime's wheel, built from runtime/ by scripts/build-plugin-runtime.sh (ADR 0288).

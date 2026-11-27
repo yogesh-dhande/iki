@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Any
 
 import chemistry
-import helm
 import iki_action as iki
 
 MONOMER = "iki/oligo.Monomer"
@@ -165,7 +164,7 @@ def _monomer_key(key: tuple[str, str]) -> str:
 
 def computed(helm_text: str, resolve: Resolver) -> tuple[dict[str, Any], list[chemistry.Monomer]]:
     """What's computed from an oligonucleotide's HELM: its values, and its monomers."""
-    read = helm.read(helm_text)
+    read = chemistry.read(helm_text)
     chemistry.check_joined(read)
     keys = chemistry.unique_keys(read)
     monomers = resolve(keys)
@@ -214,7 +213,7 @@ def register(run: Mapping[str, Any]) -> dict[str, Any]:
         oligo = oligo_create(params["helm"].strip(), resolve, extra)
     except chemistry.MissingError as missing:
         raise Refused(resolve.explain(missing)) from None
-    except helm.HelmError as why:
+    except chemistry.HelmError as why:
         raise Refused(str(why)) from None
     v = oligo["values"]
     print(f"{v['bases']}: {v['molecular_formula']}, {v['molecular_weight']} g/mol")
@@ -368,7 +367,7 @@ def import_file(run: Mapping[str, Any]) -> dict[str, Any]:
             resolve.used = before
             problems.append(f"Row {number}: {resolve.explain(missing)}")
             continue
-        except helm.HelmError as why:
+        except chemistry.HelmError as why:
             resolve.used = before
             problems.append(f"Row {number}: {why}")
             continue
@@ -424,7 +423,7 @@ def compute(run: Mapping[str, Any]) -> dict[str, Any]:
                 )
             )
             continue
-        except helm.HelmError as why:
+        except chemistry.HelmError as why:
             messages.append(message("error", f"{entity['hrid']}: {why}", entity["id"]))
             continue
         extra = sorted({m.label for m in resolve.given.values()} - {m.label for m in used})

@@ -326,6 +326,57 @@ def test_a_script_that_reads_with_the_plugin_runtime_runs_where_its_installed(
     assert "schema" in codes(make(tmp_path, ACTION, bad))
 
 
+def test_a_script_that_reads_helm_with_the_runtime_needs_its_helm_reader(tmp_path: Path) -> None:
+    """ADR 0288: `iki_runtime.helm` needs iki-wasm's module beside the package, which an
+    environment gets with `iki_runtime: { helm: true }`, and wasmtime, which it pins."""
+    files = {
+        "run.py": "import chemistry\n",
+        "chemistry.py": "from iki_runtime import helm as reader\n",
+    }
+    plain = BACKEND.replace(
+        "requirements: requirements.txt }", "requirements: requirements.txt, iki_runtime: true }"
+    )
+    message = only(make(tmp_path, ACTION, plain, files=files), "runtime-not-installed")
+    assert "`run.py` imports `iki_runtime.helm`" in message
+    for imported in ("import iki_runtime.helm\n", "from iki_runtime.helm import read\n"):
+        found = make(tmp_path, ACTION, plain, files={"run.py": imported})
+        assert codes(found) == ["runtime-not-installed"], imported
+    # Without the runtime at all, the hint says how to get its HELM reader with it.
+    missing = make(tmp_path, ACTION, BACKEND, files=files)
+    assert "iki_runtime: { helm: true }" in (missing.problems[0].hint or "")
+    helm = BACKEND.replace(
+        "requirements: requirements.txt }",
+        "requirements: requirements.txt, iki_runtime: { helm: true } }",
+    )
+    # Its requirements must pin wasmtime, which runs the module.
+    assert only(make(tmp_path, ACTION, helm, files=files), "helm-needs-wasmtime")
+    wasmtime = REQUIREMENTS + "wasmtime==51.0.0 \\\n    --hash=sha256:" + "b" * 64 + "\n"
+    loaded = make(tmp_path, ACTION, helm, files={**files, "requirements.txt": wasmtime})
+    assert loaded.problems == [], loaded.problems
+    assert loaded.plugin is not None
+    env = loaded.plugin.environments["tools"]
+    assert (env.iki_runtime, env.iki_runtime_helm) == (True, True)
+    assert plugin_from_dict(plugin_to_dict(loaded.plugin)) == loaded.plugin
+    # `{}` is the runtime without its HELM reader; a script that reads only FASTQ is fine.
+    bare = BACKEND.replace(
+        "requirements: requirements.txt }", "requirements: requirements.txt, iki_runtime: {} }"
+    )
+    fastq = make(tmp_path, ACTION, bare, files={"run.py": "from iki_runtime import fastq\n"})
+    assert fastq.problems == []
+    assert fastq.plugin is not None
+    assert (
+        fastq.plugin.environments["tools"].iki_runtime,
+        fastq.plugin.environments["tools"].iki_runtime_helm,
+    ) == (True, False)
+    assert "iki_runtime_helm" not in json.dumps(plugin_to_dict(fastq.plugin))
+    # Only a yes or no for the reader.
+    wrong = BACKEND.replace(
+        "requirements: requirements.txt }",
+        "requirements: requirements.txt, iki_runtime: { helm: 1, fasta: true } }",
+    )
+    assert "schema" in codes(make(tmp_path, ACTION, wrong))
+
+
 def test_an_environment_can_ask_its_deployment_for_an_image(tmp_path: Path) -> None:
     env = BACKEND.replace("[backend, self_hosted]", "[backend, self_hosted, container]")
     opt_in = env + "customer_image_required: true\nlabels: [local-tools]\n"

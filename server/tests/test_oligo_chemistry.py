@@ -1,16 +1,18 @@
 """The oligo plugin reads HELM as Iki does, and its chemistry doesn't depend on how HELM
-is written (61e; ADR 0144, 0145, 0146).
+is written (61e; ADR 0144, 0145, 0146, 0288).
 
-The plugin's runs read HELM in Python (plugins/oligo/scripts/helm.py), to build each
-molecule from its monomers. Iki reads it in iki-wasm, for identities and forms. Both must
-see the same monomers at the same positions, or a connection would join the wrong atoms:
-each HELM here is read by both and compared, position by position. And one molecule
-written two ways, one canonical HELM, must weigh the same.
+The plugin's runs read HELM with iki-wasm, through the plugin runtime's
+``iki_runtime.helm``, as Iki reads it for identities and forms, and build each molecule
+from its monomers. What they build from must be the reading's monomers at its positions,
+or a connection would join the wrong atoms: each HELM here is read by both and compared,
+position by position. And one molecule written two ways, one canonical HELM, must weigh
+the same.
 """
 
 import hashlib
 import importlib
 import sys
+from collections import Counter
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -26,19 +28,19 @@ def _modules(*names: str) -> tuple[ModuleType, ...]:
     """The plugin's scripts, imported as its runs import them (by bare name), without
     leaving those names to another plugin's scripts of the same name."""
     kept: dict[str, ModuleType] = {
-        n: sys.modules.pop(n) for n in ("helm", "chemistry", "oligos") if n in sys.modules
+        n: sys.modules.pop(n) for n in ("chemistry", "oligos") if n in sys.modules
     }
     sys.path.insert(0, str(SCRIPTS))
     try:
         return tuple(importlib.import_module(n) for n in names)
     finally:
         sys.path.remove(str(SCRIPTS))
-        for n in ("helm", "chemistry", "oligos"):
+        for n in ("chemistry", "oligos"):
             sys.modules.pop(n, None)
         sys.modules.update(kept)
 
 
-helm, chemistry, oligos = _modules("helm", "chemistry", "oligos")
+chemistry, oligos = _modules("chemistry", "oligos")
 
 READ_ALIKE = [
     "RNA1{R(A)P.R(C)P.R(G)}$$$$V2.0",
@@ -55,7 +57,7 @@ READ_ALIKE = [
 @pytest.mark.wasm
 @pytest.mark.parametrize("text", READ_ALIKE)
 def test_the_plugin_reads_each_position_as_iki_does(text: str) -> None:
-    ours = helm.read(text)
+    ours = chemistry.read(text)
     theirs = iki_helm.read(text)
     assert [p.id for p in ours.polymers] == [p["id"] for p in theirs["polymers"]]
     for mine, given in zip(ours.polymers, theirs["polymers"], strict=True):
@@ -87,7 +89,7 @@ SAME_MOLECULE = [
 def test_one_molecule_written_two_ways_weighs_the_same(one: str, other: str) -> None:
     assert iki_helm.canonical(one) == iki_helm.canonical(other)
     library = chemistry.library()
-    built = [chemistry.build(helm.read(t), library) for t in (one, other)]
+    built = [chemistry.build(chemistry.read(t), library) for t in (one, other)]
     formulas = {chemistry.formula(b.mol) for b in built}
     weights = {round(chemistry.average_weight(b.mol), 4) for b in built}
     assert len(formulas) == len(weights) == 1
@@ -97,7 +99,7 @@ def test_a_strands_bases_are_its_natural_analogues() -> None:
     """5-methylcytosine reads as C, and T on a ribose stays T: the base sequence a search
     finds a modified oligonucleotide by."""
     built = chemistry.build(
-        helm.read("RNA1{[MOE]([5meC])[sP].R(T)[sP].[cet](A)P.[fR](U)}$$$$V2.0"),
+        chemistry.read("RNA1{[MOE]([5meC])[sP].R(T)[sP].[cet](A)P.[fR](U)}$$$$V2.0"),
         chemistry.library(),
     )
     assert chemistry.bases(built) == "CTAU"
@@ -122,7 +124,7 @@ def test_phosphorothioate_stereo_reads_as_its_symbol_says() -> None:
     library = chemistry.library()
     labels = {}
     for link in ("Rsp", "Ssp", "sP"):
-        built = chemistry.build(helm.read(f"RNA1{{[dR](T)[{link}].[dR](T)}}$$$$V2.0"), library)
+        built = chemistry.build(chemistry.read(f"RNA1{{[dR](T)[{link}].[dR](T)}}$$$$V2.0"), library)
         labels[link] = chemistry.stereo_labels(built.mol)
     assert labels == {"Rsp": ["R"], "Ssp": ["S"], "sP": [""]}
 
@@ -226,12 +228,12 @@ def test_a_connection_after_a_repeated_group_joins_where_iki_reads_it() -> None:
     grouped, written_out = AFTER_A_GROUP
     assert iki_helm.canonical(grouped) == iki_helm.canonical(written_out)
     library = chemistry.library()
-    built = [chemistry.build(helm.read(t), library) for t in AFTER_A_GROUP]
+    built = [chemistry.build(chemistry.read(t), library) for t in AFTER_A_GROUP]
     assert len({chemistry.formula(b.mol) for b in built}) == 1
     assert len({round(chemistry.average_weight(b.mol), 4) for b in built}) == 1
     # And a position past the polymer's last is refused, as iki-wasm refuses it.
-    with pytest.raises(helm.HelmError, match="has 4"):
-        helm.read(grouped.replace("4:R2", "10:R2"))
+    with pytest.raises(chemistry.HelmError, match="has 4"):
+        chemistry.read(grouped.replace("4:R2", "10:R2"))
 
 
 @pytest.mark.parametrize(
@@ -239,8 +241,8 @@ def test_a_connection_after_a_repeated_group_joins_where_iki_reads_it() -> None:
 )
 def test_a_polymer_or_unit_without_a_monomer_isnt_helm(text: str) -> None:
     """As iki-wasm refuses them: "Expected a monomer"."""
-    with pytest.raises(helm.HelmError, match="no monomer"):
-        helm.read(text)
+    with pytest.raises(chemistry.HelmError, match="no monomer"):
+        chemistry.read(text)
 
 
 def _computed(text: str, *lab: Any) -> dict[str, Any]:
@@ -305,7 +307,7 @@ def test_a_labelled_atom_keeps_its_isotope_in_the_formula_and_weight() -> None:
 def test_a_group_not_joined_to_the_strand_isnt_part_of_it() -> None:
     """Adenosine (C10H13N5O4, 267.25 g/mol, PubChem CID 60961) with a 6-FAM written but
     not connected: two molecules, not one oligonucleotide."""
-    with pytest.raises(helm.HelmError, match="CHEM1 isn't joined to the strand"):
+    with pytest.raises(chemistry.HelmError, match="CHEM1 isn't joined to the strand"):
         _computed("RNA1{R(A)}|CHEM1{[5FAM]}$$$$V2.0")
     joined = _computed("RNA1{R(A)}|CHEM1{[5FAM]}$RNA1,CHEM1,1:R1-1:R1$$$V2.0")
     assert joined["modifications"] == ["5′ 6-FAM (6-carboxyfluorescein on a C6 amino linker)"]
@@ -505,3 +507,204 @@ def test_a_duplexs_sodium_salt_is_its_strands() -> None:
     assert values["molecular_weight"] == 13424.39
     assert values["molecular_weight_sodium"] == pytest.approx(14303.67, abs=0.01)
     assert values["molecular_weight_sodium"] == pytest.approx(14304, abs=0.5)
+
+
+# --- Vendors' published weights -----------------------------------------------------------
+#
+# IDT and LGC Biosearch publish, for each modification they sell, the weight it adds to an
+# oligonucleotide: "the increase in MW of the oligo upon addition of the modification and
+# includes attachment groups used to incorporate the modification into the sequence"
+# (IDT, https://www.idtdna.com/site/catalog/modifications), its phosphate among them.
+# Each is checked as that: the oligonucleotide with it, less the one without, both
+# free acids, as the plugin weighs them.
+#
+# Tolerance: half the value's last published digit, since it's rounded to it, and 0.01
+# g/mol more for the atomic weights it was computed with, which neither vendor states
+# (Biosearch's own pages give one unit 0.01 apart: 2'-OMe G is 359.24 on its amidite's
+# page and 359.23 on its modification's, BHQ-2 556.47 and 556.46). The plugin's are
+# CIAAW's abridged standard atomic weights.
+
+IDT_DEFINITIONS = "https://www.idtdna.com/calc/Analyzer/Home/definitions"
+IDT_PRODUCT = "https://www.idtdna.com/site/Catalog/Modifications/Product/{}"
+BIOSEARCH_PRODUCT = "https://www.biosearchtech.com/p/{}"
+BIOSEARCH_MODIFICATION = "https://oligos.biosearchtech.com/support/resources/oligo-modifications/{}"
+
+_T10 = ["[dR](T)"] * 10
+
+
+def _weight(text: str) -> float:
+    return float(chemistry.average_weight(chemistry.build(chemistry.read(text), LIBRARY).mol))
+
+
+def _counts(text: str) -> Counter[str]:
+    return Counter(chemistry.atom_counts(chemistry.build(chemistry.read(text), LIBRARY).mol))
+
+
+def _strand(units: list[str], link: str = "P") -> str:
+    return "RNA1{" + f"{link}.".join(units) + "}$$$$V2.0"
+
+
+def _with_5_prime(symbol: str) -> str:
+    """dT10 with a modifier on a 5′ phosphate, as a 5′ modification is joined."""
+    return "RNA1{P." + "P.".join(_T10) + "}|CHEM1{[" + symbol + "]}$RNA1,CHEM1,1:R1-1:R1$$$V2.0"
+
+
+def _tolerance(published: str) -> float:
+    digits = len(published.partition(".")[2])
+    return 0.5 * 10.0**-digits + 0.01
+
+
+LIBRARY = chemistry.library()
+
+#: (unit as HELM, its published weight as printed, source)
+NUCLEOTIDES = [
+    # IDT's OligoAnalyzer definitions, residue weights to 0.001 g/mol.
+    ("[dR](A)", "313.209", IDT_DEFINITIONS),
+    ("[dR](C)", "289.184", IDT_DEFINITIONS),
+    ("[dR](G)", "329.208", IDT_DEFINITIONS),
+    ("[dR](T)", "304.196", IDT_DEFINITIONS),
+    ("R(A)", "329.208", IDT_DEFINITIONS),  # "rA is dA (313.209) + 15.999 = 329.208"
+    ("[mR](A)", "343.235", IDT_DEFINITIONS),  # "mA is dA (313.209) + 30.026 = 343.235"
+    ("[LR](A)", "341.220", IDT_DEFINITIONS),  # "+A is dA (313.209) + 28.011 = 341.220"
+    # IDT's catalog, to 0.1 g/mol: 2′-F, 2′-MOE and 5-methyl-dC, alike at either end or inside.
+    ("[fR](A)", "331.2", IDT_PRODUCT.format(2792)),
+    ("[fR](C)", "307.2", IDT_PRODUCT.format(2310)),
+    ("[fR](G)", "347.2", IDT_PRODUCT.format(2794)),
+    ("[fR](U)", "308.2", IDT_PRODUCT.format(2308)),
+    ("[MOE](A)", "387.3", IDT_PRODUCT.format(48909)),
+    ("[MOE]([5meC])", "377.3", IDT_PRODUCT.format(48910)),
+    ("[MOE](G)", "403.3", IDT_PRODUCT.format(48911)),
+    ("[MOE](T)", "378.3", IDT_PRODUCT.format(48912)),
+    ("[dR]([5meC])", "303.2", IDT_PRODUCT.format(1101)),
+    # Biosearch's amidites, each its "Unit Wt.": 2′-OMe (LK2041, LK2043, LK2044, LK2045)
+    # and 2′-F (LK2079–LK2082).
+    ("[mR](A)", "343.24", BIOSEARCH_PRODUCT.format("NACJ1-005")),
+    ("[mR](C)", "319.21", BIOSEARCH_PRODUCT.format("NACJ1-005")),
+    ("[mR](G)", "359.24", BIOSEARCH_PRODUCT.format("NACJ1-005")),
+    ("[mR](U)", "320.20", BIOSEARCH_PRODUCT.format("NACJ1-005")),
+    ("[fR](C)", "307.18", BIOSEARCH_PRODUCT.format("NACJ5-001")),
+    ("[fR](U)", "308.16", BIOSEARCH_PRODUCT.format("NACJ5-001")),
+    ("[fR](A)", "331.20", BIOSEARCH_PRODUCT.format("NACJ5-001")),
+    ("[fR](G)", "347.19", BIOSEARCH_PRODUCT.format("NACJ5-001")),
+    # Biosearch's modifications, each "the mass this product adds after conjugation and
+    # work-up (the additional mass seen by mass spectrometry)".
+    ("[mR](A)", "343.23", BIOSEARCH_MODIFICATION.format("2rsquoomethyl-a")),
+    ("[mR](C)", "319.21", BIOSEARCH_MODIFICATION.format("2rsquoomethyl-c")),
+    ("[mR](G)", "359.23", BIOSEARCH_MODIFICATION.format("2rsquoomethyl-g")),
+    ("[mR](U)", "320.19", BIOSEARCH_MODIFICATION.format("2rsquoomethyl-u")),
+    ("[MOE](A)", "387.29", BIOSEARCH_MODIFICATION.format("moe-a")),
+    ("[MOE](G)", "403.29", BIOSEARCH_MODIFICATION.format("moe-g")),
+    ("[MOE](T)", "378.27", BIOSEARCH_MODIFICATION.format("2-o-moe-thymidine")),
+    (
+        "[dR]([5meC])",
+        "303.21",
+        BIOSEARCH_MODIFICATION.format("5-methyl-deoxycytidine-internal-modification"),
+    ),
+]
+
+
+@pytest.mark.wasm
+@pytest.mark.parametrize(("unit", "published", "source"), NUCLEOTIDES)
+def test_a_nucleotide_adds_the_weight_its_vendor_publishes(
+    unit: str, published: str, source: str
+) -> None:
+    """A nucleotide and its phosphate, put in the middle of dT10."""
+    added = _weight(_strand([*_T10[:5], unit, *_T10[5:]])) - _weight(_strand(_T10))
+    assert added == pytest.approx(float(published), abs=_tolerance(published)), source
+
+
+MODIFIERS = [
+    ("5FAM", "537.5", IDT_PRODUCT.format(1108)),  # /56-FAM/
+    ("BHQ1", "554.5", IDT_PRODUCT.format(2584)),  # /5BHQ_1/
+    ("BHQ2", "556.5", IDT_PRODUCT.format(2585)),  # /5BHQ_2/
+    ("5Cy3", "506.6", IDT_PRODUCT.format(1106)),  # /5Cy3/
+    ("5Cy5", "532.6", IDT_PRODUCT.format(1107)),  # /5Cy5/
+    ("5BioTEG", "481.5", IDT_PRODUCT.format(8859)),  # /5BiotinTEG/
+    ("nC6o", "179.2", IDT_PRODUCT.format(1082)),  # /5AmMC6/
+    ("SpC3", "138.1", IDT_PRODUCT.format(1087)),  # /5SpC3/
+    ("5FAM", "537.46", BIOSEARCH_PRODUCT.format("NACI1-010")),  # 6-FAM, LK2134
+    ("nC6o", "179.16", BIOSEARCH_PRODUCT.format("NACG1-020")),  # LK2123, LK2124
+    ("SpC3", "138.06", BIOSEARCH_PRODUCT.format("NACM1-017")),  # LK2113
+    ("BHQ1", "554.49", BIOSEARCH_PRODUCT.format("NACI6-001")),  # LK2379
+    ("BHQ2", "556.47", BIOSEARCH_PRODUCT.format("NACI6-001")),  # LK2380
+    (
+        "BHQ1",
+        "554.49",
+        BIOSEARCH_MODIFICATION.format("bhq1-dark-quencher44-abs-480580-nm-5-modification"),
+    ),
+    (
+        "BHQ2",
+        "556.46",
+        BIOSEARCH_MODIFICATION.format("bhq2-dark-quencher44-abs-560670-nm-5-modification"),
+    ),
+    ("nC6o", "179.15", BIOSEARCH_MODIFICATION.format("amino-c6-linker-ahe-x5-modification")),
+    ("SpC3", "138.06", BIOSEARCH_MODIFICATION.format("spacer-3-c3-internal-modification")),
+]
+
+
+@pytest.mark.wasm
+@pytest.mark.parametrize(("symbol", "published", "source"), MODIFIERS)
+def test_a_modification_adds_the_weight_its_vendor_publishes(
+    symbol: str, published: str, source: str
+) -> None:
+    """A modifier on dT10's 5′ end, through the phosphate it's coupled with. Cy3 and Cy5
+    are IDT's alone: Biosearch weighs them as the dye's cation with its phosphate
+    protonated, 1.008 more (Cy3's unit is 507.59 on its page, NACI2-001), where the plugin,
+    as IDT does, weighs the inner salt."""
+    added = _weight(_with_5_prime(symbol)) - _weight(_strand(_T10))
+    assert added == pytest.approx(float(published), abs=_tolerance(published)), source
+
+
+@pytest.mark.wasm
+@pytest.mark.parametrize(
+    ("symbol", "published", "slug"),
+    [
+        ("BHQ1", "C25H27N6O8P", "bhq1-dark-quencher44-abs-480580-nm-5-modification"),
+        ("BHQ2", "C24H25N6O9P", "bhq2-dark-quencher44-abs-560670-nm-5-modification"),
+        ("nC6o", "C6H14NO4P", "amino-c6-linker-ahe-x5-modification"),
+    ],
+)
+def test_a_5_prime_modification_adds_the_atoms_biosearch_publishes(
+    symbol: str, published: str, slug: str
+) -> None:
+    """Biosearch's formula for a 5′ modification is what it adds and the 5′ oxygen it's
+    joined through: BHQ-1's C25H27N6O8P is 570.49, and the 554.49 it adds is that less
+    an oxygen's 16.00 (the same holds on each page here)."""
+    added = _counts(_with_5_prime(symbol))
+    added.subtract(_counts(_strand(_T10)))
+    added["O"] += 1
+    assert chemistry.hill(+added) == published, BIOSEARCH_MODIFICATION.format(slug)
+
+
+@pytest.mark.wasm
+def test_a_mixmer_weighs_what_idts_oligoanalyzer_computes() -> None:
+    """IDT's whole-oligo weight: "Anhydrous MW = Individual Base MW + Individual Mod MW -
+    PO2H + H2 where PO2H = 63.980 and H2 = 2.016", with each phosphorothioate "+ 16.061"
+    (IDT_DEFINITIONS). 5′-mA*+A*C*G*mU-3′: 2′-OMe A, LNA A, dC, dG and 2′-OMe U (dU's
+    290.169 + 30.026), all phosphorothioates. Tolerance as above, for each of its five
+    nucleotides' weights."""
+    text = _strand(["[mR](A)", "[LR](A)", "[dR](C)", "[dR](G)", "[mR](U)"], "[sP]")
+    idt = 343.235 + 341.220 + 289.184 + 329.208 + (290.169 + 30.026) + 4 * 16.061
+    assert _weight(text) == pytest.approx(idt - 63.980 + 2.016, abs=5 * _tolerance("0.001"))
+
+
+@pytest.mark.wasm
+def test_inotersen_is_the_molecule_its_label_describes() -> None:
+    """Inotersen (Tegsedi), a 5-10-5 2′-MOE gapmer, every linkage a phosphorothioate.
+    FDA's label, section 11, names it in full, "d(P-thio)([2'-O-(2-methoxyethyl)]m5rU-
+    [2'-O-(2-methoxyethyl)]m5rC-[…]m5rU-[…]m5rU-[…]rG-G-T-T-A-m5C-A-T-G-A-A-[…]rA-[…]m5rU-
+    […]m5rC-[…]m5rC-[…]m5rC)", and gives "inotersen free base" as C230H318N69O121P19S19,
+    7183.08, and its sodium salt as C230H299N69Na19O121P19S19, 7600.73 Da
+    (https://dailymed.nlm.nih.gov/dailymed/services/v2/spls/8513207e-b55f-417b-9473-af785146a543.xml).
+    m5rU is thymine on the sugar; tolerance as above, for each of its 20 nucleotides."""
+    moe, d = "[MOE]({})", "[dR]({})"
+    units = [
+        *(moe.format(b) for b in ("T", "[5meC]", "T", "T", "G")),
+        *(d.format(b) for b in ("G", "T", "T", "A", "[5meC]", "A", "T", "G", "A", "A")),
+        *(moe.format(b) for b in ("A", "T", "[5meC]", "[5meC]", "[5meC]")),
+    ]
+    built = chemistry.build(chemistry.read(_strand(units, "[sP]")), LIBRARY)
+    assert chemistry.formula(built.mol) == "C230H318N69O121P19S19"
+    assert chemistry.average_weight(built.mol) == pytest.approx(7183.08, abs=_tolerance("0.01"))
+    sodium = chemistry.sodium_salt_weight(built.mol)
+    assert sodium == pytest.approx(7600.73, abs=_tolerance("0.01"))

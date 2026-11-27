@@ -177,6 +177,8 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
 
 def read_environment(plugin: str, body: dict[str, Any], document: Document) -> Environment:
     python = body.get("python") or {}
+    # `true`, or `{ helm: true }` for the HELM reader too (ADR 0288).
+    runtime = python.get("iki_runtime", (body.get("conda") or {}).get("iki_runtime", False))
     setup = body.get("setup") or {}
     name = body["name"]
     return Environment(
@@ -192,7 +194,8 @@ def read_environment(plugin: str, body: dict[str, Any], document: Document) -> E
         python_version=python.get("version"),
         requirements=python.get("requirements"),
         conda_lockfile=(body.get("conda") or {}).get("lockfile"),
-        iki_runtime=bool(python.get("iki_runtime") or (body.get("conda") or {}).get("iki_runtime")),
+        iki_runtime=runtime is True or isinstance(runtime, dict),
+        iki_runtime_helm=isinstance(runtime, dict) and runtime.get("helm") is True,
         volumes={
             n: Volume(
                 name=n,
@@ -328,6 +331,19 @@ class _Rules:
             text = self.file(env.requirements, source, ("python", "requirements"))
             if text is not None:
                 self.requirements(text, source)
+                if env.iki_runtime_helm and not any(
+                    re.match(r"wasmtime\s*==", line, re.IGNORECASE)
+                    for _, line in _logical_lines(text)
+                ):
+                    self.add(
+                        "helm-needs-wasmtime",
+                        "It installs the plugin runtime's HELM reader, which runs iki-wasm "
+                        "with wasmtime, and its requirements don't pin wasmtime.",
+                        source,
+                        ("python", "iki_runtime"),
+                        hint="Add `wasmtime` to the requirements, pinned and hashed: Iki's own "
+                        "plugins pin wasmtime==51.0.0.",
+                    )
         if env.conda_lockfile is not None:
             text = self.file(env.conda_lockfile, source, ("conda", "lockfile"))
             if text is not None:
@@ -1011,24 +1027,41 @@ class _Rules:
 
     def runtime(self, action: Action, script: str, source: Document, path: Path) -> None:
         """A script that imports the plugin runtime runs where it's installed (ADR 0288):
-        in an environment Iki builds that declares it. An image's is the image's own."""
+        in an environment Iki builds that declares it, with its HELM reader if it imports
+        ``iki_runtime.helm``. An image's is the image's own."""
         env = self.plugin.environments.get(action.environment)
-        if env is None or env.iki_runtime:
+        if env is None or (env.iki_runtime and env.iki_runtime_helm):
             return
         if env.requirements is None and env.conda_lockfile is None:
             return
         target = self.root / script
         if target.suffix != ".py" or not self._inside(target) or not target.is_file():
             return
-        if _imports_runtime(target):
+        imported = _imports_runtime(target)
+        section = "python" if env.requirements is not None else "conda"
+        if "iki_runtime" in imported and not env.iki_runtime:
             self.add(
                 "runtime-not-installed",
                 f"`{script}` imports `iki_runtime`, and the `{env.name}` environment it runs "
                 "in doesn't install it.",
                 source,
                 path,
-                hint=f"Add `iki_runtime: true` to `{env.name}`'s "
-                f"`{'python' if env.requirements is not None else 'conda'}`.",
+                hint=f"Add `iki_runtime: true` to `{env.name}`'s `{section}`"
+                + (
+                    ", as `iki_runtime: { helm: true }` for its HELM reader."
+                    if "helm" in imported
+                    else "."
+                ),
+            )
+        elif "helm" in imported and not env.iki_runtime_helm:
+            self.add(
+                "runtime-not-installed",
+                f"`{script}` imports `iki_runtime.helm`, which reads HELM with iki-wasm's "
+                f"module, and the `{env.name}` environment it runs in doesn't install it.",
+                source,
+                path,
+                hint=f"Write `iki_runtime: {{ helm: true }}` in `{env.name}`'s `{section}`, and "
+                "pin wasmtime in its packages.",
             )
 
     def reach(self, action: Action, source: Document) -> None:
@@ -1211,11 +1244,13 @@ def _drives(f: Field) -> bool:
     return kind in {"enum", "bool", "int", "float", "quantity"}
 
 
-def _imports_runtime(script: FilePath) -> bool:
-    """Whether ``script``, or a module beside it that it imports (as ``python script``
-    finds them), imports ``iki_runtime``."""
+def _imports_runtime(script: FilePath) -> set[str]:
+    """What of the plugin runtime ``script``, or a module beside it that it imports (as
+    ``python script`` finds them), imports: ``iki_runtime`` for any of it, and ``helm``
+    as well for ``iki_runtime.helm``, which needs more than the package."""
     seen: set[FilePath] = set()
     pending = [script]
+    found: set[str] = set()
     while pending:
         file = pending.pop()
         if file in seen:
@@ -1230,13 +1265,18 @@ def _imports_runtime(script: FilePath) -> bool:
                 names = [alias.name for alias in node.names]
             elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
                 names = [node.module]
+                if node.module == "iki_runtime":
+                    names += [f"iki_runtime.{alias.name}" for alias in node.names]
             else:
                 continue
             for name in names:
-                top = name.split(".")[0]
-                if top == "iki_runtime":
-                    return True
-                local = script.parent / f"{top}.py"
+                parts = name.split(".")
+                if parts[0] == "iki_runtime":
+                    found.add("iki_runtime")
+                    if parts[1:2] == ["helm"]:
+                        found.add("helm")
+                    continue
+                local = script.parent / f"{parts[0]}.py"
                 if local.is_file() and not local.is_symlink():
                     pending.append(local)
-    return False
+    return found

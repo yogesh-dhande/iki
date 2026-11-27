@@ -4,6 +4,9 @@ files labs' instruments and pipelines write (ADR 0288).
 - :mod:`iki_runtime.text`: a file's text or bytes, decompressed by its first bytes.
 - :mod:`iki_runtime.fastq`: FASTQ reads.
 - :mod:`iki_runtime.airr`: AIRR rearrangements.
+- :mod:`iki_runtime.helm`: HELM, read by iki-wasm as Iki reads it (it needs wasmtime,
+  and iki-wasm's module, which an environment declaring ``iki_runtime: { helm: true }``
+  has).
 
 Each Iki release ships this package at its own version, and an environment that declares
 ``iki_runtime: true`` has the release's copy installed. A lab's own image installs

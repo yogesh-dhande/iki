@@ -99,6 +99,35 @@ image the validator says nothing.
 The sequencing, sequencing analysis, antibody rearrangements, proteomics and plasmid
 sequencing plugins now read with it, and each copy they had is gone.
 
+### HELM
+
+`iki_runtime.helm` reads HELM with iki-wasm, the Rust reader Iki's forms, identities
+and server read it with, so a plugin's chemistry sees the canonical reading Iki stores:
+polymers in canonical order and numbered again, fixed repeats written out, rings at
+their least rotation, each monomer at its canonical position. The oligo plugin reads
+with it, and its own HELM reader is gone.
+
+- **The wheel stays standard-library only and byte-reproducible.** The module isn't in
+  it: it's iki-wasm's own build, the one iki-spec carries and `server/iki_wasm.wasm.sha256`
+  pins. `iki_runtime.helm` imports wasmtime only when it reads HELM, and declares it as
+  the package's `helm` extra; the rest of the runtime imports nothing else.
+- **An environment opts in with `iki_runtime: { helm: true }`** (`iki_runtime: true` is
+  the runtime without it). Its requirements pin wasmtime, as the dna plugin's do
+  (`helm-needs-wasmtime` otherwise), and a script that imports `iki_runtime.helm` in an
+  environment that doesn't opt in is refused (`runtime-not-installed`).
+- **The module travels beside the wheel.** A bundle carries it at
+  `.iki-runtime/iki_wasm.wasm`, `GET /worker/v1/plugins` names it (`runtime_wasm`), and
+  its SHA-256 joins the build digest as `iki_wasm_sha256`, computed alike by
+  `iki deploy build` and the worker. A pinned build, and any build on Linux x86-64, the
+  platform the pin is of, refuses other bytes.
+- **The environment has it at a fixed place**, `share/iki-runtime/iki_wasm.wasm` under
+  its prefix, since a worker passes actions no environment of their own. The build
+  compiles it there for its machine (`python -m iki_runtime.helm precompile`), so a run
+  loads it in milliseconds rather than compiling it for seconds; compiled code that
+  isn't a regular file only its owner can write is ignored and the module compiled
+  again. Elsewhere `$IKI_RUNTIME_WASM` names it, and a Python with iki-spec (Iki's
+  checkout, `iki plugin test`) uses iki-spec's.
+
 ## Consequences
 
 - Two plugins can no longer count the same FASTQ file's reads differently, or give
@@ -114,6 +143,10 @@ sequencing plugins now read with it, and each copy they had is gone.
   Iki's repository.
 - The conda environment's lockfile must include Python, and its worker needs uv, as
   Python environments already do.
+- An Iki upgrade that changes iki-wasm rebuilds the environments with its HELM reader,
+  as one that changes the wheel rebuilds those with the runtime.
+- A lab's own image that reads HELM with the runtime brings the module itself, from its
+  Iki's iki-spec, at the fixed place or named by `$IKI_RUNTIME_WASM`.
 - PyPI's pending publisher for `iki-plugin-runtime` has to exist before the first
   tagged release. It names this repository, `release.yml` and the `pypi` environment.
 

@@ -11,3 +11,6 @@
 # library (MIT). It needs numpy and Pillow. The same
 # release as the small_molecule plugin's.
 rdkit==2026.9.2
+# Runs iki-wasm, Iki's HELM reader, which the plugin runtime's HELM reader calls
+# (`iki_runtime: { helm: true }`, ADR 0288). The same release as the dna plugin's.
+wasmtime==51.0.0

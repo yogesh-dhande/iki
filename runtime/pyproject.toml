@@ -3,15 +3,16 @@ name = "iki-plugin-runtime"
 # Iki's release version, as deploy/helm/iki/Chart.yaml writes it: each release ships
 # this wheel at its own version (ADR 0288), and the release refuses a tag it doesn't match.
 version = "0.1.0-dev.0"
-description = "The readers Iki's plugins' actions share: compressed text, FASTQ and AIRR rearrangements."
+description = "The readers Iki's plugins' actions share: compressed text, FASTQ, AIRR rearrangements and HELM."
 readme = "README.md"
 # Python's standard library only, for Python 3.8 or later, as Iki's action helper is: it
-# installs into environments Iki builds and into images labs bring.
+# installs into environments Iki builds and into images labs bring. Only its HELM reader
+# needs more: wasmtime (the `helm` extra), and the module of the Iki that runs it.
 requires-python = ">=3.8"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "The Iki Authors" }]
-keywords = ["iki", "fastq", "airr", "bioinformatics"]
+keywords = ["iki", "fastq", "airr", "helm", "bioinformatics"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
@@ -21,6 +22,11 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = []
+
+[project.optional-dependencies]
+# `iki_runtime.helm` runs iki-wasm, Iki's HELM reader, with wasmtime, which it imports only
+# when it reads HELM. An environment Iki builds pins it in its own requirements.
+helm = ["wasmtime>=51.0.0"]
 
 [project.urls]
 Homepage = "https://ikisci.org"

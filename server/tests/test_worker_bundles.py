@@ -125,6 +125,61 @@ def test_a_worker_is_told_where_its_bundle_carries_the_plugin_runtime(
         assert hashlib.sha256(member.read()).hexdigest() == wheel.sha256
 
 
+def test_a_worker_is_told_where_its_bundle_carries_iki_wasm_for_the_helm_reader(
+    world: World, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR 0288: an environment with the plugin runtime's HELM reader names iki-wasm's
+    module its bundle carries, whose SHA-256 the worker puts in the digest it computes."""
+    import shutil
+    import tarfile
+
+    from iki_spec import plugin_runtime
+
+    module = tmp_path / "carried" / "iki_wasm.wasm"
+    module.parent.mkdir()
+    module.write_bytes(b"\x00asm\x01\x00\x00\x00 iki-wasm")
+    digest = hashlib.sha256(module.read_bytes()).hexdigest()
+    monkeypatch.setattr(
+        plugin_runtime, "wasm", lambda: plugin_runtime.Module(module, digest, digest)
+    )
+    directory = tmp_path / "protein"
+    shutil.copytree(PLUGINS / "protein", directory)
+    (directory / "requirements.txt").write_text("wasmtime==51.0.0 --hash=sha256:" + "b" * 64 + "\n")
+    env = directory / "environments" / "protein-tools.yaml"
+    env.write_text(
+        env.read_text().replace(
+            "requirements: requirements.txt }",
+            "requirements: requirements.txt, iki_runtime: { helm: true } }",
+        )
+    )
+    loaded = load_plugin(directory, dependencies=[PLUGINS / "dna"])
+    assert loaded.plugin is not None, loaded.problems
+    out = tmp_path / "bundles"
+    out.mkdir()
+    bundle = out / f"acme__protein-{SHA}.tar.gz"
+    built = bundles.environments(loaded.plugin, directory)
+    entry = {
+        "name": "acme/protein",
+        "version": loaded.plugin.version,
+        "sha": SHA,
+        "state": "active",
+        "bundle": bundles.bundle(
+            "acme/protein", directory, bundle, runtime=True, helm=True, pinned=True
+        ),
+        "environments": built,
+    }
+    monkeypatch.setattr(registry, "installed", lambda: {"plugins": [entry]})
+    monkeypatch.setattr(registry, "bundles", lambda: out)
+    (listed,) = pod(world).call("GET", "/plugins").json()["plugins"]
+    tools = listed["environments"]["protein-tools"]
+    assert tools["runtime_wasm"] == ".iki-runtime/iki_wasm.wasm"
+    assert tools["digest"] == built["protein-tools"]["digest"]
+    with tarfile.open(bundle) as tar:
+        member = tar.extractfile(tools["runtime_wasm"])
+        assert member is not None
+        assert hashlib.sha256(member.read()).hexdigest() == digest
+
+
 def test_workers_download_a_plugins_code(
     world: World, installed: dict[str, Any], tmp_path: Path
 ) -> None:

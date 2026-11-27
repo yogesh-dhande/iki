@@ -71,6 +71,8 @@ def test_from_a_checkout_it_builds_iki_wasm_first(tmp_path: Path) -> None:
         "printf notice > spec/src/iki_spec/rust-standard-library.html",
     )
     (project / "src" / "iki_spec" / "iki_wasm.wasm").write_text("stale")
+    (tmp_path / "server").mkdir()
+    (tmp_path / "server" / "iki_wasm.wasm.sha256").write_text("ab" * 32 + "\n")
     for script, carried in backend().PLUGIN_MODULES.items():
         build = tmp_path / "scripts" / script
         build.write_text(
@@ -82,6 +84,8 @@ def test_from_a_checkout_it_builds_iki_wasm_first(tmp_path: Path) -> None:
     built = backend().ensure_wasm(project)
 
     assert built.read_text() == "wasm"
+    # With the digest Iki pins for it, which `iki deploy build` checks it by (ADR 0288).
+    assert built.with_name("iki_wasm.wasm.sha256").read_text() == "ab" * 32 + "\n"
     modules = project / "src" / "iki_spec" / "modules"
     assert sorted(p.name for p in modules.iterdir()) == ["oligo-checks.wasm", "plasmid-tools.wasm"]
 

@@ -1525,21 +1525,30 @@ Readers that every plugin would otherwise write for itself come in Iki's plugin
 runtime, `iki_runtime` ([ADR 0288](../docs/adr/0288-plugins-share-readers-from-the-runtime-each-release-ships.md)):
 `iki_runtime.text` opens a file decompressed by its first bytes (gzip and BGZF,
 bzip2, xz), `iki_runtime.fastq` reads FASTQ, wrapped or not, and `iki_runtime.airr`
-reads AIRR rearrangements and a row's locus. An environment Iki builds declares it, and
-gets the copy its Iki release ships, which isn't listed in the requirements file:
+reads AIRR rearrangements and a row's locus, and `iki_runtime.helm` reads HELM with
+iki-wasm, as Iki reads it, into its canonical reading. An environment Iki builds declares
+it, and gets the copy its Iki release ships, which isn't listed in the requirements file:
 
 ```yaml
 python: { version: "3.12", requirements: requirements.txt, iki_runtime: true }
 # or, into the conda environment's Python
 conda: { lockfile: conda/tools-lock.yml, iki_runtime: true }
+# with its HELM reader, and wasmtime==51.0.0 pinned in the requirements
+python: { version: "3.12", requirements: requirements.txt, iki_runtime: { helm: true } }
 ```
 
 The wheel's SHA-256 is part of the environment's build, so an Iki upgrade that changes
 it rebuilds the environment, and a worker installs no other bytes. A script that imports
 `iki_runtime`, or imports a module beside it that does, in an environment that doesn't
-declare it is refused (`runtime-not-installed`). An image installs it from PyPI at its
+declare it is refused (`runtime-not-installed`), and so is one that imports
+`iki_runtime.helm` where it isn't `{ helm: true }`. With its HELM reader, iki-wasm's
+module goes into the environment at `share/iki-runtime/iki_wasm.wasm`, compiled there
+for its machine, and its SHA-256 is part of the build too; the requirements pin
+wasmtime, which runs it (`helm-needs-wasmtime`). An image installs it from PyPI at its
 Iki's version (`pip install iki-plugin-runtime==0.4.0`), and so does the Python that
-`iki plugin test` runs a plugin's commands with.
+`iki plugin test` runs a plugin's commands with; an image that reads HELM puts iki-wasm's
+module, from its Iki's iki-spec, at that place under its Python's prefix or names it in
+`$IKI_RUNTIME_WASM`.
 
 An environment with a container or VM tier can set `customer_image_required: true` in
 place of `image`. The deployment supplies the digest for those tiers in an
@@ -3007,7 +3016,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `trigger-unknown-action`, `trigger-unknown-input`, `trigger-input-ambiguous`, `trigger-input-missing`, `trigger-wrong-type`, `trigger-fields-not-updated`, `trigger-state-not-state-changed`, `trigger-state-field-missing`, `trigger-not-a-state-field`, `trigger-field-is-state`, `trigger-unknown-param`, `trigger-invalid-param`, `trigger-param-missing`, `trigger-type-missing`, `trigger-schedule-missing`, `trigger-schedule-invalid`, `trigger-schedule-never`, `trigger-schedule-entity`, `trigger-schedule-not-scheduled`, `trigger-timezone-unknown`, `duplicate-trigger`, `trigger-received-not-a-request`, `trigger-input-from-project` | Triggers                        |
 | `duplicate-component`, `element-twice`, `component-too-big`, `missing-file`, `unreadable-file`, `symlink`, `slot-needs-entities`, `slot-twice`, `home-not-personal`, `tab-on-every-record`, `unknown-operator`, `unsortable-field`, `unknown-context`, `context-misplaced`, `search-too-big`                                                                                                                                                                                                                                                                                                                                                          | Components                      |
 | `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Environments                    |
-| `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`, `conda-lock-name`, `runtime-not-installed`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Pinned packages                 |
+| `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`, `conda-lock-name`, `runtime-not-installed`, `helm-needs-wasmtime`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Pinned packages                 |
 | `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-calls-api`, `setup-fills-nothing` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Volumes and setup               |
 | `not-a-test`, `duplicate-test`, `unknown-action`, `unknown-param`, `missing-param`, `unknown-input`, `missing-input`, `input-count`, `wrong-type`, `unknown-field`, `unknown-file`, `missing-file`, `unknown-setting`, `not-a-request`                                                                                                                                                                                                                                                                                                                                                                                                                | Action tests                    |
 | `duplicate-template`, `duplicate-binding`, `unknown-kind`, `wrong-provisioner`, `gpu-wrong-tier`, `limit-needs-persistent`, `fallback-without-spot`, `root-disk-too-small`, `volume-strategy-unsupported`, `fast-restore-wrong-strategy`, `volume-option-kubernetes-only`, `snapshot-class-wrong-strategy`, `mixed-currencies`; `unpriced-template` (warning)                                                                                                                                                                                                                                                                                         | Compute templates               |

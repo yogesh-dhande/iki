@@ -1500,6 +1500,9 @@ class Environment:
     conda_lockfile: str | None = None  # a path in the plugin
     #: The plugin runtime this release ships is installed in it (ADR 0288).
     iki_runtime: bool = False
+    #: And iki-wasm's module beside it, for ``iki_runtime.helm`` (``iki_runtime: { helm:
+    #: true }``).
+    iki_runtime_helm: bool = False
     volumes: dict[str, Volume] = field(default_factory=dict)
     setup_script: str | None = None  # a path in the plugin
     setup_timeout: int | None = None  # seconds
@@ -2036,7 +2039,7 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
                 isinstance(value, EntityType) and f.name == "list_spec" and value.list_spec is None
             )
             and not (
-                f.name in {"customer_image_required", "iki_runtime"}
+                f.name in {"customer_image_required", "iki_runtime", "iki_runtime_helm"}
                 and isinstance(value, Environment)
                 and not getattr(value, f.name)
             )

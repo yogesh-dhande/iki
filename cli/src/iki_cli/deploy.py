@@ -465,6 +465,7 @@ def _bundles(fetched: list[_Fetched], output: Path) -> dict[str, dict[str, Any]]
                 output / f"{naming.app_label(item.entry.name)}-{item.entry.sha or LOCAL}.tar.gz",
                 pinned=item.entry.sha is not None,
                 runtime=workers.wants_runtime(item.plugin),
+                helm=workers.wants_helm(item.plugin),
             )
         except (ValueError, plugin_runtime.UnavailableError) as error:
             raise ValueError(f"{item.label}: {error}") from None

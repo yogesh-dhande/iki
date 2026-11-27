@@ -1291,6 +1291,15 @@ name = "iki-plugin-runtime"
 version = "0.1.0.dev0"
 source = { editable = "runtime" }
 
+[package.optional-dependencies]
+helm = [
+    { name = "wasmtime" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "wasmtime", marker = "extra == 'helm'", specifier = ">=51.0.0" }]
+provides-extras = ["helm"]
+
 [[package]]
 name = "iki-server"
 version = "0.1.0.dev0"
