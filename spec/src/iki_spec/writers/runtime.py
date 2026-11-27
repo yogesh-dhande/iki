@@ -20,8 +20,20 @@ from typing import Any
 import wasmtime
 
 from iki_spec.writers.check import ABI, ABI_VERSION
+from iki_spec.writers.limits import (
+    DEFAULT_LIMITS,
+    FUEL_BASE,
+    FUEL_PER_BYTE,
+    MAX_MEMORY,
+    MAX_NOTE_CHARS,
+    MAX_NOTES,
+    MAX_OUTPUT,
+    MAX_REQUEST,
+    Limits,
+)
 
 __all__ = [
+    "DEFAULT_LIMITS",
     "FUEL_BASE",
     "FUEL_PER_BYTE",
     "MAX_MEMORY",
@@ -31,24 +43,12 @@ __all__ = [
     "MAX_REQUEST",
     "Call",
     "Instance",
+    "Limits",
     "WriterFailed",
     "check_exports",
     "engine",
 ]
 
-MiB = 1024 * 1024
-#: The most memory a writer may have; a plugin asks for less with ``memory``.
-MAX_MEMORY = 256 * MiB
-DEFAULT_MEMORY = 64 * MiB
-#: Fuel each call gets: a base, and more for each byte of its request.
-FUEL_BASE = 1_000_000_000
-FUEL_PER_BYTE = 2_000
-#: The most bytes one call may add to a file, and the largest request.
-MAX_OUTPUT = 64 * MiB
-MAX_REQUEST = 64 * MiB
-#: Notes one call may make, and how long each may be.
-MAX_NOTES = 1_000
-MAX_NOTE_CHARS = 500
 #: The Wasm stack: enough for any writer's recursion, little enough to stop a runaway.
 STACK = 512 * 1024
 
@@ -138,7 +138,14 @@ _TRAPS = {
 class Instance:
     """One export's writer: a store of its own, capped, with nothing imported."""
 
-    def __init__(self, module: wasmtime.Module, store_engine: wasmtime.Engine, memory: int) -> None:
+    def __init__(
+        self,
+        module: wasmtime.Module,
+        store_engine: wasmtime.Engine,
+        memory: int,
+        limits: Limits = DEFAULT_LIMITS,
+    ) -> None:
+        self.limits = limits
         if not 0 < memory <= MAX_MEMORY:
             raise WriterFailed("limits", f"A writer's memory is at most {MAX_MEMORY:,} bytes.")
         if problems := check_exports(module):
@@ -146,7 +153,7 @@ class Instance:
         self.store = wasmtime.Store(store_engine)
         self.store.set_limits(memory_size=memory, instances=1, tables=1, memories=1)
         # Instantiating runs its start function and data initialisation, which use fuel.
-        self.store.set_fuel(FUEL_BASE)
+        self.store.set_fuel(limits.fuel_base)
         try:
             instance = wasmtime.Instance(self.store, module, [])
         except wasmtime.Trap as trap:
@@ -162,7 +169,7 @@ class Instance:
             function = exports[name]
             assert isinstance(function, wasmtime.Func)  # noqa: S101 - check_exports
             self.functions[name] = function
-        self.store.set_fuel(FUEL_BASE)
+        self.store.set_fuel(limits.fuel_base)
         abi = self._run("iki_abi")
         if abi != ABI_VERSION:
             raise WriterFailed(
@@ -194,9 +201,12 @@ class Instance:
     def call(self, entry: str, request: bytes) -> Call:
         """Runs ``begin``, ``record`` or ``end`` on ``request``, canonical JSON. Raises
         :class:`WriterFailed`."""
-        if len(request) > MAX_REQUEST:
-            raise WriterFailed("request_limit", "The request is over 64 MiB.")
-        fuel = FUEL_BASE + FUEL_PER_BYTE * len(request)
+        limits = self.limits
+        if len(request) > limits.max_request:
+            raise WriterFailed(
+                "request_limit", f"The request is over the limit of {limits.max_request:,} bytes."
+            )
+        fuel = limits.fuel_base + limits.fuel_per_byte * len(request)
         self.store.set_fuel(fuel)
         at = self._run("iki_input", len(request))
         size = self.memory.data_len(self.store)
@@ -209,16 +219,16 @@ class Instance:
         output = b""
         if status == 0:
             output = self._read(
-                self._run("iki_output"), self._run("iki_output_len"), MAX_OUTPUT, "output"
+                self._run("iki_output"), self._run("iki_output_len"), limits.max_output, "output"
             )
         raw = self._read(
             self._run("iki_notes"),
             self._run("iki_notes_len"),
-            MAX_NOTES * (MAX_NOTE_CHARS * 4 + 256),
+            limits.max_notes * (limits.max_note_chars * 4 + 256),
             "notes",
         )
         used = fuel - self.store.get_fuel()
-        return Call(status, output, _notes(raw, refused=status == 1), used)
+        return Call(status, output, _notes(raw, refused=status == 1, limits=limits), used)
 
 
 def _failed(trap: wasmtime.Trap) -> WriterFailed:
@@ -226,7 +236,7 @@ def _failed(trap: wasmtime.Trap) -> WriterFailed:
     return WriterFailed(code, f"The writer failed: {words}.")
 
 
-def _notes(raw: bytes, *, refused: bool) -> list[dict[str, Any]]:
+def _notes(raw: bytes, *, refused: bool, limits: Limits = DEFAULT_LIMITS) -> list[dict[str, Any]]:
     """The notes as the ABI has them, checked: a list of ``{code, message, role?}``."""
     if not raw:
         notes: Any = []
@@ -235,8 +245,8 @@ def _notes(raw: bytes, *, refused: bool) -> list[dict[str, Any]]:
             notes = json.loads(raw)
         except (ValueError, UnicodeDecodeError):
             raise WriterFailed("notes", "Its notes aren't JSON.") from None
-    if not isinstance(notes, list) or len(notes) > MAX_NOTES:
-        raise WriterFailed("notes", f"Its notes aren't a list of at most {MAX_NOTES:,}.")
+    if not isinstance(notes, list) or len(notes) > limits.max_notes:
+        raise WriterFailed("notes", f"Its notes aren't a list of at most {limits.max_notes:,}.")
     out = []
     for note in notes:
         if (
@@ -247,8 +257,8 @@ def _notes(raw: bytes, *, refused: bool) -> list[dict[str, Any]]:
             or set(note) - {"code", "message", "role"}
         ):
             raise WriterFailed("notes", "A note isn't {code, message, role?}, each a string.")
-        if len(note["message"]) > MAX_NOTE_CHARS or len(note["code"]) > 64:
-            raise WriterFailed("notes", f"A note is over {MAX_NOTE_CHARS} characters.")
+        if len(note["message"]) > limits.max_note_chars or len(note["code"]) > 64:
+            raise WriterFailed("notes", f"A note is over {limits.max_note_chars} characters.")
         out.append({k: note[k] for k in ("code", "message", "role") if k in note})
     if refused and (len(out) != 1 or out[0]["code"] != "refused"):
         raise WriterFailed("notes", "A refusal's notes are one note, coded `refused`.")

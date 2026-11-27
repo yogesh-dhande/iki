@@ -1670,7 +1670,7 @@ class ExportParams(TypedDict):
 
 
 class ExportSearchIn(TypedDict):
-    """The records a table shows, as ``POST /entities/search`` finds them."""
+    """The records a table shows, as ``POST /entities/search`` finds them, in its order."""
     archived: NotRequired[bool | None]
     collection: NotRequired[str | None]
     #: Only the type itself, not its subtypes.
@@ -1680,6 +1680,8 @@ class ExportSearchIn(TypedDict):
     q: NotRequired[str | None]
     run: NotRequired[str | None]
     sort: NotRequired[SortIn | None]
+    #: Further sorts, in order, for what `sort` ties, as the table sorts them.
+    then: NotRequired[list[SortIn]]
     #: This type and its subtypes.
     type: NotRequired[str | None]
     where: NotRequired[Condition | None]

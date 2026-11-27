@@ -9436,7 +9436,7 @@ export interface components {
         };
         /**
          * ExportSearchIn
-         * @description The records a table shows, as ``POST /entities/search`` finds them.
+         * @description The records a table shows, as ``POST /entities/search`` finds them, in its order.
          */
         ExportSearchIn: {
             /** Archived */
@@ -9459,6 +9459,11 @@ export interface components {
             /** Run */
             run?: string | null;
             sort?: components["schemas"]["SortIn"] | null;
+            /**
+             * Then
+             * @description Further sorts, in order, for what `sort` ties, as the table sorts them.
+             */
+            then?: components["schemas"]["SortIn"][];
             /**
              * Type
              * @description This type and its subtypes.
