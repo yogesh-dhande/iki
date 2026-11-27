@@ -13,6 +13,8 @@ description: The reads for one tube a sequencing request sent, or why there are 
 refines:
   # It answers sequencing requests, and they take no other deliverable (ADR 0235).
   request: { to: SequencingRequest }
+  # Every deliverable names the tube that was sequenced, or its recorded aliquot (ADR 0283).
+  material: { required: true }
 fields:
   data_files:
     type: list
@@ -30,10 +32,6 @@ fields:
 display:
   title: "{{ run_accession or hrid }}"
 rules:
-  sequenced_tube:
-    check: record.material != null
-    message: Name the tube that was sequenced, or its recorded aliquot.
-    fields: [material]
   reads_returned:
     when: record.outcome == "fulfilled"
     check: >-

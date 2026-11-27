@@ -210,6 +210,48 @@ display:
 | `identity`              | Fields that make an entity the same as another. Each must be `immutable`, and one `required`. See below. |
 | `display.title`         | Text with `{{ a or b or "text" }}` parts, naming fields or `hrid`.                                       |
 | `display.viewers`       | Iki's own viewers, each a tab on its entities' pages, configured by naming fields. See Viewers.          |
+| `refines`               | Narrows fields it inherits: see What a subtype inherits.                                                 |
+
+### What a subtype inherits
+
+A subtype declares only what it adds: `extends` gives it the rest, and each
+key follows one inheritance policy (ADR 0282), which the manifest schema
+states in its description of the key:
+
+| Policy       | A subtype…                                                                | Keys                                                                                                                                       |
+| ------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `own`        | has its own, never its parent's                                           | `name`, `label`, `label_plural`, `description`, `schema_version`, `extends`, `abstract`, `hrid`, `list`                                    |
+| `nearest`    | has its nearest ancestor's, unless it declares its own, which replaces it | `display.title`, `display.viewers`, `exports`, `storage`, `due`, `result`, `work_item`, `draw_target`, `draws_received`, `stock_catalogue` |
+| `once`       | has the one its lineage declares, and can't declare another               | `identity`, `amount`                                                                                                                       |
+| `accumulate` | has every ancestor's and its own, none named as an ancestor's is          | `fields`, `rules`, `notifications`, `draw_guards`, `sample`                                                                                |
+| `narrow`     | has its parent's, and may only narrow it                                  | `refines`, `draw_purposes`                                                                                                                 |
+| `merge`      | has its nearest ancestor's, with what it adds                             | `request` (its service fields)                                                                                                             |
+
+`iki plugin build` writes each type's **effective declaration**, every field
+its records have and every inherited block resolved by these policies, into
+the plugin's `manifest.json` under `effective`, with `sources` naming the type
+each part comes from (`fields.material`: `iki/requests.Deliverable`). Iki reads
+only that, so what a reviewer reads there is what its records get.
+
+**A subtype narrows a field it inherits** (ADR 0283): `refines` names the field
+and gives any of `required: true`, `values` (some of an enum's), `min` or `max`
+(within its parent's bounds), `default` (one it allows), `to` (fewer types, for
+a reference) and `roles` (for a list of rows). Each of its records is one of its
+parent's too, so it can't widen anything (`refines-wider`), nor narrow a field
+it declares itself (`refines-own-field`) or that no ancestor has
+(`refines-unknown-field`). A narrowing of a narrowing is held to the nearer one.
+Forms, imports, runs and the API check the narrowed field, and the database
+holds `required`, `values`, `min` and `max` with a trigger on the declaring
+type's table, for the subtype's records only; records already there that don't
+fit stop the deploy, named.
+
+```yaml
+extends: iki/lots.ProteinLot
+refines:
+  material: { required: true } # every GMP lot names what it was made from
+  purity: { min: 95 }
+  grade: { values: [gmp] }
+```
 
 ### Identities and registries
 
@@ -2836,6 +2878,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `notification-when`, `notification-field`, `notification-values`, `notification-recipients`, `notification-where`, `notification-message`, `notification-shadows-parent`, `notification-in-registry`; `notification-repeats-ready` (warning)                                                                                                                                                                                                                                                                                                                                                                                                          | Notifications                   |
 | `service-field-inherited`, `service-field-refers`, `service-field-unique`, `service-field-immutable`, `service-field-required`, `request-sends-not-a-reference`, `request-sends-service-field`, `request-with-identity`, `request-redeclared`, `result-with-identity`, `result-is-a-request`, `result-of-not-a-request`, `result-of-changes`, `result-released-without-states`, `result-released-initial`, `result-release-on-edit`, `result-release-lock`                                                                                                                                                                                            | Requests between projects       |
 | `amount-unit`, `amount-concentration`, `amount-aliquots`, `amount-twice`, `amount-on-identity`, `holds-without-amount`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Amounts                         |
+| `refines-unknown-field`, `refines-own-field`, `refines-wider`, `refines-computed`, `refines-not-enum`, `refines-not-a-number`, `refines-not-whole`, `refines-default`, `refines-default-outside`, `refines-not-a-reference`, `refines-not-rows`, `refines-drops-role`                                                                                                                                                                                                                                                                                                                                                                                 | Narrowing an inherited field    |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Types                           |
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HRIDs                           |
 | `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                                                                                                                                                                                                              | Identities                      |

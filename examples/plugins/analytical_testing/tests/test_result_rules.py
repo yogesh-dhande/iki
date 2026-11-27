@@ -13,7 +13,8 @@ from typing import Any
 import pytest
 
 from iki_spec import rules
-from iki_spec.model import EntityType, Field, Plugin, as_refined
+from iki_spec.effective import resolve_one
+from iki_spec.model import EntityType, Field, Plugin
 from iki_spec.validate import load_plugin
 
 EXAMPLE = Path(__file__).resolve().parents[1]
@@ -54,12 +55,7 @@ def refused(types: Mapping[str, EntityType], values: Mapping[str, Any]) -> set[s
 
     # Its fields as its records have them: the result answers only analytical requests
     # (`refines`), so its rules read what they ask for.
-    lineage = [result, types[f"{REQUESTS}QCDeliverable"], types[f"{REQUESTS}Deliverable"]]
-    own = {
-        name: as_refined(lineage, name, f)
-        for t in reversed(lineage)
-        for name, f in t.fields.items()
-    }
+    own = resolve_one(types, result.qualified_name).current_fields
     variables = rules.rule_variables(rules.record_schema(result.label, own, refs))
     checks = [
         (f"!({r.when}) || ({r.check})" if r.when else r.check, rules.CONDITION)
@@ -95,7 +91,6 @@ def test_each_analysis_needs_its_own_measurement(
 ) -> None:
     complete = {"analysis": analysis, measurement: 0.0}
     assert refused(types, complete) == set()
-    assert refused(types, {**complete, "material": None}) == {"measured_sample"}
     # A different assay's measurement cannot stand in for the one ordered.
     wrong = {"purity": 99.0, "measured_mass": 24000.0, "peptide_coverage": 97.0, "endotoxin": 0.2}
     assert len(refused(types, {**complete, **wrong, measurement: None})) == 1
@@ -113,3 +108,10 @@ def test_every_measurement_rule_is_checked_again_at_signing(
 ) -> None:
     result = types[f"{EXAMPLE_NAME}.AnalyticalResult"]
     assert result.rules["requested_analysis"].recheck_before_signing
+
+
+def test_a_result_names_the_sample_it_measured(types: dict[str, EntityType]) -> None:
+    # Required as its records have it: the deliverable's material, narrowed (ADR 0283).
+    result = resolve_one(types, f"{EXAMPLE_NAME}.AnalyticalResult")
+    assert result.fields["material"].required
+    assert not types[f"{REQUESTS}Deliverable"].fields["material"].required
