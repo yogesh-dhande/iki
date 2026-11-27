@@ -1492,6 +1492,11 @@ export interface paths {
          * @description An Editor of its project. It keeps its data, history and runs; the project's own
          *     records that refer to the superseded entry are changed to refer to the new one, each a
          *     revision with the reason. Refused if the project has a record of the new one already.
+         *
+         *     A record can't change its type, so to a replacement of another type (ADR 0165) it's the
+         *     project's new record of the replacement that's returned: with this one's values for the
+         *     fields the two types share and ``values``, while this one is archived, keeping its
+         *     history, signatures and runs.
          */
         post: operations["iki_server_api_registries_move_entity"];
         delete?: never;
@@ -2152,9 +2157,10 @@ export interface paths {
         put?: never;
         /**
          * Supersede a registry entry
-         * @description Its registry's registrars replace a mistaken entry with another of its type in the
-         *     registry, for good. Each holding project's Admins, and whoever added its record, are
-         *     told, to move their records to the replacement.
+         * @description Its registry's registrars replace a mistaken entry with another in the registry, for
+         *     good: one of its type, or of another type under its identity; or with a new entry of its
+         *     identity as another type (``type``, ADR 0165). Each holding project's Admins, and
+         *     whoever added its record, are told, to move their records to the replacement.
          */
         post: operations["iki_server_api_registries_supersede_entry"];
         delete?: never;
@@ -9027,6 +9033,11 @@ export interface components {
              * @description Change its facts and supersede it: its registrars.
              */
             curate: boolean;
+            /**
+             * Supersede As
+             * @description For its registrars: the other types its identity can be registered as (ADR 0165), as POST /entries/{ref}/supersede with `type` does, by a new entry of one that it hands its identity to. Types under one identity share entries: a protein complex's chains registered as an antibody are that antibody.
+             */
+            supersede_as?: components["schemas"]["SupersedeAsOut"][];
         };
         /** EntryOut */
         EntryOut: {
@@ -12170,6 +12181,13 @@ export interface components {
              * @description Why the holder is moving it.
              */
             reason: string;
+            /**
+             * Values
+             * @description For a replacement of another type (ADR 0165): the new record's own values, beside those it carries from this one (`entry.superseded.carries`).
+             */
+            values?: {
+                [key: string]: unknown;
+            };
         };
         /** MoveItemIn */
         MoveItemIn: {
@@ -19864,6 +19882,16 @@ export interface components {
             /** Unread */
             unread: number;
         };
+        /** SupersedeAsOut */
+        SupersedeAsOut: {
+            /**
+             * Fields
+             * @description The registry fields a registrar gives its new entry, as `values`: those this entry's values don't fill as they are, outside what the two types share or refined by the new type (its parts' roles). The rest come from this entry.
+             */
+            fields: string[];
+            /** Type */
+            type: string;
+        };
         /** SupersedeIn */
         SupersedeIn: {
             /**
@@ -19873,9 +19901,21 @@ export interface components {
             reason: string;
             /**
              * Replacement
-             * @description The entry that replaces it, by ID or HRID.
+             * @description The entry that replaces it, by ID or HRID: one of its type, or of another type under its identity (ADR 0165). Give this or `type`.
              */
-            replacement: string;
+            replacement?: string | null;
+            /**
+             * Type
+             * @description Register its identity as this type instead (ADR 0165), one of `can.supersede_as`: a new entry, which it's superseded by and hands its identity to. Give this or `replacement`.
+             */
+            type?: string | null;
+            /**
+             * Values
+             * @description With `type`: the new entry's values, in place of the superseded entry's, which it has for the fields the two types share: the new type's facts, say, or its parts' roles as the new type names them. Its identity stays the same.
+             */
+            values?: {
+                [key: string]: unknown;
+            };
         };
         /** SupersededOut */
         SupersededOut: {
@@ -19891,6 +19931,17 @@ export interface components {
              * Format: uuid
              */
             by_id: string;
+            /**
+             * Carries
+             * @description For a replacement of another type (ADR 0165), which a record can't become: the fields whose values a move gives the project's new record of it, those the two types' records share. The rest stay with this record, which the move archives. None for one of its own type, which the record moves to whole.
+             */
+            carries?: string[] | null;
+            /**
+             * Held
+             * @description The record's project has a record of the replacement, which a move can't go onto: the one a move to an entry of another type made, say.
+             * @default false
+             */
+            held: boolean;
             /** Reason */
             reason: string;
         };

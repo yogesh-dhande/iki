@@ -6303,6 +6303,14 @@
             "description": "Change its facts and supersede it: its registrars.",
             "title": "Curate",
             "type": "boolean"
+          },
+          "supersede_as": {
+            "description": "For its registrars: the other types its identity can be registered as (ADR 0165), as POST /entries/{ref}/supersede with `type` does, by a new entry of one that it hands its identity to. Types under one identity share entries: a protein complex's chains registered as an antibody are that antibody.",
+            "items": {
+              "$ref": "#/components/schemas/SupersedeAsOut"
+            },
+            "title": "Supersede As",
+            "type": "array"
           }
         },
         "required": [
@@ -13086,6 +13094,12 @@
             "minLength": 1,
             "title": "Reason",
             "type": "string"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "For a replacement of another type (ADR 0165): the new record's own values, beside those it carries from this one (`entry.superseded.carries`).",
+            "title": "Values",
+            "type": "object"
           }
         },
         "required": [
@@ -30538,6 +30552,28 @@
         "title": "SummaryOut",
         "type": "object"
       },
+      "SupersedeAsOut": {
+        "properties": {
+          "fields": {
+            "description": "The registry fields a registrar gives its new entry, as `values`: those this entry's values don't fill as they are, outside what the two types share or refined by the new type (its parts' roles). The rest come from this entry.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "fields"
+        ],
+        "title": "SupersedeAsOut",
+        "type": "object"
+      },
       "SupersedeIn": {
         "properties": {
           "reason": {
@@ -30548,13 +30584,37 @@
             "type": "string"
           },
           "replacement": {
-            "description": "The entry that replaces it, by ID or HRID.",
-            "title": "Replacement",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The entry that replaces it, by ID or HRID: one of its type, or of another type under its identity (ADR 0165). Give this or `type`.",
+            "title": "Replacement"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Register its identity as this type instead (ADR 0165), one of `can.supersede_as`: a new entry, which it's superseded by and hands its identity to. Give this or `replacement`.",
+            "title": "Type"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "With `type`: the new entry's values, in place of the superseded entry's, which it has for the fields the two types share: the new type's facts, say, or its parts' roles as the new type names them. Its identity stays the same.",
+            "title": "Values",
+            "type": "object"
           }
         },
         "required": [
-          "replacement",
           "reason"
         ],
         "title": "SupersedeIn",
@@ -30575,6 +30635,27 @@
             "format": "uuid",
             "title": "By Id",
             "type": "string"
+          },
+          "carries": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a replacement of another type (ADR 0165), which a record can't become: the fields whose values a move gives the project's new record of it, those the two types' records share. The rest stay with this record, which the move archives. None for one of its own type, which the record moves to whole.",
+            "title": "Carries"
+          },
+          "held": {
+            "default": false,
+            "description": "The record's project has a record of the replacement, which a move can't go onto: the one a move to an entry of another type made, say.",
+            "title": "Held",
+            "type": "boolean"
           },
           "reason": {
             "title": "Reason",
@@ -39128,7 +39209,7 @@
     },
     "/api/v1/entities/{ref}/move": {
       "post": {
-        "description": "An Editor of its project. It keeps its data, history and runs; the project's own\nrecords that refer to the superseded entry are changed to refer to the new one, each a\nrevision with the reason. Refused if the project has a record of the new one already.",
+        "description": "An Editor of its project. It keeps its data, history and runs; the project's own\nrecords that refer to the superseded entry are changed to refer to the new one, each a\nrevision with the reason. Refused if the project has a record of the new one already.\n\nA record can't change its type, so to a replacement of another type (ADR 0165) it's the\nproject's new record of the replacement that's returned: with this one's values for the\nfields the two types share and ``values``, while this one is archived, keeping its\nhistory, signatures and runs.",
         "operationId": "iki_server_api_registries_move_entity",
         "parameters": [
           {
@@ -41322,7 +41403,7 @@
     },
     "/api/v1/entries/{ref}/supersede": {
       "post": {
-        "description": "Its registry's registrars replace a mistaken entry with another of its type in the\nregistry, for good. Each holding project's Admins, and whoever added its record, are\ntold, to move their records to the replacement.",
+        "description": "Its registry's registrars replace a mistaken entry with another in the registry, for\ngood: one of its type, or of another type under its identity; or with a new entry of its\nidentity as another type (``type``, ADR 0165). Each holding project's Admins, and\nwhoever added its record, are told, to move their records to the replacement.",
         "operationId": "iki_server_api_registries_supersede_entry",
         "parameters": [
           {

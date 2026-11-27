@@ -42,6 +42,70 @@ const PROTEIN_R: Schemas["EntityTypeOut"] = {
   ],
 };
 
+/** Two kinds of bought-in antibody under one identity, the vendor's catalog number (ADR
+ * 0165): a secondary registered as a primary by mistake is registered again as what it is. */
+const REAGENT_FIELDS = [
+  field({
+    name: "vendor",
+    label: "Vendor",
+    type: "string",
+    plugin: "acme/reagents",
+    required: true,
+    immutable: true,
+    registry: "identity",
+  }),
+  field({
+    name: "catalog_number",
+    label: "Catalog number",
+    type: "string",
+    plugin: "acme/reagents",
+    required: true,
+    immutable: true,
+    registry: "identity",
+  }),
+  field({ name: "rrid", label: "RRID", type: "string", plugin: "acme/reagents", registry: "fact" }),
+  field({ name: "lims_id", label: "LIMS ID", type: "string", plugin: "acme/reagents" }),
+];
+const HOSTS = ["mouse", "rabbit", "goat", "donkey"];
+const PRIMARY: Schemas["EntityTypeOut"] = {
+  ...PROTEIN,
+  name: "acme/reagents.PrimaryAntibody",
+  plugin: "acme/reagents",
+  label: "Primary antibody",
+  label_plural: "Primary antibodies",
+  description: null,
+  hrid_prefix: "PAB",
+  identity: ["vendor", "catalog_number"],
+  fields: [
+    ...REAGENT_FIELDS,
+    field({ name: "host", label: "Host", type: "enum", values: HOSTS, registry: "fact" }),
+  ],
+};
+const SECONDARY: Schemas["EntityTypeOut"] = {
+  ...PRIMARY,
+  name: "acme/reagents.SecondaryAntibody",
+  label: "Secondary antibody",
+  label_plural: "Secondary antibodies",
+  hrid_prefix: "SAB",
+  fields: [
+    ...REAGENT_FIELDS,
+    field({
+      name: "raised_against",
+      label: "Raised against",
+      type: "enum",
+      values: ["mouse", "rabbit", "goat", "human"],
+      registry: "fact",
+    }),
+    field({ name: "host", label: "Host", type: "enum", values: HOSTS, registry: "fact" }),
+  ],
+};
+const BA_1000 = {
+  vendor: "Vector Laboratories",
+  catalog_number: "BA-1000",
+  rrid: "AB_2313606",
+};
+const SECONDARY_ID = "00000000-0000-7000-8000-0000000000s2";
+
 const ENTRY_ID = "00000000-0000-7000-8000-00000000e0e1";
 const NEW_ENTRY_ID = "00000000-0000-7000-8000-00000000e0e2";
 const CLIENT_REGISTRY = {
@@ -328,6 +392,7 @@ describe("a superseded entry", () => {
             purged: false,
           },
           by_id: NEW_ENTRY_ID,
+          held: false,
           at: "2026-11-10T09:00:00Z",
           reason: "Registered twice: the same sequence, cleaned up.",
         },
@@ -413,6 +478,101 @@ describe("a superseded entry", () => {
     expect(banner).toHaveTextContent(
       "An Editor in Kinase Atlas can move this record to PRT-000002.",
     );
+    expect(within(banner).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  /** Kinase Atlas's record of BA-1000 as a primary antibody, whose entry a registrar
+   * superseded with a new secondary antibody entry of the same catalog number. */
+  const mistaken = (overrides: Partial<Schemas["SupersededOut"]> = {}) =>
+    record({
+      hrid: "PAB-000001",
+      title: "PAB-000001",
+      type: PRIMARY.name,
+      values: { ...BA_1000, host: "goat", lims_id: "AB-0412" },
+      entry: entryRef({
+        hrid: "PAB-000001",
+        superseded: {
+          by: {
+            hrid: "SAB-000001",
+            title: "SAB-000001",
+            type: SECONDARY.name,
+            archived: false,
+            purged: false,
+          },
+          by_id: NEW_ENTRY_ID,
+          at: "2026-11-26T09:00:00Z",
+          reason: "BA-1000 is a goat anti-rabbit IgG: a secondary antibody.",
+          carries: ["lims_id"],
+          held: false,
+          ...overrides,
+        },
+      }),
+    });
+
+  function onReagent(current: Schemas["EntityOut"]): void {
+    signedIn();
+    answer("GET /api/v1/entity-types", [PRIMARY, SECONDARY]);
+    answer("GET /api/v1/components", []);
+    onProjects(KINASE, OTHER);
+    answer(`GET /api/v1/entities/${current.hrid}`, current);
+    answer(`GET /api/v1/entities/${current.id}/provenance`, {});
+    answer(`GET /api/v1/entities/${current.id}/projects`, []);
+  }
+
+  it("moves a record to an entry of another type as a new record, archiving this one", async () => {
+    onReagent(mistaken());
+    const moved = record({
+      id: SECONDARY_ID,
+      hrid: "SAB-000001",
+      title: "SAB-000001",
+      type: SECONDARY.name,
+      revision: 1,
+      values: { ...BA_1000, raised_against: "rabbit", host: "goat", lims_id: "AB-0412" },
+      entry: entryRef({ id: NEW_ENTRY_ID, hrid: "SAB-000001", revision: 1 }),
+    });
+    answer(`POST /api/v1/entities/${PROTEIN_ID}/move`, { ...moved, repointed: [] });
+    answer("GET /api/v1/entities/SAB-000001", moved);
+    answer(`GET /api/v1/entities/${SECONDARY_ID}/provenance`, {});
+    answer(`GET /api/v1/entities/${SECONDARY_ID}/projects`, []);
+    const { router, user } = await renderApp("/entities/PAB-000001/?project=kinase-atlas");
+    const banner = await screen.findByRole("note", {
+      name: "PAB-000001 was superseded by SAB-000001",
+    });
+    expect(banner).toHaveTextContent(
+      "SAB-000001 is its identity registered as a secondary antibody.",
+    );
+    expect(banner).toHaveTextContent(
+      "A record can’t change its type, so the move makes Kinase Atlas’s record of the secondary antibody and archives this one.",
+    );
+
+    await user.click(within(banner).getByRole("button", { name: "Move to SAB-000001" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Move to SAB-000001?" });
+    expect(dialog).toHaveTextContent(
+      "SAB-000001 is a secondary antibody, and a record can’t change its type. This makes Kinase Atlas’s record of SAB-000001, with this record’s LIMS ID, and archives this one, which keeps its values, history and runs under PAB-000001.",
+    );
+    await user.type(within(dialog).getByRole("textbox", { name: /Reason/ }), "Registrar’s notice");
+    await user.click(within(dialog).getByRole("button", { name: "Move to SAB-000001" }));
+
+    expect(
+      await screen.findByText(
+        "Moved to SAB-000001: this is Kinase Atlas’s record of it, a new secondary antibody record with what the two types’ records share. Its record of PAB-000001 is archived.",
+      ),
+    ).toBeVisible();
+    expect(router.state.location.pathname).toBe("/entities/SAB-000001/");
+    expect(router.state.location.search).toEqual({ project: "kinase-atlas" });
+    expect(calls("POST")[0]?.body).toEqual({ reason: "Registrar’s notice" });
+  });
+
+  it("sends people from the archived record to the one that took its place", async () => {
+    onReagent({ ...mistaken({ held: true }), archived: true });
+    await renderApp("/entities/PAB-000001/?project=kinase-atlas");
+    const banner = await screen.findByRole("note", { name: /was superseded/ });
+    expect(banner).toHaveTextContent(
+      "Kinase Atlas’s record of SAB-000001 took this one’s place. This one keeps its values and history under PAB-000001.",
+    );
+    expect(
+      within(banner).getByRole("link", { name: "Kinase Atlas’s record of SAB-000001" }),
+    ).toHaveAttribute("href", "/entities/SAB-000001/?project=kinase-atlas");
     expect(within(banner).queryByRole("button")).not.toBeInTheDocument();
   });
 });
@@ -902,5 +1062,89 @@ describe("an entry's page", () => {
       reason: "Registered twice.",
     });
     expect(screen.getByRole("note")).toHaveTextContent("Superseded by PRT-000009 on 17 Nov 2026");
+  });
+
+  it("lets its registrars register its identity again as another type, which replaces it", async () => {
+    const wrong = entryOut({
+      hrid: "PAB-000001",
+      type: PRIMARY.name,
+      values: { ...BA_1000, host: "goat" },
+      holders: 1,
+      can: {
+        curate: true,
+        supersede_as: [{ type: SECONDARY.name, fields: ["raised_against", "host"] }],
+      },
+    });
+    signedIn();
+    answer("GET /api/v1/entity-types", [PRIMARY, SECONDARY]);
+    onProjects(KINASE, OTHER);
+    answer("GET /api/v1/entries/PAB-000001", wrong);
+    answer(`GET /api/v1/entries/${ENTRY_ID}/revisions`, page([]));
+    const replaced = entryOut({
+      ...wrong,
+      superseded: {
+        by: {
+          hrid: "SAB-000001",
+          title: "SAB-000001",
+          type: SECONDARY.name,
+          archived: false,
+          purged: false,
+        },
+        by_id: NEW_ENTRY_ID,
+        at: "2026-11-26T09:00:00Z",
+        reason: "A goat anti-rabbit IgG: a secondary antibody.",
+      },
+      can: { curate: false, supersede_as: [] },
+    });
+    answer(`POST /api/v1/entries/${ENTRY_ID}/supersede`, replaced);
+
+    const { user } = await renderApp("/entries/PAB-000001/");
+    const card = await screen.findByRole("region", { name: "Supersede" });
+    expect(within(card).getByRole("textbox", { name: "Replaced by" })).toHaveAccessibleDescription(
+      /of its type or another type of its identity\./,
+    );
+    await user.click(
+      within(card).getByRole("radio", {
+        name: "Its identity, registered as another type: the same vendor and catalog number, as a secondary antibody",
+      }),
+    );
+    expect(within(card).getByRole("combobox", { name: "Register it as" })).toHaveValue(
+      SECONDARY.name,
+    );
+    // What the two types share comes from the entry; the registrar gives the rest.
+    expect(within(card).queryByRole("textbox", { name: /RRID/ })).not.toBeInTheDocument();
+    expect(within(card).getByRole("combobox", { name: /^Host/ })).toHaveValue("goat");
+    await user.selectOptions(
+      within(card).getByRole("combobox", { name: /^Raised against/ }),
+      "rabbit",
+    );
+    await user.type(
+      within(card).getByRole("textbox", { name: "Reason" }),
+      "A goat anti-rabbit IgG: a secondary antibody.",
+    );
+    await user.click(within(card).getByRole("button", { name: "Supersede PAB-000001…" }));
+    const dialog = screen.getByRole("alertdialog", {
+      name: "Supersede PAB-000001 with a new secondary antibody?",
+    });
+    expect(dialog).toHaveTextContent(
+      "Registering its identity will find the new secondary antibody from then on.",
+    );
+    expect(dialog).toHaveTextContent(
+      "A record can’t change its type, so each move makes the project’s record of the new secondary antibody, with what the two types’ records share, and archives the old one.",
+    );
+    expect(calls("POST")).toEqual([]);
+    answer("GET /api/v1/entries/PAB-000001", replaced);
+    await user.click(within(dialog).getByRole("button", { name: "Supersede PAB-000001" }));
+    expect(
+      await screen.findByText(
+        "Superseded PAB-000001 with SAB-000001, a new secondary antibody. Every project with it has been told.",
+      ),
+    ).toBeVisible();
+    expect(calls("POST")[0]?.body).toEqual({
+      type: SECONDARY.name,
+      values: { raised_against: "rabbit", host: "goat" },
+      reason: "A goat anti-rabbit IgG: a secondary antibody.",
+    });
+    expect(screen.queryByRole("region", { name: "Supersede" })).not.toBeInTheDocument();
   });
 });

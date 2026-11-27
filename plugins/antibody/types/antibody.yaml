@@ -1,8 +1,10 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 #
 # A two-chain antibody is a specific complex (ADR 0161): its parts are a heavy chain and a
-# light chain, each with its copies, so it's found by searching complexes, and a complex of
-# the same parts registered as another type is this antibody's entry.
+# light chain, each with its copies, so it's found by searching complexes. Complexes share
+# one identity, so the same parts registered as another complex type are refused, naming
+# this antibody's entry, and an antibody registered as a protein complex by mistake is
+# superseded by a registrar with its parts registered as an antibody (ADR 0165).
 apiVersion: iki/v1
 kind: EntityType
 name: Antibody
