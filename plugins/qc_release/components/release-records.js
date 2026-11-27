@@ -43,14 +43,20 @@ function summary(item) {
           ? "Conforms"
           : "Does not conform"
         : `${v.value} ${v.unit}`;
-    return [v.attribute, `${seen} · ${out} · ${v.method}`];
+    // An investigational test informs its investigation and replaces nothing.
+    const role = v.purpose === "investigational" ? " · Investigational" : "";
+    return [v.attribute, `${seen} · ${out}${role} · ${v.method}`];
   }
   if (v.version) {
     const state = v.sealed == null ? "" : v.sealed ? " · Certificate prepared" : " · Testing open";
     return [item.title, `Specification ${v.version} · ${v.testing_on}${state}`];
   }
-  const resolution = v.resolution === "invalidated" ? "Invalidated" : "Confirmed";
-  return [item.title, v.resolution ? resolution : "Investigation open"];
+  const decisions = {
+    invalidated: "Invalidated",
+    confirmed: "Confirmed",
+    inconclusive: "Inconclusive",
+  };
+  return [item.title, decisions[v.resolution] ?? "Investigation open"];
 }
 
 class ReleaseRecords extends HTMLElement {

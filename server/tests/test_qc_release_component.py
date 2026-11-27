@@ -50,6 +50,18 @@ REPORT: dict[str, Any] = {
             "value": 98.8,
             "outcome": "oos",
         },
+        # Run under the open investigation's plan: it informs it and replaces nothing.
+        {
+            **SODIUM_CHLORIDE,
+            "id": "test-retest",
+            "hrid": "QRT-000003",
+            "revision": 1,
+            "value": 98.6,
+            "outcome": "oos",
+            "purpose": "investigational",
+            "investigation": "investigation",
+            "investigation_revision": 2,
+        },
         {
             **SODIUM_CHLORIDE,
             "id": "test-repeat",
@@ -80,6 +92,7 @@ REPORT: dict[str, Any] = {
             "revision": 5,
             "test": "test-failed",
             "resolution": "invalidated",
+            "plan": "Retest the original preparation once on a second titrator.",
             "findings": "The recorded dilution factor came from a different sample.",
         }
     ],
@@ -147,9 +160,12 @@ def test_certificate_preserves_the_original_result_and_investigation(
         expect(page.get_by_role("status")).to_have_text("Certificate record awaiting signatures")
         expect(page.get_by_text("USP 2015 · QSV-000001 · revision 2")).to_be_visible()
         expect(page.get_by_text("98.8 %")).to_be_visible()
-        expect(page.get_by_text("Out of specification")).to_be_visible()
-        expect(page.get_by_text("QOI-000001 · revision 5")).to_be_visible()
+        expect(page.get_by_text("Out of specification")).to_have_count(2)
+        expect(page.get_by_text("QOI-000001 · revision 5", exact=True)).to_be_visible()
         expect(page.get_by_text("99.1 %")).to_be_visible()
+        retest = page.get_by_role("listitem").filter(has_text="QRT-000003")
+        expect(retest.get_by_text("QOI-000001 · revision 5 · plan revision 2")).to_be_visible()
+        expect(page.get_by_text(REPORT["investigations"][0]["plan"])).to_be_visible()
         expect(page.get_by_text(REPORT["investigations"][0]["findings"])).to_be_visible()
         identity = page.get_by_role("listitem").filter(has_text="Identification A (sodium)")
         expect(identity.get_by_text("Meets the requirements", exact=True)).to_be_visible()
@@ -244,6 +260,24 @@ def test_a_certificate_states_its_final_results_apart_from_its_evidence(
             "Invalidated",
             None,
             None,
+        ),
+        (
+            "test-investigations",
+            {
+                "hrid": "QOI-000002",
+                "title": "OOS investigation",
+                "values": {"resolution": "inconclusive"},
+            },
+            "Inconclusive",
+            None,
+            None,
+        ),
+        (
+            "release-tests",
+            {"hrid": "QRT-000003", "values": REPORT["tests"][1]},
+            "Out of specification · Investigational",
+            "iki/qc_release.record_test",
+            "Record a release test",
         ),
     ],
 )

@@ -7,6 +7,8 @@
   [0171](0171-a-types-records-export-as-files-iki-writes-from-its-fields.md) and
   [0179](0179-a-corrected-result-goes-back-for-review.md)
 - Amended: 2026-11-26 — a certificate states its final results apart from its evidence (see Amendment)
+- Amended: 2026-11-26 — an investigation's own testing, an inconclusive conclusion and
+  its investigator (see Amendment)
 
 ## Context
 
@@ -108,3 +110,36 @@ Preparing still takes the case's tests and investigations as selected inputs. An
 can't gather a record's related records itself, and the completeness check refuses any
 selection that leaves one out. Gathering them for the issuer would need actions to take
 related records the way triggers can (ADR 0123). That is a core change.
+
+## Amendment. An investigation tests under its plan, may be inconclusive, and has an investigator
+
+FDA's OOS guidance (§IV.B) separates testing during an investigation from the decision to
+replace the original result. Until now Iki had only the second: a repeat after a signed
+invalidation. Tests run while the investigation was open had nowhere to be kept.
+
+**An investigation records its testing plan.** The plan is written under the lab's
+approved procedure, such as a retest of the same preparation and how many. Until it's
+written, `record_test` refuses an investigational test. An **investigational** test names
+the open investigation of the attribute's most recent reportable result, and that result
+is out of specification. The test is kept in the case's attempt sequence and pins the
+investigation's revision, and so the plan it was run under. Its outcome is compared with
+the criterion. It opens no second investigation, and it replaces nothing. Once the
+investigation is submitted (Regulated QC) or signed off (Research), it takes no more
+tests. A **reportable** repeat still requires the signed, evidenced invalidation and still
+cites the original. The certificate's completeness check requires every investigational
+test, and the investigation each was run under. The certificate pins the plan and each
+test's purpose.
+
+**A conclusion may be inconclusive.** FDA's guidance (§V) treats an investigation that
+finds no assignable cause as one that leaves the original result standing in the batch's
+disposition. An inconclusive investigation is signed like any other. It doesn't permit a
+reportable repeat, and it prevents a passing certificate, as a confirmed one does.
+
+**An investigation has an investigator.** The person field assigns the record while it's
+Recorded. In Regulated QC the investigator must hold the analyst role, and the independent
+reviewer and QA must each be someone other than the investigator, as well as the
+submitter, observer and editors.
+
+A lab whose SOP needs more than this, such as a second analyst's retest under a
+separately approved protocol, records that protocol as the plan. Each retest remains
+an investigational test under it.

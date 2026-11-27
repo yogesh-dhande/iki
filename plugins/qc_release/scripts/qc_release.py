@@ -266,6 +266,11 @@ def receipt(case: dict[str, Any], test: dict[str, Any], investigation: dict[str,
         raise ValueError("The investigation must belong to this case and the original test.")
     if values.get("review") != final_state:
         raise ValueError("Finish signing the investigation before relying on its decision.")
+    if values.get("resolution") == "inconclusive":
+        raise ValueError(
+            "An inconclusive investigation leaves the original out-of-specification result "
+            "standing, which prevents a passing certificate."
+        )
     if values.get("resolution") != "invalidated":
         raise ValueError("A confirmed out-of-specification result prevents a passing certificate.")
     if not str(values.get("findings") or "").strip():
@@ -280,8 +285,7 @@ def repeat(
     test: dict[str, Any] | None,
     investigation: dict[str, Any] | None,
 ) -> None:
-    attempts = case["values"].get("attempts") or []
-    previous = next((row for row in reversed(attempts) if row["attribute"] == attribute), None)
+    previous = latest_reportable(case, attribute)
     if previous is None:
         if test is not None or investigation is not None:
             raise ValueError(
@@ -298,6 +302,59 @@ def repeat(
     if values.get("case") != case["id"] or any(values.get(k) != v for k, v in previous.items()):
         raise ValueError("The repeat must cite the most recent out-of-specification attempt.")
     receipt(case, test, investigation)
+
+
+def latest_reportable(case: dict[str, Any], attribute: str) -> dict[str, Any] | None:
+    """The attribute's most recent reportable attempt: investigational tests replace nothing."""
+    attempts = case["values"].get("attempts") or []
+    return next(
+        (
+            row
+            for row in reversed(attempts)
+            if row["attribute"] == attribute and row.get("purpose") != "investigational"
+        ),
+        None,
+    )
+
+
+def under_plan(
+    case: dict[str, Any],
+    attribute: str,
+    test: dict[str, Any] | None,
+    investigation: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """An investigational test is run under an open investigation's written plan, into the
+    attribute's most recent reportable result, which is out of specification. It replaces
+    nothing; only a signed invalidation permits a reportable repeat (FDA OOS guidance, §IV)."""
+    if test is not None:
+        raise ValueError("An investigational test repeats nothing. Leave the repeat empty.")
+    previous = latest_reportable(case, attribute)
+    if investigation is None or previous is None or previous["outcome"] != "oos":
+        raise ValueError(
+            "Run an investigational test under the open investigation of the attribute's "
+            "out-of-specification result."
+        )
+    values = investigation["values"]
+    investigated = next(iter(included(investigation, "test")), None)
+    if (
+        values.get("case") != case["id"]
+        or investigated is None
+        or investigated["id"] != values.get("test")
+        or investigated["values"].get("case") != case["id"]
+        or investigated["values"].get("sequence") != previous["sequence"]
+    ):
+        raise ValueError(
+            "Choose the investigation of this attribute's most recent out-of-specification result."
+        )
+    if values.get("review") != "recorded":
+        raise ValueError("The investigation has been submitted or signed: its testing is done.")
+    if not str(values.get("plan") or "").strip():
+        raise ValueError("Write the investigation's testing plan before testing under it.")
+    return {
+        "purpose": "investigational",
+        "investigation": investigation["id"],
+        "investigation_revision": investigation["revision"],
+    }
 
 
 def observation(
@@ -369,7 +426,12 @@ def record_test(run: dict[str, Any]) -> dict[str, Any]:
     assessor = optional_input(run, "assay")
     original = optional_input(run, "repeat_of")
     investigation = optional_input(run, "investigation")
-    repeat(case, attribute, original, investigation)
+    investigational = params.get("purpose") == "investigational"
+    if investigational:
+        purpose = under_plan(case, attribute, original, investigation)
+    else:
+        repeat(case, attribute, original, investigation)
+        purpose = {"purpose": "reportable"}
     lower, upper = criterion.get("lower"), criterion.get("upper")
     typed: dict[str, Any] = {"kind": kind(criterion)}
     if typed["kind"] == "conforms":
@@ -400,6 +462,7 @@ def record_test(run: dict[str, Any]) -> dict[str, Any]:
         "sequence": len(attempts) + 1,
         "attribute": attribute,
         "outcome": "oos" if is_outside else "pass",
+        **({"purpose": "investigational"} if investigational else {}),
     }
     values = {
         **attempt,
@@ -413,6 +476,7 @@ def record_test(run: dict[str, Any]) -> dict[str, Any]:
         "observed_by": operator,
         **typed,
         **evidence,
+        **purpose,
     }
     if original is not None:
         values["repeat_of"] = original["id"]
@@ -422,7 +486,8 @@ def record_test(run: dict[str, Any]) -> dict[str, Any]:
         values["lab_report"] = report
     parents = [row for row in (case, assessor, original, investigation) if row is not None]
     creates = [create("ReleaseTest", values, *parents, key="measurement")]
-    if is_outside:
+    # The open investigation covers an investigational result outside the limits.
+    if is_outside and not investigational:
         investigated = FLOWS[case_values["review_flow"]]["investigation"]
         creates.append(
             create(investigated, {"case": case["id"], "test": {"$create": "measurement"}}, *parents)
@@ -454,6 +519,7 @@ def review_attempts(
     if len(exceptions) != len(investigations):
         raise ValueError("Include exactly one investigation for each out-of-specification attempt.")
     previous: dict[str, dict[str, Any]] = {}
+    selected = {row["id"]: row for row in investigations}
     for test, attempt in zip(tests, expected, strict=True):
         values = test["values"]
         if (
@@ -464,6 +530,20 @@ def review_attempts(
             raise ValueError("The selected attempts do not match this case's recorded evidence.")
         attribute = attempt["attribute"]
         prior = previous.get(attribute)
+        if attempt.get("purpose") == "investigational":
+            # It informs the investigation of the reportable result before it, which the
+            # selection must hold, and stays out of the attribute's chain.
+            held = selected.get(values.get("investigation"))
+            if (
+                prior is None
+                or values.get("repeat_of") is not None
+                or held is None
+                or held["values"].get("test") != prior["id"]
+            ):
+                raise ValueError(
+                    "Include the investigation every investigational test was run under."
+                )
+            continue
         if values.get("repeat_of") != (prior["id"] if prior else None) or (
             prior and prior["values"]["outcome"] != "oos"
         ):
@@ -626,6 +706,9 @@ def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
                     "outcome",
                     "observed_by",
                     "repeat_of",
+                    "purpose",
+                    "investigation",
+                    "investigation_revision",
                     "evidence",
                     "evidence_revision",
                     "lab_report",
@@ -634,7 +717,7 @@ def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
             for test in tests
         ],
         "investigations": [
-            pin_fields(investigation, ("test", "resolution", "findings", "evidence"))
+            pin_fields(investigation, ("test", "resolution", "plan", "findings", "evidence"))
             for investigation in ordered_investigations
         ],
     }

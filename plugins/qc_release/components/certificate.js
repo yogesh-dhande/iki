@@ -53,6 +53,12 @@ function listOf(items, draw) {
   return list;
 }
 
+const DECISIONS = {
+  confirmed: "Confirmed",
+  invalidated: "Invalidated",
+  inconclusive: "Inconclusive",
+};
+
 // A conforming result states its requirement (ADR 0244), a number its limits.
 function acceptance(row) {
   return row.acceptance ?? limit(row);
@@ -66,6 +72,7 @@ function observed(row) {
 function result(test, tests, investigations) {
   const exit = investigations.find((investigation) => investigation.test === test.id);
   const original = tests.find((attempt) => attempt.id === test.repeat_of);
+  const under = investigations.find((investigation) => investigation.id === test.investigation);
   const title = node("p", test.attribute);
   title.className = "row-title";
   const details = facts([
@@ -83,13 +90,17 @@ function result(test, tests, investigations) {
     ["Acceptance", limit(test)],
     ["Outcome", test.outcome === "pass" ? "Pass" : "Out of specification"],
     ...(original ? [["Repeats", label(original)]] : []),
+    ...(under
+      ? [["Investigational", `${label(under)} · plan revision ${test.investigation_revision}`]]
+      : []),
     ...(test.evidence
       ? [["Assay evidence", `${test.evidence} · revision ${test.evidence_revision}`]]
       : []),
     ...(exit
       ? [
           ["Investigation", label(exit)],
-          ["Decision", exit.resolution],
+          ["Decision", DECISIONS[exit.resolution] ?? exit.resolution],
+          ...(exit.plan ? [["Testing plan", exit.plan]] : []),
           ["Findings", exit.findings],
         ]
       : []),

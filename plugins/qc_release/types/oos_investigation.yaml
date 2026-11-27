@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: OOSInvestigation
 label: Out-of-specification investigation
-schema_version: 1
+schema_version: 2
 abstract: true
 description: A signed explanation and decision about an original out-of-specification observation.
 fields:
@@ -10,8 +10,20 @@ fields:
   test: { type: ref, to: ReleaseTest, computed: true, immutable: true }
   resolution:
     type: enum
-    values: [confirmed, invalidated]
-    description: Confirm the original finding or document the assignable cause that invalidates it.
+    values: [confirmed, invalidated, inconclusive]
+    description: >-
+      Confirm the original finding, document the assignable cause that invalidates it, or
+      record that the investigation found no cause either way. An inconclusive one leaves
+      the original result standing in the lot's disposition (FDA OOS guidance, §V).
+  plan:
+    type: text
+    label: Testing plan
+    max_length: 4000
+    description: >-
+      The testing the investigation will do under the lab's approved procedure, such as a
+      retest of the same preparation and how many. Iki records investigational tests only
+      once a plan is written, and pins the revision each was run under (FDA OOS guidance,
+      §IV.B).
   findings:
     type: text
     max_length: 12000

@@ -72,7 +72,7 @@ def exercise_qc() -> None:
     plate = "iki/plate_assays."
     for person, roles in {
         "editor": (PREFIX + "analyst", PREFIX + "reviewer", PREFIX + "qa", plate + "analyst"),
-        "runner": (PREFIX + "reviewer", plate + "reviewer"),
+        "runner": (PREFIX + "analyst", PREFIX + "reviewer", plate + "reviewer"),
         "admin": (PREFIX + "qa", plate + "qa"),
     }.items():
         membership = project.memberships.get(user=world.users[person])
@@ -274,6 +274,28 @@ def exercise_qc() -> None:
     attachment = File.objects.create(
         blob=blob, project=project, name="Synthetic investigation.txt", media_type="text/plain"
     )
+    # The lab assigns the runner to investigate. Under its written plan the original
+    # preparation is retested: that result informs the investigation and replaces nothing.
+    plan = "Synthetic plan: retest the original preparation once; check the specimen label."
+    services.update(
+        editor,
+        investigation,
+        {"investigator": str(world.users["runner"].pk), "plan": plan},
+        expected_revision=investigation.revision,
+    )
+    investigation.refresh_from_db()
+    retest = made(
+        execute(
+            "record_test",
+            {**inputs, "investigation": [investigation.pk]},
+            purpose="investigational",
+            **params(assay, 98.6),
+        ),
+        "ReleaseTest",
+    )
+    retested = services.current_values_of([retest])[retest.pk]
+    assert (retested["outcome"], retested["purpose"]) == ("oos", "investigational")
+    assert retested["investigation_revision"] == investigation.revision
     services.update(
         editor,
         investigation,
@@ -285,8 +307,9 @@ def exercise_qc() -> None:
         expected_revision=investigation.revision,
     )
     sign("editor", investigation, "submitted")
-    with pytest.raises(Refused, match="independent reviewer"):
-        begin(world, "editor", str(investigation.pk), "reviewed", field="review")
+    for person in ("editor", "runner"):  # The submitter, and the assigned investigator.
+        with pytest.raises(Refused, match="independent reviewer"):
+            begin(world, person, str(investigation.pk), "reviewed", field="review")
     recorder_api, reviewer_api = Api(world.browser("editor")), Api(world.browser("runner"))
     investigation_path = f"/entities/{investigation.pk}"
     viewed = reviewer_api.get(investigation_path)
@@ -295,7 +318,10 @@ def exercise_qc() -> None:
         recorder_api,
         str(investigation.pk),
         {
-            "values": {"findings": "Synthetic correction clarifying the assignable cause."},
+            "values": {
+                "findings": "Synthetic correction clarifying the assignable cause.",
+                "investigator": str(world.users["editor"].pk),
+            },
             "reason": "Clarified the investigation finding.",
         },
         recorder_api.get(investigation_path)["ETag"],
@@ -328,12 +354,14 @@ def exercise_qc() -> None:
         actions.prepare_certificate(omission)
     certificate = made(
         execute(
-            "prepare_certificate", {**evidence, "tests": [moisture.pk, repeat.pk, original.pk]}
+            "prepare_certificate",
+            {**evidence, "tests": [moisture.pk, repeat.pk, retest.pk, original.pk]},
         ),
         "QCCertificate",
     )
     report = services.current_values_of([certificate])[certificate.pk]["report"]
-    assert [test["value"] for test in report["tests"]] == [98.7, 99.8, 0.3]
+    assert [test["value"] for test in report["tests"]] == [98.7, 98.6, 99.8, 0.3]
+    assert report["investigations"][0]["plan"] == plan
     assert report["lot"]["revision"] == pinned["lot_revision"]
     assert report["lot"]["lot_number"] == pinned["lot_number"]
     assert report["investigations"][0]["revision"] == investigation.revision

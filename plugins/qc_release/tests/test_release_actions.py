@@ -103,6 +103,7 @@ def investigation_for(original: dict[str, Any], review: str, resolution: str) ->
     [
         ("reviewed", "invalidated", "Finish signing the investigation"),
         ("released", "confirmed", "A confirmed out-of-specification result"),
+        ("released", "inconclusive", "An inconclusive investigation leaves the original"),
     ],
 )
 def test_repeat_requires_final_signed_invalidation(
@@ -248,6 +249,92 @@ def test_lab_report_must_name_nonempty_run_input(qc_actions: ModuleType) -> None
     run["files"]["report1"]["size"] = 100
     (measurement,) = qc_actions.record_test(run)["creates"]
     assert measurement["values"]["lab_report"] == "report1"
+
+
+def test_an_investigation_tests_under_its_plan_and_replaces_nothing(
+    qc_actions: ModuleType,
+) -> None:
+    """FDA's OOS guidance separates testing during an investigation from the decision to
+    replace the original result (§IV.B). Each investigational result is kept in sequence and
+    pinned to the plan's revision; only a signed invalidation permits the reportable repeat."""
+    run, original = start_oos(qc_actions)
+    investigation = investigation_for(original, "recorded", "invalidated")
+    investigation["values"].pop("resolution")
+    investigation["included"] = {"test": [original]}
+    trial = deepcopy(run)
+    trial["inputs"].pop("repeat_of")
+    trial["inputs"]["investigation"] = [investigation]
+    trial["params"] = trial["params"] | {"purpose": "investigational", "value": 88}
+
+    with pytest.raises(ValueError, match="testing plan"):
+        qc_actions.record_test(trial)
+    plan = "Synthetic plan: retest the original preparation twice on a second titrator."
+    investigation["values"]["plan"] = plan
+    with pytest.raises(ValueError, match="repeats nothing"):
+        qc_actions.record_test(trial | {"inputs": trial["inputs"] | {"repeat_of": [original]}})
+
+    output = qc_actions.record_test(trial)
+    # Outside the limits too, it opens no second investigation: the open one covers it.
+    (retest,) = output["creates"]
+    assert retest["values"]["outcome"] == "oos"
+    assert {
+        k: retest["values"][k] for k in ("purpose", "investigation", "investigation_revision")
+    } == {
+        "purpose": "investigational",
+        "investigation": "inv1",
+        "investigation_revision": 6,
+    }
+    assert "repeat_of" not in retest["values"]
+    (update,) = output["updates"]["case"]
+    case = run["inputs"]["case"][0]
+    case["values"].update(update["values"])
+    assert case["values"]["attempts"][-1] == {
+        "sequence": 2,
+        "attribute": "Assay",
+        "outcome": "oos",
+        "purpose": "investigational",
+    }
+
+    # A signed investigation tests no more.
+    investigation["values"]["review"] = "submitted"
+    with pytest.raises(ValueError, match="testing is done"):
+        qc_actions.record_test(trial | {"inputs": trial["inputs"] | {"case": [case]}})
+
+    # The reportable repeat still needs the signed invalidation, and still cites the
+    # original, not the investigational result.
+    investigation["values"] |= {"review": "released", "resolution": "invalidated"}
+    run["inputs"]["investigation"] = [investigation]
+    output = qc_actions.record_test(run)
+    (repeat,) = output["creates"]
+    assert repeat["values"]["repeat_of"] == original["id"]
+    assert repeat["values"]["purpose"] == "reportable"
+    case["values"].update(output["updates"]["case"][0]["values"])
+
+    tests = [
+        original,
+        record("test2", 1, **retest["values"]),
+        record("test3", 1, **repeat["values"]),
+    ]
+    prepare: dict[str, Any] = {
+        "inputs": {"case": [case], "tests": tests, "investigations": [investigation]},
+        "settings": {"certificate_issuer": "Synthetic Labs, 1 Example Way · +1 555 0100"},
+    }
+    with pytest.raises(ValueError, match="every attempt"):
+        qc_actions.prepare_certificate(
+            prepare | {"inputs": prepare["inputs"] | {"tests": tests[::2]}}
+        )
+    (certificate,) = qc_actions.prepare_certificate(prepare)["creates"]
+    report = certificate["values"]["report"]
+    assert [t["purpose"] for t in report["tests"]] == [
+        "reportable",
+        "investigational",
+        "reportable",
+    ]
+    assert report["tests"][1]["investigation_revision"] == 6
+    assert report["investigations"][0]["plan"] == plan
+    # The certificate states the reportable repeat, not the investigation's own test.
+    stated = certificate["values"]["coa"]["results"]
+    assert [row["value"] for row in stated] == [tests[2]["values"]["value"]]
 
 
 #: USP Sodium Chloride's Identification A, a test for sodium under USP <191>, whose

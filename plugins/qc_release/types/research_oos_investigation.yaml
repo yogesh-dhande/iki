@@ -2,10 +2,15 @@ apiVersion: iki/v1
 kind: EntityType
 name: ResearchOOSInvestigation
 label: Research OOS investigation
-schema_version: 1
+schema_version: 2
 extends: OOSInvestigation
 hrid: { prefix: ROI }
 fields:
+  investigator:
+    type: person
+    label: Investigator
+    assignment: { field: review, states: [recorded] }
+    description: Who investigates, as the lab's procedure assigns it.
   review:
     type: state
     initial: recorded
