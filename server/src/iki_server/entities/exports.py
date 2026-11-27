@@ -240,9 +240,9 @@ def writer(file_format: str, *, background: bool = False) -> Writer:
         raise Unexportable(f"No installed plugin writes {file_format}.", "no_export")
     return PluginWriter(
         found,
-        deadline=plugin_writers.BACKGROUND_DEADLINE
+        deadline=plugin_writers.background_deadline()
         if background
-        else plugin_writers.INLINE_DEADLINE,
+        else plugin_writers.inline_deadline(),
     )
 
 
@@ -597,6 +597,7 @@ def _plugin_record(
         withheld=withheld,
     )
     return PluginRecord(
+        id=entity.pk,
         hrid=entity.hrid,
         name=title,
         revision=number,

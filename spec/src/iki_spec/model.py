@@ -176,6 +176,9 @@ class Field:
     #: A row's fields that tell two rows apart in its type's identity (ADR 0138); all of
     #: them when empty.
     identity: tuple[str, ...] = ()
+    #: A row's string field holding its stable ID, which the server gives a new row and
+    #: keeps through edits; None for rows without one.
+    row_id: str | None = None
     #: A row's enum field whose value is its role, and what each role takes.
     by: str | None = None
     roles: dict[str, RowRole] = field(default_factory=dict)
@@ -274,6 +277,7 @@ class Field:
             identity=tuple(data.get("identity") or ())
             if data.get("type") == "row" and isinstance(data.get("identity"), list)
             else (),
+            row_id=data.get("row_id") if data.get("type") == "row" else None,
             by=data.get("by") if data.get("type") == "row" else None,
             # A role that's a string has only the roles named (ADR 0164).
             closed=data.get("type") == "row"
@@ -1081,6 +1085,19 @@ class EntityType:
     def current_fields(self) -> dict[str, Field]:
         """The fields entities have now, without the removed ones."""
         return {name: f for name, f in self.fields.items() if not f.removed}
+
+
+def lineage(type_name: str, types: Mapping[str, EntityType]) -> list[str]:
+    """A validated type and each type it extends, nearest first, ending with
+    ``iki/core.Entity``: what a run input gives a command as an entity's ``types``."""
+    out = [type_name]
+    current = types[type_name]
+    while current.extends:
+        out.append(current.extends)
+        current = types[current.extends]
+    if out[-1] != naming.ENTITY:
+        out.append(naming.ENTITY)
+    return out
 
 
 def amount_of(type_name: str, types: Mapping[str, EntityType]) -> Amount | None:
@@ -2410,6 +2427,8 @@ def _field(data: dict[str, Any]) -> Field:
             # Plugins built before rows (ADR 0137) have none.
             "fields": {n: _field(c) for n, c in (data.get("fields") or {}).items()},
             "identity": tuple(data.get("identity") or ()),
+            # Plugins built before row IDs have none.
+            "row_id": data.get("row_id"),
             "by": data.get("by"),
             "roles": {n: _row_role(r) for n, r in (data.get("roles") or {}).items()},
         }

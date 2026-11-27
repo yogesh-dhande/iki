@@ -19,6 +19,7 @@ import {
   renderApp,
   revision,
 } from "./entity-fixtures";
+import { queryClient } from "./api";
 import {
   answer,
   calls,
@@ -856,6 +857,38 @@ describe("an entry's page", () => {
     expect(await within(form).findByRole("alert")).toHaveTextContent(
       "Someone changed PRT-000001 while you were editing, so nothing was saved.",
     );
+  });
+
+  it("saves from the revision it opened at, not one fetched while it was open", async () => {
+    onEntry(entryOut({ holders: 2, can: { curate: true } }));
+    const { user } = await renderApp("/entries/PRT-000001/");
+    await user.click(screen.getByRole("button", { name: "Change facts" }));
+    const form = screen.getByRole("form", { name: "Change facts" });
+    // Someone else's change arrives while it's open: the page shows it, the form doesn't.
+    answer(
+      "GET /api/v1/entries/PRT-000001",
+      entryOut({
+        revision: 4,
+        holders: 2,
+        values: { ...entryOut().values, uniprot: "Q99999" },
+        can: { curate: true },
+      }),
+    );
+    await queryClient.refetchQueries();
+    await screen.findByText("Q99999");
+    answer(
+      `PATCH /api/v1/entries/${ENTRY_ID}`,
+      problem(412, "stale", "It changed since you read it."),
+    );
+    const fact = within(form).getByRole("textbox", { name: /^UniProt ID/ });
+    await user.clear(fact);
+    await user.type(fact, "P00520");
+    await user.type(within(form).getByRole("textbox", { name: /^Reason/ }), "UniProt merged it.");
+    await user.click(within(form).getByRole("button", { name: "Save facts" }));
+    expect(await within(form).findByRole("alert")).toHaveTextContent(
+      "Someone changed PRT-000001 while you were editing, so nothing was saved.",
+    );
+    expect(calls("PATCH").map((c) => c.headers.get("If-Match"))).toEqual(['"3"']);
   });
 
   it("lets its registrars supersede it, for good, after saying what that does", async () => {

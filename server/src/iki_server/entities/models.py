@@ -866,6 +866,9 @@ class RecordExport(models.Model):
     state = models.CharField(
         max_length=16, choices=RecordExportState.choices, default=RecordExportState.QUEUED
     )
+    #: Written by a background task, which tries again if its runner stops; not while its
+    #: request waits, where nothing would if the request's process stopped partway.
+    background = models.BooleanField(default=False)
     #: Why it failed, said to the person who asked.
     error = models.TextField(blank=True, default="")
     #: How many of its records are written so far.

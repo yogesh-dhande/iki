@@ -373,7 +373,7 @@
     },
     "entity": {
       "type": "object",
-      "required": ["id", "hrid", "type", "schema_version", "revision", "values"],
+      "required": ["id", "hrid", "type", "types", "schema_version", "revision", "values"],
       "additionalProperties": false,
       "properties": {
         "id": { "type": "string", "format": "uuid" },
@@ -395,6 +395,13 @@
         "type": {
           "type": "string",
           "description": "The qualified type, such as `iki/protein.Protein`."
+        },
+        "types": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": { "type": "string" },
+          "description": "The type and each type it extends, nearest first, ending with `iki/core.Entity`. A command that asks whether a record is, say, a protein looks for `iki/protein.Protein` here, not in `type`, so that a lab’s subtype of it is one too."
         },
         "schema_version": { "type": "integer", "minimum": 1 },
         "revision": {

@@ -28,12 +28,14 @@ import writer_modules as wat
 from api_client import Api
 from django.test import override_settings
 from org_world import World, build_world
+from structlog.testing import capture_logs
 
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import plugin_writers, record_exports, services
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.tasks.backend import Retry
 from iki_spec import writer_sandbox
+from iki_spec.writers import protocol
 
 pytestmark = pytest.mark.django_db
 
@@ -333,6 +335,51 @@ def test_a_writer_that_fails_fails_the_export_and_is_counted(
     assert not AuditEvent.objects.filter(
         action__in=["entity.exported", "entities.exported"]
     ).exists()
+
+
+def test_a_writer_that_fails_partway_names_the_record_it_failed_on(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A trap on the second of three records fails the export saying which record, and
+    the log has its ID (ADR 0230)."""
+    source, assay = plate(world, "Src"), plate(world, "Dst")
+    picked = [transfer(world, source, assay, source_well=w) for w in ("A1", "B1", "C1")]
+    real = protocol.Session.call
+    calls: list[str] = []
+
+    def trapping_on_the_second(session: protocol.Session, entry: str, request: bytes) -> Any:
+        if entry == "record":
+            calls.append(entry)
+            if len(calls) == 2:
+                raise protocol.SessionFailed("panicked", "The writer failed: it stopped.")
+        return real(session, entry, request)
+
+    monkeypatch.setattr(protocol.Session, "call", trapping_on_the_second)
+    with capture_logs() as logged:
+        made = (
+            api_as(world)
+            .post("/entity-exports", {"format": WRITER, "entities": [t.hrid for t in picked]})
+            .json()
+        )
+    assert made["state"] == "failed", made
+    assert f"failed on {picked[1].hrid}" in made["error"]
+    assert picked[0].hrid not in made["error"] and picked[2].hrid not in made["error"]
+    failed = [e for e in logged if e["event"] == "writer_failed"]
+    assert [(e["record"], e["hrid"], e["code"]) for e in failed] == [
+        (str(picked[1].pk), picked[1].hrid, "panicked")
+    ]
+
+
+def test_a_deployments_writer_limits_reach_the_sandbox(world: World) -> None:
+    """ADR 0230: the deployment's limits go in each export's header, so its writer's file
+    is held to them: here, an output limit lowered below the worklist's size."""
+    moved = transfer(world, plate(world, "Src"), plate(world, "Dst"))
+    with override_settings(IKI_EXPORT_LIMITS={"max_output": 8}):
+        response = export(api_as(world), moved)
+    assert response.status_code == 422, response.content
+    assert response.json()["code"] == "writer_failed"
+    assert "over the limit of 8 bytes" in response.json()["detail"]
+    assert export(api_as(world), moved).status_code == 200
 
 
 def test_without_a_sandbox_a_plugins_format_is_503(world: World) -> None:

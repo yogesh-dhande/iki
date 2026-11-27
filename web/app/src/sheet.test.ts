@@ -14,12 +14,14 @@ import {
   ID,
   LOCATION,
   moved,
+  NONE_LOADED,
   parseHtmlTable,
   parseTsv,
   placePaste,
   problemsAt,
   rangeOf,
   redo,
+  reloaded,
   saveRow,
   sheetColumns,
   textAt,
@@ -391,6 +393,31 @@ describe("changes, and undoing them", () => {
     const between = withNewRows(two, 1, 1);
     expect(between.added).toEqual(["new-1", "new-3", "new-2"]);
     expect(withoutNewRows(between, new Set(["new-3"])).added).toEqual(["new-1", "new-2"]);
+  });
+});
+
+describe("the records a sheet has, as the table reads them again", () => {
+  const kd1 = sample("SMP-000001", { purity: 90 });
+  const kd2 = sample("SMP-000002", { purity: 91 });
+  const kd3 = sample("SMP-000003", { purity: 92 });
+
+  it("keeps each where it was, as it is now, with records it hadn't at the end", () => {
+    const first = reloaded(NONE_LOADED, [kd1, kd2]);
+    expect(first.order).toEqual([kd1.id, kd2.id]);
+    // Someone saved SMP-000002: sorted by when they changed, it's first in the table now.
+    const kd2Now = { ...kd2, revision: kd2.revision + 1, values: { purity: 95 } };
+    const next = reloaded(first, [kd3, kd2Now, kd1]);
+    expect(next.order).toEqual([kd1.id, kd2.id, kd3.id]);
+    expect(next.byId[kd2.id]).toBe(kd2Now);
+    // A record that's gone from the table stays.
+    expect(reloaded(next, [kd1]).order).toEqual([kd1.id, kd2.id, kd3.id]);
+    expect(reloaded(next, [kd1]).byId[kd2.id]).toBe(kd2Now);
+  });
+
+  it("is the same when nothing's new, so reading again redraws nothing", () => {
+    const first = reloaded(NONE_LOADED, [kd1, kd2]);
+    expect(reloaded(first, [kd2, kd1])).toBe(first);
+    expect(reloaded(first, [])).toBe(first);
   });
 });
 

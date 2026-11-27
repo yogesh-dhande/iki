@@ -240,6 +240,11 @@ ACTIONS: dict[str, str] = {
     "scim.group_unlinked": "Unlinked a group from a team",
 }
 
+#: Actions whose event can concern records of several projects. Such an event has no one
+#: ``project``; its data lists each in ``projects``, and filtering the log by a project
+#: finds it too.
+SPANNING_PROJECTS = frozenset({"entities.export_requested", "entities.exported"})
+
 
 @dataclass(frozen=True)
 class AgentInfo:

@@ -7176,7 +7176,8 @@
         "type": "object"
       },
       "ExportSearchIn": {
-        "description": "The records a table shows, as ``POST /entities/search`` finds them.",
+        "additionalProperties": false,
+        "description": "The records a table shows, as ``POST /entities/search`` finds them, in its order.",
         "properties": {
           "archived": {
             "anyOf": [
@@ -7253,6 +7254,15 @@
                 "type": "null"
               }
             ]
+          },
+          "then": {
+            "description": "Further sorts, in order, for what `sort` ties, as the table sorts them.",
+            "items": {
+              "$ref": "#/components/schemas/SortIn"
+            },
+            "maxItems": 3,
+            "title": "Then",
+            "type": "array"
           },
           "type": {
             "anyOf": [
@@ -27051,12 +27061,13 @@
                 "type": "null"
               }
             ],
-            "description": "Its position, such as A1; none for the next free one.",
+            "description": "Its position, such as A1, as the check found it: a save takes this one, never another. Null only for a container without positions.",
             "title": "Position"
           }
         },
         "required": [
-          "container"
+          "container",
+          "position"
         ],
         "title": "SheetEditPlaceIn",
         "type": "object"
@@ -46323,7 +46334,7 @@
     },
     "/api/v1/projects/{project_id}/sheet-edits": {
       "post": {
-        "description": "Makes the changes reviewed (ADR 0228, 0207): each record's, from the revision read,\nas a revision with the reason; each new record, with its starting amount and place.\nAll of them are made, or none. If a record changed since its revision, nothing is\n(412, ``stale``, its rows in ``rows``); if any row has a problem, nothing is (422,\neach problem at ``#/rows/<n>/values/<field>``, ``…/location``, ``…/amount`` or the row).\nThe audit trail records them as one change, ``records.sheet_saved``.",
+        "description": "Makes the changes reviewed (ADR 0228, 0207): each record's, from the revision read,\nas a revision with the reason; each new record, with its starting amount, at the\nexact position its check found. All of them are made, or none. If a record changed\nsince its revision, or another placement took one of those positions since the check,\nnothing is (412, ``stale``: the records in ``rows``, the positions in ``places``);\nif any row has a problem, nothing is (422, each problem at\n``#/rows/<n>/values/<field>``, ``…/location``, ``…/amount`` or the row). The audit\ntrail records them as one change, ``records.sheet_saved``.",
         "operationId": "iki_server_api_sheets_save_sheet",
         "parameters": [
           {

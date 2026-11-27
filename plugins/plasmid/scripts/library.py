@@ -2,17 +2,25 @@
 
 Each part of the library is the bases of a feature of a public-domain INSDC record (see
 ``data/README.md``). A part is looked for in the plasmid on both strands, and round its
-origin if it's circular, in two steps, as BLAST-based annotators (pLannotate) do:
+origin if it's circular, in steps, the first two as BLAST-based annotators (pLannotate)
+do:
 
 1. **Seeds.** The plasmid's 18-mers are indexed, and each 18-mer of the part looked up.
-   A hit places the part at one offset along the plasmid. A part with no seed isn't
-   there at the identity we keep -- so a part shorter than a seed, or short enough that
-   mismatches leave no exact 18-mer in it, is looked for as a plain exact match
-   instead, which is the one promise a seed index can't keep.
+   A hit places the part at one offset along the plasmid. A part shorter than a seed
+   is looked for as a plain exact match instead.
 2. **Alignment.** Round each placement, the part is aligned locally to a window of the
    plasmid (Biopython's ``PairwiseAligner``, BLASTN's scores: match 2, mismatch -3, a
    gap of n bases 7 + 2(n - 1), which is BLASTN's own 5 + 2n), and the alignment's
    identity is the bases of the part that match, over the part's length.
+3. **The rest of the plasmid.** A seed is an exact stretch, so a part whose mismatches
+   fall closer together than one in every 18 bases has none, however well it aligns (a
+   90-base part with a mismatch every 15 bases is 93% identical). So each part 40 bases
+   or longer is also aligned locally to the whole plasmid, on each strand, outside what
+   its seeds found: the best alignment is a hit if it passes, and the part is looked for
+   again outside it, until the best doesn't pass. Where the best scores less than any
+   alignment that could pass, it isn't traced back at all, so at the default identity
+   this is one scoring of the library against the plasmid, about half a second for a
+   10 kb plasmid.
 
 A part is annotated where it's aligned over at least ``min_coverage`` of its length with
 at least ``min_identity`` identity; a part under 40 bp must match exactly, since at that
@@ -32,6 +40,7 @@ interrupted.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -44,6 +53,8 @@ from Bio.Seq import Seq
 SEED = 18
 #: Under this many bases, only an exact match is annotated.
 EXACT_UNDER = 40
+#: A base no part aligns with, put where a part was found so it isn't found there again.
+MASK = "N"
 #: BLASTN's scores. Biopython charges `open` for a gap's first base and `extend` for each
 #: after it, so these give 7 + 2(n - 1) for a gap of n bases, which is BLASTN's own
 #: existence 5 plus extension 2 per base (5 + 2n).
@@ -176,9 +187,9 @@ def _placements(index: dict[str, list[int]], doubled: str, probe: str) -> set[in
 
     Every one of the probe's 18-mers is looked up, so any exact stretch that long places
     it. A probe too short to hold a seed, or one whose every 18-mer carries a mismatch,
-    has no seed at all: those are looked for as an exact match instead, which is the one
-    thing a seed index can't promise and the library's short parts need (cPPT is 16 bases
-    and the T3 promoter 17).
+    has no seed at all: those are looked for as an exact match instead, which the
+    library's short parts need (cPPT is 16 bases and the T3 promoter 17). A longer probe
+    without a seed is still found where it aligns well enough (:func:`_unseeded`).
     """
     found: set[int] = set()
     for offset in range(max(len(probe) - SEED, -1) + 1):
@@ -239,11 +250,73 @@ def annotate(
                         identity=round(identity, 4),
                     )
                 )
-            hits.extend(_best_of_overlapping(found, length))
+            kept = _best_of_overlapping(found, length)
+            if not exact:
+                kept += _unseeded(
+                    aligner, doubled, length, part, strand, probe, kept, min_identity, min_coverage
+                )
+            hits.extend(kept)
     hits = _best_of_shadowed(hits, length)
     hits = [replace(hit, reading_frame=_reading_frame(hit, bases)) for hit in hits]
     hits.sort(key=lambda hit: (hit.start, -hit.identity, hit.part.name))
     return hits
+
+
+def _floor(length: int, min_identity: float) -> float:
+    """The least an alignment of a part of ``length`` bases scores when it passes: its
+    matches are at least ``min_identity`` of it, and each of its other bases costs at most
+    a one-base gap's opening (BLASTN's 7; a mismatch costs 3, and a longer gap less a
+    base). An alignment that also needs the plasmid's own bases inserted between the
+    part's costs more than that, so one that needs many is found only by its seeds."""
+    matches = math.ceil(min_identity * length)
+    return MATCH * matches + OPEN * (length - matches)
+
+
+def _unseeded(
+    aligner: Align.PairwiseAligner,
+    doubled: str,
+    length: int,
+    part: Part,
+    strand: str,
+    probe: str,
+    found: list[Hit],
+    min_identity: float,
+    min_coverage: float,
+) -> list[Hit]:
+    """The probe's hits outside those its seeds found: its best local alignment to the
+    rest of the plasmid, as long as it passes, each kept and then masked so the next is
+    looked for elsewhere. It stops at the first that doesn't pass, without tracing back
+    one that scores less than any alignment that could pass, or after as many as the
+    plasmid has room for."""
+    masked = list(doubled)
+
+    def mask(hit: Hit) -> None:
+        for position in _covered(hit, length):
+            for at in (position - 1, position - 1 + length):
+                if at < len(masked):
+                    masked[at] = MASK
+
+    for hit in found:
+        mask(hit)
+    floor = _floor(len(probe), min_identity)
+    more: list[Hit] = []
+    for _ in range(len(doubled) // len(probe) + 1):
+        plasmid = "".join(masked)
+        if aligner.score(plasmid, probe) < floor:
+            break
+        identity, first, last = _identity(aligner, probe, plasmid)
+        hit = Hit(
+            part=part,
+            start=first % length + 1,
+            end=(last - 1) % length + 1,
+            strand=strand,
+            identity=round(identity, 4),
+        )
+        if identity < min_identity or (last - first) < min_coverage * len(probe):
+            break
+        more.append(hit)
+        mask(hit)
+    return more
 
 
 def _best_of_overlapping(found: list[Hit], length: int) -> list[Hit]:

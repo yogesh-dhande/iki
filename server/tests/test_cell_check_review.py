@@ -118,28 +118,84 @@ def test_an_unsigned_acceptance_needs_the_report(check_type: EntityType) -> None
     assert [row[0].value for row in outcomes] == [True, False]
 
 
-def test_test_kinds_have_distinct_result_vocabularies(check_type: EntityType) -> None:
+@pytest.fixture(scope="module")
+def lab_test_type() -> EntityType:
+    loaded = load_plugin(PLUGIN, dependencies=FIRST_PARTY[PLUGIN])
+    assert loaded.plugin is not None
+    return loaded.plugin.types["iki/cell_lines.CellCheckTest"]
+
+
+def _check_variables(check_type: EntityType, lab_test_type: EntityType) -> dict[str, Any]:
+    # A rule sees one level of fields on what a check refers to: its lab test's facts.
+    def refs(name: str) -> tuple[str, Any] | None:
+        if name == "iki/cell_lines.CellCheckTest":
+            return lab_test_type.label, lab_test_type.fields
+        return None
+
+    return rules.rule_variables(rules.record_schema(check_type.label, check_type.fields, refs))
+
+
+IDENTITY = {"match", "mismatch", "inconclusive"}
+CONTAMINATION = {"positive", "negative", "inconclusive"}
+CONFORMANCE = {"conforms", "does_not_conform", "inconclusive"}
+
+
+@pytest.mark.parametrize(
+    ("kind", "family", "valid"),
+    [
+        ("str_authentication", None, IDENTITY),
+        ("species_identity", None, IDENTITY),
+        ("mycoplasma", None, CONTAMINATION),
+        ("sterility", None, CONTAMINATION),
+        ("viral_testing", None, CONTAMINATION),
+        ("karyotype", None, CONFORMANCE),
+        # The lab's own tests have the results their list option says, as the six do.
+        ("other", "identity", IDENTITY),
+        ("other", "contamination", CONTAMINATION),
+        ("other", "conformance", CONFORMANCE),
+    ],
+)
+def test_test_kinds_have_distinct_result_vocabularies(
+    check_type: EntityType,
+    lab_test_type: EntityType,
+    kind: str,
+    family: str | None,
+    valid: set[str],
+) -> None:
     rule = check_type.rules["result_for_test"]
     assert rule.check is not None
-    variables = rules.rule_variables(rules.record_schema(check_type.label, check_type.fields, None))
-    identity = {"match", "mismatch", "inconclusive"}
-    contamination = {"positive", "negative", "inconclusive"}
-    for kind, valid in [
-        ("str_authentication", identity),
-        ("species_identity", identity),
-        ("mycoplasma", contamination),
-        ("sterility", contamination),
-        ("viral_testing", contamination),
-        ("karyotype", {"conforms", "does_not_conform", "inconclusive"}),
-        ("other", set(check_type.fields["result"].values)),
-    ]:
-        choices = check_type.fields["result"].values
-        records = [{"record": {"kind": kind, "result": choice}} for choice in choices]
-        results = rules.evaluate(variables, [(rule.check, rules.CONDITION)], records)
-        assert all(row[0].error is None for row in results)
-        assert {
-            choice for choice, row in zip(choices, results, strict=True) if row[0].value
-        } == valid
+    variables = _check_variables(check_type, lab_test_type)
+    choices = check_type.fields["result"].values
+    lab_test = {"id": "option", "result_family": family} if family else None
+    records = [
+        {"record": {"kind": kind, "result": choice, "lab_test": lab_test}} for choice in choices
+    ]
+    results = rules.evaluate(variables, [(rule.check, rules.CONDITION)], records)
+    assert all(row[0].error is None for row in results)
+    assert {choice for choice, row in zip(choices, results, strict=True) if row[0].value} == valid
+
+
+def test_the_lab_names_its_own_tests_from_its_list(lab_test_type: EntityType) -> None:
+    """No free-text test name: a lab's test is an option of its list (ADR 0270), whose
+    kind of result is fixed once it's added, as the checks recorded with it rely on it."""
+    assert lab_test_type.list_spec is not None
+    family = lab_test_type.fields["result_family"]
+    assert family.type == "enum"
+    assert family.required and family.immutable
+    assert set(family.values) == {"identity", "contamination", "conformance"}
+    starting = {o["code"]: o["result_family"] for o in lab_test_type.list_spec.options}
+    assert starting == {
+        "endotoxin": "conformance",
+        "post_thaw_viability": "conformance",
+        "tumorigenicity": "conformance",
+    }
+
+
+def test_check_has_no_free_text_test_name(check_type: EntityType) -> None:
+    assert "test" not in check_type.fields
+    lab_test = check_type.fields["lab_test"]
+    assert lab_test.type == "ref"
+    assert lab_test.to == ("iki/cell_lines.CellCheckTest",)
 
 
 def test_check_date_is_between_banking_and_the_next_due_date(check_type: EntityType) -> None:
@@ -175,17 +231,18 @@ def test_check_date_is_between_banking_and_the_next_due_date(check_type: EntityT
     assert check_type.rules["next_check_after_test"].when == "record.due_on != null"
 
 
-def test_another_test_is_named(check_type: EntityType) -> None:
-    rule = check_type.rules["named_other_test"]
+def test_another_test_is_the_labs(check_type: EntityType, lab_test_type: EntityType) -> None:
+    rule = check_type.rules["lab_test_for_other"]
     assert rule.check is not None
-    variables = rules.rule_variables(rules.record_schema(check_type.label, check_type.fields, None))
+    variables = _check_variables(check_type, lab_test_type)
+    endotoxin = {"id": "option", "result_family": "conformance"}
     contexts = [
-        {"record": {"kind": kind, "test": test}}
-        for kind, test in [
-            ("other", "Endotoxin"),
+        {"record": {"kind": kind, "lab_test": lab_test}}
+        for kind, lab_test in [
+            ("other", endotoxin),
             ("other", None),
             ("sterility", None),
-            ("sterility", "Endotoxin"),
+            ("sterility", endotoxin),
         ]
     ]
     outcomes = rules.evaluate(variables, [(rule.check, rules.CONDITION)], contexts)

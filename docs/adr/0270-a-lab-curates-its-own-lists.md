@@ -108,7 +108,14 @@ work on a plugin's data is; the audit trail has the people's changes.
 
 **Values that drive a workflow stay enums.** A list is for descriptive
 vocabulary: what a person reads and a search groups by. Values a state,
-guard, rule, calculation or worker reads are the plugin's, as an enum.
+guard, rule, calculation or worker reads are the plugin's, as an enum. An
+option's own fact that one reads, such as the calculation a concentration
+method names, is a fixed fact (ADR 0143): set as the option is added, never
+changed by a curator, and a wrong one is superseded, its records moved to the
+replacement. Validation refuses a guard or rule condition that reads a fact
+the list's curators can change, its label among them, and a run that includes
+an option whose enums, numbers or Booleans aren't fixed. A message may show
+any of them; a run may read its text, such as an SOP's link.
 
 **Moving data says which option it means.** A bundle carries the options its
 records name as entries; the importing registry's list must have each code,
