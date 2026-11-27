@@ -4529,30 +4529,82 @@ def test_a_state_is_set_from_the_revision_the_reviewer_saw(open_as: Any, world: 
     card.get_by_role("button", name="Set Status").click()
     dialog = page.get_by_role("alertdialog", name=f"Set Status of {record.hrid}")
     dialog.get_by_role("textbox", name=re.compile("^Reason")).fill("Bench 4")
-    with _orm_beside_playwright():
-        entities.update(
-            world.users["admin"],
-            record,
-            {"label": "Lot 7 (relabelled)"},
-            expected_revision=Entity.objects.get(pk=record.pk).revision,
-        )
+    entities.update(
+        world.users["admin"],
+        record,
+        {"label": "Lot 7 (relabelled)"},
+        expected_revision=Entity.objects.get(pk=record.pk).revision,
+    )
     dialog.get_by_role("button", name="Set Status").click()
     dialog.get_by_text("Someone changed it while this was open.").wait_for()
     page.get_by_text("Lot 7 (relabelled)").first.wait_for()
     expect(dialog.get_by_role("textbox", name=re.compile("^Reason"))).to_have_value("Bench 4")
-    with _orm_beside_playwright():
-        assert (
-            entities.current_values(entities.specific(Entity.objects.get(pk=record.pk)))["status"]
-            == "received"
-        )
+    assert (
+        entities.current_values(entities.specific(Entity.objects.get(pk=record.pk)))["status"]
+        == "received"
+    )
+    # Chromium and WebKit log the refusal's 412 as a failed load: that, and nothing else.
+    PAGE_ERRORS[page][:] = [
+        e for e in PAGE_ERRORS[page] if "status of 412 (Precondition Failed)" not in e
+    ]
     assert_clean(page, axe_in_firefox=False)
 
     dialog.get_by_role("button", name="Set Status").click()
     page.get_by_text(f"{record.hrid}’s Status is In testing now.").wait_for()
-    with _orm_beside_playwright():
-        now = Entity.objects.get(pk=record.pk)
-        values = entities.current_values(entities.specific(now))
+    now = Entity.objects.get(pk=record.pk)
+    values = entities.current_values(entities.specific(now))
     assert (values["label"], values["status"]) == ("Lot 7 (relabelled)", "in_testing")
+    page.context.close()
+
+
+def test_an_open_edit_says_its_record_was_locked_and_keeps_what_was_typed(
+    open_as: Any, world: World
+) -> None:
+    """A reviewer locks a sample while an analyst has its edit form open (ADR 0300): the
+    form says so as soon as the page reads it again, who set which state and when, keeps
+    what was typed to copy, and offers no save, so nothing is sent to be refused."""
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+    from iki_server.entities.states import set_state
+
+    _lab_roles(world, editor=("analyst",), admin=("reviewer",))
+    editor = world.users["editor"]
+    made = entities.create(editor, "acme/protein.Sample", world.project, {"label": "Lot 7"})
+    record = Entity.objects.get(pk=made.entity.pk)
+
+    page: Page = open_as("editor", f"/entities/{record.hrid}/edit/")
+    label = page.get_by_role("textbox", name=re.compile("^Label"))
+    label.fill("Lot 7, re-aliquoted")
+    sent: list[str] = []
+    page.on("request", lambda r: sent.append(r.url) if r.method == "PATCH" else None)
+
+    tested = set_state(editor, record, "status", "in_testing", expected_revision=record.revision)
+    review = set_state(editor, record, "status", "in_review", expected_revision=tested.number)
+    set_state(
+        world.users["admin"],
+        record,
+        "status",
+        "reviewed",
+        expected_revision=review.number,
+        reason="Purity in spec",
+    )
+    # The tab comes back into view, as when the analyst returns to it: the page reads it.
+    page.evaluate("window.dispatchEvent(new Event('visibilitychange'))")
+
+    notice = page.get_by_role("alert")
+    expect(notice).to_contain_text(
+        f"{record.hrid} was locked while you were editing, so nothing can be saved."
+    )
+    expect(notice).to_contain_text("Admin set its Status to Reviewed")
+    expect(notice).to_contain_text("What you typed is still below, to copy.")
+    expect(label).to_have_value("Lot 7, re-aliquoted")
+    save = page.get_by_role("button", name="Save changes")
+    expect(save).to_have_attribute("aria-disabled", "true")
+    save.click(force=True)
+    assert_clean(page)
+    assert sent == []
+    now = entities.current_values(entities.specific(Entity.objects.get(pk=record.pk)))
+    assert now["label"] == "Lot 7"
     page.context.close()
 
 

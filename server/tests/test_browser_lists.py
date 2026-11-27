@@ -189,15 +189,14 @@ def test_a_colleagues_change_comes_into_an_open_edit_and_nothing_is_lost(
     described = "Superdex 200 Increase 10/300 GL, in PBS at 0.5 mL/min."
     dialog.get_by_role("textbox", name=re.compile("^Description")).fill(described)
     reason(dialog).fill("Which column the core runs")
-    with _orm_beside_playwright():
-        read = option("sec").entry
-        lists.change(
-            colleague,
-            read,
-            {"label": "Gel filtration"},
-            reason="What the core calls it",
-            expected_revision=Entity.objects.get(pk=read.pk).revision,
-        )
+    read = option("sec").entry
+    lists.change(
+        colleague,
+        read,
+        {"label": "Gel filtration"},
+        reason="What the core calls it",
+        expected_revision=Entity.objects.get(pk=read.pk).revision,
+    )
     dialog.get_by_role("button", name="Save").click()
 
     alert = dialog.get_by_role("alert")
@@ -206,15 +205,17 @@ def test_a_colleagues_change_comes_into_an_open_edit_and_nothing_is_lost(
     expect(dialog.get_by_role("textbox", name="Label")).to_have_value("Gel filtration")
     expect(dialog.get_by_role("textbox", name=re.compile("^Description"))).to_have_value(described)
     expect(reason(dialog)).to_have_value("Which column the core runs")
-    with _orm_beside_playwright():
-        assert option("sec").description != described
+    assert option("sec").description != described
+    # Chromium and WebKit log the refusal's 412 as a failed load: that, and nothing else.
+    PAGE_ERRORS[page][:] = [
+        e for e in PAGE_ERRORS[page] if "status of 412 (Precondition Failed)" not in e
+    ]
     checked(page)
 
     dialog.get_by_role("button", name="Save").click()
     expect(dialog).to_be_hidden()
     expect(options_table(page).get_by_role("link", name="Gel filtration")).to_be_visible()
-    with _orm_beside_playwright():
-        saved = option("sec")
+    saved = option("sec")
     assert (saved.label, saved.description) == ("Gel filtration", described)
 
 

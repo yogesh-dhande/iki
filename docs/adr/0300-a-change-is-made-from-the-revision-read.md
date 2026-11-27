@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-11-27
 - Refines: [0035](0035-entity-revisions-provenance-and-edit-rules.md),
-  [0289](0289-one-precondition-for-every-change.md)
+  [0289](0289-a-change-names-the-revision-it-replaces-in-if-match.md)
 
 ## Context
 
@@ -56,6 +56,13 @@ its registry entry's revision, and a hold's review the hold's `review_version`.
 A change of either is a change. A signature or a hold's review asks for its
 reason again after it catches up, because the reason was given for what the
 person saw.
+
+A form whose record can't be changed by them any more while it's open
+(locked by a state, archived, or their access changed) says so as soon as the
+page reads it: what happened, who did it and when where its latest revision
+says, and that what was typed is still there to copy. It offers no save, so
+nothing is sent only to be refused. The edit page reads the record again
+whenever the tab comes back into view, so this shows before the person acts.
 
 So the change is always made from what the person saw, and they're told when
 that changed, before anything is sent from a revision nobody reviewed.

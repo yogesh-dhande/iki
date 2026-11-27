@@ -21,7 +21,7 @@
  */
 
 import { ApiError, unwrap, isStale } from "@ikisci/sdk";
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useState, type ReactNode, type SubmitEvent } from "react";
 
@@ -31,7 +31,9 @@ import {
   editReturns,
   entityQuery,
   inSentence,
+  personName,
   recordSearch,
+  revisionQuery,
   stateLabel,
   typesQuery,
   type Entity,
@@ -56,6 +58,7 @@ import {
   buttonClass,
   ConfirmDialog,
   PageHeader,
+  RelativeTime,
   SelectField,
   TextField,
   useLeaveGuard,
@@ -557,7 +560,12 @@ function editCrumbs(entity: Entity, type: EntityType | undefined): ReactNode[] {
 export function EditEntity() {
   const { ref } = useParams({ from: "/entities/$ref/edit" });
   const { project } = useSearch({ from: "/entities/$ref" });
-  const entity = useSuspenseQuery(entityQuery(ref, project)).data;
+  // Read again whenever the tab comes back, however recently it was: someone may have
+  // saved or locked it meanwhile, and the form says so before anything is sent.
+  const entity = useSuspenseQuery({
+    ...entityQuery(ref, project),
+    refetchOnWindowFocus: "always",
+  }).data;
   const types = useSuspenseQuery(typesQuery).data;
   const type = types.find((t) => t.name === entity.type);
   usePageTitle(`Edit ${entity.title} (${entity.hrid})`);
@@ -586,6 +594,44 @@ export function EditEntity() {
     );
   }
   return <EditEntityForm key={entity.id} entity={entity} type={type} types={types} />;
+}
+
+/** Whether its reader may change its values now. */
+function editable(entity: Entity): boolean {
+  return !entity.archived && (entity.can.edit || entity.can.correct);
+}
+
+/** A record that became locked, archived or not the reader's to edit while its form was
+ * open: what happened, by whom and when where its latest revision says, and that what was
+ * typed is still there to copy. */
+function LostNotice({ entity }: { entity: Entity }) {
+  const latest = useQuery(revisionQuery(entity.hrid, entity.revision)).data;
+  const by = latest?.user ? personName(latest.user) : undefined;
+  const what = entity.archived
+    ? "was archived"
+    : entity.locked
+      ? "was locked"
+      : "can’t be changed by you any more";
+  const how =
+    latest?.kind === "state_changed" && latest.state
+      ? `${by ?? "Someone"} set its ${latest.state.field.label} to ${latest.state.to.label}`
+      : latest?.kind === "archived"
+        ? `${by ?? "Someone"} archived it`
+        : undefined;
+  return (
+    <div className="alert alert-warning" role="alert">
+      <p>
+        {entity.hrid} {what} while you were editing, so nothing can be saved.
+        {how && latest?.created_at ? (
+          <>
+            {" "}
+            {how} <RelativeTime value={latest.created_at} />.
+          </>
+        ) : null}
+      </p>
+      <p>What you typed is still below, to copy.</p>
+    </div>
+  );
 }
 
 interface Conflict {
@@ -673,7 +719,10 @@ function EditEntityForm({
     const previous = encode(f, base.drafts[f.name] ?? null, type);
     return !next.ok || !previous.ok || !same(next.value, previous.value);
   });
-  const canSave = !base.entity.archived && (base.entity.can.edit || base.entity.can.correct);
+  // Locked, archived or no longer theirs to edit while it was open: it says so at once,
+  // keeps what was typed to copy, and saves nothing.
+  const lost = !editable(opened);
+  const canSave = editable(base.entity) && !lost;
   const returns = changed.length && canSave ? editReturns(base.entity, type) : [];
   // Only rules reading what it changes, as the server checks an edit.
   const proposed = { ...base.entity.values, ...typedValues(type, drafts) };
@@ -736,7 +785,9 @@ function EditEntityForm({
     <>
       <section className="card form-card">
         <PageHeader crumbs={editCrumbs(opened, type)} title={`Edit ${opened.title}`} />
-        {conflict ? (
+        {lost ? (
+          <LostNotice entity={opened} />
+        ) : conflict ? (
           <div className="alert alert-warning" role="alert">
             <p>
               Someone else saved {base.entity.hrid} while you were editing (it’s at revision{" "}
@@ -766,11 +817,7 @@ function EditEntityForm({
                 </li>
               ) : null}
             </ul>
-            <p>
-              {canSave
-                ? "Save again to keep your changes."
-                : "You can no longer edit this record. Your unsaved values are shown below."}
-            </p>
+            <p>Save again to keep your changes.</p>
           </div>
         ) : unchanged ? (
           <div className="alert alert-warning" role="alert">
