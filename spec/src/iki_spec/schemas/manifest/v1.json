@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ikisci.org/schemas/manifest/v1",
   "title": "Iki manifest (iki/v1)",
-  "description": "Any Iki plugin manifest, chosen by its `kind`. Point your editor at this schema for every YAML file in a plugin.",
+  "description": "Any Iki plugin manifest, or an action test in its tests/ directory, chosen by its `kind`. Point your editor at this schema for every YAML file in a plugin.",
   "type": "object",
   "required": ["apiVersion", "kind"],
   "properties": {
@@ -19,7 +19,8 @@
         "Environment",
         "Workflow",
         "Trigger",
-        "Component"
+        "Component",
+        "ActionTest"
       ]
     }
   },
@@ -58,6 +59,10 @@
     {
       "if": { "properties": { "kind": { "const": "Component" } }, "required": ["kind"] },
       "then": { "$ref": "https://ikisci.org/schemas/component/v1" }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "ActionTest" } }, "required": ["kind"] },
+      "then": { "$ref": "https://ikisci.org/schemas/action-test/v1" }
     }
   ]
 }

@@ -1196,6 +1196,23 @@ class _Semantics:
                 ("name",),
                 hint=f"Name it under your lab's or company's namespace, such as `acme/{short}`.",
             )
+        if plugin.starters and plugin.name not in naming.FIRST_PARTY:
+            # A starter is a recipe the server has (ADR 0198); only Iki's own plugins'
+            # are in it, so another plugin's `starters` switch nothing on.
+            self.add(
+                "unknown-starter",
+                "Iki has no starter "
+                + ", ".join(f"`{s}`" for s in plugin.starters)
+                + ": only Iki's own plugins' starters can be offered at project setup, so "
+                "this does nothing.",
+                source,
+                ("starters",),
+                key=True,
+                severity=Severity.WARNING,
+                hint="Leave `starters` off. To let each deployment choose a review procedure, "
+                "declare an `enum` setting of the procedures and copy it onto each result "
+                "when it's recorded, as the lots plugin's `verification_flow` is.",
+            )
         for dependency, constraints in plugin.dependencies.items():
             path: Path = ("dependencies", dependency)
             if "/" not in dependency:
@@ -3938,6 +3955,34 @@ class _Semantics:
                     hint="Such as `topology: { type: enum, values: [linear, circular] }`.",
                 )
 
+    def row_id(self, row: Field, source: Document, path: Path) -> None:
+        """A row's ID field: a string Iki fills in, so not one a new row must give."""
+        assert row.row_id is not None  # noqa: S101 - the caller's check
+        cell = row.fields.get(row.row_id)
+        wrong = (
+            f"isn't one of its fields; they are: {', '.join(row.fields)}."
+            if cell is None
+            else f"is a {cell.type} field, and an ID is a string."
+            if cell.type != "string"
+            else "is required, but a new row leaves its ID out for Iki to give."
+            if cell.required
+            else "has a default, but each row's ID is its own."
+            if cell.has_default
+            else f"holds at most {cell.max_length} characters, and an ID is a 36-character UUID."
+            if cell.max_length is not None and cell.max_length < 36
+            else None
+        )
+        if wrong is not None:
+            self.add(
+                "row-id-field",
+                f"`row_id` names the row's field that holds its stable ID, and `{row.row_id}` "
+                + wrong,
+                source,
+                (*path, "row_id"),
+                hint="Name an optional string field, such as `observation_id: { type: string, "
+                "max_length: 36 }`.",
+            )
+
     def rows(self, row: Field, source: Document, path: Path) -> None:
         """A list's rows (ADR 0137): each of their fields as a field, the one naming each
         row's role an enum, and each role's counts and references within the fields'."""
@@ -3962,6 +4007,8 @@ class _Semantics:
                     (*path, "identity", row.identity.index(name)),
                     hint=f"Its fields are: {', '.join(row.fields)}.",
                 )
+        if row.row_id is not None:
+            self.row_id(row, source, path)
         if row.by is None:
             return
         by = row.fields.get(row.by)
