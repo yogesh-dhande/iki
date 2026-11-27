@@ -44,7 +44,7 @@ import { trailCsvUrl } from "./entity-header";
 import { signaturesQuery } from "./entity-signatures";
 import { shownIn, useEntity, Value } from "./entity";
 import { KIND, revisionWhat, UtcTime, Via } from "./revision-text";
-import { Button, Loading, ProblemAlert, RelativeTime } from "../ui";
+import { Button, buttonClass, Loading, ProblemAlert, RelativeTime } from "../ui";
 
 export function EntityAudit() {
   const { entity, type } = useEntity();
@@ -368,6 +368,69 @@ function SignedWith({ entity, revision }: { entity: Entity; revision: Revision }
   );
 }
 
+/** What a revision did and who did it, as its title says: “Edited by Ada Lovelace”, or of an
+ * entry's revision made through a project the reader can't read, only what it set. */
+export function revisionTitle(
+  revision: Revision,
+  labels: ReadonlyMap<string, string>,
+  entry: boolean,
+): string {
+  const changed = revision.changed_fields.map((n) => labels.get(n) ?? n);
+  // An entry's revision made through a project the reader can't read: what, never who,
+  // how or when.
+  if (revision.created_at === null) {
+    return changed.length ? `Set ${changed.join(", ")}` : (KIND[revision.kind] ?? revision.kind);
+  }
+  const what = entry ? (KIND[revision.kind] ?? revision.kind) : revisionWhat(revision);
+  return `${what} by ${personName(revision.user)}`;
+}
+
+/** What the trail says of a revision under its title: when, how and which fields, why,
+ * its identity as it was given, and the signatures and holds it carries. Its own page says
+ * the same. */
+export function RevisionFacts({
+  entity,
+  revision,
+  labels,
+}: {
+  /** The record, whose signatures set its states: none for a registry entry's own page. */
+  entity: Entity | undefined;
+  revision: Revision;
+  labels: ReadonlyMap<string, string>;
+}) {
+  const changed = revision.changed_fields.map((n) => labels.get(n) ?? n);
+  return (
+    <>
+      <p className="trail-meta">
+        {revision.created_at ? (
+          <>
+            <UtcTime value={revision.created_at} /> · <Via revision={revision} />
+          </>
+        ) : (
+          "Through a project you can’t read"
+        )}
+        {changed.length ? ` · ${changed.join(", ")}` : ""}
+      </p>
+      {revision.reason ? <p className="row-reason">“{revision.reason}”</p> : null}
+      {/* Its identity as it was given, spelled other than its registry entry (ADR 0138). */}
+      {revision.submitted ? (
+        <p className="row-submitted">
+          Given as{" "}
+          {Object.entries(revision.submitted).map(([name, value], index) => (
+            <span key={name}>
+              {index ? "; " : ""}
+              {labels.get(name) ?? name}: <code>{submittedText(value)}</code>
+            </span>
+          ))}
+          , which its registry entry spells another way.
+        </p>
+      ) : null}
+      {entity ? <SignedWith entity={entity} revision={revision} /> : null}
+      <HoldsOpened revision={revision} />
+    </>
+  );
+}
+
 /** One revision in the timeline: the record's, or with `entry`, its registry entry's. */
 function TrailRow({
   entity,
@@ -383,16 +446,8 @@ function TrailRow({
 }) {
   const [open, setOpen] = useState(false);
   const labels = new Map((type?.fields ?? []).map((f) => [f.name, f.label]));
-  const changed = revision.changed_fields.map((n) => labels.get(n) ?? n);
-  // An entry's revision made through a project the reader can't read: what, never who,
-  // how or when.
-  const disclosed = revision.created_at !== null;
   const which = `${entry ? "entry revision" : "revision"} ${String(revision.number)}`;
-  const what = disclosed
-    ? `${entry ? (KIND[revision.kind] ?? revision.kind) : revisionWhat(revision)} by ${personName(revision.user)}`
-    : changed.length
-      ? `Set ${changed.join(", ")}`
-      : (KIND[revision.kind] ?? revision.kind);
+  const number = String(revision.number);
   return (
     <li className="trail-rev">
       <span className="trail-node" aria-hidden="true">
@@ -401,7 +456,7 @@ function TrailRow({
       <div className="trail-body">
         <div className="trail-title">
           <span className="row-title">
-            Revision {revision.number}: {what}
+            Revision {revision.number}: {revisionTitle(revision, labels, Boolean(entry))}
           </span>
           <span className="trail-actions">
             {revision.changed_fields.length ? (
@@ -412,9 +467,30 @@ function TrailRow({
                   setOpen(!open);
                 }}
               >
-                {open ? "Hide changes" : `Show changes (${String(changed.length)})`}
+                {open ? "Hide changes" : `Show changes (${String(revision.changed_fields.length)})`}
               </Button>
             ) : null}
+            {/* It as it was, on a page of its own (ADR 0189). */}
+            {entry ? (
+              <Link
+                className={buttonClass("quiet")}
+                to="/entries/$ref/revisions/$number/"
+                params={{ ref: entry, number }}
+                aria-label={`Open ${which} as it was`}
+              >
+                Open
+              </Link>
+            ) : (
+              <Link
+                className={buttonClass("quiet")}
+                to="/entities/$ref/revisions/$number/"
+                params={{ ref: entity.hrid, number }}
+                search={recordSearch(entity)}
+                aria-label={`Open ${which} as it was`}
+              >
+                Open
+              </Link>
+            )}
             {/* Each of the record's revisions as it was, as a file (ADR 0171): the latest
                 too, as every revision is. An entry's revisions export as its records do. */}
             {entry ? null : (
@@ -431,32 +507,7 @@ function TrailRow({
             )}
           </span>
         </div>
-        <p className="trail-meta">
-          {revision.created_at ? (
-            <>
-              <UtcTime value={revision.created_at} /> · <Via revision={revision} />
-            </>
-          ) : (
-            "Through a project you can’t read"
-          )}
-          {changed.length ? ` · ${changed.join(", ")}` : ""}
-        </p>
-        {revision.reason ? <p className="row-reason">“{revision.reason}”</p> : null}
-        {/* Its identity as it was given, spelled other than its registry entry (ADR 0138). */}
-        {revision.submitted ? (
-          <p className="row-submitted">
-            Given as{" "}
-            {Object.entries(revision.submitted).map(([name, value], index) => (
-              <span key={name}>
-                {index ? "; " : ""}
-                {labels.get(name) ?? name}: <code>{submittedText(value)}</code>
-              </span>
-            ))}
-            , which its registry entry spells another way.
-          </p>
-        ) : null}
-        <SignedWith entity={entity} revision={revision} />
-        <HoldsOpened revision={revision} />
+        <RevisionFacts entity={entity} revision={revision} labels={labels} />
         {open ? (
           entry ? (
             <EntryChanges entry={entry} number={revision.number} type={type} entity={entity} />
@@ -605,8 +656,8 @@ export function EntryRevisionRow({
         {revision.reason ? <p className="row-reason">“{revision.reason}”</p> : null}
         {open ? <EntryOnlyChanges entry={entry} number={revision.number} type={type} /> : null}
       </div>
-      {revision.changed_fields.length ? (
-        <div className="row-actions">
+      <div className="row-actions">
+        {revision.changed_fields.length ? (
           <Button
             variant="quiet"
             label={`${open ? "Hide" : "Show"} changes in entry revision ${String(revision.number)}`}
@@ -616,8 +667,17 @@ export function EntryRevisionRow({
           >
             {open ? "Hide changes" : "Show changes"}
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+        {/* It as it was, on a page of its own (ADR 0189). */}
+        <Link
+          className={buttonClass("quiet")}
+          to="/entries/$ref/revisions/$number/"
+          params={{ ref: entry, number: String(revision.number) }}
+          aria-label={`Open entry revision ${String(revision.number)} as it was`}
+        >
+          Open
+        </Link>
+      </div>
     </li>
   );
 }

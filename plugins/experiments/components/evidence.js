@@ -78,7 +78,7 @@ class Evidence extends HTMLElement {
     const text = version(name, revision);
     if (!readable || readable.purged || !Number.isSafeInteger(revision) || revision < 1)
       return text;
-    const button = node("button", { type: "button" }, `${text} (JSON)`);
+    const button = node("button", { type: "button" }, text);
     button.addEventListener("click", () =>
       this.dispatchEvent(
         new CustomEvent("iki-open", {

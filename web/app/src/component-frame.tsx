@@ -3,8 +3,9 @@
  * has an origin that's no one's, so it can't read Iki's cookies, storage or pages, or
  * call the API as the person. The page hands Iki's bridge in it one port, gives it the
  * entity and the many entities its place shows (ADR 0117), and checks every message it
- * sends back: more, a refinement and an entity to open only for what it was given, and an
- * action to run only one its place offers (ADR 0170).
+ * sends back: more, a refinement and an entity to open only for what it was given, a
+ * revision to open only one its entity pins (ADR 0189), and an action to run only one its
+ * place offers (ADR 0170).
  */
 
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
@@ -12,10 +13,11 @@ import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import type { PlaceEntities } from "./component-entities";
 import {
   MIN_FRAME_HEIGHT,
-  pinnedRevisionUrl,
+  pinnedRevision,
   readMessage,
   type FrameMessage,
   type PinnedContext,
+  type PinnedRevision,
   type PlaceInfo,
   type PluginComponent,
   type Refinement,
@@ -42,6 +44,8 @@ export interface FrameProps {
   onMore?: (() => void) | undefined;
   onRefine?: ((refinement: Refinement | null) => void) | undefined;
   onOpen?: ((hrid: string) => void) | undefined;
+  /** A revision a pin in its entity names (ADR 0189): Iki opens its page. */
+  onOpenRevision?: ((pin: PinnedRevision) => void) | undefined;
   /** A person asked to run one of the actions its place offers, on its entity. */
   onRun?: ((action: string) => void) | undefined;
   /** It can't be shown: it didn't start, or opened another page. */
@@ -108,8 +112,9 @@ export function ComponentFrame(props: FrameProps) {
         return;
       case "open": {
         if (message.revision !== undefined) {
-          const url = pinnedRevisionUrl(now.entity, message.entity, message.revision);
-          if (url) window.location.assign(url);
+          // Only a revision a pin in its entity names, never the record as it is now.
+          const pin = pinnedRevision(now.entity, message.entity, message.revision);
+          if (pin) now.onOpenRevision?.(pin);
           return;
         }
         // Only an entity it was given: Iki opens its page, as the person may read it.
