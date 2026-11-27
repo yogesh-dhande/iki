@@ -1083,6 +1083,19 @@ class EntityType:
         return {name: f for name, f in self.fields.items() if not f.removed}
 
 
+def lineage(type_name: str, types: Mapping[str, EntityType]) -> list[str]:
+    """A validated type and each type it extends, nearest first, ending with
+    ``iki/core.Entity``: what a run input gives a command as an entity's ``types``."""
+    out = [type_name]
+    current = types[type_name]
+    while current.extends:
+        out.append(current.extends)
+        current = types[current.extends]
+    if out[-1] != naming.ENTITY:
+        out.append(naming.ENTITY)
+    return out
+
+
 def amount_of(type_name: str, types: Mapping[str, EntityType]) -> Amount | None:
     """The nearest amount declaration on a validated type or one of its ancestors."""
     current = types.get(type_name)
