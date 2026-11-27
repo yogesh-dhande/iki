@@ -13,6 +13,7 @@ import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -28,12 +29,13 @@ from rdkit.Chem import rdDepictor
 from test_oauth import bearer, signed_in_token
 
 from iki_server.audit.models import AuditEvent
-from iki_server.entities import access, record_exports, services
+from iki_server.entities import access, exports, plugin_writers, record_exports, services
 from iki_server.entities.models import ProjectLink, RecordExport
 from iki_server.org import holds
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.org.services import Refused
 from iki_server.tasks.runner import Runner
+from iki_spec.model import PluginExport
 
 pytestmark = pytest.mark.django_db
 
@@ -510,6 +512,57 @@ def test_a_token_given_some_projects_exports_only_what_they_hold(
     shown = bearer(token, "GET", f"/entity-exports/{made.pk}").json()
     assert supplier.hrid not in json.dumps(shown)
     assert bearer(token, "GET", f"/entity-exports/{made.pk}/content").status_code == 302
+
+
+def test_a_writer_is_given_no_reference_its_reader_cant_read(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A record a plugin's writer reads through a reference is given as its reader may read
+    it (ADR 0067, ADR 0230): what it refers to in turn, in a field, a list or a row, is
+    "unreadable" where that's in a project its reader can't read."""
+    store = Project.objects.create(team=world.team, name="Protein store")
+    ProjectMembership.objects.create(
+        project=store, user=world.users["editor"], role=ProjectRole.EDITOR
+    )
+    editor = world.users["editor"]
+    hidden: Any = services.create(
+        editor, "acme/protein.Protein", store, {"sequence": HBB, "name": "Store's own"}
+    ).entity
+    shown = protein(world, HBA, name="Haemoglobin alpha")
+    # Referred to from Kinase Atlas while it was linked there, then unlinked.
+    link = ProjectLink.objects.create(entity_id=hidden.pk, project=world.project)
+    sample = services.create(
+        editor,
+        "acme/protein.Sample",
+        world.project,
+        {
+            "label": "Serum 12",
+            "protein": str(hidden.pk),
+            "material": str(shown.pk),
+            "additions": [{"material": str(hidden.pk)}, {"material": str(shown.pk)}],
+        },
+    ).entity
+    tube: Any = services.create(
+        editor, "acme/protein.Tube", world.project, {"barcode": "TB-0001", "sample": str(sample.pk)}
+    ).entity
+    link.delete()
+    writer = SimpleNamespace(roles={"sample": SimpleNamespace(type="ref", unit=None)})
+    monkeypatch.setattr(plugin_writers, "find", lambda _: writer)
+    wanted = PluginExport(export="acme/example.writer", fields={"sample": "sample"})
+
+    def given(user: Any) -> dict[str, Any]:
+        record = exports._plugin_record(user, tube, tube.revision, wanted, set())
+        fields: dict[str, Any] = record.request["roles"]["sample"]["fields"]
+        return fields
+
+    # A reference names its record's entry (ADR 0115).
+    seen = given(world.users["viewer"])
+    assert seen["protein"] == "unreadable"
+    assert seen["material"] == str(shown.entry_id)
+    assert [a["material"] for a in seen["additions"]] == ["unreadable", str(shown.entry_id)]
+    assert not {str(hidden.pk), str(hidden.entry_id)} & set(json.dumps(seen).split('"'))
+    # Its editor reads the store, so the writer is given it.
+    assert given(editor)["protein"] == str(hidden.entry_id)
 
 
 # --- SDF of compounds -----------------------------------------------------------------------------
