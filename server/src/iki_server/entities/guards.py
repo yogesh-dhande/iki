@@ -4,7 +4,8 @@ A state says who may set its field to it (``set_by``, ADR 0125); its ``guards`` 
 when. Each is a CEL condition, type-checked when its plugin is validated and evaluated by
 iki-wasm here and in browsers alike, over:
 
-- ``actor``: who's setting it: the person (their ID), the agent acting for them (ADR
+- ``actor``: who's setting it: the person (their ID, a service account's own for a service
+  account, as ``history`` names whoever made each change), the agent acting for them (ADR
   0072), their lab roles in the record's project, and whether it's a service account;
 - ``record``: the record's values, every state field among them, with what its
   references refer to;
@@ -122,12 +123,15 @@ def _history(
 
 
 def _actor(user: User, roles: frozenset[str], plugin: str) -> dict[str, Any]:
+    """Who's acting, as a guard reads them. ``person`` is whoever the change will be
+    recorded as made by, a service account too, so four eyes compares like with like:
+    ``history`` names a service account's changes by its ID as well."""
     from iki_server.audit import log as audit
 
     agent = audit.current_agent_info()
     service = bool(getattr(user, "is_service_account", False))
     return {
-        "person": "" if service else str(user.pk),
+        "person": str(user.pk),
         "agent": {"name": agent.client_name, "client_id": agent.client_id} if agent else None,
         "roles": spec_rules.role_names(roles, plugin),
         "service_account": service,
@@ -197,10 +201,18 @@ def refusals(
     )
     roles = permissions.lab_roles(user, entity.owner_project)
     plugin = _plugin_of(type_name, field)
+    actor = _actor(user, roles, plugin)
+    if not actor["person"]:
+        # No one to tell apart from whoever made the earlier changes: no guard can say yes.
+        return {
+            s.name: Refusal(g, "It couldn’t be checked: no one is acting.")
+            for s in guarded
+            for g in list(s.guards.values())[:1]
+        }
     base = {
         "record": record,
         **checking.now_values(),
-        "actor": _actor(user, roles, plugin),
+        "actor": actor,
         "history": history,
         "last": last,
         "edits": edits,

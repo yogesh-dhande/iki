@@ -7,7 +7,7 @@
  * traps focus, closes on Escape and returns focus when they close.
  */
 
-import { useRouter, useRouterState } from "@tanstack/react-router";
+import { useBlocker, useRouter, useRouterState } from "@tanstack/react-router";
 import {
   createContext,
   createElement,
@@ -733,6 +733,38 @@ export function ConfirmDialog({
       </Modal>
     </ModalOverlay>
   );
+}
+
+/** Every navigation, while there's something unsaved: the person says whether to go. */
+const ANY_NAVIGATION = () => true;
+
+/**
+ * Keeps what's typed and not yet saved from going with the page. While `unsaved`, going
+ * elsewhere in the app (a link, Back, the command palette, a notification) waits, as
+ * `asking`, until the person stays or leaves: the page asks in its own dialog, saying
+ * what would be lost. Closing or reloading the tab asks as the browser does. Its own save
+ * goes without asking: a navigation once it's saved passes `ignoreBlocker`.
+ */
+export function useLeaveGuard(unsaved: boolean): {
+  asking: boolean;
+  stay: () => void;
+  leave: () => void;
+} {
+  const blocker = useBlocker({
+    shouldBlockFn: ANY_NAVIGATION,
+    enableBeforeUnload: true,
+    disabled: !unsaved,
+    withResolver: true,
+  });
+  return {
+    asking: blocker.status === "blocked",
+    stay: () => {
+      blocker.reset?.();
+    },
+    leave: () => {
+      blocker.proceed?.();
+    },
+  };
 }
 
 // --- Page pieces -----------------------------------------------------------------

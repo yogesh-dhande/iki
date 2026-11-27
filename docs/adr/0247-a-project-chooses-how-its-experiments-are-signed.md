@@ -37,7 +37,12 @@ author. With no starter applied, the deployment's `review_flow` setting still
 decides. A capture pins the flow its run was launched under into the record,
 and each state's guard requires that flow. A project that changes its flow
 leaves signed records as they were signed. A record that is still being
-recorded follows the new flow at its next capture.
+recorded follows the new flow at its next capture, unless it was captured for
+Regulated QC. That one finishes Regulated QC review, as a case or study in
+progress finishes under the procedure it began with (ADR 0240): a submission
+returned for correction is never closed by its author alone, nor by a single
+witness. The author sign-off and research routes are refused for a record
+submitted for review.
 
 Every flow's records are **Experiment** records. Experiments are created by
 hand from the type picker, so one type per flow would make each author choose a

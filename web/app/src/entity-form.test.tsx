@@ -595,6 +595,41 @@ describe("editing an entity", () => {
     expect(sent?.headers.get("If-Match")).toBe('"2"');
   });
 
+  it("asks before leaving with changes unsaved, and keeps them to stay", async () => {
+    onSample();
+    const { user, router } = await renderApp("/entities/SMP-000001/edit/");
+    const name = screen.getByRole("textbox", { name: "Name" });
+    await user.type(name, " B");
+    await user.click(screen.getByRole("link", { name: "Cancel" }));
+    let dialog = await screen.findByRole("alertdialog", { name: "Discard your changes?" });
+    expect(dialog).toHaveTextContent(
+      "Name has changes that aren’t saved. Discarding them leaves SMP-000001 as it is.",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Keep editing" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+    expect(router.state.location.pathname).toBe("/entities/SMP-000001/edit/");
+    expect(name).toHaveValue("Plasma A B");
+    await user.click(screen.getByRole("link", { name: "Cancel" }));
+    dialog = await screen.findByRole("alertdialog", { name: "Discard your changes?" });
+    await user.click(within(dialog).getByRole("button", { name: "Discard changes" }));
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/entities/SMP-000001/");
+    });
+    expect(calls("PATCH")).toEqual([]);
+  });
+
+  it("leaves without asking when nothing changed", async () => {
+    onSample();
+    const { user, router } = await renderApp("/entities/SMP-000001/edit/");
+    await user.click(screen.getByRole("link", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/entities/SMP-000001/");
+    });
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
   it("keeps the reason on a value edit after an unlock", async () => {
     onSample(sample({ can: { ...sample().can, edit_reason_required: true } }));
     answer("PATCH /api/v1/entities/" + SAMPLE_ID, sample({ revision: 3 }));

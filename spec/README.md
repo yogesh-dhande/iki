@@ -572,7 +572,8 @@ approved:
 ```
 
 - A guard reads what a rule does, with every state field in `record`, and:
-  `actor` (`person`, the person acting or an empty string for a service account;
+  `actor` (`person`, the ID of whoever is acting, a service account's own for a
+  service account, as `history`'s `by` names it;
   `agent`, the app or agent acting for them, with `name` and `client_id`, or
   null; `roles`, their lab roles in the record's project; and
   `service_account`), `state` (`field`, `from` and `to`), `history` (each
