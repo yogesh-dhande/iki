@@ -9,7 +9,7 @@
  *   holders add it to another of their projects.
  */
 
-import { ApiError, unwrap } from "@ikisci/sdk";
+import { unwrap } from "@ikisci/sdk";
 import {
   useInfiniteQuery,
   useQuery,
@@ -19,7 +19,7 @@ import {
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useState, type SubmitEvent } from "react";
 
-import { iki, problemOf, projectsQuery, useApiMutation } from "../api";
+import { iki, isStale, problemOf, projectsQuery, useApiMutation, useOpenedRevision } from "../api";
 import { ENTITIES, typeLabel, typesQuery, type EntityType } from "../entities";
 import { FieldInput } from "../entity-inputs";
 import { encode, isBlank, same, toDraft, type Draft } from "../entity-values";
@@ -415,19 +415,25 @@ function Curate({ entry, type, types }: { entry: Entry; type: EntityType; types:
   const [reason, setReason] = useState("");
   const [unchanged, setUnchanged] = useState(false);
   const save = useApiMutation(
-    async (values: Record<string, unknown>) =>
+    async ({
+      values,
+      header,
+    }: {
+      values: Record<string, unknown>;
+      header: { "If-Match": string };
+    }) =>
       unwrap(
         await iki.PATCH("/api/v1/entries/{ref}", {
-          params: {
-            path: { ref: entry.id },
-            header: { "If-Match": `"${String(entry.revision)}"` },
-          },
+          params: { path: { ref: entry.id }, header },
           body: { values, reason: reason.trim() },
         }),
       ),
     [ENTITIES],
   );
-  const stale = save.error instanceof ApiError && save.error.problem.code === "stale";
+  // The facts the form starts from are the revision it opened at, which it saves from: a
+  // change someone made meanwhile is refused, and the form says to start again from it.
+  const opened = useOpenedRevision(entry.revision, { open });
+  const stale = isStale(save.error);
   const form = useForm(stale ? null : save.error, save.isPending);
   if (!facts.length) return null;
   if (!open) {
@@ -479,13 +485,16 @@ function Curate({ entry, type, types }: { entry: Entry; type: EntityType; types:
           setUnchanged(true);
           return;
         }
-        save.mutate(values, {
-          onSuccess: (saved) => {
-            client.setQueryData(entryQuery(saved.hrid).queryKey, saved);
-            close();
-            say(`Saved revision ${String(saved.revision)} of ${saved.hrid}.`);
+        save.mutate(
+          { values, header: opened.ifMatch },
+          {
+            onSuccess: (saved) => {
+              client.setQueryData(entryQuery(saved.hrid).queryKey, saved);
+              close();
+              say(`Saved revision ${String(saved.revision)} of ${saved.hrid}.`);
+            },
           },
-        });
+        );
       }}
     >
       <h3 className="section-title" id="curate-title">
