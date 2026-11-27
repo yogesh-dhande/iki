@@ -53,9 +53,23 @@ def database(_postgres_url: str) -> Iterator[str]:
         yield url
 
 
-def iki(*args: str | Path, cwd: Path, answers: str = "") -> subprocess.CompletedProcess[str]:
+#: The CLI with its checks of migrations off (ADR 0296), as a build made some other way would
+#: be: what the server's guards and the upgrade test catch on their own.
+UNCHECKED = (
+    "import sys\n"
+    "from iki_spec import migration_api\n"
+    "migration_api.check = lambda *args: []\n"
+    "from iki_cli.main import main\n"
+    "sys.exit(main(sys.argv[1:]))\n"
+)
+
+
+def iki(
+    *args: str | Path, cwd: Path, answers: str = "", unchecked: bool = False
+) -> subprocess.CompletedProcess[str]:
+    cli = ["-c", UNCHECKED] if unchecked else ["-m", "iki_cli"]
     return subprocess.run(  # noqa: S603 - this interpreter, the iki CLI
-        [sys.executable, "-m", "iki_cli", *map(str, args)],
+        [sys.executable, *cli, *map(str, args)],
         cwd=cwd,
         input=answers,
         capture_output=True,
@@ -940,7 +954,7 @@ def test_changes_keep_history(lab: Path, database: str) -> None:
     out_text = made("lab", "--name", "changes", cwd=lab.parent, answers="y\n")
     assert out_text.count("renamed to") == 1
     migration = (lab / "migrations" / "0002_changes.py").read_text()
-    assert "iki_server.plugins.operations.ConvertUnit(" in migration
+    assert "iki.ConvertUnit(" in migration
     out = build(lab.parent, "lab")
     migrate(out, database)
     row = query(database, "SELECT title, mass, count, temperature FROM acme__lab_sample")
@@ -1116,7 +1130,9 @@ def test_indexing_a_field_adds_search_indexes_after_pg_trgm(lab: Path, database:
     )
     made("lab", "--name", "search", cwd=lab.parent)
     migration = (lab / "migrations" / "0002_search.py").read_text()
-    assert "('iki_entities', '0004_search')" in migration
+    # pg_trgm comes with Iki's anchor (ADR 0296), not one of Iki's own migrations by name.
+    assert "('iki_anchors', '0001_iki_0_1')" in migration
+    assert "iki_entities" not in migration
     migrate(build(lab.parent, "lab"), database)
     indexes = dict(
         query(
@@ -1269,7 +1285,7 @@ def test_state_fields_migrate_and_a_removed_state_moves_its_records(
     )
     text = made("lab", "--name", "states", cwd=lab.parent)
     migration = (lab / "migrations" / "0002_states.py").read_text()
-    assert "iki_server.plugins.operations.SyncStates(" in migration, text
+    assert "iki.SyncStates(" in migration, text
     out = build(lab.parent, "lab")
     migrate(out, database)
     assert query(database, STATUS) == [
@@ -1379,7 +1395,7 @@ def test_a_removed_state_field_moves_its_records_states(lab: Path, database: str
     )
     made("lab", "--name", "drop_stage", cwd=lab.parent)
     text = (lab / "migrations" / "0002_drop_stage.py").read_text()
-    assert "iki_server.plugins.operations.RetireStateField(" in text
+    assert "iki.RetireStateField(" in text
     failed = django(build(lab.parent, "lab"), database, "-m", "django", "migrate", "--no-input")
     assert failed.returncode != 0
     assert "2 records are in its states, which would be lost" in failed.stderr, failed.stderr
@@ -1629,13 +1645,13 @@ def created_whole(migration: str, model: str) -> bool:
     """Whether a migration creates a list's model with the entity it's keyed by, rather than
     adding it afterwards: a model whose key names a field it lacks can't be made."""
     create = re.search(
-        rf"migrations\.CreateModel\(\n\s+name='{model}',\n\s+fields=\[\n(.*?)\n\s+\],",
+        rf"iki\.CreateModel\(\n\s+name='{model}',\n\s+fields=\[\n(.*?)\n\s+\],",
         migration,
         re.DOTALL,
     )
     return (
         create is not None
-        and "('entity', models.ForeignKey(" in create.group(1)
+        and "('entity', iki.ForeignKey(" in create.group(1)
         and f"model_name='{model.lower()}',\n            name='entity'," not in migration
     )
 
@@ -1791,9 +1807,11 @@ def test_an_upgrade_renames_a_list_of_rows(lab: Path, database: str) -> None:
 # --- Deploying and rolling back -------------------------------------------------------------------
 
 
-def build_to(plugins: Path, name: str, *plugin_names: str) -> Path:
+def build_to(plugins: Path, name: str, *plugin_names: str, unchecked: bool = False) -> Path:
     output = plugins.parent / name
-    result = iki("plugin", "build", *plugin_names, "--output", output, cwd=plugins)
+    result = iki(
+        "plugin", "build", *plugin_names, "--output", output, cwd=plugins, unchecked=unchecked
+    )
     assert result.returncode == 0, result.stdout + result.stderr
     return output
 
@@ -2114,9 +2132,20 @@ def versioned(lab: Path) -> Path:
     return commit_weighing_fixture(lab)
 
 
-def upgrade(lab: Path, server: str, *args: str) -> subprocess.CompletedProcess[str]:
+def upgrade(
+    lab: Path, server: str, *args: str, unchecked: bool = False
+) -> subprocess.CompletedProcess[str]:
     return iki(
-        "plugin", "test", lab, "--upgrade-from", "main", "--database", server, *args, cwd=lab
+        "plugin",
+        "test",
+        lab,
+        "--upgrade-from",
+        "main",
+        "--database",
+        server,
+        *args,
+        cwd=lab,
+        unchecked=unchecked,
     )
 
 
@@ -2251,12 +2280,12 @@ def test_an_upgrade_that_cant_be_rolled_back_fails_unless_its_one_way(
         '    dependencies = [("acme__lab", "0001_initial")]\n'
         "    operations = [migrations.RunPython(backfill)]\n"
     )
-    result = upgrade(versioned, _postgres_url, "-k", "none")
+    result = upgrade(versioned, _postgres_url, "-k", "none", unchecked=True)
     assert result.returncode == 1
     assert "  FAILED  rolled back: the samples have their values" in result.stdout
     assert "The deploy refused it: Rolling back would lose data" in result.stdout
     assert "acme/lab 0002_backfill: Raw Python operation can't be reversed." in result.stdout
-    one_way = upgrade(versioned, _postgres_url, "-k", "none", "--no-rollback")
+    one_way = upgrade(versioned, _postgres_url, "-k", "none", "--no-rollback", unchecked=True)
     assert one_way.returncode == 0, one_way.stdout + one_way.stderr
     assert "rolled back" not in one_way.stdout
 
@@ -2272,7 +2301,7 @@ def test_a_rollback_that_loses_a_value_fails(versioned: Path, _postgres_url: str
         "        )\n"
         "    ]\n"
     )
-    result = upgrade(versioned, _postgres_url, "-k", "none")
+    result = upgrade(versioned, _postgres_url, "-k", "none", unchecked=True)
     assert result.returncode == 1
     assert "FAILED  rolled back" in result.stdout
     assert 'SMP-000001\'s name is "renamed", but its revision 2 holds "S1".' in result.stdout
@@ -2316,28 +2345,30 @@ def test_an_upgrade_that_loses_a_revisions_values_fails(
         "        )\n"
         "    ]\n"
     )
-    result = upgrade(versioned, _postgres_url, "-k", "none", "--no-rollback")
+    result = upgrade(versioned, _postgres_url, "-k", "none", "--no-rollback", unchecked=True)
     assert result.returncode == 1, result.stdout + result.stderr
     assert "  FAILED  upgraded: the samples and their history are intact" in result.stdout
     assert "SMP-000001's revision 2 in acme__lab_sample__history was rewritten" in result.stdout
 
 
 def backfill_migration(lab: Path, operations: str, functions: str = "") -> None:
+    """A third migration, after one adding `notes`. One in Django's own operations
+    (``migrations.RunSQL``) is refused by validation: build it ``unchecked``."""
     write_sample(lab, ADD_NOTES, ("schema_version: 1", "schema_version: 2"))
     (lab / "plugin.yaml").write_text(LAB.replace("1.0.0", "1.1.0"))
     made("lab", "--name", "notes", "--no-input", cwd=lab.parent)
+    raw = "from django.db import migrations\n" if "migrations." in operations else ""
     (lab / "migrations" / "0003_fill.py").write_text(
-        "from django.db import migrations\n"
-        "from iki_server.plugins.operations import MigrateValues\n"
+        raw
+        + "from iki_server.plugins import operations as iki\n"
         + functions
-        + "\nclass Migration(migrations.Migration):\n"
-        '    dependencies = [("acme__lab", "0002_notes"), '
-        '("iki_entities", "0027_migrated_revisions")]\n'
+        + "\nclass Migration(iki.Migration):\n"
+        '    dependencies = [("acme__lab", "0002_notes")]\n'
         f"    operations = [{operations}]\n"
     )
 
 
-FILL = """MigrateValues("Sample", fill, version="1.1.0", migration="0003_fill",
+FILL = """iki.MigrateValues("Sample", fill, version="1.1.0", migration="0003_fill",
                         reason="Copy the sample label into the notes.")"""
 FILL_FN = 'def fill(row):\n    return {"notes": row.name}\n'
 
@@ -2350,7 +2381,7 @@ def test_after_cannot_explain_an_unrecorded_fill(versioned: Path, _postgres_url:
     (versioned / "tests" / "weighed.yaml").write_text(
         WEIGHED + "upgrade: true\nafter: { sample: [{ notes: S1 }] }\n"
     )
-    result = upgrade(versioned, _postgres_url, "-k", "none", "--no-rollback")
+    result = upgrade(versioned, _postgres_url, "-k", "none", "--no-rollback", unchecked=True)
     assert result.returncode == 1, result.stdout + result.stderr
     assert 'SMP-000001\'s notes is "S1", but its revision 2 holds null.' in result.stdout
 
@@ -2369,7 +2400,7 @@ def test_an_empty_history_table_keeps_its_guard_throughout_a_migration(
         "        editor.execute(f'ALTER TABLE acme__lab_sample__history {action} "
         "TRIGGER iki_history_no_truncate')\n",
     )
-    second = build_to(lab.parent, "v2", "lab")
+    second = build_to(lab.parent, "v2", "lab", unchecked=True)
     assert "append-only guard iki_history_no_truncate" in refused(second, database)
     assert applied(database, "acme__lab") == ["0001_initial"]
 
@@ -2453,7 +2484,7 @@ def test_a_reverse_backfill_records_the_value_it_restores(
 ) -> None:
     backfill_migration(
         versioned,
-        'MigrateValues("Sample", increase, backwards=decrease, version="1.1.0", '
+        'iki.MigrateValues("Sample", increase, backwards=decrease, version="1.1.0", '
         'migration="0003_fill", reason="Adjust the tube count.")',
         'def increase(row):\n    return {"count": row.count + 1}\n'
         'def decrease(row):\n    return {"count": row.count - 1}\n',
@@ -2519,7 +2550,7 @@ def test_deploy_preserves_and_attributes_migrated_values(
         )
     else:
         backfill_migration(lab, f"migrations.RunSQL({snippets[rewrite]!r}, migrations.RunSQL.noop)")
-    second = build_to(lab.parent, "v2", "lab")
+    second = build_to(lab.parent, "v2", "lab", unchecked=rewrite != "recorded")
     if rewrite == "recorded":
         deployed(second, database)
         [(reason,)] = query(

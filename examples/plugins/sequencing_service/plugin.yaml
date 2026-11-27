@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: acme/sequencing_service
-version: 0.1.0
+version: 0.1.1
 title: Sequencing service
 description: >-
   A sequencing core's own request and deliverable: the tubes a project sends,

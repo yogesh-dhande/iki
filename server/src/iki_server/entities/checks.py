@@ -2,8 +2,9 @@
 
 PostgreSQL can't use subqueries in a CHECK constraint, so checks on each item
 of an array call small immutable SQL functions, created by this app's first
-migration (``0001_initial``). Plugin migrations import these classes, so they
-are API.
+migration (``0001_initial``). Plugin migrations use these classes through
+``iki_server.plugins.operations`` (``iki.AllMatch``), so their names and arguments are API
+(ADR 0296).
 """
 
 from typing import Any

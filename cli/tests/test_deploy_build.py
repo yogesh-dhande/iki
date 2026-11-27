@@ -539,6 +539,25 @@ def test_migrations_must_be_complete(
     assert "run `iki plugin makemigrations`, commit the migration, and pin that commit" in err
 
 
+@pytest.mark.usefixtures("allow_file")
+def test_a_migration_made_with_a_newer_iki_is_refused_naming_its_release(
+    tmp_path: Path, upstream: tuple[Path, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Not as Django's missing node, nor as manifests its migrations don't match (ADR 0296)."""
+    repo = tmp_path / "fork"
+    shutil.copytree(upstream[0], repo)
+    (migration,) = (repo / "plugins/dna/migrations").glob("0001_*.py")
+    migration.write_text(migration.read_text().replace("0001_iki_0_1", "0002_iki_0_2"))
+    git(repo, "-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-qam", "newer")
+    (tmp_path / "gitconfig").write_text(f'[url "file://{repo}"]\n\tinsteadOf = {URL}\n')
+    directory = deployment(tmp_path, git(repo, "rev-parse", "HEAD"))
+    assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "o")]) == 1
+    err = capsys.readouterr().err
+    assert "It depends on Iki 0.2's anchor (iki_anchors 0002_iki_0_2)" in err
+    assert "the migration was made with a newer Iki. [migration-newer-iki]" in err
+    assert "manifests have changes" not in err and "NodeNotFoundError" not in err
+
+
 @pytest.mark.parametrize(
     ("repository", "state", "mirrors", "official"),
     [

@@ -42,3 +42,21 @@ def test_requirements(requirement: str, version: str, fits: bool) -> None:
 def test_a_requirement_is_comparisons() -> None:
     with pytest.raises(ValueError, match="isn't a list of comparisons"):
         releases.fits("~0.2", "0.2.0")
+
+
+@pytest.mark.parametrize(
+    ("requirement", "oldest"),
+    [
+        (">=0.1", (0, 1, 0)),
+        (">=0.1.2,<0.3", (0, 1, 2)),
+        (">0.1", (0, 1, 1)),
+        ("==0.2", (0, 2, 0)),
+        ("<0.3", (0, 0, 0)),
+        ("!=0.0.0,<1", (0, 0, 1)),
+        (">=0.3,<0.2", None),
+    ],
+)
+def test_the_oldest_release_a_requirement_allows(
+    requirement: str, oldest: tuple[int, int, int] | None
+) -> None:
+    assert releases.lowest(requirement) == oldest

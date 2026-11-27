@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        iki_server.plugins.operations.AddPluginField(
+        iki_server.plugins.operations.AddField(
             model_name='alignment',
             name='verdict',
             field=models.TextField(null=True),

@@ -519,10 +519,13 @@ def _migrations_complete(fetched: Sequence[_Fetched], build: Path, err: TextIO) 
         return True
     err.write(result.stderr)
     err.write(result.stdout)
-    err.write(
-        "error: a plugin's manifests have changes its migrations don't. In the plugin's "
-        "repository, run `iki plugin makemigrations`, commit the migration, and pin that commit.\n"
-    )
+    # What couldn't be checked, the command says on stderr; changes, it lists on stdout.
+    if "error: " not in result.stderr:
+        err.write(
+            "error: a plugin's manifests have changes its migrations don't. In the plugin's "
+            "repository, run `iki plugin makemigrations`, commit the migration, and pin that "
+            "commit.\n"
+        )
     return False
 
 

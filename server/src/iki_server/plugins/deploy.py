@@ -45,6 +45,7 @@ code doesn't know. So before migrating, this:
 from __future__ import annotations
 
 import hashlib
+import re
 import sys
 import types
 from collections.abc import Iterable
@@ -86,7 +87,7 @@ from iki_server.plugins.operations import (
     RenameEntityType,
 )
 from iki_server.plugins.preflight_types import Report as PreflightReport
-from iki_spec import naming, releases
+from iki_spec import migration_api, naming, releases
 
 Key = tuple[str, str]
 
@@ -930,10 +931,15 @@ def _executor() -> MigrationExecutor:
         if _could_be_plugin(app):
             raise
         needing = (origin.app_label, origin.name)
+        what = f"Iki's migration {app} {name}"
+        if app == migration_api.ANCHORS_APP:
+            # Plugin migrations depend on Iki's release anchors (ADR 0296).
+            match = re.fullmatch(r"[0-9]{4}_iki_([0-9]+)_([0-9]+)", name)
+            what = f"Iki {match[1]}.{match[2]}'s anchor ({app} {name})" if match else what
         raise DeployError(
-            f"{_names([needing])} needs Iki's migration {app} {name}, which this Iki "
-            f"({_version()}) doesn't have: the plugin was made with a newer Iki. Deploy an Iki "
-            "that has it, or a release of the plugin made for this one: nothing was migrated."
+            f"{_names([needing])} needs {what}, which this Iki ({_version()}) doesn't have: "
+            "the plugin was made with a newer Iki. Deploy an Iki that has it, or a release of "
+            "the plugin made for this one: nothing was migrated."
         ) from None
 
 

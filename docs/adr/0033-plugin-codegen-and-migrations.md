@@ -1,6 +1,6 @@
 # 0033. Plugins compiled to Django apps, and migrations that keep history
 
-- Status: Accepted
+- Status: Accepted (refined by [0296](0296-plugin-migrations-use-ikis-operations-and-depend-on-release-anchors.md): what plugin migrations import and depend on)
 - Date: 2026-11-10
 - Refines: [0006](0006-deploy-time-plugins-as-django-apps.md),
   [0007](0007-typed-table-per-type-entity-storage.md)

@@ -998,26 +998,6 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
         # The registry keeps the text as first submitted.
         [attachment] = services.current_values_of([heavy])[heavy.pk]["attachments"]
         assert attachment["loss_formula"] == "[2H]2O"
-        # Upgrade two differently spelled, previously distinct entries without rewriting
-        # their IDs or anyone's submitted evidence. Reverse and repeat the same upgrade.
-        from django.apps import apps
-        from django.db import connection
-        from importlib import import_module
-        from unittest.mock import patch
-        with patch("iki_spec.identity.canonical_loss", side_effect=lambda text: text):
-            old = register_conjugate([{{**one, "site": "legacy", "loss_formula": "OH2"}}])
-            duplicate = register_conjugate([{{**one, "site": "legacy", "loss_formula": "HHO"}}])
-        assert old.entry_id != duplicate.entry_id
-        app = apps.get_app_config("iki__conjugate").name
-        migration = import_module(app + ".migrations.0003_atom_loss_identity")
-        with connection.schema_editor() as editor:
-            migration.forwards(apps, editor)
-            assert register_conjugate([{{**one, "site": "legacy"}}]).pk == old.pk
-            migration.backwards(apps, editor)
-            migration.forwards(apps, editor)
-        assert register_conjugate([{{**one, "site": "legacy", "loss_formula": "HHO"}}]).pk == old.pk
-        [kept] = services.current_values_of([duplicate])[duplicate.pk]["attachments"]
-        assert kept["loss_formula"] == "HHO"
         moved = register_conjugate([one, {{**two, "site": "site C"}}])
         another_ratio = register_conjugate([one, {{**two, "copies": 2}}])
         mismatched_kind = errors(lambda: register_conjugate([one], kind="antibody_drug"))

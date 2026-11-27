@@ -14,12 +14,12 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        iki_server.plugins.operations.AddPluginField(
+        iki_server.plugins.operations.AddField(
             model_name='complex_entry',
             name='bonds_from',
             field=models.TextField(null=True),
         ),
-        iki_server.plugins.operations.AddPluginField(
+        iki_server.plugins.operations.AddField(
             model_name='complex_entry',
             name='bonds_source',
             field=models.CharField(max_length=500, null=True),

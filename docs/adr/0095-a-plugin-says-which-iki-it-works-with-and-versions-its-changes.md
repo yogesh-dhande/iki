@@ -1,6 +1,6 @@
 # 0095. A plugin says which Iki it works with, and versions its changes
 
-- Status: Accepted
+- Status: Accepted (refined by [0296](0296-plugin-migrations-use-ikis-operations-and-depend-on-release-anchors.md): `iki:` covers a plugin's migrations)
 - Date: 2026-11-15
 - Refines: [0094](0094-a-plugins-upgrade-is-tested-from-an-earlier-commit.md)
 

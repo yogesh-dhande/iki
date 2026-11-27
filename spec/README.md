@@ -1468,6 +1468,134 @@ read-only view per type in the `iki_views` schema, such as
 and those other plugins add. Plugins installed together can't share an HRID
 prefix, a table, or a field they add to the same type.
 
+## Migrations
+
+`iki plugin makemigrations` makes a plugin's migrations from its manifests,
+with Iki's rules for history
+([ADR 0033](../docs/adr/0033-plugin-codegen-and-migrations.md)). They're
+committed with the manifests, reviewed in the plugin's pull request, and
+never change once a deployment has applied them. So they're written in a
+vocabulary Iki keeps working across its own releases and Django's
+([ADR 0296](../docs/adr/0296-plugin-migrations-use-ikis-operations-and-depend-on-release-anchors.md)):
+
+```python
+from iki_server.plugins import operations as iki
+
+
+class Migration(iki.Migration):
+    dependencies = [
+        ("acme__lab", "0001_initial"),
+    ]
+
+    operations = [
+        iki.AddField(
+            model_name="sample",
+            name="notes",
+            field=iki.TextField(null=True),
+        ),
+    ]
+```
+
+A plugin migration imports `iki_server.plugins.operations` and nothing
+else of Iki's or Django's. It may import Python's standard library, for a
+backfill's own code. The module's names are:
+
+| What                 | Names                                                                                                                                                                                                                                                                                                                        |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The migration        | `iki.Migration`                                                                                                                                                                                                                                                                                                              |
+| Tables and columns   | `iki.CreateModel`, `iki.DeleteModel`, `iki.RenameModel`, `iki.AlterModelTable`, `iki.AddField`, `iki.RemoveField`, `iki.AlterField`, `iki.RenameField`                                                                                                                                                                       |
+| Indexes, constraints | `iki.AddIndex`, `iki.RemoveIndex`, `iki.RenameIndex`, `iki.AddConstraint`, `iki.RemoveConstraint`, `iki.GinIndex`, `iki.CheckConstraint`                                                                                                                                                                                     |
+| History              | `iki.AppendOnly`, `iki.ConvertUnit`, `iki.RecordRename`, `iki.RenameEntityType`, `iki.SyncStates`, `iki.RetireStateField`, `iki.RenameStateField`                                                                                                                                                                            |
+| Stored values        | `iki.MigrateValues`                                                                                                                                                                                                                                                                                                          |
+| Fields               | `iki.TextField`, `iki.CharField`, `iki.BigIntegerField`, `iki.PositiveIntegerField`, `iki.FloatField`, `iki.BooleanField`, `iki.DateField`, `iki.DateTimeField`, `iki.UUIDField`, `iki.JSONField`, `iki.ForeignKey`, `iki.OneToOneField`, `iki.ArrayField`, `iki.CompositePrimaryKey`, `iki.QuantityField`, `iki.StateField` |
+| Conditions           | `iki.Q`, `iki.Length`, `iki.Left`, `iki.GreaterThanOrEqual`, `iki.LessThanOrEqual`, `iki.SearchVector`, `iki.IsPlainList`, `iki.AllMatch`, `iki.NoneMatch`, `iki.AllLengthsBetween`, `iki.AllBetweenInt`, `iki.AllBetweenFloat`                                                                                              |
+| Constants            | `iki.PROTECT`, `iki.CASCADE`, and the core models plugin tables refer to: `iki.ENTITY`, `iki.FILE`, `iki.USER`                                                                                                                                                                                                               |
+
+Each takes Iki's arguments, which stay as they are when Django changes. Most
+read like Django's; `iki.CreateModel` takes `table`, `indexes` and
+`constraints`, and `iki.Q` takes `negated` and `connector`. There's no
+`RunPython` or `RunSQL`: change stored values with `iki.MigrateValues`
+([below](#backfilling-values)), which gives each record it changes a
+revision and an audit event. `iki_spec/migration_api.json` lists every name
+with the release it came in; one added after a plugin's oldest `iki:`
+release is refused (`migration-iki-range`).
+
+### Release anchors
+
+A plugin migration depends on Iki's own migrations only through a release
+anchor: one migration per minor release in the app `iki_anchors`, which
+comes after the last of each of Iki's migrations in that release. Iki never
+removes, renames or squashes an anchor. `iki plugin makemigrations` writes
+a dependency on the anchor of the oldest release the plugin's `iki:`
+admits, so a migration made with a newer Iki still runs on the older
+releases the plugin works with. It refuses a migration that needs a model
+of Iki's the anchor's release hasn't got, naming the release that adds it.
+
+| Release | Anchor (`iki_anchors`) | After                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0.1     | `0001_iki_0_1`         | iki__core `0007_complex_bond_sources`, iki_accounts `0005_placeholders`, iki_amounts `0004_low_stock_alert`, iki_audit `0005_via_trigger`, iki_bundles `0007_export_scanned_blobs`, iki_core `0001_rate_limit`, iki_entities `0028_record_exports`, iki_files `0011_file_scan_results`, iki_graph `0004_used_edges`, iki_notifications `0002_notifications_about_records`, iki_oauth `0005_delegations`, iki_org `0008_list_curators`, iki_plugins `0007_preflight_baseline`, iki_runs `0055_job_scan_wait`, iki_scim `0001_initial`, iki_searches `0002_searches_of_every_project`, iki_setup `0006_separate_starter_configuration`, iki_signatures `0005_signing_terms`, iki_spreadsheets `0005_import_headers`, iki_storage `0007_receipt_and_movement_privacy`, iki_tasks `0001_task_queue`, iki_webhooks `0003_organization_movement_notifications` |
+
+A patch release adds nothing plugins depend on, so its migrations come
+after its minor release's anchor.
+
+### What's checked
+
+`iki plugin validate`, `iki plugin build` and `iki deploy build` read each
+file in `migrations/` without running it, and refuse:
+
+- an import of anything but `iki_server.plugins.operations` and the
+  standard library (`migration-import`), with the name of Iki's wrapper for
+  each name it uses: "`django.db.models.CheckConstraint` is
+  `iki.CheckConstraint`";
+- a name the module doesn't offer (`migration-unknown-name`);
+- a `Migration` that isn't `iki.Migration`, dependencies that aren't
+  `(app, migration)` pairs of strings, a dependency on a migration
+  `migrations/` hasn't got, and a first migration with no anchor
+  (`migration-shape`);
+- a dependency on one of Iki's migrations that isn't an anchor
+  (`migration-core-dependency`), naming the anchor to use;
+- an anchor this Iki hasn't got (`migration-newer-iki`): the migration was
+  made with a newer Iki;
+- an anchor or a name from a release after the oldest `iki:` admits
+  (`migration-iki-range`): "It depends on Iki 0.2's anchor, and `iki:`
+  (>=0.1) admits 0.1.0".
+
+### Backfilling values
+
+To fill in or change stored values, make an empty migration with
+`iki plugin makemigrations --empty --name fill_notes` and give it an
+`iki.MigrateValues`. Its function reads one record's row and returns the
+columns to set (an empty mapping skips the row). Each changed record gets a
+revision with the migration's reason, and an audit event:
+
+```python
+from iki_server.plugins import operations as iki
+
+
+def fill_notes(row):
+    return {"notes": row.name} if row.notes is None else {}
+
+
+class Migration(iki.Migration):
+    dependencies = [
+        ("acme__lab", "0002_notes"),
+    ]
+
+    operations = [
+        iki.MigrateValues(
+            "Sample",
+            fill_notes,
+            version="1.1.0",
+            migration="0003_fill_notes",
+            reason="Copy the sample label into the notes.",
+        ),
+    ]
+```
+
+A `backwards` function restores values when the migration is reversed;
+without one, the migration is one-way. [`iki plugin test --upgrade-from`](../cli/README.md#iki-plugin-test)
+checks what it did to existing records.
+
 ## Units
 
 Quantities use [UCUM](https://ucum.org) codes, the units standard of lab
@@ -2344,7 +2472,9 @@ release numbers, such as `">=0.1,<0.3"`
 On any other release, `iki plugin validate`, `build` and `deploy` refuse it
 (`iki-version`), and so does the deployment's migrate Job, before it
 migrates anything. A build of Iki counts as its release: `0.2.0.dev3` is
-`0.2.0`. Leaving `iki:` out says nothing either way.
+`0.2.0`. Leaving `iki:` out says nothing either way. The plugin's
+migrations depend on the [release anchor](#release-anchors) of the oldest
+release it admits, and the validator refuses one that needs a later Iki.
 
 ## Dependencies
 
@@ -3237,3 +3367,4 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `duplicate-template`, `duplicate-binding`, `unknown-kind`, `wrong-provisioner`, `gpu-wrong-tier`, `limit-needs-persistent`, `fallback-without-spot`, `root-disk-too-small`, `volume-strategy-unsupported`, `fast-restore-wrong-strategy`, `volume-option-kubernetes-only`, `snapshot-class-wrong-strategy`, `mixed-currencies`; `unpriced-template` (warning)                                                                                                                                                                                                                                                                                         | Compute templates               |
 | `unknown-environment`, `unknown-template`, `template-wrong-tier`, `template-too-small`, `action-does-not-fit`, `volume-strategy-missing`, `volume-strategy-access`; `lifecycle-unbound`, `unbound-environment` and `unused-template` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                       | Bindings                        |
 | `unknown-api`, `unknown-usage`; `unpriced-api` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Prices of outside APIs          |
+| `migration-syntax`, `migration-import`, `migration-unknown-name`, `migration-shape`, `migration-core-dependency`, `migration-newer-iki`, `migration-iki-range`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | [Migrations](#whats-checked)    |
