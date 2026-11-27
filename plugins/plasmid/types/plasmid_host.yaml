@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: PlasmidHost
+label: Plasmid host
+schema_version: 1
+description: >-
+  A kind of host a plasmid replicates or is expressed in, such as bacterial for an E. coli
+  plasmid. A lab list (ADR 0270).
+hrid: { prefix: PHO }
+list:
+  options:
+    - { code: bacterial, label: Bacterial }
+    - { code: yeast, label: Yeast }
+    - { code: mammalian, label: Mammalian }
+    - { code: insect, label: Insect }
+    - { code: plant, label: Plant }
+    - { code: cell_free, label: Cell-free }
+    - code: viral
+      label: Viral
+      description: Packaged into virus particles, as a lentiviral vector is.

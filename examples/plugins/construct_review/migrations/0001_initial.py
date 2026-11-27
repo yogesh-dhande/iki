@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('iki__plasmid', '0009_bounded_word_search'),
+        ('iki__plasmid', '0001_initial'),
         ('iki_entities', '0002_history_append_only'),
     ]
 

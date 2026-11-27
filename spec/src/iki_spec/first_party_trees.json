@@ -197,7 +197,8 @@
       "91595da6e736f2bade0398909b308007a2ebc225",
       "8261cdad6c9c342c90a474e1146fc69b6000341d",
       "92e8ea3f744258a22369496e430024cd558dc8c4",
-      "e77e4e5061bb2f2fd34f96e2a11d1d1f0ae08d59"
+      "e77e4e5061bb2f2fd34f96e2a11d1d1f0ae08d59",
+      "b321be0eccbed808a6178c076f755c98c5e13418"
     ],
     "iki/mouse_strains": [
       "6a2ea62961cfe738c1ce948814081f567048abf1",
@@ -265,7 +266,8 @@
       "6162ed9f01bd15b852add411425ac5968a1a786f",
       "94a991cb91b4c7de202a25708d2658aa9a8547ab",
       "3b606ca4cff58c7afb317957695eb4f3a7cb34e3",
-      "834b5b2015db6e947372acdad20746efce3083b9"
+      "834b5b2015db6e947372acdad20746efce3083b9",
+      "91e8f02dfbbaf1a61637a1f0c7cb00a6198c727f"
     ],
     "iki/plasmid_sequencing": [
       "a75cacbd131d8b9c241f7bce714b28581403b513",
@@ -277,7 +279,8 @@
       "a3d8e46647b36f935a9b213fe56486cdf4bfd3bb",
       "40b7155a91d786a9d473f494e8224065fedeb641",
       "97f0f46b1218729f7b8ee27ce319d281bac50573",
-      "98852d4eeb8dd67a6805cfeef66bfb5cfeaa6a6b"
+      "98852d4eeb8dd67a6805cfeef66bfb5cfeaa6a6b",
+      "3362680829ed90022df3af7dd50f09f54c8b8701"
     ],
     "iki/plate_assays": [
       "c32078e932aae67d30c25cd770f1a1f5ef8e85f2",
@@ -448,7 +451,8 @@
       "f4d0b59a029e2f5f5fc8b901272723d5fcd917c6",
       "1a3d2d2f61a31bc36332ea29499e278b1c1fc663",
       "29d6692128ef5d47e23bb9aa368f4f23fe799b97",
-      "c57ee08b6b8c450314a016ba0158acd552faaba4"
+      "c57ee08b6b8c450314a016ba0158acd552faaba4",
+      "3c20bdf227510a3ce9e04c13c213d66d3b8a7907"
     ]
   }
 }

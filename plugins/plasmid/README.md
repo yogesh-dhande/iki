@@ -22,8 +22,9 @@ annotated from.
     are two sequence entries, so they are two plasmids with two IDs — nobody states a
     plasmid's topology against its molecule, and nobody edits it either.
   - **What a plasmid is, for everyone who holds it, is its registry entry's.** Its
-    `length` follows from the sequence alone (`registry: derived`). Its `vector_type`,
-    the `hosts` it works in, its `copy_number` (high for a pUC origin, low for pBR322's,
+    `length` follows from the sequence alone (`registry: derived`). Its `vector_type`
+    and the `hosts` it works in, from the lab's lists of vector types and plasmid hosts
+    (`iki/plasmid.VectorType`, `iki/plasmid.PlasmidHost`, ADR 0270), its `copy_number` (high for a pUC origin, low for pBR322's,
     single for a yeast centromere vector) and its `biosafety_level` are curated
     (`registry: fact`): whoever registers it may set them, and then only a registrar
     changes them, with a reason. None of the four follows from the bases — a copy number

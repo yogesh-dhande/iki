@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
         ('iki__core', '0007_complex_bond_sources'),
         ('iki__inventory', '0002_bounded_word_search'),
         ('iki__oligo', '0004_bounded_word_search'),
-        ('iki__plasmid', '0009_bounded_word_search'),
+        ('iki__plasmid', '0001_initial'),
         ('iki__polymer', '0002_bounded_word_search'),
         ('iki_entities', '0002_history_append_only'),
         ('iki_entities', '0004_search'),

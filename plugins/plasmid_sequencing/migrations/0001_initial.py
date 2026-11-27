@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('iki__core', '0006_bounded_word_search'),
-        ('iki__plasmid', '0009_bounded_word_search'),
+        ('iki__plasmid', '0001_initial'),
         ('iki__sequencing', '0001_initial'),
         ('iki_entities', '0002_history_append_only'),
         ('iki_files', '0011_file_scan_results'),

@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('iki__core', '0005_alignment_sample_alignment_history_sample'),
-        ('iki__plasmid', '0008_invalidate_edited_plans'),
+        ('iki__plasmid', '0001_initial'),
         ('iki_entities', '0002_history_append_only'),
         ('iki_entities', '0004_search'),
         ('iki_entities', '0026_revision_history_seen'),
