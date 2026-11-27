@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/sequencing_analysis
-version: 0.3.1
+version: 0.4.0
 title: Sequencing analysis
 description: Import one sample from a VCF, a raw RNA-seq count matrix or an AIRR rearrangement TSV, with the report and its provenance.
 license: Apache-2.0

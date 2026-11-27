@@ -4,4 +4,4 @@ name: read-tools
 label: FASTQ summary
 tiers: [backend, self_hosted]
 resources: { cpu: 0.25, memory: 256Mi }
-python: { version: "3.12", requirements: requirements.txt }
+python: { version: "3.12", requirements: requirements.txt, iki_runtime: true }

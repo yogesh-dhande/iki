@@ -27,6 +27,12 @@ goes into a bundle -- and so into a worker archive and the preinstalled worker i
 its bytes are checked against the digest beside it, and a module that is missing, has no
 digest, or doesn't match is refused. A worker needs no Rust toolchain: it gets the module
 that was checked here.
+
+An environment that declares ``iki_runtime`` gets the plugin runtime's wheel this Iki
+ships (ADR 0288): ``runtime/`` beside the build script holds it for the image, and a
+plugin's bundle carries it at :data:`RUNTIME_IN_BUNDLE` for self-hosted workers. Its
+SHA-256 is part of the environment's digest, so a worker installs only those bytes, and an
+upgrade that changes them rebuilds the environment.
 """
 
 from __future__ import annotations
@@ -49,12 +55,14 @@ from importlib.resources import files
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from iki_spec import API_VERSION, modules, naming
+from iki_spec import API_VERSION, modules, naming, plugin_runtime
 from iki_spec.model import Environment, Plugin
 from iki_spec.writers import DIRECTORY as WRITERS
 
 __all__ = [
     "ENVIRONMENTS",
+    "RUNTIME",
+    "RUNTIME_IN_BUNDLE",
     "SCRIPT",
     "WORKER_PLUGINS",
     "WorkerPlugin",
@@ -62,6 +70,7 @@ __all__ = [
     "environments",
     "prepared_source",
     "stage_runtime",
+    "wants_runtime",
     "write",
 ]
 
@@ -70,6 +79,10 @@ ENVIRONMENTS = "/opt/iki/envs"
 #: What the worker reads, in ``IKI_PLUGINS_DIR``.
 WORKER_PLUGINS = "plugins.json"
 SCRIPT = "build-environments.sh"
+#: Where the worker image's build finds the plugin runtime's wheel, beside its script.
+RUNTIME = "runtime"
+#: Where a plugin's bundle carries the plugin runtime's wheel, for a worker to install.
+RUNTIME_IN_BUNDLE = ".iki-runtime"
 
 #: Working-copy metadata and caches have no place in source staging or release bundles.
 _IGNORED_NAMES = {
@@ -277,13 +290,22 @@ def _built(env: Environment) -> bool:
 
 def _definition(env: Environment, directory: Path) -> dict[str, str]:
     if env.conda_lockfile is not None:
-        return {"kind": "conda", "lockfile_sha256": _sha256(directory / env.conda_lockfile)}
-    assert env.python_version is not None and env.requirements is not None  # noqa: S101 - the schema
-    return {
-        "kind": "python",
-        "python": env.python_version,
-        "requirements_sha256": _sha256(directory / env.requirements),
-    }
+        found = {"kind": "conda", "lockfile_sha256": _sha256(directory / env.conda_lockfile)}
+    else:
+        assert env.python_version is not None and env.requirements is not None  # noqa: S101 - the schema
+        found = {
+            "kind": "python",
+            "python": env.python_version,
+            "requirements_sha256": _sha256(directory / env.requirements),
+        }
+    if env.iki_runtime:
+        found["iki_runtime_sha256"] = plugin_runtime.wheel().sha256
+    return found
+
+
+def wants_runtime(plugin: Plugin) -> bool:
+    """Whether an environment of `plugin` that workers build installs the plugin runtime."""
+    return any(_built(env) and env.iki_runtime for env in plugin.environments.values())
 
 
 def _digest(definition: dict[str, str]) -> str:
@@ -307,6 +329,8 @@ def environments(plugin: Plugin, directory: Path) -> dict[str, dict[str, Any]]:
             entry["python"] = env.python_version
             entry["requirements"] = str(PurePosixPath(env.requirements))
             entry["packages"] = _has_requirements(directory / env.requirements)
+        if env.iki_runtime:
+            entry["runtime"] = f"{RUNTIME_IN_BUNDLE}/{plugin_runtime.wheel().name}"
         found[name] = entry
     return found
 
@@ -439,20 +463,32 @@ def stage_runtime(name: str, directory: Path, output: Path) -> None:
     _copy(_runtime_files(directory, name), directory, output)
 
 
-def bundle(name: str, directory: Path, output: Path, *, pinned: bool = False) -> dict[str, Any]:
+def bundle(
+    name: str, directory: Path, output: Path, *, pinned: bool = False, runtime: bool = False
+) -> dict[str, Any]:
     """Writes `directory`'s code to `output`, a gzipped tar workers fetch, and returns its
     ``sha256`` and ``size``. Only regular files: a symbolic link could point anywhere on
     the computer that unpacks it, so a plugin with one is refused. Times, owners and
     modes other than executable are left out, so the same files give the same bytes.
 
     A module `directory` tracks a digest for is put there and checked first, or the
-    bundle is refused: see :func:`_place_modules`."""
+    bundle is refused: see :func:`_place_modules`. With `runtime`, for a plugin whose
+    environments install the plugin runtime, the bundle carries its wheel too, at
+    :data:`RUNTIME_IN_BUNDLE`."""
     files = _worker_files(name, directory)
     files = sorted({*files, *_place_modules(directory, files, pinned=pinned)})
+    members = [(file.relative_to(directory).as_posix(), file) for file in files]
+    if runtime:
+        if any(m.split("/")[0] == RUNTIME_IN_BUNDLE for m, _ in members):
+            raise ValueError(
+                f"{RUNTIME_IN_BUNDLE}/ is where a bundle carries the plugin runtime; "
+                "a plugin can't have a file there."
+            )
+        wheel = plugin_runtime.wheel()
+        members.append((f"{RUNTIME_IN_BUNDLE}/{wheel.name}", wheel.path))
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode="w", format=tarfile.PAX_FORMAT) as tar:
-        for file in files:
-            relative = file.relative_to(directory).as_posix()
+        for relative, file in members:
             info = tarfile.TarInfo(relative)
             info.size = file.stat().st_size
             info.mode = 0o755 if os.access(file, os.X_OK) else 0o644
@@ -475,15 +511,32 @@ def _has_requirements(file: Path) -> bool:
     return False
 
 
+#: What the image's build installs the plugin runtime from: its wheel, by its hash.
+RUNTIME_REQUIREMENTS = f"{RUNTIME}/requirements.txt"
+
+
+def _runtime_line(python: str) -> str:
+    """Installs the plugin runtime into `python`'s environment: the wheel beside the
+    script, which uv refuses unless it has the hash this build put in the digest. The
+    requirement names it from the script's directory, so the build runs from there."""
+    return (
+        f'(cd "$here" && uv pip install --quiet --python {shlex.quote(python)} '
+        f"--require-hashes --no-deps --no-index --requirement {RUNTIME_REQUIREMENTS})"
+    )
+
+
 def _build_lines(item: WorkerPlugin, env: Environment, prefix: str) -> list[str]:
     q = shlex.quote
     # Files in the bundle, beside this script, wherever it's copied.
     code = f"plugins/{naming.app_label(item.plugin.name)}"
     if env.conda_lockfile is not None:
         lockfile = f"{code}/{PurePosixPath(env.conda_lockfile)}"
-        return [
+        lines = [
             f'micromamba create --yes --quiet --prefix {q(prefix)} --file "$here"/{q(lockfile)}'
         ]
+        if env.iki_runtime:
+            lines.append(_runtime_line(f"{prefix}/bin/python"))
+        return lines
     assert env.python_version is not None and env.requirements is not None  # noqa: S101 - the schema
     # uv downloads the Python version when the image has none.
     lines = [f"uv venv --quiet --python {q(env.python_version)} {q(prefix)}"]
@@ -494,7 +547,22 @@ def _build_lines(item: WorkerPlugin, env: Environment, prefix: str) -> list[str]
             f"uv pip install --quiet --python {q(prefix)} --require-hashes --no-deps "
             f'--requirement "$here"/{q(requirements)}'
         )
+    if env.iki_runtime:
+        lines.append(_runtime_line(prefix))
     return lines
+
+
+def _write_runtime(output: Path) -> None:
+    """Puts the plugin runtime's wheel in `output`'s :data:`RUNTIME`, with the hashed
+    requirement the build installs it by."""
+    wheel = plugin_runtime.wheel()
+    directory = output / RUNTIME
+    directory.mkdir()
+    shutil.copyfile(wheel.path, directory / wheel.name)
+    (directory / wheel.name).chmod(0o644)
+    (output / RUNTIME_REQUIREMENTS).write_text(
+        f"./{RUNTIME}/{wheel.name} --hash=sha256:{wheel.sha256}\n"
+    )
 
 
 def write(
@@ -539,6 +607,8 @@ def write(
             }
         )
     manifest = {"apiVersion": API_VERSION, "kind": "WorkerPlugins", "plugins": listed}
+    if any(wants_runtime(item.plugin) for item in plugins):
+        _write_runtime(output)
     (code / WORKER_PLUGINS).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     (output / SCRIPT).write_text("\n".join(script) + "\n")
     (output / SCRIPT).chmod(0o755)

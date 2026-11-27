@@ -1,0 +1,40 @@
+[project]
+name = "iki-plugin-runtime"
+# Iki's release version, as deploy/helm/iki/Chart.yaml writes it: each release ships
+# this wheel at its own version (ADR 0288), and the release refuses a tag it doesn't match.
+version = "0.1.0-dev.0"
+description = "The readers Iki's plugins' actions share: compressed text, FASTQ and AIRR rearrangements."
+readme = "README.md"
+# Python's standard library only, for Python 3.8 or later, as Iki's action helper is: it
+# installs into environments Iki builds and into images labs bring.
+requires-python = ">=3.8"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "The Iki Authors" }]
+keywords = ["iki", "fastq", "airr", "bioinformatics"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://ikisci.org"
+Source = "https://github.com/yogesh-dhande/iki"
+
+[tool.uv.build-backend]
+module-name = "iki_runtime"
+
+# One exact uv_build: it writes the same bytes for the same source, so the wheel a release
+# ships with Iki and the one it publishes to PyPI are the same file, wherever it's built.
+[build-system]
+requires = ["uv_build==0.13.9"]
+build-backend = "uv_build"
+
+[tool.ruff]
+extend = "../pyproject.toml"
+target-version = "py38"

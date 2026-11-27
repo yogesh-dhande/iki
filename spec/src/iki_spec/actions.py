@@ -9,6 +9,7 @@ supports its tier, and that what an environment installs is pinned.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path as FilePath
 from typing import TYPE_CHECKING, Any
@@ -191,6 +192,7 @@ def read_environment(plugin: str, body: dict[str, Any], document: Document) -> E
         python_version=python.get("version"),
         requirements=python.get("requirements"),
         conda_lockfile=(body.get("conda") or {}).get("lockfile"),
+        iki_runtime=bool(python.get("iki_runtime") or (body.get("conda") or {}).get("iki_runtime")),
         volumes={
             n: Volume(
                 name=n,
@@ -996,6 +998,7 @@ class _Rules:
             path: Path = ("command", index)
             if argument.startswith("./"):
                 self.file(argument[2:], source, path)
+                self.runtime(action, argument[2:], source, path)
             elif argument.startswith("/") and action.tier == "backend":
                 self.add(
                     "absolute-path-on-backend",
@@ -1005,6 +1008,28 @@ class _Rules:
                     path,
                     hint="Name a file in the plugin with `./`, such as `./scripts/run.py`.",
                 )
+
+    def runtime(self, action: Action, script: str, source: Document, path: Path) -> None:
+        """A script that imports the plugin runtime runs where it's installed (ADR 0288):
+        in an environment Iki builds that declares it. An image's is the image's own."""
+        env = self.plugin.environments.get(action.environment)
+        if env is None or env.iki_runtime:
+            return
+        if env.requirements is None and env.conda_lockfile is None:
+            return
+        target = self.root / script
+        if target.suffix != ".py" or not self._inside(target) or not target.is_file():
+            return
+        if _imports_runtime(target):
+            self.add(
+                "runtime-not-installed",
+                f"`{script}` imports `iki_runtime`, and the `{env.name}` environment it runs "
+                "in doesn't install it.",
+                source,
+                path,
+                hint=f"Add `iki_runtime: true` to `{env.name}`'s "
+                f"`{'python' if env.requirements is not None else 'conda'}`.",
+            )
 
     def reach(self, action: Action, source: Document) -> None:
         if action.tier == "self_hosted":
@@ -1184,3 +1209,34 @@ def _drives(f: Field) -> bool:
     a Boolean, or a list of them."""
     kind = f.items.type if f.type == "list" and f.items is not None else f.type
     return kind in {"enum", "bool", "int", "float", "quantity"}
+
+
+def _imports_runtime(script: FilePath) -> bool:
+    """Whether ``script``, or a module beside it that it imports (as ``python script``
+    finds them), imports ``iki_runtime``."""
+    seen: set[FilePath] = set()
+    pending = [script]
+    while pending:
+        file = pending.pop()
+        if file in seen:
+            continue
+        seen.add(file)
+        try:
+            tree = ast.parse(file.read_bytes())
+        except (OSError, SyntaxError, ValueError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+                names = [node.module]
+            else:
+                continue
+            for name in names:
+                top = name.split(".")[0]
+                if top == "iki_runtime":
+                    return True
+                local = script.parent / f"{top}.py"
+                if local.is_file() and not local.is_symlink():
+                    pending.append(local)
+    return False

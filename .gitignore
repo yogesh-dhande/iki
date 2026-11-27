@@ -41,6 +41,8 @@ web/app/wasm/
 spec/src/iki_spec/rust-standard-library.html
 # The iki-writer SDK, copied in from worker/crates by iki-spec's build backend (ADR 0230).
 spec/src/iki_spec/writers/sdk/
+# The plugin runtime's wheel, built from runtime/ by scripts/build-plugin-runtime.sh (ADR 0288).
+spec/src/iki_spec/plugin_runtime/*.whl
 
 # Local environment and secrets — never commit these
 .env

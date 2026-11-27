@@ -33,6 +33,12 @@ Iki CLI has, and `iki plugin validate .` refuses a copy that was edited. Compare
 types with `iki.is_a(entity, "iki/protein.Protein")`, which a lab's own subtypes
 pass, never with `entity["type"] ==`.
 
+To read a compressed file, FASTQ or AIRR rearrangements, use Iki's plugin runtime
+(`from iki_runtime import fastq, text`) rather than a reader of your own. An
+environment Iki builds installs it when it declares `iki_runtime: true`; an image
+you bring, and the Python you test with, install `iki-plugin-runtime` from PyPI at
+your Iki's version.
+
 Use the Iki CLI and worker release that matches your deployment. Set
 `IKI_VERSION` in `.github/workflows/ci.yml` to the same version. Put the worker
 binary for your machine on `PATH`. The local worker runs the action with Python 3

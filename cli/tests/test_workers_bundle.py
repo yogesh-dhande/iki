@@ -14,17 +14,25 @@ import pytest
 
 from iki_cli import workers
 from iki_cli.main import main
-from iki_spec import modules
+from iki_spec import modules, plugin_runtime
 from iki_spec.validate import load_plugin
 
 PLUGINS = Path(__file__).parents[2] / "spec" / "tests" / "plugins"
 HASH = "sha256:" + "0" * 64
 
 
-def _protein(tmp_path: Path, requirements: str) -> workers.WorkerPlugin:
+def _protein(tmp_path: Path, requirements: str, *, runtime: bool = False) -> workers.WorkerPlugin:
     directory = tmp_path / "protein"
     shutil.copytree(PLUGINS / "protein", directory)
     (directory / "requirements.txt").write_text(requirements)
+    if runtime:
+        env = directory / "environments" / "protein-tools.yaml"
+        env.write_text(
+            env.read_text().replace(
+                "requirements: requirements.txt }",
+                "requirements: requirements.txt, iki_runtime: true }",
+            )
+        )
     loaded = load_plugin(directory, dependencies=[PLUGINS / "dna"])
     assert loaded.plugin is not None, loaded.problems
     return workers.WorkerPlugin(loaded.plugin, directory, None)
@@ -138,6 +146,56 @@ def test_an_environment_changes_digest_only_when_what_it_holds_does(tmp_path: Pa
     assert digest(f"numpy==2.1.0 --hash={HASH}\n", "c") != first
 
 
+def test_an_environment_that_declares_the_runtime_installs_this_ikis_wheel_by_its_hash(
+    tmp_path: Path,
+) -> None:
+    wheel = plugin_runtime.wheel()
+    item = _protein(tmp_path, "# nothing\n", runtime=True)
+    manifest = workers.write([item], tmp_path / "bundle", "/envs")
+    bundle = tmp_path / "bundle"
+    assert (bundle / workers.RUNTIME / wheel.name).read_bytes() == wheel.path.read_bytes()
+    assert (bundle / workers.RUNTIME_REQUIREMENTS).read_text() == (
+        f"./runtime/{wheel.name} --hash=sha256:{wheel.sha256}\n"
+    )
+    script = (bundle / workers.SCRIPT).read_text()
+    assert (
+        '(cd "$here" && uv pip install --quiet --python /envs/acme__protein/protein-tools '
+        "--require-hashes --no-deps --no-index --requirement runtime/requirements.txt)"
+    ) in script
+    # The wheel's bytes are in the digest: another wheel, another build.
+    with_runtime = manifest["plugins"][0]["environments"]["protein-tools"]["digest"]
+    without = workers.write([_protein(tmp_path / "plain", "# nothing\n")], tmp_path / "plain" / "b")
+    assert without["plugins"][0]["environments"]["protein-tools"]["digest"] != with_runtime
+    assert not (tmp_path / "plain" / "b" / workers.RUNTIME).exists()
+    definition = {
+        "iki_runtime_sha256": wheel.sha256,
+        "kind": "python",
+        "python": "3.12",
+        "requirements_sha256": hashlib.sha256(b"# nothing\n").hexdigest(),
+    }
+    canonical = json.dumps(definition, sort_keys=True, separators=(",", ":")).encode()
+    assert with_runtime == "sha256:" + hashlib.sha256(canonical).hexdigest()
+
+
+def test_a_bundle_carries_the_runtime_for_the_worker_to_build_with(tmp_path: Path) -> None:
+    wheel = plugin_runtime.wheel()
+    item = _protein(tmp_path, "# nothing\n", runtime=True)
+    assert workers.wants_runtime(item.plugin)
+    (entry,) = workers.environments(item.plugin, item.directory).values()
+    assert entry["runtime"] == f".iki-runtime/{wheel.name}"
+    out = tmp_path / "protein.tar.gz"
+    workers.bundle("acme/protein", item.directory, out, runtime=True)
+    with tarfile.open(out) as tar:
+        member = tar.extractfile(entry["runtime"])
+        assert member is not None
+        assert member.read() == wheel.path.read_bytes()
+    # A plugin can't put a file of its own where the wheel goes.
+    (item.directory / ".iki-runtime").mkdir()
+    (item.directory / ".iki-runtime" / "x.whl").write_text("not it")
+    with pytest.raises(ValueError, match="carries the plugin runtime"):
+        workers.bundle("acme/protein", item.directory, out, runtime=True)
+
+
 def test_names_with_spaces_or_quotes_are_quoted(tmp_path: Path) -> None:
     item = _protein(tmp_path, "# nothing\n")
     workers.write([item], tmp_path / "bundle", "/opt/my envs/it's")
@@ -147,7 +205,7 @@ def test_names_with_spaces_or_quotes_are_quoted(tmp_path: Path) -> None:
 
 def test_the_script_builds_the_environment(tmp_path: Path) -> None:
     assert shutil.which("uv"), "Install uv to build the worker environment"
-    item = _protein(tmp_path, "# nothing\n")
+    item = _protein(tmp_path, "# nothing\n", runtime=True)
     envs = tmp_path / "envs"
     manifest = workers.write([item], tmp_path / "bundle", str(envs))
     # The Python version the plugin asks for, or whichever this machine has.
@@ -156,6 +214,18 @@ def test_the_script_builds_the_environment(tmp_path: Path) -> None:
     subprocess.run(["sh", str(script)], check=True, capture_output=True)  # noqa: S603, S607
     prefix = Path(manifest["plugins"][0]["environments"]["protein-tools"]["prefix"])
     assert (prefix / "bin" / "python").exists()
+    # It declares the plugin runtime, which the build installed from the wheel beside it.
+    found = subprocess.run(  # noqa: S603
+        [
+            str(prefix / "bin" / "python"),
+            "-c",
+            "import iki_runtime; print(iki_runtime.__version__)",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert found.stdout.strip() == plugin_runtime.wheel().version
     listed = json.loads((tmp_path / "bundle" / "plugins" / workers.WORKER_PLUGINS).read_text())
     assert listed == manifest
 

@@ -117,6 +117,18 @@ RUN pnpm --filter @ikisci/app build:web \
  && test -f /src/server/src/iki_server/web/static/app/manifest.json \
  && test -f /src/server/src/iki_server/web/static/viewers/manifest.json
 
+# --- The plugin runtime's wheel (ADR 0288), which iki-spec carries ------------
+# runtime/pyproject.toml pins its build backend exactly, so this is the same file the
+# release publishes to PyPI.
+FROM ${PYTHON_IMAGE} AS plugin-runtime
+COPY --from=uv /uv /usr/local/bin/uv
+ENV UV_PYTHON_DOWNLOADS=never \
+    UV_PYTHON=/usr/local/bin/python3
+WORKDIR /src
+COPY runtime runtime
+RUN uv build --quiet --wheel --out-dir /artifacts runtime \
+ && test "$(find /artifacts -name 'iki_plugin_runtime-*-py3-none-any.whl' | wc -l)" -eq 1
+
 # --- Build: resolve the locked dependencies into a virtualenv ----------------
 FROM ${PYTHON_IMAGE} AS build
 ARG TARGETARCH
@@ -140,6 +152,7 @@ COPY spec/pyproject.toml spec/README.md spec/LICENSE spec/NOTICE spec/
 COPY spec/backend spec/backend
 COPY codegen/pyproject.toml codegen/README.md codegen/LICENSE codegen/NOTICE codegen/
 COPY sdk/python/pyproject.toml sdk/python/README.md sdk/python/LICENSE sdk/python/NOTICE sdk/python/
+COPY runtime/pyproject.toml runtime/README.md runtime/LICENSE runtime/NOTICE runtime/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-install-workspace
 COPY server/src server/src
@@ -154,6 +167,9 @@ COPY --from=verified-wasm /artifacts/iki_wasm.wasm /artifacts/dna-annotation.was
 # because `iki deploy build` exports a plugin with `git archive`, which has each module's
 # tracked digest but not its bytes; the CLI takes them from here and checks them again.
 COPY --from=verified-wasm /artifacts/plasmid-tools.wasm /artifacts/oligo-checks.wasm spec/src/iki_spec/modules/
+# And the plugin runtime's wheel, which `iki deploy build` installs into the environments
+# that declare it (ADR 0288).
+COPY --from=plugin-runtime /artifacts/ spec/src/iki_spec/plugin_runtime/
 # And the iki-writer SDK, which `iki deploy build` gives plugins' writers to build against
 # in the plugin image (ADR 0230).
 COPY worker/crates/iki-writer/Cargo.toml worker/crates/iki-writer/README.md worker/crates/iki-writer/build-writer.sh spec/src/iki_spec/writers/sdk/iki-writer/
@@ -161,7 +177,8 @@ COPY worker/crates/iki-writer/src spec/src/iki_spec/writers/sdk/iki-writer/src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-editable \
  && /opt/iki/venv/bin/python -c "from iki_spec import wasm; assert wasm.WASM.is_file(), wasm.WASM" \
- && /opt/iki/venv/bin/python -c "from iki_spec import modules; assert all(modules.module(m) for m in ('plasmid-tools.wasm', 'oligo-checks.wasm')), modules.BUILT"
+ && /opt/iki/venv/bin/python -c "from iki_spec import modules; assert all(modules.module(m) for m in ('plasmid-tools.wasm', 'oligo-checks.wasm')), modules.BUILT" \
+ && /opt/iki/venv/bin/python -c "from iki_spec import plugin_runtime; plugin_runtime.wheel()"
 # Keep native code outside the portable Python wheel. The server verifies this
 # image-owned pair before it loads the module to evaluate a guard.
 COPY --from=verified-wasm --chmod=0444 /artifacts/${TARGETARCH}/iki_wasm.cwasm /artifacts/${TARGETARCH}/iki_wasm.json /opt/iki/wasm/

@@ -67,3 +67,5 @@ esac
   chmod 644 "$part"
   mv -f "$part" "$root/plugins/dna/data/oligo-measurement.wasm"
 )
+# And the plugin runtime's wheel (ADR 0288), which iki-spec carries beside the modules.
+"$root/scripts/build-plugin-runtime.sh"

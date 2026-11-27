@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import csv
-import gzip
 import json
 import math
 import re
-import zlib
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -15,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 import iki_action as iki
+
+from iki_runtime import text
 
 MISSING = {"", "null", "na", "nan", "n/a"}
 PREVIEW_ROWS = 12
@@ -34,18 +34,13 @@ PARQUET = b"PAR1"
 @contextmanager
 def lines_at(path: Path) -> Iterator[Iterable[str]]:
     with path.open("rb") as source:
-        start = source.peek(4)[:4]
+        start = source.read(4)
     if start == PARQUET:
         raise ValueError(
             "This is a Parquet file. Import the report as tab-separated text: convert a "
             "Parquet main report to TSV with its column names unchanged."
         )
-    compressed = start[:2] == b"\x1f\x8b"
-    with (
-        gzip.open(path, "rt", encoding="utf-8-sig", newline="")
-        if compressed
-        else path.open(encoding="utf-8-sig", newline="")
-    ) as source:
+    with text.open_text(path) as source:
         yield source
 
 
@@ -485,4 +480,4 @@ def import_report(run: iki.Run) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    iki.main(import_report, refuse=(EOFError, OSError, ValueError, zlib.error))
+    iki.main(import_report, refuse=(ValueError, *text.UNREADABLE))
