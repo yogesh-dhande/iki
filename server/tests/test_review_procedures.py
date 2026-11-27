@@ -62,7 +62,7 @@ def test_each_recipe_is_its_plugins_own(recipe: starters.Starter) -> None:
     loaded = load_plugin(directory, dependencies=list(FIRST_PARTY[directory]))
     assert loaded.problems == [] and loaded.plugin is not None
     plugin = loaded.plugin
-    assert plugin.starters == {recipe.id: recipe.version}
+    assert plugin.recipes == {recipe.id: recipe.version}
     assert set(plugin.settings[recipe.setting].values or ()) == set(recipe.flows)
     assert recipe.roles.keys() <= {r.qualified_name for r in plugin.roles.values()}
     assert recipe.pinned_by is not None and recipe.pinned_by in plugin.types

@@ -35,6 +35,29 @@ iki starter preview experiment-review --version 1.0.0 --flow author_signed \
   --role "iki/experiments.author=$AUTHOR"
 ```
 
+A plugin's own starter (`kind: Starter`) is named by its qualified name, and
+its flows are its procedure's. It binds each part of the procedure to a lab
+role, the shared `iki/lab_roles` one unless it says otherwise; `--slot` has
+another declared role play a part:
+
+```sh
+iki starter preview acme/hplc.purity_review --version 1.0.0 --flow regulated_qc \
+  --project "$PROJECT" \
+  --slot "reviewer=acme/hplc.method_reviewer" \
+  --role "iki/lab_roles.analyst=$ANALYST" \
+  --role "acme/hplc.method_reviewer=$REVIEWER" \
+  --role "iki/lab_roles.qa=$QA"
+```
+
+An Org Admin makes one the deployment's default for its type, for every
+project that hasn't chosen, with a reason kept in the audit log:
+
+```sh
+iki starter default acme/hplc.purity_review --version 1.0.0 --flow regulated_qc \
+  --reason "SOP-QA-014 v3 covers release purity."
+iki starter clear-default acme/hplc.purity_review --reason "Replaced by SOP-QA-020."
+```
+
 To run the worked Tox21 experiment, follow the
 [assay tutorial](../docs/guides/first-dose-response-assay.md).
 The starter commands use the SDK's sign-in or `IKI_URL` and `IKI_TOKEN`.

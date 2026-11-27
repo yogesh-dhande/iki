@@ -245,3 +245,102 @@ def test_rejected_setup_displays_api_reason(
     monkeypatch.setattr(Client, "request", denied)
     assert main(["starter", "list", "--project", PROJECT]) == 2
     assert "Requires a project administrator." in capsys.readouterr().err
+
+
+PLUGIN_STARTER = "iki/proteomics.result_review"
+SHARED_REVIEWER = "iki/lab_roles.reviewer"
+
+
+def test_a_plugin_starter_is_named_whole_and_binds_its_parts(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A plugin's starter (ADR 0303) is named by its qualified name, flows are its own, and
+    a part of its procedure can be played by another lab role."""
+    sent: list[tuple[str, str, Any]] = []
+
+    def request(client: Client, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        sent.append((method, path, kwargs.get("json")))
+        return {
+            "starter": PLUGIN_STARTER,
+            "version": "1.0.0",
+            "project": PROJECT,
+            "flow": "two_person",
+            "result_type": "iki/proteomics.Result",
+            "changed": True,
+            "role_assignments": {REVIEWER: [FIRST]},
+            "slots": {"reviewer": REVIEWER},
+            "grants_to_add": {},
+            "plan": PLAN,
+        }
+
+    monkeypatch.setattr(Client, "request", request)
+    args = ["starter", "preview", PLUGIN_STARTER, "--version", "1.0.0", "--project", PROJECT]
+    args += ["--flow", "two_person", "--slot", f"reviewer={REVIEWER}"]
+    assert main([*args, "--role", f"{REVIEWER}={FIRST}"]) == 0
+    assert sent == [
+        (
+            "POST",
+            f"/starters/{PLUGIN_STARTER}/preview",
+            {
+                "project": PROJECT,
+                "version": "1.0.0",
+                "flow": "two_person",
+                "role_assignments": {REVIEWER: [FIRST]},
+                "slots": {"reviewer": REVIEWER},
+            },
+        )
+    ]
+    assert "two_person" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("starter", ["../admin", "iki/proteomics/x", "iki/", "."])
+def test_a_starter_name_stays_in_its_route(
+    starter: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = ["starter", "preview", starter, "--version", "1.0.0", "--project", PROJECT]
+    assert main([*args, "--flow", "research"]) == 2
+    assert "Expected a starter ID" in capsys.readouterr().err
+
+
+def test_an_org_admin_sets_and_clears_the_deployments_default(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sent: list[tuple[str, Any]] = []
+    default = {
+        "procedure": "iki/core.result_review@1",
+        "flow": "regulated_qc",
+        "version": "1.0.0",
+        "slots": {"reviewer": SHARED_REVIEWER},
+        "chosen_by": "Rosalind Franklin",
+        "chosen_at": "2026-11-20T10:00:00Z",
+        "reason": "SOP-QA-014 v3",
+    }
+
+    def request(client: Client, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        sent.append((path, kwargs["json"]))
+        cleared = path.endswith("/clear")
+        return {"starter": PLUGIN_STARTER, "default": None if cleared else default}
+
+    monkeypatch.setattr(Client, "request", request)
+    args = ["starter", "default", PLUGIN_STARTER, "--version", "1.0.0", "--flow", "regulated_qc"]
+    assert main([*args, "--reason", "SOP-QA-014 v3"]) == 0
+    out = capsys.readouterr().out
+    assert "Default  iki/proteomics.result_review  regulated_qc" in out
+    assert f"Part reviewer  played by {SHARED_REVIEWER}" in out
+    reason = ["--reason", "Superseded by SOP-QA-020."]
+    assert main(["starter", "clear-default", PLUGIN_STARTER, *reason]) == 0
+    assert "No default" in capsys.readouterr().out
+    assert sent == [
+        (
+            f"/starters/{PLUGIN_STARTER}/default",
+            {"version": "1.0.0", "flow": "regulated_qc", "slots": {}, "reason": "SOP-QA-014 v3"},
+        ),
+        (f"/starters/{PLUGIN_STARTER}/default/clear", {"reason": "Superseded by SOP-QA-020."}),
+    ]
+
+
+def test_a_default_needs_a_reason(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["starter", "clear-default", PLUGIN_STARTER])
+    assert exc.value.code == 2
+    assert "--reason" in capsys.readouterr().err

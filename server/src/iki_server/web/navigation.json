@@ -137,6 +137,13 @@
             "icon": ["M4 20h4L19 9l-4-4L4 16z"]
           },
           {
+            "label": "Review procedures",
+            "href": "/admin/review-procedures/",
+            "requires": ["manage_org"],
+            "app": true,
+            "icon": ["M9 11l3 3 8-8", "M20 12v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h11"]
+          },
+          {
             "label": "Legal holds",
             "href": "/admin/legal-holds/",
             "requires": ["manage_org", "read_audit"],

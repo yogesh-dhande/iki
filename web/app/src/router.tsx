@@ -18,6 +18,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import { meQuery, projectQuery, projectsQuery, queryClient, rolesQuery, watchQuery } from "./api";
 import { outsideApisQuery } from "./outside-apis";
+import { deploymentStartersQuery } from "./starters";
 import { Frame } from "./admin";
 import { ChooseProject, choicesIn, EntityError, ErrorPage, NotFound } from "./pages/errors";
 import { Home } from "./pages/home";
@@ -68,6 +69,7 @@ const entityPages = () => import("./pages/entity");
 const typePages = () => import("./pages/types");
 const webhookPages = () => import("./pages/webhooks");
 const outsideApiPages = () => import("./pages/outside-apis");
+const reviewDefaultPages = () => import("./pages/review-defaults");
 const OrgCosts = lazyRouteComponent(() => import("./pages/costs"), "OrgCosts");
 const ComputeVolumes = lazyRouteComponent(() => import("./pages/volumes"), "ComputeVolumes");
 const ComputeImages = lazyRouteComponent(() => import("./pages/compute-images"), "ComputeImages");
@@ -141,6 +143,7 @@ const TypeList = lazyRouteComponent(typePages, "TypeList");
 const TypeDetail = lazyRouteComponent(typePages, "TypeDetail");
 const OrgWebhooks = lazyRouteComponent(webhookPages, "OrgWebhooks");
 const OutsideApisSettings = lazyRouteComponent(outsideApiPages, "OutsideApisSettings");
+const ReviewDefaults = lazyRouteComponent(reviewDefaultPages, "ReviewDefaults");
 const OrgWebhook = lazyRouteComponent(webhookPages, "OrgWebhook");
 const quarantinePages = () => import("./pages/quarantine");
 const QuarantinePage = lazyRouteComponent(quarantinePages, "QuarantinePage");
@@ -779,6 +782,14 @@ const outsideApisRoute = createRoute({
   component: OutsideApisSettings,
 });
 
+// Admin → Review procedures (ADR 0302): the deployment's default review for each type.
+const reviewDefaultsRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "review-procedures",
+  loader: ({ context }) => context.queryClient.query(deploymentStartersQuery),
+  component: ReviewDefaults,
+});
+
 // Admin → Quarantine (ADR 0217): the files the malware scan holds, and one's finding.
 const quarantineRoute = createRoute({ getParentRoute: () => adminRoute, path: "quarantine" });
 
@@ -869,6 +880,7 @@ const routeTree = rootRoute.addChildren([
     ]),
     orgWebhooksRoute.addChildren([orgWebhookListRoute, orgWebhookRoute]),
     outsideApisRoute,
+    reviewDefaultsRoute,
     quarantineRoute.addChildren([quarantineListRoute, quarantinedRoute]),
   ]),
 ]);

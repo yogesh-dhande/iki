@@ -82,6 +82,7 @@ from iki_spec.model import (
     ReviewProcedure,
     ReviewSpec,
     RowRole,
+    Starter,
     State,
     StockCatalogue,
     Storage,
@@ -123,6 +124,7 @@ KINDS = {
     "Trigger": "trigger",
     "Component": "component",
     "ReviewProcedure": "review-procedure",
+    "Starter": "starter",
 }
 
 #: Where each kind of manifest lives in a plugin.
@@ -135,6 +137,7 @@ DIRECTORIES = {
     "Trigger": "triggers",
     "Component": "components",
     "ReviewProcedure": "procedures",
+    "Starter": "starters",
 }
 
 MAX_IDENTIFIER = naming.MAX_IDENTIFIER
@@ -402,6 +405,7 @@ class _Loaded:
     trigger_sources: dict[str, Document] = field(default_factory=dict)
     component_sources: dict[str, Document] = field(default_factory=dict)
     procedure_sources: dict[str, Document] = field(default_factory=dict)
+    starter_sources: dict[str, Document] = field(default_factory=dict)
     # The raw (schema-valid) documents, for checks on things the model drops.
     raw: dict[int, dict[str, Any]] = field(default_factory=dict)
 
@@ -588,12 +592,26 @@ def _read(root: FilePath) -> _Loaded:
         ):
             found_procedures[procedure.qualified_name] = procedure
 
+    found_starters: dict[str, Starter] = {}
+    for document in _manifests(root, "starters", checker):
+        starter = Starter.read(name, document.data, document.file)
+        if _unique(
+            "duplicate-starter",
+            starter.qualified_name,
+            found_starters,
+            loaded.starter_sources,
+            document,
+            checker,
+        ):
+            found_starters[starter.qualified_name] = starter
+
     roles = {
         f"{name}.{role}": LabRole(
             plugin=name,
             name=role,
             label=spec["label"].strip() or role,
             description=(spec.get("description") or "").strip() or None,
+            distinct=(spec.get("distinct") or "").strip() or None,
         )
         for role, spec in (data.get("roles") or {}).items()
     }
@@ -622,7 +640,8 @@ def _read(root: FilePath) -> _Loaded:
             f"{name}.{local}": FileFormat.read(f"{name}.{local}", spec, order)
             for order, (local, spec) in enumerate(data.get("formats", {}).items())
         },
-        starters=dict(data.get("starters", {})),
+        recipes=dict(data.get("starters", {})),
+        starters=found_starters,
         apis=apis.read_apis(name, data),
         writers=writer_manifest.read_writers(name, data, root),
         procedures=found_procedures,
@@ -746,6 +765,7 @@ def _kind_phrase(document: Document) -> str:
         "Trigger": "a trigger",
         "Component": "a component",
         "ReviewProcedure": "a review procedure",
+        "Starter": "a starter",
     }.get(kind or "", f"a {kind}")
 
 
@@ -759,6 +779,7 @@ def _kind_phrase_plural(kind: str) -> str:
         "Trigger": "triggers",
         "Component": "components",
         "ReviewProcedure": "review procedures",
+        "Starter": "starters",
     }[kind]
 
 
@@ -1217,6 +1238,7 @@ class _Semantics:
             self.extension(extension, document, seen)
         self.settings(require_policy=require_setting_policy)
         self.procedures()
+        self.starters()
         self.declared_independence()
         # With what each rule and guard reads, for the server to load and point at.
         types, extensions = rules.check(self)
@@ -1254,22 +1276,21 @@ class _Semantics:
                 ("name",),
                 hint=f"Name it under your lab's or company's namespace, such as `acme/{short}`.",
             )
-        if plugin.starters and plugin.name not in naming.FIRST_PARTY:
-            # A starter is a recipe the server has (ADR 0198); only Iki's own plugins'
-            # are in it, so another plugin's `starters` switch nothing on.
+        if plugin.recipes and plugin.name not in naming.FIRST_PARTY:
+            # The manifest's `starters` names recipes the server has (ADR 0198); only Iki's
+            # own plugins' are in it, so another plugin's switch nothing on.
             self.add(
                 "unknown-starter",
                 "Iki has no starter "
-                + ", ".join(f"`{s}`" for s in plugin.starters)
-                + ": only Iki's own plugins' starters can be offered at project setup, so "
-                "this does nothing.",
+                + ", ".join(f"`{s}`" for s in plugin.recipes)
+                + ": `starters` in plugin.yaml names Iki's own recipes, so this does nothing.",
                 source,
                 ("starters",),
                 key=True,
                 severity=Severity.WARNING,
-                hint="Leave `starters` off. To let each deployment choose a review procedure, "
-                "declare an `enum` setting of the procedures and copy it onto each result "
-                "when it's recorded, as the lots plugin's `verification_flow` is.",
+                hint="Leave `starters` off. To let a project choose how a type is reviewed, "
+                "declare a `kind: Starter` in `starters/` naming its review procedure "
+                "(ADR 0303).",
             )
         for dependency, constraints in plugin.dependencies.items():
             path: Path = ("dependencies", dependency)
@@ -1351,6 +1372,24 @@ class _Semantics:
                 )
                 continue
             seen[key] = role.name
+        # A role named as a shared one splits a project's people, unless that's the point.
+        if procedures.SHARED_ROLES not in self.plugin.dependencies:
+            return
+        for role in self.plugin.roles.values():
+            shared = f"{procedures.SHARED_ROLES}.{role.name}"
+            if shared in self.roles and role.distinct is None:
+                self.add(
+                    "generic-role",
+                    f"`{role.name}` is also a shared lab role, `{shared}`, which this plugin "
+                    "uses: say why it's separate, or use the shared one.",
+                    self.source,
+                    ("roles", role.name),
+                    key=True,
+                    hint="Give it `distinct:` the reason, such as `Qualifying a cell bank is "
+                    "given to different people than assay review.`, or remove it and bind "
+                    f"the procedure's slot to `{shared}` (ADR 0304).",
+                    severity=Severity.WARNING,
+                )
 
     def lab_role(self, ref: str, source: Document, path: Path) -> LabRole | None:
         """The lab role `ref` names, qualified (``acme/qms.qa``), or None after reporting why
@@ -1652,6 +1691,135 @@ class _Semantics:
                     hint=problem.hint,
                     severity=Severity.WARNING if problem.warning else Severity.ERROR,
                 )
+
+    def starters(self) -> None:
+        """Each starter (ADR 0303) against its procedure and the types it pins: the governed
+        type and every one that follows it."""
+        available = self.available_procedures()
+        for qualified, starter in self.plugin.starters.items():
+            source = self.loaded.starter_sources[qualified]
+            governed = self.types.get(starter.governs)
+            owner, _, _ = starter.governs.rpartition(".")
+            if governed is None:
+                self.add(
+                    "unknown-type",
+                    f"There's no type `{starter.governs}` for the starter to govern.",
+                    source,
+                    ("governs",),
+                    hint="Name a reviewed type of this plugin, or of one it depends on, as "
+                    "`namespace/plugin.Type`.",
+                )
+                continue
+            if owner != self.plugin.name and owner not in self.plugin.dependencies:
+                self.add(
+                    "undeclared-dependency",
+                    f"`{starter.governs}` belongs to the {owner} plugin, which plugin.yaml "
+                    "doesn't list under `dependencies`.",
+                    source,
+                    ("governs",),
+                    hint=f"Add `{owner}: {{}}` under `dependencies`.",
+                )
+            review = self.effective_of(governed).review
+            if review is None or review.by is not None:
+                self.add(
+                    "starter-governs",
+                    f"`{governed.name}` "
+                    + (
+                        "isn't reviewed, so there's no procedure to choose for it."
+                        if review is None
+                        else f"follows the procedure of its {review.by}: govern that type."
+                    ),
+                    source,
+                    ("governs",),
+                )
+                continue
+            procedure = available.get(starter.procedure)
+            if procedure is None:
+                self.add(
+                    "unknown-procedure",
+                    f"There's no review procedure `{starter.procedure}` here.",
+                    source,
+                    ("procedure",),
+                    hint="Name core's (`iki/core.result_review@1`), this plugin's own, or a "
+                    "dependency's, as `plugin.name@version`.",
+                )
+                continue
+            for index, flow in enumerate(starter.flows):
+                if flow not in procedure.flows:
+                    self.add(
+                        "unknown-flow",
+                        f"{starter.procedure} has no flow `{flow}`.",
+                        source,
+                        ("flows", index),
+                    )
+            if starter.suggested is not None and starter.suggested not in starter.flows:
+                self.add(
+                    "unknown-flow",
+                    f"`{starter.suggested}` isn't one of the flows it offers.",
+                    source,
+                    ("suggested",),
+                )
+            for flow in starter.summaries:
+                if flow not in starter.flows:
+                    self.add(
+                        "unknown-flow",
+                        f"`{flow}` isn't one of the flows it offers.",
+                        source,
+                        ("summaries", flow),
+                    )
+            flows = [f for f in starter.flows if f in procedure.flows]
+            for t in [governed, *self.followers(governed)]:
+                spec = self.effective_of(t).review
+                assert spec is not None  # noqa: S101 - governed and followers are reviewed
+                for problem in procedures.misfits(spec, t.label, procedure, flows):
+                    self.add("procedure-misfit", problem, source, ("procedure",))
+            used = {
+                slot
+                for f in flows
+                for state in procedure.flows[f].states
+                for slot in procedure.states[state].by
+            }
+            for slot in sorted(used - set(starter.slots)):
+                self.add(
+                    "starter-slot-minimum",
+                    f"Say the least project role someone playing `{slot}` needs.",
+                    source,
+                    ("slots",),
+                    hint=f"Add `{slot}: {{minimum: viewer}}` (who reviews and signs) or "
+                    "`{minimum: editor}` (who records) under `slots`.",
+                )
+            for slot, given in starter.slots.items():
+                if slot not in procedure.slots:
+                    self.add(
+                        "unknown-slot",
+                        f"{starter.procedure} has no slot `{slot}`.",
+                        source,
+                        ("slots", slot),
+                        key=True,
+                    )
+                elif given.role is not None:
+                    self.lab_role(given.role, source, ("slots", slot, "role"))
+
+    def followers(self, entity_type: EntityType) -> list[EntityType]:
+        """The reviewed types whose records follow ``entity_type``'s procedure: those
+        ``pinned: {by: field}`` by a reference to it or a subtype."""
+        lineage = {entity_type.qualified_name}
+        out = []
+        for t in self.types.values():
+            review = t.review
+            if review is None or review.by is None:
+                continue
+            ref = self.all_fields(t).get(review.by)
+            if ref is None:
+                continue
+            targets = ref[0].to
+            if any(
+                target in lineage
+                or (target in self.types and entity_type in self.ancestors(self.types[target]))
+                for target in targets
+            ):
+                out.append(t)
+        return out
 
     def people_kind(self, entity_type: EntityType) -> Callable[[str], bool | None]:
         """For a person path of its records (``investigator``, ``test.observed_by``):

@@ -58,7 +58,6 @@ def test_a_token_needs_write_scope_in_the_selected_project(world: World) -> None
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("flow", "release"),
         ("project", "somewhere"),
         ("role_assignments", {"iki/plate_assays.reviewer": ["a name"]}),
         ("requester_project", "removed"),
