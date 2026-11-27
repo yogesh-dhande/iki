@@ -867,6 +867,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         if body.get("stock_catalogue")
         else None,
         storage=_storage(body.get("storage"), plugin),
+        roles=dict(body.get("roles") or {}),
         refines={
             name: Refinement.from_manifest(body_refines, plugin=plugin)
             for name, body_refines in (body.get("refines") or {}).items()
@@ -1521,6 +1522,7 @@ class _Semantics:
         self.assignments(entity_type.fields, entity_type, source)
         if entity_type.due is not None:
             self.due(entity_type, source, every)
+        self.field_roles(entity_type, source, every)
         notifications.check(self, entity_type, source)
         if entity_type.request is not None:
             self.request(entity_type, source, every)
@@ -2714,6 +2716,75 @@ class _Semantics:
                 "project's own.",
                 source,
                 ("due",),
+            )
+
+    def field_roles(
+        self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
+    ) -> None:
+        """The fields playing the roles Iki knows (ADR 0284): each a field of its records'
+        of the role's kind, named once in a lineage; and a concrete sequence's residues
+        (ADR 0285)."""
+        ancestors = self.ancestors(entity_type)
+        for role, name in entity_type.roles.items():
+            at: Path = ("roles", role)
+            bound = next((a for a in ancestors if role in a.roles), None)
+            if bound is not None:
+                self.add(
+                    "role-rebound",
+                    f"`{bound.qualified_name}` names `{bound.roles[role]}` as its {role}: its "
+                    f"subtypes' {role} is that field too, so whatever reads a {bound.name}'s "
+                    f"{role} reads each of theirs.",
+                    source,
+                    at,
+                    hint=f"Take `{role}` out of `roles`.",
+                )
+                continue
+            found = every.get(name)
+            if found is None or found[0].removed:
+                self.add(
+                    "unknown-field",
+                    f"`{name}` isn't a field of `{entity_type.name}`.",
+                    source,
+                    at,
+                    hint=schemas._did_you_mean(
+                        name, [n for n, (f, _) in every.items() if not f.removed]
+                    ),
+                )
+                continue
+            f = found[0]
+            if role == "residues" and (
+                f.type != "string" or f.format not in effective.RESIDUE_ALPHABETS
+            ):
+                self.add(
+                    "role-field",
+                    f"`{name}` isn't a sequence of residues: a residues field is a string with "
+                    "a sequence format, which says their alphabet.",
+                    source,
+                    at,
+                    hint="Name a string field with `format: "
+                    + "`, `".join(sorted(effective.RESIDUE_ALPHABETS))
+                    + "`.",
+                )
+            elif role == "formula" and f.type != "string":
+                self.add(
+                    "role-field",
+                    f"`{name}` is a {f.type} field: a molecular formula is written as a string, "
+                    "such as C6H12O6.",
+                    source,
+                    at,
+                )
+        if (
+            not entity_type.abstract
+            and effective.SEQUENCE in self.effective_of(entity_type).lineage
+            and "residues" not in self.effective_of(entity_type).roles
+        ):
+            self.add(
+                "residues-unbound",
+                f"`{entity_type.name}` is a sequence (`{effective.SEQUENCE}`): name the field "
+                "holding its residues, so alignments, exports, runs and agents read them by it.",
+                source,
+                ("roles",) if isinstance(source.data, dict) and "roles" in source.data else (),
+                hint="Add `roles: { residues: <field> }`.",
             )
 
     def amount(

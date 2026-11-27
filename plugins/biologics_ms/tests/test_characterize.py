@@ -62,8 +62,36 @@ def test_header_without_observations_is_refused(tmp_path, analysis, blank_lines)
 def test_an_adc_lot_must_belong_to_the_selected_conjugate():
     antibody = {"id": "antibody"}
     adc = {"id": "adc", "values": {"carrier": [{"kind": "antibody_drug", "molecule": "antibody"}]}}
-    lot = {"id": "lot", "type": "iki/lots.ConjugateLot", "values": {"conjugate": "different"}}
+    lot = {
+        "id": "lot",
+        "type": "iki/lots.ConjugateLot",
+        "roles": {"material": "conjugate"},
+        "values": {"conjugate": "different"},
+    }
     with pytest.raises(ValueError, match="Select a lot"):
         SCRIPT["check_material"](antibody, adc, lot)
     lot["values"]["conjugate"] = "adc"
     SCRIPT["check_material"](antibody, adc, lot)
+
+
+def test_a_labs_own_lot_type_is_checked_by_what_it_is_of():
+    """A lab's GMP lot extends Iki's protein lot: the action reads its material by the role
+    its type inherits, not by its type's name."""
+    antibody = {"id": "antibody"}
+    lot = {
+        "id": "lot",
+        "type": "acme/gmp.GmpProteinLot",
+        "types": [
+            "acme/gmp.GmpProteinLot",
+            "iki/lots.ProteinLot",
+            "iki/lots.BiologicLot",
+            "iki/lots.Lot",
+            "iki/core.Entity",
+        ],
+        "roles": {"material": "protein"},
+        "values": {"protein": "antibody"},
+    }
+    SCRIPT["check_material"](antibody, None, lot)
+    lot["values"]["protein"] = "another antibody"
+    with pytest.raises(ValueError, match="Select a lot of the chosen antibody"):
+        SCRIPT["check_material"](antibody, None, lot)

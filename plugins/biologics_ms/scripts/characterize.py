@@ -90,8 +90,14 @@ def chains_of(antibody: dict[str, Any]) -> tuple[dict[str, str], int, list[dict[
     chains = {}
     cysteines = 0
     for component, record in zip(components, records, strict=True):
-        sequence = record["values"].get("sequence")
-        if not sequence or not re.fullmatch(r"[ACDEFGHIKLMNPQRSTVWY]+", sequence):
+        # A chain's residues, by the field its type names for them, whatever it's called.
+        residues = (record.get("roles") or {}).get("residues") or {}
+        sequence = record["values"].get(residues["field"]) if residues else None
+        if (
+            residues.get("alphabet") != "protein"
+            or not sequence
+            or not re.fullmatch(r"[ACDEFGHIKLMNPQRSTVWY]+", sequence)
+        ):
             raise ValueError("Use reference chains with known standard amino acid sequences.")
         chains[component["role"]] = sequence
         cysteines += sequence.count("C") * component["copies"]
@@ -110,13 +116,21 @@ def check_material(
             raise ValueError("Select an antibody–drug conjugate of the reference antibody.")
     if lot is None:
         return
+    # What the lot is of, by the field its type declares for it: a lab's own lot type of a
+    # protein or a conjugate is checked as Iki's are.
     if adc:
-        if lot["type"] != "iki/lots.ConjugateLot" or lot["values"].get("conjugate") != identity(
-            adc
-        ):
+        if material_of(lot) != identity(adc):
             raise ValueError("Select a lot of the chosen antibody–drug conjugate.")
-    elif lot["type"] != "iki/lots.ProteinLot" or lot["values"].get("protein") != identity(antibody):
-        raise ValueError("Select a protein lot of the chosen antibody.")
+    elif material_of(lot) != identity(antibody):
+        raise ValueError("Select a lot of the chosen antibody.")
+
+
+def material_of(record: dict[str, Any]) -> object:
+    """What a record is of, by its type's material role, as the run's input says it."""
+    field = (record.get("roles") or {}).get("material")
+    if field is None:
+        return None
+    return record["id"] if field == "id" else record["values"].get(field)
 
 
 def mass_rows(

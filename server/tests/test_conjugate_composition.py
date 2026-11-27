@@ -26,12 +26,18 @@ def record(
 ) -> dict[str, Any]:
     rows = attachments if attachments is not None else [{"copies": 1, "loss_formula": "H2O"}]
     carrier = CARRIER if carrier is None else carrier
+    # Each carrier's roles, as the run's input gives its type's (ADR 0284).
+    roles: dict[str, Any]
     if "components" in carrier:
-        kind = "antibody_drug"
+        kind, roles = "antibody_drug", {"formula": "molecular_formula"}
     elif "sequence" in carrier:
-        kind = "pegylated_protein"
+        kind, roles = (
+            "pegylated_protein",
+            {"residues": {"field": "sequence", "alphabet": "protein"}},
+        )
     else:
         kind = "oligo_conjugate"
+        roles = {"residues": {"field": "helm", "alphabet": "helm"}, "formula": "molecular_formula"}
     return {
         "id": "00000000-0000-7000-8003-000000000001",
         "values": {
@@ -41,11 +47,12 @@ def record(
             ],
         },
         "included": {
-            "carrier.molecule": [{"id": "carrier-id", "values": carrier}],
+            "carrier.molecule": [{"id": "carrier-id", "roles": roles, "values": carrier}],
             "attachments.part": [
                 {
                     "id": "part-id",
                     "hrid": "CPD-000001",
+                    "roles": {"formula": "molecular_formula"},
                     "values": PEG if compound is None else compound,
                 }
                 for _ in rows

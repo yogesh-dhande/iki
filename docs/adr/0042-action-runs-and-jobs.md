@@ -1,6 +1,7 @@
 # 0042. A run records what was asked; jobs are its attempts
 
 - Status: Accepted
+- Extended by [0284](0284-run-inputs-say-what-each-record-is.md): each entity carries its lineage and roles, and an input can say what it reads
 - Date: 2026-11-11
 - Refines: [0040](0040-action-and-environment-manifests.md),
   [0041](0041-compute-templates-and-bindings.md)

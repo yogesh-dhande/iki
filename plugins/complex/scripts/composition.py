@@ -22,10 +22,11 @@ formula is theirs, each times its copies:
   5′ hydroxyl, as a synthetic oligonucleotide or a PCR product of unphosphorylated
   primers is, has HPO3 (79.97 u) less, which the run says. An ambiguous base (N, R and
   the like) has no one formula;
-- any other part's from its entry's `molecular_formula`: a small molecule's, an
-  oligonucleotide's or a duplex's, or another complex's, which this action computed when
-  it was registered, with any isotope it gives as RDKit writes it ([13C], D for 2H). A
-  charged formula is refused: a complex's parts are neutral here.
+- any other part's from its entry's formula, the field its type's `formula` role names
+  (ADR 0284): a small molecule's, an oligonucleotide's or a duplex's, or another
+  complex's, which this action computed when it was registered, with any isotope it
+  gives as RDKit writes it ([13C], D for 2H). A charged formula is refused: a complex's
+  parts are neutral here.
 
 Its average mass is its formula's, with the standard atomic weights Biopython has
 (Bio.Data.IUPACData.atom_weights), as the protein plugin's molecular weights are, and a
@@ -142,9 +143,6 @@ ISOTOPES: dict[tuple[str, int], float] = {
 }  # fmt: skip
 #: How RDKit writes hydrogen's isotopes.
 HYDROGENS = {"D": 2, "T": 3}
-#: A part that's one chain, for its chain count: a protein's, a nucleic acid's, an
-#: oligonucleotide's.
-ONE_CHAIN = ("sequence", "bases", "helm")
 #: A formula's atoms and counts, in Hill order or any: an element (C), or one of its
 #: isotopes ([13C], or D and T for hydrogen's). A charge isn't one.
 ATOM = re.compile(r"(?:\[([1-9][0-9]*)([A-Z][a-z]?)\]|([A-Z][a-z]?))([0-9]*)")
@@ -275,8 +273,9 @@ def _part(part: dict[str, Any]) -> tuple[Counter[str], int, int | None, list[str
     it was weighed. Raises :class:`RefusedError`."""
     values = part["values"]
     notes: list[str] = []
-    if part.get("type") == "iki/protein.Protein":
-        sequence = str(values["sequence"]).removesuffix("*").upper()
+    residues = _residues(part)
+    if residues is not None and residues[0] == "protein":
+        sequence = str(residues[1]).removesuffix("*").upper()
         try:
             formula = protein_formula(sequence)
         except KeyError as residue:
@@ -291,7 +290,7 @@ def _part(part: dict[str, Any]) -> tuple[Counter[str], int, int | None, list[str
             )
         absorbance = TRYPTOPHAN * sequence.count("W") + TYROSINE * sequence.count("Y")
         return formula, 1, absorbance, notes
-    given = values.get("molecular_formula")
+    given = _formula(part)
     if _by_bases(part):
         return (*_dna(part), None, notes)
     if not given:
@@ -315,19 +314,36 @@ def _part(part: dict[str, Any]) -> tuple[Counter[str], int, int | None, list[str
     elif part.get("type") == "iki/oligo.Duplex" or values.get("strandedness") == "double":
         chains = 2
     else:
-        chains = int(any(values.get(k) for k in ONE_CHAIN))
+        # A part with residues is a chain of them: a protein's, a nucleic acid's, an
+        # oligonucleotide's.
+        chains = int(residues is not None and bool(residues[1]))
     # Another complex's own, which this action computed; none for anything else.
     own = values.get("extinction_coefficient_reduced") if "components" in values else None
     return formula, chains, int(own) if own is not None else None, notes
 
 
+def _residues(part: dict[str, Any]) -> tuple[str, object] | None:
+    """A part's residues, by the field its type names for them: their alphabet, and them;
+    None for a part that has none."""
+    found = (part.get("roles") or {}).get("residues")
+    return (found["alphabet"], part["values"].get(found["field"])) if found else None
+
+
+def _formula(part: dict[str, Any]) -> object:
+    """A part's molecular formula, by the field its type names for it, or None."""
+    field = (part.get("roles") or {}).get("formula")
+    return part["values"].get(field) if field else None
+
+
 def _by_bases(part: dict[str, Any]) -> bool:
     """Whether a part is weighed by its bases: a DNA sequence, which has no formula."""
-    values = part["values"]
+    residues = _residues(part)
     return (
-        not values.get("molecular_formula")
-        and isinstance(values.get("bases"), str)
-        and "strandedness" in values
+        not _formula(part)
+        and residues is not None
+        and residues[0] == "dna"
+        and isinstance(residues[1], str)
+        and "strandedness" in part["values"]
     )
 
 
@@ -335,7 +351,9 @@ def _dna(part: dict[str, Any]) -> tuple[Counter[str], int]:
     """A DNA sequence's formula from its bases, and its strands. Raises
     :class:`RefusedError`."""
     values = part["values"]
-    bases = str(values["bases"]).upper()
+    residues = _residues(part)
+    assert residues is not None  # noqa: S101 - only for a part weighed by its bases
+    bases = str(residues[1]).upper()
     circular = values.get("topology") == "circular"
     strands = [bases]
     if values.get("strandedness") == "double":

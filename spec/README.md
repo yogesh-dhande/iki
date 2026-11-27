@@ -211,6 +211,31 @@ display:
 | `display.title`         | Text with `{{ a or b or "text" }}` parts, naming fields or `hrid`.                                       |
 | `display.viewers`       | Iki's own viewers, each a tab on its entities' pages, configured by naming fields. See Viewers.          |
 | `refines`               | Narrows fields it inherits: see What a subtype inherits.                                                 |
+| `roles`                 | The field playing each role Iki knows: `residues` and `formula`. See Roles.                              |
+
+### Roles
+
+Some things Iki knows about whatever type a record is: a sequence's residues,
+a molecule's formula, what a lot or a tube is of. A type says which of its
+fields plays each (ADR 0284), and alignments, composition, runs and agents
+read it by that, whatever the field is called:
+
+```yaml
+name: Oligonucleotide
+extends: iki/core.Sequence
+roles: { residues: helm, formula: molecular_formula }
+```
+
+- `residues` is a string field with a sequence `format` (`dna_sequence`,
+  `rna_sequence`, `protein_sequence` or `helm`), which gives their alphabet
+  (`role-field`). Every concrete type extending `iki/core.Sequence` names one,
+  its own or a parent's (`residues-unbound`, ADR 0285).
+- `formula` is a string field with its molecular formula.
+- What a record is of is its amount's `material` (see Amounts).
+
+A subtype has its ancestors' roles, and can't name another field for one
+(`role-rebound`): whatever reads a DNA sequence's residues reads a plasmid's.
+A type's roles are in its API description, and in each run input's `roles`.
 
 ### What a subtype inherits
 
@@ -223,7 +248,7 @@ states in its description of the key:
 | `own`        | has its own, never its parent's                                           | `name`, `label`, `label_plural`, `description`, `schema_version`, `extends`, `abstract`, `hrid`, `list`                                    |
 | `nearest`    | has its nearest ancestor's, unless it declares its own, which replaces it | `display.title`, `display.viewers`, `exports`, `storage`, `due`, `result`, `work_item`, `draw_target`, `draws_received`, `stock_catalogue` |
 | `once`       | has the one its lineage declares, and can't declare another               | `identity`, `amount`                                                                                                                       |
-| `accumulate` | has every ancestor's and its own, none named as an ancestor's is          | `fields`, `rules`, `notifications`, `draw_guards`, `sample`                                                                                |
+| `accumulate` | has every ancestor's and its own, none named as an ancestor's is          | `fields`, `rules`, `notifications`, `draw_guards`, `roles`, `sample`                                                                       |
 | `narrow`     | has its parent's, and may only narrow it                                  | `refines`, `draw_purposes`                                                                                                                 |
 | `merge`      | has its nearest ancestor's, with what it adds                             | `request` (its service fields)                                                                                                             |
 
@@ -1261,6 +1286,7 @@ name: predict_structure_with_alphafold
 inputs: # leave out for actions that import or fetch
   protein: { type: iki/protein.Protein, schema: ">=2" } # cardinality: one (default) or many
   # include: [encoded_by] # references whose entities the run reads too (ADR 0105)
+  # reads: [sequence, name] # only these fields of its entities, and their roles' (ADR 0284)
   # ranking: { type: ServedProject, cardinality: many, from_project: true } # not chosen
 params:
   model_preset: { type: enum, values: [monomer, multimer], default: monomer }
@@ -1305,7 +1331,8 @@ on it. The validator checks that:
   removed or `immutable`; updates reach inherited fields and fields this
   plugin adds to the type
 - every `derived_from` and `updates` names an input
-- an input's `include` names references of its type, its own or a parent's
+- an input's `include` names references of its type, its own or a parent's,
+  and its `reads` names fields of it (`reads-unknown-field`)
 - a create's `match_on` is a unique field of the type, its own, a parent's,
   or one this plugin's extension adds
 - params follow the rules for settings, and also take `date`, `quantity`
@@ -1327,6 +1354,13 @@ the run keeps them. Whoever launches it must be able to read them, and they
 must be in its project, which the launch can add them to as it does inputs.
 They count in what makes two runs identical, so a change to one runs it again.
 Only the input's own references are included, not theirs.
+
+An input that `reads` some fields gets only those of each entity it's given
+(ADR 0284), with the fields its roles name (its material, residues and
+formula) and the references it includes: a search of 100,000 compounds by
+their SMILES reads `[smiles]`, not every Molfile. Without `reads`, it gets
+every field. References and files in fields it doesn't read aren't sent, and
+its project needn't be able to read them.
 
 An input `from_project` isn't chosen by whoever launches the run, a trigger
 or a workflow's step: each run is given every record of its type its
@@ -2414,6 +2448,8 @@ When a worker leases a job, it gets the run input and writes it to
         "id": "…",
         "hrid": "PRT-000042",
         "type": "iki/protein.Protein",
+        "types": ["iki/protein.Protein", "iki/core.Sequence", "iki/core.Entity"],
+        "roles": { "residues": { "field": "sequence", "alphabet": "protein" } },
         "schema_version": 1,
         "revision": 3,
         "values": { "sequence": "MKV…" }
@@ -2436,6 +2472,18 @@ When a worker leases a job, it gets the run input and writes it to
 ```
 
 The worker keeps the lease and its control credentials outside the command’s input.
+
+Each entity, an input's or one it includes, says what it is (ADR 0284).
+`types` is its type, then each type that extends, nearest first, ending with
+`iki/core.Entity`: an input takes its type's subtypes too, so a lab's
+`acme/gmp.GmpProteinLot` arrives where an action takes `iki/lots.ProteinLot`.
+Compare with `types`, never with `type`: `"iki/lots.ProteinLot" in
+lot["types"]`. `roles` names the field playing each role its type has, its
+own or a parent's: `material`, what its amount is of (`id` for the record
+itself); `residues`, its sequence's field and `alphabet` (`dna`, `rna`,
+`protein` or `helm`); and `formula`, its molecular formula's. Read them by
+these, as a lab's own types name their fields their own way:
+`lot["values"][lot["roles"]["material"]]`, not `lot["values"]["protein"]`.
 
 A request between projects (ADR 0132) also has `request`: the project that
 asked (`asking_project`) and the service it was sent to (`service`, null
@@ -2878,6 +2926,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `notification-when`, `notification-field`, `notification-values`, `notification-recipients`, `notification-where`, `notification-message`, `notification-shadows-parent`, `notification-in-registry`; `notification-repeats-ready` (warning)                                                                                                                                                                                                                                                                                                                                                                                                          | Notifications                   |
 | `service-field-inherited`, `service-field-refers`, `service-field-unique`, `service-field-immutable`, `service-field-required`, `request-sends-not-a-reference`, `request-sends-service-field`, `request-with-identity`, `request-redeclared`, `result-with-identity`, `result-is-a-request`, `result-of-not-a-request`, `result-of-changes`, `result-released-without-states`, `result-released-initial`, `result-release-on-edit`, `result-release-lock`                                                                                                                                                                                            | Requests between projects       |
 | `amount-unit`, `amount-concentration`, `amount-aliquots`, `amount-twice`, `amount-on-identity`, `holds-without-amount`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Amounts                         |
+| `role-field`, `role-rebound`, `residues-unbound`, `reads-unknown-field`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Roles and what a run reads      |
 | `refines-unknown-field`, `refines-own-field`, `refines-wider`, `refines-computed`, `refines-not-enum`, `refines-not-a-number`, `refines-not-whole`, `refines-default`, `refines-default-outside`, `refines-not-a-reference`, `refines-not-rows`, `refines-drops-role`                                                                                                                                                                                                                                                                                                                                                                                 | Narrowing an inherited field    |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Types                           |
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HRIDs                           |

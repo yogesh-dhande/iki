@@ -1064,6 +1064,10 @@ class EntityType:
     #: Its entities are a lab list's options (ADR 0270): registry entries every project in
     #: their registry may pick, curated by its registrars and list curators.
     list_spec: ListSpec | None = None
+    #: The field playing each role Iki knows (ADR 0284), by the role: ``residues``, its
+    #: sequence of residues; ``formula``, its molecular formula. Its subtypes' fields play
+    #: them too.
+    roles: dict[str, str] = field(default_factory=dict)
 
     @property
     def is_list(self) -> bool:
@@ -1299,6 +1303,9 @@ class Input:
     #: Not chosen: each run is given every record of its type its project owns, not
     #: archived, such as a core's ranking of the projects it serves (ADR 0232).
     from_project: bool = False
+    #: The fields of its entities the run reads (ADR 0284): their values carry these, the
+    #: fields their roles name and those ``include`` names, and no others. Empty: all.
+    reads: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -2104,6 +2111,8 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         ),
                         # ...or refined fields (ADR 0283).
                         "refines": {n: _refinement(x) for n, x in (v.get("refines") or {}).items()},
+                        # ...or roles (ADR 0284).
+                        "roles": dict(v.get("roles") or {}),
                         # ...or lists (ADR 0270).
                         "list_spec": ListSpec(
                             options=tuple(dict(o) for o in v["list_spec"]["options"])
@@ -2276,7 +2285,13 @@ def _workflow(data: dict[str, Any]) -> Workflow:
 
 
 def _input(data: dict[str, Any]) -> Input:
-    return Input(**{**data, "include": tuple(data.get("include") or ())})
+    return Input(
+        **{
+            **data,
+            "include": tuple(data.get("include") or ()),
+            "reads": tuple(data.get("reads") or ()),
+        }
+    )
 
 
 def action_from_dict(data: dict[str, Any]) -> Action:

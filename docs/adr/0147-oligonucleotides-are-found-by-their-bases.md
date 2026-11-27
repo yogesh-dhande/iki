@@ -1,6 +1,7 @@
 # 0147. Oligonucleotides are found by their bases
 
 - Status: Accepted
+- Amended by [0285](0285-a-sequence-names-its-residues.md): every sequence names its residues field
 - Date: 2026-11-18
 - Refines: [0037](0037-entity-search.md), [0144](0144-canonical-helm-is-an-identity.md)
 

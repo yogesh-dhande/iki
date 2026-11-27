@@ -65,9 +65,12 @@ from iki_spec.model import (
 __all__ = [
     "POLICIES",
     "POLICY_TEXT",
+    "RESIDUE_ALPHABETS",
+    "SEQUENCE",
     "Effective",
     "Policy",
     "ancestors",
+    "carried",
     "effective_from_dict",
     "effective_to_dict",
     "is_a",
@@ -104,6 +107,16 @@ POLICY_TEXT: Mapping[Policy, str] = {
     "what each type below adds.",
 }
 
+#: The abstract type of everything with a sequence of residues (ADR 0285).
+SEQUENCE = "iki/core.Sequence"
+#: A residues field's format, and the alphabet a run's input names it by (ADR 0284).
+RESIDUE_ALPHABETS: Mapping[str, str] = {
+    "dna_sequence": "dna",
+    "rna_sequence": "rna",
+    "protein_sequence": "protein",
+    "helm": "helm",
+}
+
 #: The policy of each key of an ``EntityType`` manifest: the contract of ``extends``. The
 #: entity-type schema gives each key's in its description, and a test holds them equal.
 POLICIES: Mapping[str, Policy] = {
@@ -125,6 +138,7 @@ POLICIES: Mapping[str, Policy] = {
     "rules": Policy.ACCUMULATE,
     "draws_received": Policy.NEAREST,
     "draw_guards": Policy.ACCUMULATE,
+    "roles": Policy.ACCUMULATE,
     "draw_purposes": Policy.NARROW,
     "draw_target": Policy.NEAREST,
     "due": Policy.NEAREST,
@@ -175,11 +189,27 @@ class Effective:
     draw_purposes: dict[str, tuple[str, ...]] = field(default_factory=dict)
     draw_target: DrawTarget | None = None
     storage: Storage | None = None
+    #: The field playing each role (ADR 0284), its own or an ancestor's.
+    roles: dict[str, str] = field(default_factory=dict)
     #: Whose declaration each inherited part is, by the type of ``lineage`` declaring it:
     #: a block by its key (``storage``, ``display.title``), and a named part of one by
     #: ``key.name`` (``fields.material``, ``rules.expiry_after_made``). A field's
     #: ``refines.name`` is the nearest type narrowing it.
     sources: dict[str, str] = field(default_factory=dict)
+
+    def run_roles(self) -> dict[str, Any]:
+        """What a run's input says of the field playing each of its roles (ADR 0284):
+        ``material`` from its amount, ``residues`` with their alphabet, ``formula``."""
+        out: dict[str, Any] = {}
+        if self.amount is not None and self.amount.material is not None:
+            out["material"] = self.amount.material
+        if (name := self.roles.get("residues")) is not None:
+            alphabet = RESIDUE_ALPHABETS.get(self.fields[name].format or "")
+            if alphabet is not None:
+                out["residues"] = {"field": name, "alphabet": alphabet}
+        if (name := self.roles.get("formula")) is not None:
+            out["formula"] = name
+        return out
 
     @property
     def ancestors(self) -> tuple[str, ...]:
@@ -366,6 +396,7 @@ def resolve_one(types: Mapping[str, EntityType], name: str) -> Effective:
         draw_purposes=purposes,
         draw_target=_nearest(chain, "draw_target", "draw_target", sources),
         storage=_nearest(chain, "storage", "storage", sources),
+        roles=accumulated("roles", "roles"),
         sources=sources,
     )
 
@@ -378,6 +409,25 @@ def _nearest(chain: Sequence[EntityType], attr: str, key: str, sources: dict[str
             sources[key] = t.qualified_name
             return value
     return None
+
+
+def carried(
+    declared: Effective, reads: Sequence[str], include: Sequence[str] = ()
+) -> frozenset[str] | None:
+    """The fields a run's input carries of an entity whose type is ``declared``, for an
+    input that ``reads`` some (ADR 0284): those, the fields its roles name, and the
+    references the input includes. None, for an input that reads every field."""
+    if not reads:
+        return None
+    roles = declared.run_roles()
+    played = {
+        roles.get("material"),
+        (roles.get("residues") or {}).get("field"),
+        roles.get("formula"),
+    }
+    return frozenset(
+        {*reads, *(n for n in played if n and n != "id"), *(n.split(".")[0] for n in include)}
+    )
 
 
 def resolve(types: Mapping[str, EntityType]) -> dict[str, Effective]:
@@ -413,6 +463,7 @@ def effective_to_dict(e: Effective) -> dict[str, Any]:
         "draw_purposes",
         "draw_target",
         "storage",
+        "roles",
         "sources",
     ):
         value = getattr(e, name)
@@ -449,5 +500,6 @@ def effective_from_dict(name: str, data: Mapping[str, Any]) -> Effective:
         draw_purposes={n: tuple(r) for n, r in (data.get("draw_purposes") or {}).items()},
         draw_target=DrawTarget(**{**target, "by": tuple(target["by"])}) if target else None,
         storage=_storage(data.get("storage")),
+        roles=dict(data.get("roles") or {}),
         sources=dict(data.get("sources") or {}),
     )

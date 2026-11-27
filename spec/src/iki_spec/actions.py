@@ -114,6 +114,7 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
                 description=spec.get("description"),
                 include=tuple(spec.get("include") or ()),
                 from_project=bool(spec.get("from_project", False)),
+                reads=tuple(spec.get("reads") or ()),
             )
             for n, spec in (body.get("inputs") or {}).items()
         },
@@ -641,6 +642,7 @@ class _Rules:
             )
         if target is not None:
             self.include(put, target, source, path)
+            self.reads(put, target, source, path)
         if put.from_project and put.cardinality != "many":
             self.add(
                 "from-project-one",
@@ -685,6 +687,21 @@ class _Rules:
                 )
             else:
                 self.curated(found, source, where)
+
+    def reads(self, put: Input, target: EntityType, source: Document, path: Path) -> None:
+        """An input's `reads` (ADR 0284): fields of its type, its own or a parent's, as each
+        entity a run is given is one of its type's."""
+        fields = {n: f for n, (f, _) in self.s.all_fields(target).items() if not f.removed}
+        for index, name in enumerate(put.reads):
+            if name not in fields:
+                self.add(
+                    "reads-unknown-field",
+                    f"`{put.type}` has no field `{name}`: a run's entities may be of its "
+                    "subtypes, but each has its fields.",
+                    source,
+                    (*path, "reads", index),
+                    hint=schemas._did_you_mean(name, sorted(fields)),
+                )
 
     def curated(self, f: Field, source: Document, path: Path) -> None:
         """An included lab list's values a calculation can work from or branch on, its

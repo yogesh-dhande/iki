@@ -12,6 +12,8 @@ description: >-
   registry entry.
 hrid: { prefix: PRM }
 identity: [bases]
+# The fields Iki reads its residues by (ADR 0284).
+roles: { residues: bases }
 fields:
   bases:
     type: string

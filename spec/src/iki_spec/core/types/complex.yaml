@@ -20,6 +20,8 @@ description: >-
 # type of complex names its own way, so a protein complex of the same parts as an antibody
 # is that antibody.
 identity: [components]
+# The field Iki reads its formula by (ADR 0284), which compute_composition fills.
+roles: { formula: molecular_formula }
 fields:
   name: { type: string, max_length: 255, indexed: true }
   description: { type: text, max_length: 10000 }

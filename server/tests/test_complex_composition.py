@@ -53,6 +53,29 @@ INSULIN_A = "GIVEQCCTSICSLYQLENYCN"
 INSULIN_B = "FVNQHLCGSHLVEALYLVCGERGFFYTPKT"
 
 
+#: Each part type's roles, as a run's input gives them (ADR 0284): its residues' field
+#: and alphabet, and its formula's field.
+ROLES: dict[str, dict[str, Any]] = {
+    "iki/protein.Protein": {"residues": {"field": "sequence", "alphabet": "protein"}},
+    "iki/dna.DNASequence": {"residues": {"field": "bases", "alphabet": "dna"}},
+    "iki/oligo.Oligonucleotide": {
+        "residues": {"field": "helm", "alphabet": "helm"},
+        "formula": "molecular_formula",
+    },
+    "iki/small_molecule.Compound": {"formula": "molecular_formula"},
+    "iki/antibody.Antibody": {"formula": "molecular_formula"},
+    "iki/complex.ProteinComplex": {"formula": "molecular_formula"},
+}
+
+
+def with_roles(entity: dict[str, Any]) -> dict[str, Any]:
+    """The entity, and those it includes, with their types' roles."""
+    out = {**entity, "roles": ROLES.get(entity.get("type", ""), {})}
+    if "included" in entity:
+        out["included"] = {k: [with_roles(e) for e in v] for k, v in entity["included"].items()}
+    return out
+
+
 def uuid(n: int) -> str:
     return f"00000000-0000-7000-8003-{n:012d}"
 
@@ -114,7 +137,7 @@ def insulin_with_its_antibody(n: int) -> dict[str, Any]:
 
 def run(tmp_path: Path, complexes: list[dict[str, Any]]) -> tuple[int, str, dict[str, Any]]:
     given = tmp_path / "input.json"
-    given.write_text(json.dumps({"inputs": {"complex": complexes}}))
+    given.write_text(json.dumps({"inputs": {"complex": [with_roles(c) for c in complexes]}}))
     out = tmp_path / "output.json"
     ran = subprocess.run(  # noqa: S603 - the plugin's own script
         [sys.executable, str(SCRIPTS / "composition.py")],
@@ -219,10 +242,13 @@ def test_a_formula_that_isnt_neutral_or_isnt_weighed_is_refused(formula: str) ->
 def test_a_dna_sequence_weighs_as_biopython_weighs_it(
     bases: str, strandedness: str, topology: str
 ) -> None:
-    part = {
-        "id": uuid(1),
-        "values": {"bases": bases, "strandedness": strandedness, "topology": topology},
-    }
+    part = with_roles(
+        {
+            "id": uuid(1),
+            "type": "iki/dna.DNASequence",
+            "values": {"bases": bases, "strandedness": strandedness, "topology": topology},
+        }
+    )
     formula, chains = composition._dna(part)
     double, circular = strandedness == "double", topology == "circular"
     assert chains == (2 if double else 1)
@@ -263,16 +289,18 @@ def test_an_isotope_labelled_formula_as_the_oligo_plugin_keeps_it_is_weighed() -
         "values": {"name": "13C5-uridine", "molecular_formula": formula},
     }
     made = composition.composition(
-        {
-            "id": uuid(1),
-            "type": "iki/complex.ProteinComplex",
-            "values": {
-                "name": "A chain with a labelled uridine",
-                "components": [{"part": p["id"], "copies": 1} for p in (chain, labelled)],
-                "bonds": [],
-            },
-            "included": {"components.part": [chain, labelled]},
-        }
+        with_roles(
+            {
+                "id": uuid(1),
+                "type": "iki/complex.ProteinComplex",
+                "values": {
+                    "name": "A chain with a labelled uridine",
+                    "components": [{"part": p["id"], "copies": 1} for p in (chain, labelled)],
+                    "bonds": [],
+                },
+                "included": {"components.part": [chain, labelled]},
+            }
+        )
     )
     values = made["update"]["values"]
     assert "[13C]5" in values["molecular_formula"]

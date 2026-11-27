@@ -12,6 +12,8 @@ description: >-
   their own, each with its salt form.
 hrid: { prefix: CPD }
 identity: [inchikey]
+# The fields Iki reads its formula by (ADR 0284).
+roles: { formula: molecular_formula }
 fields:
   smiles:
     type: string

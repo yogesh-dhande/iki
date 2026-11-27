@@ -16,6 +16,8 @@ description: >-
   sequence search finds plain and modified alike by.
 hrid: { prefix: OLI }
 identity: [helm]
+# The fields Iki reads its residues and formula by (ADR 0284).
+roles: { residues: helm, formula: molecular_formula }
 fields:
   helm:
     type: string

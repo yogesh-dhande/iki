@@ -10,6 +10,7 @@ description: >-
   placed along its entry's.
 hrid: { prefix: PLS }
 identity: [bases, topology, strandedness]
+roles: { residues: bases }
 fields:
   bases:
     type: string

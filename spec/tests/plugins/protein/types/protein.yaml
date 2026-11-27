@@ -6,6 +6,8 @@ extends: acme/dna.Sequence
 schema_version: 3
 hrid: { prefix: PRT, digits: 6 }
 identity: [sequence]
+# The fields Iki reads its residues by (ADR 0284).
+roles: { residues: sequence }
 fields:
   sequence: { type: string, format: protein_sequence, required: true, immutable: true }
   molecular_weight: { type: quantity, unit: u, display_unit: ku, computed: true, indexed: true }

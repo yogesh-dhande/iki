@@ -83,6 +83,8 @@ mod tests {
             "params": {"seed": 1},
             "inputs": {"protein": [{
                 "id": "e", "hrid": "PRO-1", "type": "iki/protein.Protein",
+                "types": ["iki/protein.Protein", "iki/core.Sequence", "iki/core.Entity"],
+                "roles": {"residues": {"field": "sequence", "alphabet": "protein"}},
                 "schema_version": 1, "revision": 2, "values": {"name": "abl"},
             }]},
         }))
@@ -91,6 +93,7 @@ mod tests {
         assert_eq!(input.run.plugin.sha, None);
         assert_eq!(input.job.resources.cpu, Some(0.5));
         assert_eq!(input.inputs["protein"][0].r#type, "iki/protein.Protein");
+        assert_eq!(input.inputs["protein"][0].types[1], "iki/core.Sequence");
     }
 
     #[test]

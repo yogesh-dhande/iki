@@ -373,14 +373,36 @@
     },
     "entity": {
       "type": "object",
-      "required": ["id", "hrid", "type", "schema_version", "revision", "values"],
+      "required": ["id", "hrid", "type", "types", "schema_version", "revision", "values"],
       "additionalProperties": false,
       "properties": {
         "id": { "type": "string", "format": "uuid" },
         "hrid": { "type": "string" },
-        "material_field": {
-          "type": "string",
-          "description": "The type’s declared or inherited amount.material. For id, read this record’s top-level id. For a reference field, read that field from values."
+        "roles": {
+          "type": "object",
+          "description": "The field playing each role its type declares (ADR 0284), its own or a parent's. Left out when it declares none.",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "material": {
+              "type": "string",
+              "description": "What its amount is of: its type's amount.material. For id, read this record's top-level id; for a reference field, read that field from values."
+            },
+            "residues": {
+              "type": "object",
+              "required": ["field", "alphabet"],
+              "additionalProperties": false,
+              "description": "Its sequence of residues: the field in values, and their alphabet.",
+              "properties": {
+                "field": { "type": "string" },
+                "alphabet": { "enum": ["dna", "rna", "protein", "helm"] }
+              }
+            },
+            "formula": {
+              "type": "string",
+              "description": "The field in values holding its molecular formula."
+            }
+          }
         },
         "entry_id": {
           "type": "string",
@@ -395,6 +417,13 @@
         "type": {
           "type": "string",
           "description": "The qualified type, such as `iki/protein.Protein`."
+        },
+        "types": {
+          "type": "array",
+          "description": "Its type, then each type it extends, nearest first, ending with `iki/core.Entity` (ADR 0284): a record is one of a type's when the type is here. A lab's subtype of the type an action takes is listed, then the action's. Compare with this, never `type`.",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "uniqueItems": true
         },
         "schema_version": { "type": "integer", "minimum": 1 },
         "revision": {
