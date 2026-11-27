@@ -55,7 +55,7 @@ A fully observed history is checked exactly as before. A partial one is
 recorded as partial, and a reader sees where it begins and which passages
 weren't recorded.
 
-A banked vial still names its bank twice, as `bank` and as its tube
-`contents`, and a rule keeps them equal. Deriving one from the other needs a
-way for a subtype to narrow an inherited reference, which the platform doesn't
-have yet.
+A banked vial names its bank once, as its tube `contents`, which `CellVial`
+refines to `CellBank` ([ADR 0235](0235-a-services-own-request-types-carry-its-fields.md)).
+A vial's form offers only banks, saving refuses any other contents, and a rule
+requires one. A thaw checks the vial's contents against its bank.

@@ -8,7 +8,7 @@ line. A line can have several suppliers or several catalogue numbers. For exampl
 WI-38 is `CVCL_0579`, sold by ATCC as `CCL-75`. The accession field links to
 the catalogue. [Cellosaurus](https://www.cellosaurus.org/CVCL_0579) · [ATCC](https://www.atcc.org/products/ccl-75)
 
-A banked CellVial is an inventory Tube. Set its bank and contents to the same CellBank record and scan the vial when drawing material.
+A banked CellVial is an inventory Tube whose contents are its CellBank, so its bank is chosen once and the vial accepts no other contents. Scan the vial when drawing material.
 
 To record a measured withdrawal from a banked vial as a sample of its own,
 use `iki/samples`: its draw debits the vial's ledger with the vial's scan and
@@ -45,8 +45,8 @@ sample** is an observation collected from a culture, with its data file.
      its catalogue source or the bank of the same line it was made from.
 
    [ICH Q5D](https://database.ich.org/sites/default/files/Q5D_Guideline.pdf) Create one
-   **Banked cell vial** per physical vial, select its bank and scan or enter
-   its barcode. Use **Storage** to place it in an existing box position.
+   **Banked cell vial** per physical vial, select its bank as its contents and
+   scan or enter its barcode. Use **Storage** to place it in an existing box position.
 
 4. Create a **Cell bank check** for each test of a bank: STR authentication,
    species identity, mycoplasma, sterility, viral testing, karyotype, or

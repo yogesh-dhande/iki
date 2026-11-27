@@ -14,7 +14,8 @@ LOT_TYPES = {"mg": "MassStockLot", "mL": "VolumeStockLot", "1": "CountStockLot"}
 
 
 def required_text(params: dict[str, Any], name: str) -> str:
-    value = params[name].strip()
+    given = params[name]
+    value = given.strip() if isinstance(given, str) else ""
     if not value:
         raise ValueError(f"Enter the {name.replace('_', ' ')}.")
     return value
@@ -75,6 +76,9 @@ def stock_lot(
         "delivery_line": line,
         "receipt_key": receipt_key(issuer, note, line),
         "packs": packs,
+        # A lot of a critical reagent needs Lot QA's release, as its item says when it's
+        # received. Changing the item later leaves this lot as it was received.
+        "requires_qa_release": catalogue.get("release_requirement") == "required",
     }
     if params.get("expires_on"):
         values["expires_on"] = params["expires_on"]

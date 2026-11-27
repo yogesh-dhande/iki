@@ -251,6 +251,17 @@ chains or copies, or a bond one of whose cysteines a chain hasn't). The complex
 plugin's composition and a lot's concentration say when what they work out
 from its disulfides may count too few.
 
+The bonds `assemble` gives are a pattern, placed where the format, the subclass
+and the numbering put them, not read from the molecule, so it sets `bonds_from`
+to `pattern`. When a curated source records an antibody's disulfides (a
+database entry such as KEGG DRUG's, a solved structure) or a non-reduced peptide
+map sees them, a registrar records them with `bonds_from` `curated` or
+`observed` and their source's link in `bonds_source`, which the rule
+`stated_bonds_name_their_source` requires
+([ADR 0267](../../docs/adr/0267-a-complexs-bonds-say-where-they-come-from.md)).
+An antibody whose composition comes from a curated source rather than its
+chains' numbering is entered directly, as any record is, and not assembled.
+
 It gives each domain's own disulfide too, between its two sheets, in each copy
 of its chain, which KEGG DRUG lists with the others:
 

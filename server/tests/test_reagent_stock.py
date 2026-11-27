@@ -15,6 +15,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
 from django.utils import timezone
 from first_party_dependencies import PLUGINS, build_order
@@ -27,11 +28,12 @@ from test_signatures import ready, signed
 from iki_server.amounts import services as amounts
 from iki_server.amounts import stock_alerts
 from iki_server.amounts.models import Amount, Movement
-from iki_server.entities import services
-from iki_server.entities.models import Entity
+from iki_server.entities import services, states
+from iki_server.entities.models import Entity, Revision
 from iki_server.files.models import File
 from iki_server.notifications.models import Notification
 from iki_server.org.models import LabRoleGrant
+from iki_server.org.services import Refused
 from iki_server.runs import catalog, queue, results
 from iki_server.runs import services as runs
 from iki_server.runs.models import ActionRun, Job, RunEffect
@@ -443,3 +445,163 @@ def exercise() -> None:
             {"item": str(film.pk), "lot_number": "No receipt"},
             amount={"value": 100, "unit": "1"},
         )
+
+
+def test_a_critical_reagents_lots_are_only_released_by_lot_qa(
+    tmp_path: Path, database: str
+) -> None:
+    build = tmp_path / "build"
+    built = iki("plugin", "build", *build_order(PLUGIN), "--output", build, cwd=PLUGINS)
+    assert built.returncode == 0, built.stdout + built.stderr
+    migrate(build, database)
+    sync(build, database)
+    exercised = django(
+        build,
+        database,
+        "-c",
+        "import django; django.setup(); from test_reagent_stock import critical; critical()",
+    )
+    assert exercised.returncode == 0, exercised.stdout + exercised.stderr
+
+
+def critical() -> None:
+    """A project with both routes (ADR 0242 and its amendment): Lot QA marks a stock item a
+    critical reagent; each lot received of it needs Lot QA's signed release, which a stock
+    keeper can't stand in for, while a consumable's lot is made available as before. Only
+    Lot QA changes either requirement, saying why, and history keeps each change."""
+    world = build_world()
+    ready(world)
+    qa, keeper = world.users["admin"], world.users["runner"]
+    for who, role in (("admin", "iki/lots.qa"), ("runner", "iki/lots.stock_keeper")):
+        LabRoleGrant.objects.create(
+            membership=world.project.memberships.get(user=world.users[who]), role=role
+        )
+    env = PREFIX + "reagent-tools"
+    catalog.compute().bindings[env] = Binding(environment=env, templates=(("backend-small", 0),))
+    editor = world.users["editor"]
+
+    def made(kind: str, values: dict[str, Any]) -> Entity:
+        return Entity.objects.get(
+            pk=services.create(editor, PREFIX + kind, world.project, values).entity.pk
+        )
+
+    def change(who: Any, entity: Entity, field: str, state: str, reason: str = "") -> str:
+        """The state it's in after ``who`` sets it, or why they couldn't."""
+        entity.refresh_from_db()
+        try:
+            states.set_state(
+                who, entity, field, state, expected_revision=entity.revision, reason=reason
+            )
+        except (PermissionDenied, Refused, services.Invalid) as error:
+            return f"refused: {error}"
+        entity.refresh_from_db()
+        return str(states.values_of(entity)[field])
+
+    # The lab's ELISA detection antibody is a critical reagent; its tubes are consumables.
+    # Products, lots, documents and amounts are synthetic.
+    antibody = made(
+        "StockItem",
+        {
+            "name": "Synthetic anti-human IgG HRP detection antibody",
+            "supplier": "Synthetic Antibodies Inc.",
+            "catalogue_number": "SYN-HRP-100",
+            "stock_unit": "mL",
+            "pack_size": 1,
+        },
+    )
+    tubes = made(
+        "StockItem",
+        {
+            "name": "Synthetic 1.5 mL tubes",
+            "supplier": "Synthetic Plastics Inc.",
+            "catalogue_number": "SYN-T15",
+            "stock_unit": "1",
+            "pack_size": 500,
+        },
+    )
+    fridge = made("StockLocation", {"name": "Synthetic 4 °C fridge", "rows": 2, "columns": 4})
+    blob = clean_blob(
+        sha256=hashlib.sha256(b"synthetic coa").hexdigest(),
+        size=13,
+        storage_uri="s3://test/critical-certificate",
+    )
+    coa = File.objects.create(
+        blob=blob, project=world.project, name="synthetic-coa.pdf", media_type="application/pdf"
+    )
+
+    # Only Lot QA marks it, and says why; history keeps who, when and why.
+    assert change(keeper, antibody, "release_requirement", "required", "Critical").startswith(
+        "refused"
+    )
+    assert change(qa, antibody, "release_requirement", "required").startswith("refused")
+    why = "Critical reagent for the potency ELISA (synthetic SOP-QC-112)"
+    assert change(qa, antibody, "release_requirement", "required", why) == "required"
+    marked = Revision.objects.get(
+        entity=antibody, state_field="release_requirement", state_to="required"
+    )
+    assert (marked.user_id, marked.reason, marked.state_from) == (qa.pk, why, "not_required")
+
+    def receive(item: Entity, line: str) -> Entity:
+        run, document = prepare(
+            world,
+            "receive_stock",
+            {"item": item, "storage": fridge},
+            {
+                "received_as": "delivery",
+                "delivery_note": "Synthetic DN-7731",
+                "delivery_line": line,
+                "packs": 1,
+                "lot_number": f"Synthetic lot {line}",
+                "received_on": timezone.localdate().isoformat(),
+                "certificate": str(coa.pk),
+            },
+        )
+        commit((run, document))
+        (effect,) = RunEffect.objects.filter(run=run, kind="created")
+        return Entity.objects.get(pk=effect.entity_id)
+
+    first, second, consumable, released_too = (
+        receive(antibody, "1"),
+        receive(antibody, "2"),
+        receive(tubes, "3"),
+        receive(tubes, "4"),
+    )
+    flags = services.current_values_of([first, second, consumable])
+    assert [flags[lot.pk]["requires_qa_release"] for lot in (first, second, consumable)] == [
+        True,
+        True,
+        False,
+    ]
+
+    # A stock keeper makes the consumable available, but not the critical reagent.
+    assert change(keeper, consumable, "disposition", "available") == "available"
+    refused = change(keeper, first, "disposition", "available")
+    assert "needs Lot QA's signed release" in refused, refused
+    # Lot QA's signed release still makes either usable.
+    for lot in (first, released_too):
+        signed(world, "admin", str(lot.pk), "released", field="disposition")
+        lot.refresh_from_db()
+        assert states.values_of(lot)["disposition"] == "released"
+
+    # Unmarking the item leaves the lots already received as they were.
+    assert change(qa, antibody, "release_requirement", "not_required", "Reassessed") == (
+        "not_required"
+    )
+    assert services.current_values_of([second])[second.pk]["requires_qa_release"] is True
+    assert change(keeper, second, "disposition", "available").startswith("refused")
+    # A stock keeper can't lift a lot's requirement; Lot QA can, saying why.
+    assert change(keeper, second, "release_requirement", "not_required", "Mine").startswith(
+        "refused"
+    )
+    assert change(qa, second, "release_requirement", "not_required").startswith("refused")
+    lifted = "Research use only: the potency ELISA uses lot 1 (synthetic deviation DV-0042)"
+    assert change(qa, second, "release_requirement", "not_required", lifted) == "not_required"
+    assert change(keeper, second, "disposition", "available") == "available"
+    # And Lot QA can require it of a lot recorded without it.
+    assert change(qa, consumable, "release_requirement", "required", "Sterility") == "required"
+    assert change(keeper, consumable, "disposition", "on_hold", "Check") == "on_hold"
+    assert change(keeper, consumable, "disposition", "available").startswith("refused")
+    history = Revision.objects.filter(entity=second, state_field="release_requirement")
+    assert [(r.state_from, r.state_to, r.reason) for r in history] == [
+        ("as_recorded", "not_required", lifted)
+    ]

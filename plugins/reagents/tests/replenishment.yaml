@@ -135,6 +135,7 @@ expect:
             received_as: opening_balance,
             packs: 1,
             source: bought,
+            requires_qa_release: false,
             supplier: Corning,
             delivery_note: SYNTH-COUNT-2026-11,
             delivery_line: Cabinet 2,
@@ -194,3 +195,39 @@ params:
     packs: 1,
   }
 expect: { error: only against a reorder line }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_critical_reagents_lot_needs_qa_release
+action: receive_stock
+description: >-
+  A synthetic delivery of an ELISA detection antibody the lab treats as a critical reagent:
+  its stock item needs Lot QA's release, so the lot received needs it too, and a stock keeper
+  can't make it available.
+inputs:
+  item:
+    - values:
+        {
+          name: Synthetic anti-human IgG HRP detection antibody,
+          supplier: Synthetic Antibodies Inc.,
+          catalogue_number: SYN-HRP-100,
+          stock_unit: mL,
+          pack_size: 1,
+          release_requirement: required,
+        }
+  storage: [{ values: { name: Synthetic 4 °C fridge } }]
+params:
+  {
+    received_as: delivery,
+    delivery_note: SYNTH-DN-7731,
+    delivery_line: "1",
+    received_on: "2026-11-20",
+    lot_number: SYNTH-HRP-24-11,
+    expires_on: "2027-11-20",
+    packs: 2,
+  }
+expect:
+  output:
+    creates:
+      - type: iki/reagents.VolumeStockLot
+        values: { requires_qa_release: true, lot_number: SYNTH-HRP-24-11, packs: 2 }

@@ -3,14 +3,16 @@ kind: EntityType
 name: CellVial
 label: Banked cell vial
 extends: iki/inventory.Tube
-schema_version: 2
+schema_version: 3
 sample: true
-description: One barcoded vial from a cell bank, placed in an Iki storage box.
+description: >-
+  One barcoded vial from a cell bank, placed in an Iki storage box. Its contents
+  are its bank, chosen once.
 hrid: { prefix: CVL }
-fields:
-  bank: { type: ref, to: CellBank, required: true, immutable: true }
+refines:
+  contents: { to: CellBank }
 rules:
-  bank_contents:
-    check: record.contents != null && record.contents.id == record.bank.id
-    message: Identify the vial's bank as its contents.
-    fields: [contents, bank]
+  banked:
+    check: record.contents != null
+    message: Select the vial's bank as its contents.
+    fields: [contents]

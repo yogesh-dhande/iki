@@ -193,6 +193,63 @@ def test_certificate_preserves_original_and_ordered_retest(qc_actions: ModuleTyp
         qc_actions.prepare_certificate(prepare)
 
 
+@pytest.mark.parametrize(
+    ("specified", "fitted", "refused"),
+    [
+        # plate_assays' own method, by its name and version (ADR 0248).
+        ("4PL-OLS/1", "4PL-OLS/1", None),
+        # Another version of the same method is another method.
+        ("4PL-OLS/1", "4PL-OLS/2", "accepts 4PL-OLS version 1"),
+        # A lab's own method counts only where the specification names it.
+        ("4PL-OLS/1", "acme/5PL-WLS/1", "fitted by acme/5PL-WLS/1"),
+        ("acme/5PL-WLS/1", "acme/5PL-WLS/1", None),
+        ("acme/5PL-WLS/1", "4PL-OLS/1", "accepts acme/5PL-WLS version 1"),
+        # Its version alone, or its name alone, names no method, whatever the result says.
+        ("1", "1", "Name the fit method and its version"),
+        ("4PL-OLS", "4PL-OLS", "Name the fit method and its version"),
+        ("4PL-OLS/1", None, "an unnamed method"),
+    ],
+)
+def test_a_release_test_counts_a_fit_by_the_method_its_specification_names(
+    qc_actions: ModuleType, specified: str, fitted: str | None, refused: str | None
+) -> None:
+    run = inputs()
+    case = run["inputs"]["case"][0]
+    criterion = case["included"]["specification"][0]["values"]["criteria"][0]
+    criterion.update(
+        attribute="IC50",
+        method=specified,
+        unit="nM",
+        procedure="SOP-A",
+        procedure_revision="2",
+    )
+    run["params"] = {"attribute": "IC50", "method": specified, "unit": "nM"}
+    run["inputs"]["assay"] = [
+        record(
+            "assay1",
+            4,
+            review="released",
+            review_flow="regulated_qc",
+            sample="lot1",
+            fit_status="fitted",
+            qualifier="within_range",
+            endpoint_kind="IC50",
+            endpoint_value=95,
+            concentration_unit="nM",
+            procedure="SOP-A",
+            procedure_revision="2",
+            **({"fit_version": fitted} if fitted else {}),
+        )
+    ]
+    if refused:
+        with pytest.raises(ValueError, match=refused):
+            qc_actions.record_test(run)
+        return
+    (measurement, *_) = qc_actions.record_test(run)["creates"]
+    assert measurement["values"]["method"] == specified
+    assert measurement["values"]["evidence"] == "assay1"
+
+
 def test_plate_fit_cannot_be_transcribed_to_a_different_physical_lot(
     qc_actions: ModuleType,
 ) -> None:
