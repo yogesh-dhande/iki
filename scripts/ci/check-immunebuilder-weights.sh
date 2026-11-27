@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # The tools image copies the ImmuneBuilder weights from an immutable digest. Check that the
-# digest is one the weights publisher released: it tags each one it publishes
-# `sha256-<digest>` and keeps it, so a rebuild of any revision finds the weights it pinned.
+# registry still serves that exact digest: the publisher keeps every release it published
+# (by its `sha256-<digest>` tag, or the bootstrap release's source-commit tag), so a rebuild
+# of any revision finds the weights it pinned.
 #
-#   check-immunebuilder-weights.sh            the pin is a retained release (any build)
+#   check-immunebuilder-weights.sh            the pin is a published release (any build)
 #   check-immunebuilder-weights.sh --latest   and the last one published (development)
 #
 # Release rebuilds use the first: an older revision keeps the weights it was reviewed with
@@ -34,10 +35,9 @@ digest_of() {
   hash=$(printf '%s' "$raw" | sha256sum)
   printf 'sha256:%s\n' "${hash%% *}"
 }
-retained=$(digest_of "$image:sha256-${pinned#sha256:}") || retained=""
-if [[ "$retained" != "$pinned" ]]; then
-  printf 'ImmuneBuilder weights %s are no release the publisher retained (%s:sha256-%s)\n' \
-    "$pinned" "$image" "${pinned#sha256:}" >&2
+served=$(digest_of "$image@$pinned") || served=""
+if [[ "$served" != "$pinned" ]]; then
+  printf 'The registry has no ImmuneBuilder weights %s@%s\n' "$image" "$pinned" >&2
   exit 1
 fi
 if [[ $latest == yes ]]; then
@@ -49,5 +49,5 @@ if [[ $latest == yes ]]; then
   fi
   printf 'ImmuneBuilder weights pinned to the last published release %s\n' "$pinned"
 else
-  printf 'ImmuneBuilder weights pinned to the retained release %s\n' "$pinned"
+  printf 'ImmuneBuilder weights pinned to the published release %s\n' "$pinned"
 fi

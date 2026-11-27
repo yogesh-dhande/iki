@@ -597,7 +597,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # A retained release, and the last one: development adopts each new release.
+      # A published release, and the last one: development adopts each new release.
       - name: Check ImmuneBuilder weights pin
         if: matrix.image == 'iki-antibody-structure-tools'
         run: bash scripts/ci/check-immunebuilder-weights.sh --latest

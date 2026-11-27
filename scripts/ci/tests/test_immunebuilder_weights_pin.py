@@ -1,6 +1,7 @@
 """The ImmuneBuilder weights pin (check-immunebuilder-weights.sh): any build accepts a
-release the publisher retained, so an older revision still rebuilds after a newer release;
-development also requires the last one published. The registry is a fake ``docker``."""
+release the registry still serves, so an older revision still rebuilds after a newer
+release; development also requires the last one published. The registry is a fake
+``docker``."""
 
 import hashlib
 import os
@@ -22,18 +23,22 @@ def digest(manifest: str) -> str:
 
 
 def registry(tmp_path: Path, tags: dict[str, str]) -> Path:
-    """A ``docker`` whose ``buildx imagetools inspect --raw REF`` serves these tags."""
+    """A ``docker`` whose ``buildx imagetools inspect --raw REF`` serves these tags, and
+    each one's manifest by its digest (``IMAGE@sha256:…``)."""
     served = tmp_path / "served"
     served.mkdir()
     for tag, manifest in tags.items():
         (served / tag).write_text(manifest, encoding="utf-8")
+        by_digest = served / f"by-{digest(manifest).removeprefix('sha256:')}"
+        by_digest.write_text(manifest, encoding="utf-8")
     bin_ = tmp_path / "bin"
     bin_.mkdir()
     docker = bin_ / "docker"
     docker.write_text(
         "#!/bin/sh\n"
         '[ "$1 $2 $3 $4" = "buildx imagetools inspect --raw" ] || exit 64\n'
-        f"tag=${{5#{IMAGE}:}}\n"
+        f'case "$5" in {IMAGE}@sha256:*) tag="by-${{5#{IMAGE}@sha256:}}" ;; '
+        f'{IMAGE}:*) tag="${{5#{IMAGE}:}}" ;; *) exit 64 ;; esac\n'
         f'[ -f "{served}/$tag" ] || {{ echo "not found: $5" >&2; exit 1; }}\n'
         f'cat "{served}/$tag"\n',
         encoding="utf-8",
@@ -44,7 +49,8 @@ def registry(tmp_path: Path, tags: dict[str, str]) -> Path:
 
 def check(tmp_path: Path, pinned: str, *args: str) -> subprocess.CompletedProcess[str]:
     tags = {
-        f"sha256-{digest(OLDER).removeprefix('sha256:')}": OLDER,
+        # The bootstrap release is kept by its source commit's tag, later ones by digest.
+        "0123456789abcdef0123456789abcdef01234567": OLDER,
         f"sha256-{digest(NEWER).removeprefix('sha256:')}": NEWER,
         "published": NEWER,
     }
@@ -67,10 +73,10 @@ def check(tmp_path: Path, pinned: str, *args: str) -> subprocess.CompletedProces
 
 
 @pytest.mark.parametrize("release", [OLDER, NEWER], ids=["older", "newer"])
-def test_a_build_accepts_any_retained_release(tmp_path: Path, release: str) -> None:
+def test_a_build_accepts_any_published_release(tmp_path: Path, release: str) -> None:
     done = check(tmp_path, digest(release))
     assert done.returncode == 0, done.stderr
-    assert "pinned to the retained release" in done.stdout
+    assert "pinned to the published release" in done.stdout
 
 
 def test_development_requires_the_last_published_release(tmp_path: Path) -> None:
@@ -81,10 +87,10 @@ def test_development_requires_the_last_published_release(tmp_path: Path) -> None
     assert newer.returncode == 0, newer.stderr
 
 
-def test_a_digest_no_release_retained_is_refused(tmp_path: Path) -> None:
+def test_a_digest_the_registry_doesnt_serve_is_refused(tmp_path: Path) -> None:
     done = check(tmp_path, "sha256:" + "f" * 64)
     assert done.returncode == 1
-    assert "no release the publisher retained" in done.stderr
+    assert "The registry has no ImmuneBuilder weights" in done.stderr
 
 
 def test_the_tools_image_pins_one_digest(tmp_path: Path) -> None:
