@@ -466,6 +466,15 @@ def test_a_role_change_reads_as_before_and_after() -> None:
     assert facts("project.role_granted", {"role": "Viewer"}) == [("Role", "Viewer")]
 
 
+def test_a_registry_role_reads_as_its_role_and_scope() -> None:
+    registrar = {"role": "registrar", "list": None, "user": "u1", "email": "ada@example.com"}
+    assert ("Role", "Registrar") in facts("registry.role_granted", registrar)
+    assert ("List", "The whole registry") in facts("registry.role_granted", registrar)
+    curator = {**registrar, "role": "list_curator", "list": "iki/lots.LotMethod"}
+    assert ("Role", "List curator") in facts("registry.role_removed", curator)
+    assert ("List", "iki/lots.LotMethod") in facts("registry.role_removed", curator)
+
+
 def test_other_shapes_of_change_read_the_same_way() -> None:
     budget = {
         "before": {"amount": "500.00", "currency": "USD", "warn_at": [80], "enforce": False},

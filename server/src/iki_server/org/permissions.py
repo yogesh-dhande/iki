@@ -52,14 +52,13 @@ from django.db.models import Exists, Max, OuterRef, Q, QuerySet, Subquery
 
 from iki_server.org.models import (
     LabRoleGrant,
-    ListCurator,
     OrgRole,
     OrgRoleAssignment,
     Project,
     ProjectMembership,
     ProjectRole,
-    Registrar,
     Registry,
+    RegistryRole,
     Team,
 )
 
@@ -356,40 +355,79 @@ def is_team_member(user: Any, team: Team) -> bool:  # noqa: ANN401
     return cache[team.pk]
 
 
-def is_registrar(user: Any, registry: Registry) -> bool:  # noqa: ANN401
-    """Whether an active user is one of the registry's registrars (ADR 0115)."""
-    if not _active(user):
-        return False
-    cache: dict[Any, bool] = user.__dict__.setdefault("_iki_registrars", {})
-    if registry.pk not in cache:
-        cache[registry.pk] = Registrar.objects.filter(registry=registry, user=user).exists()
-    return cache[registry.pk]
+@dataclass(frozen=True)
+class CuratedLists:
+    """The lab lists of a registry someone curates (ADR 0270): every one, as one of its
+    registrars, or those they were granted, a list at a time."""
+
+    every: bool = False
+    types: frozenset[str] = frozenset()
+
+    def __contains__(self, list_type: object) -> bool:
+        return self.every or list_type in self.types
+
+    def __bool__(self) -> bool:
+        return self.every or bool(self.types)
 
 
-def curated_lists(user: Any, registry: Registry) -> frozenset[str] | None:  # noqa: ANN401
-    """The lab lists of the registry an active user curates (ADR 0270), by type, or None
-    for all of them: a registrar's."""
-    if not _active(user):
-        return frozenset()
-    if is_registrar(user, registry):
-        return None
-    cache: dict[Any, frozenset[str]] = user.__dict__.setdefault("_iki_list_curators", {})
+#: A registrar's: every list in the registry, whichever are installed.
+EVERY_LIST = CuratedLists(every=True)
+NO_LISTS = CuratedLists()
+
+
+@dataclass(frozen=True)
+class _RegistryRoles:
+    """The roles an active user holds in one registry (ADR 0292)."""
+
+    registrar: bool
+    lists: frozenset[str]
+
+
+def _registry_roles(user: Any, registry: Registry) -> _RegistryRoles:  # noqa: ANN401
+    """The user's grants in the registry, read once a request."""
+    cache: dict[Any, _RegistryRoles] = user.__dict__.setdefault("_iki_registry_roles", {})
     if registry.pk not in cache:
-        cache[registry.pk] = frozenset(
-            ListCurator.objects.filter(registry=registry, user=user).values_list(
-                "list_type", flat=True
+        held = list(
+            RegistryRole.objects.filter(registry=registry, user=user).values_list(
+                "role", "list_type"
             )
+        )
+        cache[registry.pk] = _RegistryRoles(
+            registrar=any(role == RegistryRole.Role.REGISTRAR for role, _ in held),
+            lists=frozenset(
+                list_type
+                for role, list_type in held
+                if role == RegistryRole.Role.LIST_CURATOR and list_type
+            ),
         )
     return cache[registry.pk]
 
 
+def is_registrar(user: Any, registry: Registry) -> bool:  # noqa: ANN401
+    """Whether an active user is one of the registry's registrars (ADR 0115)."""
+    return _active(user) and _registry_roles(user, registry).registrar
+
+
+def curated_lists(user: Any, registry: Registry) -> CuratedLists:  # noqa: ANN401
+    """The lab lists of the registry an active user curates (ADR 0270): every one, for one
+    of its registrars, or those they curate."""
+    if not _active(user):
+        return NO_LISTS
+    held = _registry_roles(user, registry)
+    if held.registrar:
+        return EVERY_LIST
+    return CuratedLists(types=held.lists)
+
+
 def can_curate_list(user: Any, registry: Registry, list_type: str) -> bool:  # noqa: ANN401
     """Whether the user may curate this lab list of the registry (ADR 0270): add, relabel,
-    reorder, archive and supersede its options."""
+    reorder, archive and supersede its options. A delegated token needs both its person and
+    its agent to curate it (ADR 0073)."""
     if not can(user, Action.LISTS_CURATE, registry):
         return False
-    curated = curated_lists(user, registry)
-    return curated is None or list_type in curated
+    limits = token_limits(user)
+    people = [user] if limits is None or limits.alongside is None else [user, limits.alongside]
+    return all(list_type in curated_lists(p, registry) for p in people)
 
 
 def lab_roles(user: Any, project: Project) -> frozenset[str]:  # noqa: ANN401
@@ -486,8 +524,7 @@ def forget(user: Any) -> None:  # noqa: ANN401
         "_iki_org_roles",
         "_iki_project_roles",
         "_iki_team_memberships",
-        "_iki_registrars",
-        "_iki_list_curators",
+        "_iki_registry_roles",
         "_iki_lab_roles",
     ):
         user.__dict__.pop(attr, None)
@@ -522,7 +559,7 @@ def _roles_allow(user: Any, action: Action, target: Team | Project | Registry | 
         if not isinstance(target, Registry):
             raise TypeError(f"{action} needs a Registry")
         if action is Action.LISTS_CURATE:
-            return curated_lists(user, target) != frozenset()
+            return bool(curated_lists(user, target))
         return is_registrar(user, target)
 
     if action in TEAM_ACTIONS:

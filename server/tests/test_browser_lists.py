@@ -30,7 +30,7 @@ from iki_server.entities import services as entities
 from iki_server.entities.models import Entity
 from iki_server.notifications.models import Notification
 from iki_server.org import registries
-from iki_server.org.models import Registry
+from iki_server.org.models import Registry, RegistryRole
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app]
 
@@ -57,7 +57,9 @@ def fits_a_phone(page: Page) -> None:
 def registrar(world: World) -> Any:
     """The auditor, appointed the default registry's registrar: they curate its lists."""
     user = world.users["auditor"]
-    registries.appoint(Registry.default(), user, by=world.users["org_admin"])
+    registries.grant_role(
+        Registry.default(), RegistryRole.Role.REGISTRAR, user, by=world.users["org_admin"]
+    )
     return user
 
 

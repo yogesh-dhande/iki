@@ -88,50 +88,6 @@ class Migration(migrations.Migration):
                 "ordering": ("-is_default", "name"),
             },
         ),
-        migrations.CreateModel(
-            name="Registrar",
-            fields=[
-                (
-                    "id",
-                    models.UUIDField(
-                        default=iki_server.core.ids.uuid7,
-                        editable=False,
-                        primary_key=True,
-                        serialize=False,
-                    ),
-                ),
-                ("appointed_at", models.DateTimeField(auto_now_add=True)),
-                (
-                    "appointed_by",
-                    models.ForeignKey(
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="+",
-                        to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-                (
-                    "user",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="registrar_of",
-                        to=settings.AUTH_USER_MODEL,
-                    ),
-                ),
-                (
-                    "registry",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="registrars",
-                        to="iki_org.registry",
-                    ),
-                ),
-            ],
-            options={
-                "db_table": "iki_registrar",
-                "db_table_comment": "Who curates each registry's facts and supersessions (ADR 0115).",
-            },
-        ),
         migrations.AddField(
             model_name="project",
             name="registry",
@@ -167,12 +123,6 @@ class Migration(migrations.Migration):
             constraint=models.CheckConstraint(
                 condition=models.Q(("is_default", False), ("all_teams", True), _connector="OR"),
                 name="iki_registry_default_is_everyones",
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="registrar",
-            constraint=models.UniqueConstraint(
-                fields=("registry", "user"), name="iki_registrar_once"
             ),
         ),
     ]

@@ -506,8 +506,8 @@ function OptionMenu({
 /** Who curates the list in the registry: its curators, and its registrars, who curate
  * every list. Org Admins appoint curators in the registry's settings. */
 function Curators({ list, registry }: { list: LabList; registry: Registry | undefined }) {
-  const curators = useQuery(curatorsQuery(list.registry.id));
-  const mine = (curators.data ?? []).filter((c) => c.list === list.type);
+  const curators = useQuery(curatorsQuery(list.registry.id, list.type));
+  const mine = curators.data ?? [];
   return (
     <section className="card list-curators" aria-labelledby="curators-title">
       <h3 className="section-title" id="curators-title">

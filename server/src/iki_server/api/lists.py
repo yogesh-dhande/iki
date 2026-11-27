@@ -9,11 +9,10 @@
   (``PATCH``, with a reason), reorder the list (``PUT …/order``), archive and
   restore options, and supersede a wrong code with the right one. A project's
   Editor moves its records from a superseded option to its replacement.
-- ``/registries/{id}/list-curators``: who curates each list. Org Admins appoint
-  them, a list at a time.
+- Who curates each list is a registry role (``/registries/{id}/roles``, ADR 0292):
+  Org Admins grant it, a list at a time.
 """
 
-from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -22,14 +21,14 @@ from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
 from iki_server.api import registries as registries_api
-from iki_server.api.common import caller, person, require
+from iki_server.api.common import caller, require
 from iki_server.api.entities import _etag, _expected, _invalid
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import RegistryRef, UserOut
+from iki_server.api.schemas import RegistryRef
 from iki_server.entities import access, entries, lists, registry, services
 from iki_server.entities.values import Invalid, shape
-from iki_server.org import permissions, registries
-from iki_server.org.models import ListCurator, Project, Registry
+from iki_server.org import permissions
+from iki_server.org.models import Project, Registry
 from iki_server.org.permissions import Action
 from iki_spec.model import LIST_CODE, LIST_DESCRIPTION, LIST_LABEL, EntityType
 
@@ -516,77 +515,3 @@ def move_references(request: HttpRequest, name: str, code: str, payload: OptionM
     except Invalid as error:
         raise _invalid(error) from None
     return {"moved": [e.hrid for e in moved]}
-
-
-# --- Curators ------------------------------------------------------------------------------------
-
-
-class ListCuratorOut(Schema):
-    list: str = Field(description="The list's type, such as iki/lots.LotMethod.")
-    user: UserOut
-    appointed_by: UserOut | None
-    appointed_at: datetime
-
-
-def _manageable(user: User, registry_id: UUID) -> Registry:
-    require(user, Action.REGISTRIES_MANAGE)
-    found = Registry.objects.filter(pk=registry_id).first()
-    if found is None:
-        raise Problem(404, "No such registry, or you can’t see it.")
-    return found
-
-
-@router.get(
-    "/registries/{registry_id}/list-curators",
-    response=list[ListCuratorOut],
-    summary="Who curates a registry's lab lists",
-)
-def list_curators(request: HttpRequest, registry_id: UUID) -> list[dict[str, Any]]:
-    """Each list's curators. Its registrars curate every list besides."""
-    me = caller(request)
-    found = registries_api._registry(me, registry_id)
-    rows = found.list_curators.select_related("user", "appointed_by").order_by(
-        "list_type", "user__email"
-    )
-    return [_curator_out(row) for row in rows]
-
-
-def _curator_out(row: ListCurator) -> dict[str, Any]:
-    return {
-        "list": row.list_type,
-        "user": row.user,
-        "appointed_by": row.appointed_by,
-        "appointed_at": row.appointed_at,
-    }
-
-
-@router.put(
-    "/registries/{registry_id}/list-curators/{qualified:name}/{user_id}",
-    response={200: ListCuratorOut, 201: ListCuratorOut},
-    summary="Make someone a lab list's curator",
-)
-def appoint_curator(request: HttpRequest, registry_id: UUID, name: str, user_id: UUID) -> Any:  # noqa: ANN401
-    """Org Admins appoint them, a list at a time: a QC lead for deviation categories, a
-    purification lead for lot methods. Being an Org Admin doesn't make someone one."""
-    me = caller(request)
-    found = _manageable(me, registry_id)
-    _list(name)
-    created = registries.appoint_curator(found, name, person(user_id), by=me)
-    row = ListCurator.objects.select_related("user", "appointed_by").get(
-        registry=found, list_type=name, user_id=user_id
-    )
-    return Status(201 if created else 200, _curator_out(row))
-
-
-@router.delete(
-    "/registries/{registry_id}/list-curators/{qualified:name}/{user_id}",
-    response={204: None},
-    summary="Stop someone curating a lab list",
-)
-def dismiss_curator(
-    request: HttpRequest, registry_id: UUID, name: str, user_id: UUID
-) -> Status[None]:
-    me = caller(request)
-    found = _manageable(me, registry_id)
-    registries.dismiss_curator(found, name, person(user_id), by=me)
-    return Status(204, None)

@@ -6,7 +6,8 @@
  * option archived or superseded since keeps it, and says so.
  *
  * Its registry's registrars and the list's curators add, relabel, reorder, archive and
- * supersede options, each with a reason. Org Admins appoint the curators, a list at a time.
+ * supersede options, each with a reason. Org Admins appoint the curators, a list at a time:
+ * a registry role (ADR 0292), as a registrar's is.
  */
 
 import { unwrap, type Schemas } from "@ikisci/sdk";
@@ -18,7 +19,7 @@ import { registriesQuery } from "./registries";
 
 export type LabList = Schemas["ListOut"];
 export type ListOption = Schemas["OptionOut"];
-export type ListCurator = Schemas["ListCuratorOut"];
+export type RegistryRole = Schemas["RegistryRoleOut"];
 
 /** Whose lists: a project's, which its records pick from, or a registry's, as its
  * curators and Org Admins read them. */
@@ -102,17 +103,29 @@ export function optionsQuery(name: string, scope: ListScope, every = false) {
   });
 }
 
-/** Who curates a registry's lists, list by list. Its registrars curate every one. */
-export function curatorsQuery(registryId: string) {
+/** A list's own curators in a registry, every page of them: a registry role (ADR 0292).
+ * Its registrars curate every list besides. */
+export function curatorsQuery(registryId: string, list: string) {
   return queryOptions({
-    queryKey: [...LAB_LISTS, "curators", registryId],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/registries/{registry_id}/list-curators", {
-          params: { path: { registry_id: registryId } },
-          signal,
-        }),
-      ),
+    queryKey: [...LAB_LISTS, "curators", registryId, list],
+    queryFn: async ({ signal }) => {
+      const found: RegistryRole[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = unwrap(
+          await iki.GET("/api/v1/registries/{registry_id}/roles", {
+            params: {
+              path: { registry_id: registryId },
+              query: { role: "list_curator", list, limit: 100, ...(cursor ? { cursor } : {}) },
+            },
+            signal,
+          }),
+        );
+        found.push(...page.items);
+        cursor = page.next_cursor ?? undefined;
+      } while (cursor);
+      return found;
+    },
   });
 }
 

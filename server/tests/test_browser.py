@@ -4245,7 +4245,7 @@ def test_a_registrar_supersedes_an_entry_and_a_project_moves_its_record(
     from iki_server.entities import services as entities
     from iki_server.entities.models import Entity
     from iki_server.org import registries
-    from iki_server.org.models import Registry
+    from iki_server.org.models import Registry, RegistryRole
 
     admin = world.users["admin"]
     antigens = Project.objects.create(team=world.team, name="Antigens")
@@ -4255,7 +4255,9 @@ def test_a_registrar_supersedes_an_entry_and_a_project_moves_its_record(
     )
     right: Any = entities.create(admin, "acme/protein.Protein", antigens, {"sequence": "MKVLAAGH"})
     main = Registry.default()
-    registries.appoint(main, world.users["team_member"], by=world.users["org_admin"])
+    registries.grant_role(
+        main, RegistryRole.Role.REGISTRAR, world.users["team_member"], by=world.users["org_admin"]
+    )
     old, new = wrong.entity.hrid, right.entity.hrid
 
     page = open_as("team_member", f"/registries/{main.pk}/entries/")

@@ -1,6 +1,7 @@
 # 0115. Registries keep identities, and each project keeps its own record
 
 - Status: Accepted
+- Amended by [0292](0292-a-registry-role-is-one-grant-scoped-to-the-registry-or-a-list.md) for how registrars are stored and granted
 - Date: 2026-11-17
 - Refines: [0007](0007-typed-table-per-type-entity-storage.md),
   [0033](0033-plugin-codegen-and-migrations.md),

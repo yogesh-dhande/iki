@@ -1,6 +1,7 @@
 # 0270. A lab curates its own lists
 
 - Status: Accepted
+- Amended by [0292](0292-a-registry-role-is-one-grant-scoped-to-the-registry-or-a-list.md) for how list curators are stored and granted
 - Date: 2026-11-26
 - Refines: [0115](0115-registries-keep-identities-projects-keep-records.md),
   [0143](0143-a-registry-fact-can-be-fixed.md)
