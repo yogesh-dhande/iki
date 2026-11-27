@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: GenericVolumeLot
+label: Generic lot by volume
+label_plural: Generic lots by volume
+extends: Lot
+schema_version: 1
+description: >-
+  A lot of any entity that has no lot type of its own, kept by volume, such as a solvent
+  or a buffer: drawn as a mass too when its concentration is given.
+hrid: { prefix: GVLOT }
+# As a generic lot by mass (ADR 0139), with its ledger in mL (ADR 0242).
+amount:
+  unit: mL
+  label: Volume
+  description: How much of it is left.
+  concentration: concentration
+  material: of
+fields:
+  of:
+    type: ref
+    to: iki/core.Entity
+    label: Lot of
+    required: true
+    immutable: true
+    description: What it's a lot of.
+  concentration:
+    type: quantity
+    unit: mg/mL
+    min: 0
+    description: Its concentration, if it's a solution of the entity.
+  purity:
+    type: quantity
+    unit: "%"
+    min: 0
+    max: 100
+    indexed: true
+    description: How pure it is.
+  purity_method:
+    type: string
+    label: Purity by
+    max_length: 200
+    description: How its purity was measured, such as GC-FID.
+display:
+  title: "{{ lot_number or hrid }}"

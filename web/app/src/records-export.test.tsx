@@ -28,6 +28,7 @@ const PROTEIN_FASTA: Schemas["FileFormatOut"] = {
   media_type: "chemical/seq-aa-fasta",
   description: "Its residues in one-letter codes, its ID, name and organism in its header.",
   many: "file",
+  plugin: null,
 };
 
 const EXPORTING: Schemas["EntityTypeOut"] = {
@@ -64,6 +65,7 @@ const COMPOUND: Schemas["EntityTypeOut"] = {
           media_type: "chemical/x-mdl-sdfile",
           description: "Its structure as a Molfile, and the fields chosen as data.",
           many: "file",
+          plugin: null,
         },
         {
           format: "molfile",
@@ -72,10 +74,35 @@ const COMPOUND: Schemas["EntityTypeOut"] = {
           media_type: "chemical/x-mdl-molfile",
           description: "Its structure alone.",
           many: "one",
+          plugin: null,
         },
       ],
       structure: "molfile",
       data: ["name", "smiles", "cas_number"],
+    },
+  ],
+};
+
+const WORKLIST: Schemas["FileFormatOut"] = {
+  format: "acme/liquid_handling.tecan-worklist",
+  label: "Tecan worklist",
+  extension: "gwl",
+  media_type: "text/x-tecan-gwl",
+  description: "An aspirate, a dispense and a wash for each transfer.",
+  many: "file",
+  plugin: "acme/liquid_handling",
+};
+
+/** Proteins that also export through a plugin's writer (ADR 0230). */
+const WRITTEN: Schemas["EntityTypeOut"] = {
+  ...EXPORTING,
+  exports: [
+    ...(EXPORTING.exports ?? []),
+    {
+      export: "plugin",
+      writer: WORKLIST.format,
+      formats: [WORKLIST],
+      fields: { volume: "volume" },
     },
   ],
 };
@@ -350,5 +377,60 @@ describe("exporting records as one file", () => {
       within(recent).getByRole("link", { name: "Kinase Atlas Proteins (2).fasta" }),
     ).toHaveAttribute("href", `/api/v1/entity-exports/${EXPORT_ID}/content`);
     expect(recent).toHaveTextContent("Older.fasta · expired");
+  });
+
+  it("offers a plugin's format, saying which plugin writes it", async () => {
+    asViewer([COLLECTION_TYPE, WRITTEN, STRUCTURE]);
+    answer(
+      "POST /api/v1/entity-exports",
+      made({
+        format: WORKLIST.format,
+        file_name: "Kinase Atlas Proteins (2).gwl",
+        notes: { "": ["Volumes are written to 0.01 µL."] },
+        writer: {
+          plugin: "acme/liquid_handling",
+          writer: WORKLIST.format,
+          commit: "local",
+          module_sha256: "b".repeat(64),
+          abi: "1",
+        },
+      }),
+    );
+    const { user } = await renderApp("/projects/kinase-atlas/entities/?type=iki/protein.Protein");
+    await screen.findByRole("table", { name: "2 proteins" });
+    await user.click(screen.getByRole("checkbox", { name: "Select PRT-000001" }));
+    await user.click(screen.getByRole("button", { name: "Export selected" }));
+    const dialog = await screen.findByRole("dialog", { name: "Export 1 selected" });
+    const worklist = within(dialog).getByRole("radio", { name: /^Tecan worklist/ });
+    expect(dialog).toHaveTextContent("Written by the acme/liquid_handling plugin.");
+    await user.click(worklist);
+    await user.click(within(dialog).getByRole("button", { name: "Export" }));
+    expect(await within(dialog).findByRole("status")).toHaveTextContent(
+      "Kinase Atlas Proteins (2).gwl",
+    );
+    const [sent] = calls("POST", "/api/v1/entity-exports");
+    expect(sent?.body).toEqual({ format: WORKLIST.format, entities: [PROTEIN_ID] });
+    // What the file as a whole couldn't hold is under no record.
+    expect(dialog).toHaveTextContent("The file as a whole: Volumes are written to 0.01 µL.");
+  });
+
+  it("offers a plugin's format of one record each as a ZIP", async () => {
+    const each = { ...WORKLIST, many: "zip" as const };
+    asViewer([
+      COLLECTION_TYPE,
+      {
+        ...WRITTEN,
+        exports: [{ export: "plugin", writer: each.format, formats: [each], fields: {} }],
+      },
+      STRUCTURE,
+    ]);
+    const { user } = await renderApp("/projects/kinase-atlas/entities/?type=iki/protein.Protein");
+    await screen.findByRole("table", { name: "2 proteins" });
+    await user.click(screen.getByRole("checkbox", { name: "Select PRT-000001" }));
+    await user.click(screen.getByRole("button", { name: "Export selected" }));
+    const dialog = await screen.findByRole("dialog", { name: "Export 1 selected" });
+    expect(
+      within(dialog).getByRole("radio", { name: /^Tecan worklist \(a ZIP, one file each\)/ }),
+    ).toBeChecked();
   });
 });

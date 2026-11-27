@@ -5,6 +5,8 @@ start a new plugin, the [plugin template](../../plugin-template/README.md)
 includes one record type, one action, its smoke tests and a GitHub Actions build.
 Iki's installable first-party plugins live in [`plugins/`](../../plugins).
 
+- [Analytical testing](analytical_testing/README.md) gives an analytical core its own
+  request for a panel of measurements, and a signed result for each one.
 - [Automatic calibration impact tracing](calibration_tracing/README.md) opens
   impact cases for affected measurements when an engineer marks an instrument's
   calibration as failed.
@@ -14,10 +16,15 @@ Iki's installable first-party plugins live in [`plugins/`](../../plugins).
 - [Independent construct review](construct_review/README.md) adds a reviewed Assembly
   for labs that require someone other than the builder or a later editor to verify a
   matching comparison and lock the record.
+- [Liquid handling](liquid_handling/README.md) records plates and the transfers
+  between them, and exports transfers as a Tecan worklist for Freedom EVOware or
+  FluentControl. Its writer is a plugin's own export format, in Rust (ADR 0230).
 - [LIMS connector](lims_connector/README.md) imports changed proteins from a
   LIMS and sends name changes back under the project’s chosen policy.
 - [Oligonucleotide design](oligo_design/README.md) registers a strand from its
   known bases and a lab’s standard pattern of modifications.
+- [Protein production](protein_production/README.md) gives a production core its own
+  request for a protein and a mass, and the lot it returns.
 - [Protein translation](protein_translation/README.md) chains translation and
   property calculation for labs that characterize each translated protein.
 - [qPCR instrument intake](instrument_intake/README.md) sends each QuantStudio
@@ -28,6 +35,8 @@ Iki's installable first-party plugins live in [`plugins/`](../../plugins).
 - [Sample storage labels](storage_labels/README.md) expands a lab’s location
   codes and displays them on sample labels. It includes an approved reference
   dataset, a DNA extension, a two-step workflow and a creation trigger.
+- [Sequencing service](sequencing_service/README.md) gives a sequencing core its own
+  request for a method and tubes, and each tube's reads or public run accession.
 
 ## Copy and name a plugin
 

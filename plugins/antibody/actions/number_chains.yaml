@@ -9,10 +9,13 @@ description: >-
   they're closest to, the human germline V and J genes they're closest to, and
   how much of the V region is the same: their humanness. An scFv's chain has two
   domains, a heavy and a light one. A protein without one is left as it was, and
-  the run says so. What it finds is the project's record of each protein, so
-  numbering it again, in another scheme, replaces it there; a chain whose
-  sequence liabilities were found (find_liabilities) has them found again on
-  the new numbering.
+  the run says so. The species and genes are assignments against ANARCI's
+  IMGT germlines, which the chain records as its germline set. What it finds
+  is the project's record of each protein, so numbering it again, in another
+  scheme, replaces it there. A chain whose sequence liabilities were found
+  (find_liabilities) on another scheme or CDR definition has that screen
+  cleared, since its numbers and regions were that numbering's: screen it
+  again to find them on this one.
 inputs:
   protein: { type: iki/protein.Protein, schema: ">=2", label: Chain }
 params:
@@ -38,6 +41,7 @@ effects:
       fields:
         - chain_type
         - species
+        - germline_set
         - numbering_scheme
         - cdr_definition
         - cdr_h1
@@ -53,6 +57,7 @@ effects:
         - light_germline_identity
         - light_j_gene
         - variable_domains
+        - liability_screen
         - liabilities
         - liability_counts
         - liability_count

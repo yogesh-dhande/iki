@@ -1,7 +1,9 @@
 """The fixture plugins (spec/tests/plugins), built and installed for the server's tests.
 
 Each test session installs dna, protein and structure_prediction, so tests
-use real generated models, tables and history. The build is cached under
+use real generated models, tables and history; and the liquid_handling example, whose
+Tecan worklist writer is a plugin's export format (ADR 0230), with its module as
+``make test-wasm`` built it. The build is cached under
 ``.pytest_cache`` by a hash of everything it depends on, so only the first
 session after a change pays for it. Set ``IKI_TEST_PLUGINS=0`` for a
 process that installs its own build (``test_plugin_migrations``).
@@ -18,9 +20,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PLUGINS = ROOT / "spec" / "tests" / "plugins"
+#: Examples installed with them: (directory, name), each depending on none of them.
+EXAMPLES = ((ROOT / "examples" / "plugins" / "liquid_handling", "liquid_handling"),)
 #: What the build depends on: change any of it and the plugins are rebuilt.
 INPUTS = (
     PLUGINS,
+    *(directory for directory, _ in EXAMPLES),
     ROOT / "cli" / "src" / "iki_cli" / "plugin.py",
     ROOT / "codegen" / "src",
     ROOT / "spec" / "src" / "iki_spec",
@@ -29,14 +34,19 @@ INPUTS = (
     # Plugin migrations depend on the latest of Iki's own.
     *sorted((ROOT / "server" / "src" / "iki_server").glob("*/migrations")),
 )
-ORDER = (("dna",), ("protein", "dna"), ("structure_prediction", "protein", "dna"))
+ORDER = (
+    ("dna",),
+    ("protein", "dna"),
+    ("structure_prediction", "protein", "dna"),
+    *((name,) for _, name in EXAMPLES),
+)
 
 
 def _key() -> str:
     digest = hashlib.sha256()
     for root in INPUTS:
         for file in sorted(root.rglob("*")) if root.is_dir() else [root]:
-            if file.is_file() and "__pycache__" not in file.parts:
+            if file.is_file() and not {"__pycache__", "target"} & set(file.parts):
                 digest.update(str(file.relative_to(ROOT)).encode() + b"\0" + file.read_bytes())
     return digest.hexdigest()[:20]
 
@@ -72,6 +82,10 @@ def ensure_built(variant: str = "", change: Callable[[Path], None] | None = None
     with tempfile.TemporaryDirectory(dir=final.parent) as tmp:
         work = Path(tmp)
         shutil.copytree(PLUGINS, work / "plugins")
+        for directory, name in EXAMPLES:
+            shutil.copytree(
+                directory, work / "plugins" / name, ignore=shutil.ignore_patterns("target")
+            )
         if change is not None:
             change(work / "plugins")
         for name, *dependencies in ORDER:
@@ -83,6 +97,7 @@ def ensure_built(variant: str = "", change: Callable[[Path], None] | None = None
             "dna",
             "protein",
             "structure_prediction",
+            *(name for _, name in EXAMPLES),
             "--output",
             work / "build",
             cwd=work / "plugins",

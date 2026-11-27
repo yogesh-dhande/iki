@@ -1,0 +1,41 @@
+apiVersion: iki/v1
+kind: Action
+name: import_vcf
+label: Import VCF sample
+description: >-
+  Keep one sample's variant calls from a VCF 4.0–4.5 file a pipeline produced: the sites where
+  its genotype carries an alternate allele, or the variant sites of a sites-only VCF.
+inputs:
+  library: { type: iki/sequencing.SequencingLibrary }
+  run: { type: iki/sequencing.SequencingRun, optional: true }
+  material:
+    type: iki/core.Entity
+    optional: true
+    description: The registered strain, cell line or other material the library's sample represents.
+params:
+  report:
+    type: file
+    label: VCF
+    required: true
+    max_size: 2GiB
+    media_types: [text/x-vcf, text/plain, application/gzip, application/octet-stream]
+  tool: { type: string, label: Variant caller or pipeline, required: true, max_length: 120 }
+  tool_version: { type: string, label: Caller or pipeline version, required: true, max_length: 120 }
+  reference:
+    type: string
+    label: Reference assembly
+    required: true
+    max_length: 250
+    description: The assembly and version the calls are on, such as GRCh38.p14.
+  column:
+    type: string
+    label: Sample column
+    max_length: 500
+    description: The sample's exact column heading. Needed when the VCF has more than one sample.
+effects:
+  creates: [{ type: SequencingAnalysisResult, derived_from: [library, run, material] }]
+runs_on: { tier: backend, environment: analysis-tools }
+command: [python, ./scripts/import_result.py, vcf]
+artifacts: { keep: [selected.tsv] }
+deterministic: true
+timeout: 30m

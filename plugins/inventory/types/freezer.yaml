@@ -5,11 +5,12 @@ name: Freezer
 label: Freezer
 schema_version: 1
 description: >-
-  A freezer, refrigerator, cold room or liquid nitrogen dewar, holding shelves
-  (ADR 0180). Its asset tag is what a scanner reads.
+  A freezer, refrigerator, cold room or liquid nitrogen dewar (ADR 0180). It holds
+  shelves, or racks, boxes and containers directly, as a chest freezer or a dewar
+  does. Its asset tag is what a scanner reads.
 hrid: { prefix: FRZ }
 storage:
-  holds: [Shelf]
+  holds: [Shelf, Rack, Box, Container]
   barcode: asset_tag
 fields:
   name:

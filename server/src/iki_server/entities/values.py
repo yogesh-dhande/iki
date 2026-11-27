@@ -31,7 +31,7 @@ from iki_server.entities.models import Entity
 from iki_server.files.scan_state import status_from_decision
 from iki_server.storage.codes import RESERVED_VENDOR_MESSAGE, has_iki_prefix
 from iki_spec import naming, units
-from iki_spec.model import EntityType, Field, refined, refinement, split_entry
+from iki_spec.model import EntityType, Field, as_refined, split_entry
 from iki_spec.validate import value_problems
 
 
@@ -157,11 +157,9 @@ def shape(qualified: str) -> Shape:
     entries = []
     registered = False
     for t in chain:
-        # A list of rows a type below refines has the roles it gives (ADR 0164).
-        fields = {
-            n: refined(f, roles) if (roles := refinement(lineage, n)) is not None else f
-            for n, f in t.fields.items()
-        }
+        # A list of rows a type below refines has the roles it gives (ADR 0164), and a
+        # reference the types it gives (ADR 0235).
+        fields = {n: as_refined(lineage, n, f) for n, f in t.fields.items()}
         record, entry = split_entry(fields, t.identity)
         registered = registered or bool(t.identity)
         label = naming.app_label(t.plugin)
@@ -292,9 +290,13 @@ class Refs:
         readable_entries: Any = None,  # noqa: ANN401
         project: str = "the project",
         namer: Any = None,  # noqa: ANN401 - people.Namer
+        scanning: bool = False,
     ) -> None:
         self.readable = readable
         self.files = files
+        #: Files still being scanned may be named: a run's params, as it waits for their
+        #: scans (ADR 0234). A record's value never may be (ADR 0216).
+        self.scanning = scanning
         #: Why these values may not refer to an entity, or a file, the caller can read
         #: (ADR 0067, 0132), or None for one they can't: a reference to one says so.
         self.held = held
@@ -374,10 +376,12 @@ class Refs:
         found = self.files.filter(pk=file_id).select_related("blob__scan_result__release").first()
         if found is None:
             return None
-        try:
-            status_from_decision(getattr(found.blob, "scan_result", None)).require_usable()
-        except Problem as error:
-            raise ValueError(error.detail) from error
+        scan = status_from_decision(getattr(found.blob, "scan_result", None))
+        if not (self.scanning and scan.state == "pending"):
+            try:
+                scan.require_usable()
+            except Problem as error:
+                raise ValueError(error.detail) from error
         return found.media_type, found.blob.size
 
     def why_held(self, entity_id: uuid.UUID) -> str | None:

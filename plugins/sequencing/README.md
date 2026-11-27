@@ -23,11 +23,24 @@ displays each mate separately. The report retains the source file IDs, names,
 checksums and the revisions of the read set and library that the run read. Iki
 keeps the action run and its input provenance.
 
-The deployment setting `review_flow` controls new summaries. In **Research** a
-reviewer signs the recorded summary. In **Regulated QC** an analyst signs
-submission, an independent reviewer signs review and QA signs release. Changes
-to signed findings return the summary to Recorded. Give the relevant lab roles
-to project members before review.
+The deployment setting `review_flow` controls new summaries:
+
+| Procedure                          | What a summary needs                                                                                                          | Lab roles                |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| **Research** (`research`, default) | A reviewer signs the recorded summary.                                                                                        | Reviewer                 |
+| **Regulated QC** (`regulated_qc`)  | An analyst signs submission, a reviewer independent of the creator, submitter and editors signs review, and QA signs release. | Analyst, reviewer and QA |
+| **Record only** (`record_only`)    | Nothing: the summary is kept as evidence and offers no sign-off.                                                              | None                     |
+
+Each summary keeps the procedure it was recorded under, so a change to the
+setting applies to new summaries only. To review a summary recorded under Record
+only, summarize the read set again once the setting names a review procedure.
+Changes to signed findings return the summary to Recorded. Give the relevant lab
+roles to project members before review. See [ADR 0255](../../docs/adr/0255-a-quality-summary-can-be-recorded-without-sign-off.md).
+
+When the files are in an INSDC archive, give the read set its run accession
+(SRR, ERR or DRR). An archived run belongs to one library, so each read set from a
+multiplexed instrument run names its own; read sets for the lanes of one library
+can share one.
 
 ## Public example
 

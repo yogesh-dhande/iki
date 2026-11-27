@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/lots
-version: 0.6.1
+version: 0.8.0
 title: Lots
 description: >-
   Lots of any registered entity: what was made or bought at one time, how much of it is
@@ -15,6 +15,7 @@ description: >-
 license: Apache-2.0
 iki: ">=0.1"
 homepage: https://ikisci.org/plugins/lots
+starters: { plasmid-prep-verification: "1.0.0" }
 dependencies:
   iki/conjugate:
     types:
@@ -46,7 +47,9 @@ settings:
     default: research
     description: >-
       Research requires a single reviewer signature. Regulated QC requires signed submission,
-      independent review and QA release. Each verification keeps the choice made at recording.
+      independent review and QA release. The deployment's default for projects that haven't
+      chosen one with the Plasmid prep verification starter. Each verification keeps the
+      choice in force when it was recorded.
 roles:
   verification_analyst:
     label: Verification analyst
@@ -54,6 +57,13 @@ roles:
   verification_reviewer:
     label: Verification reviewer
     description: Reviews a prep’s evidence against the pinned plasmid revision and signs the outcome.
+  stock_keeper:
+    label: Stock keeper
+    description: >-
+      Makes received or made material available for use without a QA release, under the
+      lab's own procedure, as for research material and consumables. Puts available lots
+      on hold, and marks lots expired. A project whose lots need QA release leaves this
+      role unassigned: then only Lot QA's signed release makes a lot usable.
   qa:
     label: Lot QA
     description: >-

@@ -453,6 +453,18 @@ def test_no_more_pods_start_than_the_template_allows(world: World) -> None:
     assert Launch.objects.count() == 3
 
 
+def test_no_pod_starts_for_a_run_waiting_for_its_files_scans(world: World) -> None:
+    """A machine for it would find nothing it may lease until the scans are done (ADR 0234)."""
+    run = queue_run(world)
+    waiting = Job.objects.filter(run_id=run["id"])
+    waiting.update(scan_wait_started_at=timezone.now())
+    cluster = FakeCluster()
+    assert provisioner.tick(cluster) == (0, 0)
+    assert not cluster.made
+    waiting.update(scan_wait_ended_at=timezone.now())
+    assert provisioner.tick(cluster) == (1, 0)
+
+
 def test_a_template_in_another_namespace_runs_there_if_allowed(world: World, settings: Any) -> None:
     compute = catalog.compute()
     compute.templates["gpu-t4"].kubernetes["namespace"] = "gpu-runs"

@@ -1,4 +1,6 @@
-"""QC deliverables require the requested measurement and independent signatures."""
+"""QC deliverables require independent signatures, and their material still on the request.
+An analytical service's own measurements are its result type's: see
+examples/plugins/analytical_testing."""
 
 from collections.abc import Mapping
 from functools import cache
@@ -36,6 +38,7 @@ def allows(
     *,
     reviewed_from: str = "submitted",
     value_editor: str | None = None,
+    covered: bool = True,
 ) -> bool:
     """Evaluate the example's guards with the people who signed the latest transitions."""
     review = result_type.fields["review"]
@@ -64,11 +67,10 @@ def allows(
             "request": {
                 "standing": "open",
                 "status": "in_progress",
-                "analyses": [values["analysis"]] if values.get("analysis") else [],
                 "materials": ["sample-id"],
             },
         },
-        "covered_subjects": ["sample-id"] if values.get("material") else [],
+        "covered_subjects": ["sample-id"] if values.get("material") and covered else [],
         "actor": {"person": person},
         "last": {"review": {change["to"]: change for change in history}},
         "history": {"review": history},
@@ -86,37 +88,17 @@ def allows(
     return all(o.value for o in outcomes)
 
 
-@pytest.mark.parametrize(
-    ("analysis", "measurement"),
-    [
-        ("sec_purity", "purity"),
-        ("intact_mass", "measured_mass"),
-        ("peptide_map", "peptide_coverage"),
-        ("endotoxin", "endotoxin"),
-    ],
-)
-def test_submitting_an_analysis_requires_its_own_measurement(
-    analysis_result: EntityType, analysis: str, measurement: str
+@pytest.mark.parametrize("target", ["submitted", "reviewed", "released"])
+def test_each_signature_needs_the_material_still_on_the_request(
+    analysis_result: EntityType, target: str
 ) -> None:
-    complete = {
-        "analysis": analysis,
-        "material": {"id": "sample-id"},
-        "result": "fail",
-        measurement: 0.0,
-    }
-    assert allows(analysis_result, "recorded", "submitted", "analyst", complete)
-    for missing in ("material", "result"):
-        incomplete = {**complete, missing: None}
-        assert not allows(analysis_result, "recorded", "submitted", "analyst", incomplete), missing
-    # A different assay's measurement cannot stand in for the one ordered.
-    wrong = {"purity": 99.0, "measured_mass": 24000.0, "peptide_coverage": 97.0, "endotoxin": 0.2}
-    assert not allows(
-        analysis_result,
-        "recorded",
-        "submitted",
-        "analyst",
-        {**complete, **wrong, measurement: None},
-    )
+    current = {"submitted": "recorded", "reviewed": "submitted", "released": "reviewed"}[target]
+    signer = {"submitted": "analyst", "reviewed": "reviewer", "released": "qa"}[target]
+    on_request = {"material": {"id": "sample-id"}}
+    assert allows(analysis_result, current, target, signer, on_request)
+    assert not allows(analysis_result, current, target, signer, on_request, covered=False)
+    # A deliverable for no material, of a request that commissions none, covers nothing.
+    assert allows(analysis_result, current, target, signer, {}, covered=False)
 
 
 def test_qa_cannot_release_an_unreviewed_analysis(analysis_result: EntityType) -> None:
@@ -128,22 +110,12 @@ def test_qa_cannot_release_an_unreviewed_analysis(analysis_result: EntityType) -
 def test_qa_cannot_release_a_result_they_created_or_submitted(
     analysis_result: EntityType, person: str
 ) -> None:
-    values = {
-        "analysis": "sec_purity",
-        "material": {"id": "sample-id"},
-        "result": "pass",
-        "purity": 99.0,
-    }
+    values = {"material": {"id": "sample-id"}}
     assert not allows(analysis_result, "reviewed", "released", person, values)
 
 
 def test_an_older_unsigned_review_needs_fresh_review(analysis_result: EntityType) -> None:
-    values = {
-        "analysis": "sec_purity",
-        "material": {"id": "sample-id"},
-        "result": "pass",
-        "purity": 99.0,
-    }
+    values = {"material": {"id": "sample-id"}}
     assert allows(
         analysis_result, "reviewed", "recorded", "analyst", values, reviewed_from="recorded"
     )

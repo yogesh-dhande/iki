@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# What the core returns for each tube: a QC deliverable with the reads. Its checks
+# run as it's saved, and again at each signature.
+apiVersion: iki/v1
+kind: EntityType
+name: SequencingDeliverable
+label: Sequencing deliverable
+extends: iki/requests.QCDeliverable
+schema_version: 1
+hrid: { prefix: SQD }
+description: The reads for one tube a sequencing request sent, or why there are none.
+refines:
+  # It answers sequencing requests, and they take no other deliverable (ADR 0235).
+  request: { to: SequencingRequest }
+fields:
+  data_files:
+    type: list
+    label: Read files
+    items: { type: file }
+    max_items: 12
+    description: Chromatograms, reads or assembled sequences generated for this tube.
+  run_accession:
+    type: string
+    label: Public read archive accession
+    pattern: "^(SRR|ERR|DRR)[0-9]+$"
+    max_length: 30
+    link: https://www.ebi.ac.uk/ena/browser/view/{value}
+    description: A public INSDC run accession can supply the reads in place of uploaded files.
+display:
+  title: "{{ run_accession or hrid }}"
+rules:
+  sequenced_tube:
+    check: record.material != null
+    message: Name the tube that was sequenced, or its recorded aliquot.
+    fields: [material]
+  reads_returned:
+    when: record.outcome == "fulfilled"
+    check: >-
+      record.run_accession != null ||
+      (record.data_files != null && size(record.data_files) > 0)
+    recheck_before_signing: true
+    message: Attach the read files or give a public run accession for a fulfilled tube.
+    fields: [data_files, run_accession]

@@ -44,6 +44,11 @@ web:
 #     server:
 #       to:
 #         - ipBlock: { cidr: 203.0.113.10/32 }
+# When your plugins declare export writers (a Tecan worklist, say), turn on the
+# export sandbox, which runs them with no credentials and no network (ADR 0230).
+# Without it, Iki offers only its own export formats.
+# sandbox:
+#   enabled: true
 # Container-tier runs (ADR 0061, 0062) get pods in a namespace of their own:
 # create it, labelled to enforce PodSecurity "restricted" and for Sigstore's
 # policy-controller (policy.sigstore.dev/include: "true"), then turn them on.

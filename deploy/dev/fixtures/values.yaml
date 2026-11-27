@@ -8,6 +8,13 @@ egressProxy:
   caSecret: { name: iki-dev-ca, key: bundle.pem }
 runSecrets:
   existingSecret: iki-run-secrets
+# The export sandbox (ADR 0230), for acme/liquid_handling's Tecan worklist writer
+# (fixtures/plugins.lock.yaml). One pod, as the rest of the dev cluster has.
+sandbox:
+  enabled: true
+  replicas: 1
+  podDisruptionBudget:
+    enabled: false
 networkPolicy:
   # Helm replaces lists, so retain the worker alongside the callback sender.
   ingressFrom:

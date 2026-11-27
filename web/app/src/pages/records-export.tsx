@@ -28,6 +28,7 @@ import {
   RadioField,
   RelativeTime,
 } from "../ui";
+import { formatDescription } from "./entity-export";
 import { ToolIcon } from "./entity-filters";
 
 type Format = Schemas["FileFormatOut"];
@@ -45,7 +46,7 @@ const NOTES_SHOWN = 50;
 export function manyFormats(names: readonly string[], types: readonly EntityType[]): Format[] {
   const each = [...new Set(names)].map((name) =>
     (types.find((t) => t.name === name)?.exports ?? []).flatMap((e) =>
-      e.export === "signed_report" ? [] : e.formats.filter((f) => f.many === "file"),
+      e.export === "signed_report" ? [] : e.formats.filter((f) => f.many !== "one"),
     ),
   );
   const [first, ...rest] = each;
@@ -228,8 +229,8 @@ function ExportRecordsDialog({
                 onChange={setChosen}
                 options={formats.map((f) => ({
                   value: f.format,
-                  label: f.label,
-                  description: f.description,
+                  label: f.many === "zip" ? `${f.label} (a ZIP, one file each)` : f.label,
+                  description: formatDescription(f),
                 }))}
                 help={`One file of up to ${MAX_RECORDS.toLocaleString()} records, each as it is now: editing one afterwards doesn’t change the file. Each download is in the audit log.`}
               />
@@ -252,7 +253,7 @@ function ExportRecordsDialog({
                 busy={start.isPending}
                 busyText="Pinning records…"
                 onClick={() => {
-                  start.mutate(chosen as ManyFormat, {
+                  start.mutate(chosen, {
                     onSuccess: (started) => {
                       setMadeId(started.id);
                       if (started.state === "ready") {
@@ -344,7 +345,7 @@ function Progress({ made, downloaded }: { made: Made; downloaded: boolean }) {
           <ul className="export-notes">
             {noted.slice(0, NOTES_SHOWN).map(([hrid, notes]) => (
               <li key={hrid}>
-                <code>{hrid}</code>: {notes.join(" ")}
+                {hrid ? <code>{hrid}</code> : "The file as a whole"}: {notes.join(" ")}
               </li>
             ))}
           </ul>

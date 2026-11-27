@@ -960,7 +960,8 @@ class Work(_Part):
         ``due``. ``state`` keeps those whose state fields are in these states, by field::
 
             client = iki.client()
-            for item in client.work.mine(type="iki/samples.Sample", state={"status": "in_review"}):
+            in_review = {"status": "in_review"}
+            for item in client.work.mine(type="iki/samples.ReviewedSample", state=in_review):
                 print(item["entity"]["hrid"], item["due"])
         """
         return self._list("/me/work", project, type, state, sort, page_size)
@@ -1050,9 +1051,9 @@ class Notifications(_Part):
         ``None`` follows your choice everywhere again::
 
             client = iki.client()
-            client.notifications.choose({"iki/samples.Sample.in_review": "in_app"})
+            client.notifications.choose({"iki/samples.ReviewedSample.in_review": "in_app"})
             client.notifications.choose(
-                {"iki/samples.Sample.in_review": "off"}, project="stability"
+                {"iki/samples.ReviewedSample.in_review": "off"}, project="stability"
             )
         """
         client = self._client
@@ -1376,7 +1377,7 @@ class Runs(_Part):
         every label, besides the ones the action needs, such as ``["lab-3"]``.
 
         An action that sends data to outside APIs (its ``apis``) needs ``consent``
-        naming each, such as ``["lab/hosted_models.foldcloud"]``: you agree to what its
+        naming each, such as ``["acme/hosted_models.foldcloud"]``: you agree to what its
         ``statement`` says is sent. Without it, :class:`ConsentRequired` gives the
         statements; :class:`NotApproved` means an Org Admin hasn't approved the API for
         the project (ADR 0130)."""

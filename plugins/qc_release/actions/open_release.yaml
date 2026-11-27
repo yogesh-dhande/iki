@@ -13,7 +13,7 @@ params:
     label: Testing date
     description: The date on which this set of tests was performed.
 effects:
-  updates: [{ input: schedule, fields: [versions] }]
+  updates: [{ input: schedule, fields: [versions, tested_through] }]
   creates: [{ type: ReleaseCase, derived_from: [lot, schedule] }]
 runs_on: { tier: backend, environment: qc-tools }
 command: [python, ./scripts/qc_release.py, open_release]

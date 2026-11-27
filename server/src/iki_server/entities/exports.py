@@ -15,11 +15,18 @@ while the asked-for revision was this record's latest, as a record reads its reg
 entry (ADR 0115).
 
 Each format's file is written by a :class:`Writer`: ``begin``, ``record`` for each record
-in order, then ``end``, as a plugin's writer will be (ADR 0230). Iki's own write each
-record whole, ending itself, so a file of many is one after another: FASTA's, GenBank's
-(each ending ``//``), SDF's (``$$$$``). A format that holds one record, such as a Molfile
-or a signed report, says so (``many: one``). :mod:`iki_server.entities.record_exports`
-writes many records' file with these.
+in order, then ``end``. Iki's own write each record whole, ending itself, so a file of
+many is one after another: FASTA's, GenBank's (each ending ``//``), SDF's (``$$$$``). A
+format that holds one record, such as a Molfile or a signed report, says so (``many:
+one``). :mod:`iki_server.entities.record_exports` writes many records' file with these.
+
+A plugin's format (ADR 0230) is written by its writer, a WebAssembly module, through
+:class:`~iki_server.entities.plugin_writers.PluginWriter`, the same calls in the export
+sandbox: the type's ``exports`` maps the writer's roles to its fields, and each record is
+gathered here, as it was at the revision asked for, with what it refers to as its reader
+can read it. Its download is pinned, hashed and audited as Iki's own are, its audit
+event naming the plugin, its commit and the module's digest. A file of a format that
+holds one record each (``many: zip``) is a ZIP of them, one per record.
 """
 
 from __future__ import annotations
@@ -36,9 +43,10 @@ from django.db import transaction
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
-from iki_server.entities import access, registry, search_exports, signed_reports
+from iki_server.entities import access, plugin_writers, registry, search_exports, signed_reports
 from iki_server.entities.compound_files import CompoundFile, NotAMolfile, molfile, sdf
 from iki_server.entities.models import Entity, Revision
+from iki_server.entities.plugin_writers import PluginRecord, PluginWriter
 from iki_server.entities.sequence_files import (
     Organism,
     ProteinFile,
@@ -56,6 +64,7 @@ from iki_spec.model import (
     CompoundExport,
     EntityType,
     Export,
+    PluginExport,
     ProteinExport,
     ReportExport,
 )
@@ -70,7 +79,9 @@ __all__ = [
     "data_fields",
     "export",
     "exports_of",
+    "find_format",
     "format_of",
+    "formats_of",
     "gather",
     "writer",
 ]
@@ -128,8 +139,14 @@ class Format:
     extension: str
     media_type: str
     description: str
-    #: ``file``: any number of records make one file of it; ``one``: it holds one record.
-    many: Literal["file", "one"] = "file"
+    #: ``file``: any number of records make one file of it; ``one``: it holds one record;
+    #: ``zip``: one record each, so many make a ZIP of them.
+    many: Literal["file", "one", "zip"] = "file"
+    #: The plugin whose writer writes it (ADR 0230); None for Iki's own.
+    plugin: str | None = None
+    #: What its files start with, as (offset, bytes), one of which a plugin's writer's
+    #: file must: the signatures its format declares (ADR 0213).
+    signatures: tuple[tuple[int, bytes], ...] = ()
 
 
 FORMATS: dict[str, tuple[Format, ...]] = {
@@ -205,9 +222,81 @@ _ONE: dict[str, Callable[[Any], Written]] = {
 }
 
 
-def writer(file_format: str) -> Writer:
-    """A fresh writer of one of Iki's own formats, for one file."""
-    return Joined(file_format, _ONE[file_format])
+def writer(file_format: str, *, background: bool = False) -> Writer:
+    """A fresh writer of ``file_format``, for one file: one of Iki's own, or a plugin's
+    (ADR 0230), which runs in the export sandbox, given longer in the ``background``.
+    Close a plugin's when its file's written (:func:`closed`)."""
+    if file_format in _ONE:
+        return Joined(file_format, _ONE[file_format])
+    found = plugin_writers.find(file_format)
+    if found is None:
+        raise Unexportable(f"No installed plugin writes {file_format}.", "no_export")
+    return PluginWriter(
+        found,
+        deadline=plugin_writers.BACKGROUND_DEADLINE
+        if background
+        else plugin_writers.INLINE_DEADLINE,
+    )
+
+
+def closed(file_writer: Writer) -> None:
+    """Ends a writer's process, if it has one."""
+    if isinstance(file_writer, PluginWriter):
+        file_writer.close()
+
+
+def plugin_format(found: Any) -> Format | None:  # noqa: ANN401 - a spec Writer
+    """A plugin's writer's format, as an export offers it: its format's (ADR 0213) media
+    type and extension, under the writer's label. None if the format's gone, or a
+    browser would run it."""
+    declared = registry.file_formats().formats.get(found.format)
+    if declared is None or not declared.extensions:
+        return None
+    media_type = declared.canonical
+    if plugin_writers.is_active(media_type):
+        return None
+    return Format(
+        format=found.qualified_name,
+        label=found.label,
+        extension=declared.extensions[0].removeprefix("."),
+        media_type=media_type,
+        description=found.description or f"{declared.label}, written by {found.plugin}.",
+        many=found.many,
+        plugin=found.plugin,
+        signatures=tuple((s.offset, bytes.fromhex(s.hex)) for s in declared.signatures),
+    )
+
+
+def formats_of(export_: AnyExport) -> tuple[Format, ...]:
+    """The files an export writes."""
+    if isinstance(export_, PluginExport):
+        found = plugin_writers.find(export_.export)
+        chosen = plugin_format(found) if found is not None else None
+        return (chosen,) if chosen is not None else ()
+    return FORMATS[export_.export]
+
+
+def find_format(file_format: str) -> Format | None:
+    """Any installed format by its ID: Iki's own, or a plugin's writer's."""
+    for formats in FORMATS.values():
+        for fmt in formats:
+            if fmt.format == file_format:
+                return fmt
+    found = plugin_writers.find(file_format)
+    return plugin_format(found) if found is not None else None
+
+
+def check_signature(chosen: Format, content: bytes, of: str) -> None:
+    """Refuses a plugin's file that doesn't start as its format says its files do."""
+    if chosen.signatures and not any(
+        content.startswith(raw, offset) for offset, raw in chosen.signatures
+    ):
+        plugin_writers.failures.add(1, {"writer": chosen.format, "code": "signature"})
+        raise Unexportable(
+            f"{chosen.label}'s writer wrote {of} that doesn't start as a {chosen.label} file "
+            "does, so it wasn't kept.",
+            "writer_failed",
+        )
 
 
 #: The kinds of field an SDF's data holds, as text: not files, people or JSON.
@@ -241,7 +330,8 @@ def format_of(type_name: str, file_format: str) -> tuple[AnyExport, Format] | No
         (
             (export_, fmt)
             for export_ in exports_of(entity_type)
-            for fmt in FORMATS[export_.export]
+            if not isinstance(export_, PluginExport) or export_.export == file_format
+            for fmt in formats_of(export_)
             if fmt.format == file_format
         ),
         None,
@@ -263,7 +353,7 @@ class Gathered:
     plasmid's is, its organism, what its SD data refers to), which whoever takes the file
     must be able to read."""
 
-    record: SequenceFile | ProteinFile | CompoundFile
+    record: SequenceFile | ProteinFile | CompoundFile | PluginRecord
     name: str
     read: frozenset[uuid.UUID] = field(default_factory=frozenset)
 
@@ -272,7 +362,7 @@ def gather(
     user: User,
     entity: Entity,
     number: int,
-    export_: Export | ProteinExport | CompoundExport,
+    export_: Export | ProteinExport | CompoundExport | PluginExport,
     chosen: Format,
     *,
     data: Sequence[str] | None = None,
@@ -281,8 +371,10 @@ def gather(
     can read what it refers to. ``data`` names the fields an SDF carries (each the type's,
     of a kind SD holds), or else every one it can. Raises :class:`Unexportable`."""
     read: set[uuid.UUID] = {entity.pk}
-    record: SequenceFile | ProteinFile | CompoundFile
-    if isinstance(export_, ProteinExport):
+    record: SequenceFile | ProteinFile | CompoundFile | PluginRecord
+    if isinstance(export_, PluginExport):
+        record = _plugin_record(user, entity, number, export_, read)
+    elif isinstance(export_, ProteinExport):
         record = _protein_file(user, entity, number, export_, read)
     elif isinstance(export_, CompoundExport):
         record = _compound_file(user, entity, number, export_, data, read)
@@ -299,6 +391,28 @@ def written_by(file_writer: Writer, gathered: Gathered) -> Written:
         raise Unexportable(
             f"{gathered.record.hrid} can't be written: {why}.", "no_structure"
         ) from None
+    except plugin_writers.WriterRefused as why:
+        plugin_writers.failures.add(
+            1, {"writer": str(file_writer.identity.get("writer")), "code": "refused"}
+        )
+        raise Unexportable(
+            f"{gathered.record.hrid} can't be written: {why}", "writer_refused"
+        ) from None
+
+
+def edges(file_writer: Writer, entry: str, *args: Any) -> Any:  # noqa: ANN401 - begin's or end's
+    """A writer's ``begin`` or ``end``, a plugin's refusal of the file said as Iki's are."""
+    try:
+        return getattr(file_writer, entry)(*args)
+    except plugin_writers.WriterRefused as why:
+        plugin_writers.failures.add(
+            1, {"writer": str(file_writer.identity.get("writer")), "code": "refused"}
+        )
+        raise Unexportable(f"The file can't be written: {why}", "writer_refused") from None
+
+
+def broke(error: plugin_writers.WriterBroke) -> Unexportable:
+    return Unexportable(str(error), "writer_failed")
 
 
 def export(
@@ -339,10 +453,17 @@ def export(
     else:
         gathered = gather(user, entity, number, export_, chosen, data=data)
         file_writer = writer(chosen.format)
-        head = file_writer.begin(1)
-        one = written_by(file_writer, gathered)
-        tail = file_writer.end()
+        try:
+            head = edges(file_writer, "begin", 1)
+            one = written_by(file_writer, gathered)
+            tail = edges(file_writer, "end")
+        except plugin_writers.WriterBroke as error:
+            raise broke(error) from None
+        finally:
+            closed(file_writer)
         written = Written(head + one.content + tail.content, [*one.left_out, *tail.left_out])
+        if chosen.plugin is not None:
+            check_signature(chosen, written.content, "a file")
         name = gathered.name
         identity = file_writer.identity
     with transaction.atomic():
@@ -367,12 +488,14 @@ def export(
     return Downloaded(name, chosen.media_type, written.content, written.left_out)
 
 
-def file_name(record: SequenceFile | ProteinFile | CompoundFile, chosen: Format) -> str:
+def file_name(
+    record: SequenceFile | ProteinFile | CompoundFile | PluginRecord, chosen: Format
+) -> str:
     """Its name, or its HRID, and the revision when it isn't the latest: ``pUC19.gb``."""
     return _named(record, chosen)
 
 
-def _named(record: SequenceFile | ProteinFile | CompoundFile, chosen: Format) -> str:
+def _named(record: SequenceFile | ProteinFile | CompoundFile | PluginRecord, chosen: Format) -> str:
     base = " ".join(_UNSAFE.sub("_", record.name).split())[:100] or record.hrid
     if not record.latest:
         base = f"{base} (revision {record.revision})"
@@ -396,6 +519,72 @@ def _at(entity: Entity, number: int) -> tuple[dict[str, Any], str, Any]:
     )
     assert when is not None  # noqa: S101 - every revision up to its latest exists
     return values, title, when
+
+
+def _plugin_record(
+    user: User, entity: Entity, number: int, export_: PluginExport, read: set[uuid.UUID]
+) -> PluginRecord:
+    """The record as its writer's roles read it (ADR 0230): each mapped field's value, a
+    quantity in the role's unit, a reference as the record it refers to then, one step
+    deep. A reference its reader can't read isn't given; its role is ``withheld``."""
+    found = plugin_writers.find(export_.export)
+    if found is None:
+        raise Unexportable(f"No installed plugin writes {export_.export}.", "no_export")
+    values, title, when = _at(entity, number)
+    fields = shape(entity.type).fields()
+    roles: dict[str, Any] = {}
+    withheld: list[str] = []
+    for role_name, role in found.roles.items():
+        field_name = export_.fields.get(role_name)
+        if field_name is None or field_name not in fields:
+            continue
+        value = values.get(field_name)
+        if value is None or value == "" or value == []:
+            continue
+        spec = fields[field_name]
+        if role.type == "ref":
+            try:
+                target = _referenced(user, entity, number, value)
+            except Unexportable:
+                withheld.append(role_name)
+                continue
+            read.add(target.entity.pk)
+            their, their_title, _ = _at(target.entity, target.revision)
+            roles[role_name] = {
+                "fields": their,
+                "hrid": target.entity.hrid,
+                "id": str(target.entity.pk),
+                "name": their_title,
+                "revision": target.revision,
+                "type": target.entity.type,
+            }
+            continue
+        try:
+            roles[role_name] = plugin_writers.role_value(role.type, role.unit, spec.unit, value)
+        except ValueError as error:  # a unit Iki can't convert, as the manifest let it be
+            raise Unexportable(
+                f"{entity.hrid}'s {field_name} can't be given in {role.unit}: {error}",
+                "writer_refused",
+            ) from None
+    request = plugin_writers.request_of(
+        entity_id=entity.pk,
+        hrid=entity.hrid,
+        name=title,
+        type_name=entity.type,
+        revision=number,
+        latest=number == entity.revision,
+        revised_at=when,
+        roles=roles,
+        withheld=withheld,
+    )
+    return PluginRecord(
+        hrid=entity.hrid,
+        name=title,
+        revision=number,
+        latest=number == entity.revision,
+        revised_at=when,
+        request=request,
+    )
 
 
 def _protein_file(

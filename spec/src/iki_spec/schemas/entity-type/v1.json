@@ -83,7 +83,7 @@
       }
     },
     "refines": {
-      "description": "For each list of rows this type inherits whose rows have roles by one of their fields (`by`): every role its rows may have, each with how many rows take it and what their references may refer to, within what its parent's say (ADR 0164). A specific complex says what its parts are this way.",
+      "description": "What this type's records take in fields it inherits, within what its parent's take. For a list of rows whose rows have roles by one of their fields (`by`): every role its rows may have, each with how many rows take it and what their references may refer to (ADR 0164); a specific complex says what its parts are this way. For a reference, or a list of references: the types it may refer to, each with its subtypes (ADR 0235); a service's result says which of its requests it answers this way.",
       "type": "object",
       "minProperties": 1,
       "maxProperties": 20,
@@ -92,9 +92,13 @@
       },
       "additionalProperties": {
         "type": "object",
-        "required": ["roles"],
+        "oneOf": [{ "required": ["roles"] }, { "required": ["to"] }],
         "additionalProperties": false,
         "properties": {
+          "to": {
+            "description": "The types an inherited reference may refer to in this type's records, each with its subtypes: each one of the types its parent's refers to, or a subtype of one.",
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typed/properties/to"
+          },
           "roles": {
             "description": "Per role: how many rows take it, and what their references may refer to. A row may have only these.",
             "type": "object",
@@ -538,6 +542,24 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "pluginExport": {
+      "type": "object",
+      "required": ["export", "fields"],
+      "additionalProperties": false,
+      "properties": {
+        "export": {
+          "description": "The plugin's writer, qualified (`acme/lab.tecan-worklist`) or, for this plugin's own, its local name.",
+          "type": "string"
+        },
+        "fields": {
+          "description": "The field each of the writer's roles reads, by role: `volume: transfer_volume`. Every required role is mapped, each to a field of its role's type.",
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+          "additionalProperties": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+        }
+      }
+    },
     "gridSize": {
       "oneOf": [
         { "type": "integer", "minimum": 1, "maximum": 48 },
@@ -548,7 +570,17 @@
       "type": "object",
       "required": ["export"],
       "properties": {
-        "export": { "enum": ["sequence", "protein", "compound", "signed_report"] }
+        "export": {
+          "description": "What it writes: one of Iki's (`sequence`, `protein`, `compound`, `signed_report`), or a plugin's writer (ADR 0230), such as `acme/lab.tecan-worklist`, with `fields`.",
+          "anyOf": [
+            { "enum": ["sequence", "protein", "compound", "signed_report"] },
+            {
+              "type": "string",
+              "maxLength": 125,
+              "pattern": "^([a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.)?[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+            }
+          ]
+        }
       },
       "allOf": [
         {
@@ -569,6 +601,15 @@
             "properties": { "export": { "const": "signed_report" } }
           },
           "then": { "$ref": "#/$defs/reportExport" }
+        },
+        {
+          "if": {
+            "required": ["export"],
+            "properties": {
+              "export": { "not": { "enum": ["sequence", "protein", "compound", "signed_report"] } }
+            }
+          },
+          "then": { "$ref": "#/$defs/pluginExport" }
         }
       ]
     },

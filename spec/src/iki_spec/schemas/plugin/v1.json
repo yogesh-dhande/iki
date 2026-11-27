@@ -62,6 +62,13 @@
       "propertyNames": { "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$", "maxLength": 63 },
       "additionalProperties": { "$ref": "#/$defs/fileFormat" }
     },
+    "writers": {
+      "description": "Writers of export formats, by local name such as tecan-worklist, which types name as `acme/lab.tecan-worklist` in their `exports` (ADR 0230). Each is a Rust crate in the plugin, built to a WebAssembly module and pinned by its SHA-256 in `<module>.wasm.sha256`; Iki runs it in a sandbox with no network, credentials or imports, for one record or many, each export pinned to its revisions and audited.",
+      "type": "object",
+      "maxProperties": 64,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$", "maxLength": 63 },
+      "additionalProperties": { "$ref": "#/$defs/writer" }
+    },
     "starters": {
       "description": "Project setup recipes shipped with this plugin, by starter ID and exact recipe version. The server offers installed recipes it supports (ADR 0198).",
       "type": "object",
@@ -89,6 +96,101 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "writer": {
+      "type": "object",
+      "required": ["label", "format", "module", "roles"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+        "description": {
+          "description": "What the file is for, shown with the format when someone exports.",
+          "type": "string",
+          "maxLength": 500
+        },
+        "format": {
+          "description": "The format it writes (ADR 0213): one of this plugin's, such as tecan-gwl, or a dependency's, as `acme/lab.tecan-gwl`. It gives the file's media type and extension. A format that can carry active content (HTML, SVG, XHTML, scripts) can't be written.",
+          "type": "string",
+          "maxLength": 125,
+          "pattern": "^([a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.)?[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+        },
+        "module": {
+          "description": "The writer's Rust crate, a directory under writers/ with its Cargo.toml and Cargo.lock, such as writers/tecan-worklist. Beside it, writers/tecan-worklist.wasm.sha256 holds the SHA-256 of the module the Linux x86-64 builder makes of it; `iki plugin writers --update` writes it.",
+          "type": "string",
+          "maxLength": 100,
+          "pattern": "^writers/[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+        },
+        "many": {
+          "description": "How many records a file holds. `file`: any number, written one after another by the writer; `zip`: one file per record, which Iki puts in a ZIP; `one`: one record only.",
+          "enum": ["file", "zip", "one"],
+          "default": "file"
+        },
+        "memory": {
+          "description": "The writer's memory: at most 256MiB, 64MiB unless set.",
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(KiB|MiB)$",
+          "default": "64MiB"
+        },
+        "roles": {
+          "description": "What the writer reads of a record, each role a field a type maps to it. A writer sees only the fields its roles map, and a reference's fields one step deep.",
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 64,
+          "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+          "additionalProperties": { "$ref": "#/$defs/writerRole" }
+        }
+      }
+    },
+    "writerRole": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "description": "The type of field a type maps to this role.",
+          "enum": [
+            "string",
+            "text",
+            "int",
+            "float",
+            "bool",
+            "date",
+            "datetime",
+            "enum",
+            "quantity",
+            "ref"
+          ]
+        },
+        "required": {
+          "description": "Every type that exports through the writer maps a field to it.",
+          "type": "boolean",
+          "default": false
+        },
+        "description": { "type": "string", "maxLength": 500 },
+        "unit": {
+          "description": "For a quantity: a UCUM unit, such as uL. The mapped field's unit must measure the same thing, and the writer gets values converted to this one.",
+          "type": "string",
+          "maxLength": 50
+        },
+        "types": {
+          "description": "For a reference: the types it may refer to, such as `acme/lab.Plate`, or their subtypes. Any record if left out.",
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "quantity" } } },
+          "then": { "required": ["unit"] },
+          "else": { "not": { "required": ["unit"] } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "ref" } } },
+          "else": { "not": { "required": ["types"] } }
+        }
+      ]
+    },
     "fileFormat": {
       "type": "object",
       "required": ["label", "media_types", "extensions"],

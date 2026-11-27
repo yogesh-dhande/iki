@@ -20,7 +20,14 @@ StarterFlow = Literal["research", "regulated_qc"]
 class StarterFlowOut(Schema):
     id: StarterFlow
     label: str
-    result_type: str = Field(description="Qualified result type for new fits in this flow.")
+    result_type: str = Field(
+        description="Qualified result type whose states this flow's records pass through."
+    )
+    states: list[str] | None = Field(
+        default=None,
+        description="The result type's states in this flow, where its one state field has a "
+        "route per flow. Null: all of them.",
+    )
     required_roles: list[str] = Field(description="Qualified lab roles needed to run this flow.")
 
 
@@ -42,6 +49,10 @@ class StarterOut(Schema):
     version: str
     label: str
     description: str
+    governs: str = Field(
+        description="The records the project's choice applies to from now on, such as "
+        "`release cases`. Those already opened keep the flow they were opened with."
+    )
     flows: list[StarterFlowOut]
     roles: list[StarterRoleOut]
     types: list[str] = Field(description="Qualified types the starter uses.")
@@ -122,8 +133,8 @@ def apply_starter(request: HttpRequest, starter: str, payload: StarterApplyIn) -
     If what applying does changed since the preview, as when another Admin removed a grant or
     applied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,
     what applying would do now, for review (ADR 0207). Reapplying a setup that's in place
-    changes nothing. Changing the flow selects the result type for future fits. Existing
-    results keep their flow."""
+    changes nothing. Changing the flow applies to records opened from now on, such as
+    new fits or release cases. Existing ones keep their flow."""
     me = common.caller(request)
     project = common.project(me, payload.project, Action.PROJECT_MANAGE)
     try:

@@ -20,6 +20,12 @@ import { useProject } from "./project-overview";
 
 const ORDER = "iki/reagents.place_order";
 const RECEIVE = "iki/reagents.receive_delivery";
+const RECEIVE_STOCK = "iki/reagents.receive_stock";
+const RUN_LABELS = {
+  [ORDER]: "Place order",
+  [RECEIVE]: "Receive delivery",
+  [RECEIVE_STOCK]: "Receive without an order",
+} as const;
 const pageParams = (cursor: string | undefined) => ({ limit: 50, ...(cursor ? { cursor } : {}) });
 
 function stockPage(
@@ -166,7 +172,7 @@ function RunLink({
   hrid,
 }: {
   project: Project;
-  action: typeof ORDER | typeof RECEIVE;
+  action: keyof typeof RUN_LABELS;
   hrid: string;
 }) {
   return (
@@ -175,7 +181,7 @@ function RunLink({
       params={{ slug: project.slug }}
       search={{ action, entities: hrid }}
     >
-      {action === ORDER ? "Place order" : "Receive delivery"}
+      {RUN_LABELS[action]}
     </Link>
   );
 }
@@ -315,7 +321,13 @@ function Stock({ project }: { project: Project }) {
                     </div>
                   ) : null}
                 </td>
-                <td>{amount(item.threshold, item.unit)}</td>
+                <td>
+                  {item.threshold === null ? (
+                    <span className="cell-meta">Not reordered by level</span>
+                  ) : (
+                    amount(item.threshold, item.unit)
+                  )}
+                </td>
                 <td>{item.outstanding_packs}</td>
                 <td>
                   <div className="actions">
@@ -332,6 +344,9 @@ function Stock({ project }: { project: Project }) {
                     </AriaButton>
                     {canRun(ORDER) ? (
                       <RunLink project={project} action={ORDER} hrid={item.hrid} />
+                    ) : null}
+                    {canRun(RECEIVE_STOCK) ? (
+                      <RunLink project={project} action={RECEIVE_STOCK} hrid={item.hrid} />
                     ) : null}
                   </div>
                 </td>

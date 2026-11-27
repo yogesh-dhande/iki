@@ -1,5 +1,6 @@
 """Equipment review, validity and run provenance."""
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -44,7 +45,7 @@ __all__ = ["database"]
 PLUGIN = PLUGINS / "equipment"
 PREFIX = "iki/equipment."
 EXAMPLE = ROOT / "examples" / "plugins" / "calibration_tracing"
-POLICY = "example/calibration_tracing."
+POLICY = "acme/calibration_tracing."
 
 SERVICED = {
     "performed_by": "engineer",
@@ -259,7 +260,7 @@ def exercise_trace(*, automatic: bool) -> None:
     instrument = make(PREFIX + "Instrument", name="Synthetic absorbance reader")
     tube = make("iki/inventory.Tube", name="Absorbance reference", contents=str(instrument.pk))
     amounts.record(editor, tube, amounts.Given.of({"value": 10, "unit": "uL"}))
-    measured = make("iki/samples.Sample", source=str(tube.pk), run="RUN-000001")
+    measured = make("iki/samples.ReviewedSample", source=str(tube.pk), run="RUN-000001")
     amounts.draw(
         editor,
         tube,
@@ -412,3 +413,75 @@ def exercise_trace(*, automatic: bool) -> None:
         assert record.revision == revision
         [signature] = standing(world, str(record.pk))
         assert signature["verification"]["valid"], signature
+
+
+def _script() -> Any:
+    """The plugin's own action script, as a module."""
+    spec = importlib.util.spec_from_file_location(
+        "equipment_script", PLUGIN / "scripts/equipment.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_trace_says_what_interval_it_reviewed(capsys: pytest.CaptureFixture[str]) -> None:
+    """The investigator reads which measurements a trace reviewed for each failure, and
+    when no recovery bounds the window."""
+    instrument = "instrument"
+
+    def service(hrid: str, performed: str, outcome: str, **values: str) -> dict[str, Any]:
+        return {
+            "id": hrid.lower(),
+            "hrid": hrid,
+            "revision": 1,
+            "values": {
+                "instrument": instrument,
+                "kind": "calibration",
+                "review": "signed_off",
+                "review_flow": "research",
+                "performed_at": performed,
+                "outcome": outcome,
+                **values,
+            },
+        }
+
+    def use(n: int, at: str) -> dict[str, Any]:
+        values = {"instrument": instrument, "result": f"r{n}", "measurement_at": at}
+        return {"id": f"u{n}", "hrid": f"EQU-00000{n}", "revision": 1, "values": values}
+
+    failed = service(
+        "EQS-000002",
+        "2026-01-10T09:00:00Z",
+        "out_of_tolerance",
+        suspect_since="2026-01-05T09:00:00Z",
+    )
+    recovered = service("EQS-000003", "2026-01-12T09:00:00Z", "in_tolerance")
+    uses = [
+        use(1, "2026-01-04T09:00:00Z"),
+        use(2, "2026-01-06T09:00:00Z"),
+        use(3, "2026-01-13T09:00:00Z"),
+    ]
+    trace = _script().trace
+
+    def run(*calibrations: dict[str, Any]) -> list[dict[str, Any]]:
+        inputs = {
+            "instrument": [{"id": instrument}],
+            "calibrations": list(calibrations),
+            "uses": uses,
+        }
+        made: list[dict[str, Any]] = trace({"inputs": inputs})
+        return made
+
+    assert [c["values"]["use"] for c in run(failed, recovered)] == ["u2"]
+    said = capsys.readouterr().out
+    assert (
+        "EQS-000002: reviewed measurements from 2026-01-05T09:00:00+00:00 to the passing "
+        "calibration at 2026-01-12T09:00:00+00:00. 1 of the 3 selected uses are in it, the "
+        "last at 2026-01-06T09:00:00+00:00."
+    ) in said
+    assert "Only the selected uses were checked" in said
+    # Without the recovery, the window stays open, and says so.
+    assert [c["values"]["use"] for c in run(failed)] == ["u2", "u3"]
+    assert "so the window stays open. 2 of the 3 selected uses are in it" in capsys.readouterr().out

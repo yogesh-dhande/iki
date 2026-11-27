@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: acme/protein_production
+version: 0.1.0
+title: Protein production
+description: >-
+  A protein production core's own request and deliverable: the protein a
+  project sends, the mass it asks for, and the lot the core returns.
+license: Apache-2.0
+iki: ">=0.1"
+dependencies:
+  iki/requests: { types: { ResearchRequest: ">=2", ResearchDeliverable: ">=2" } }
+  iki/protein: { types: { Protein: ">=3" } }

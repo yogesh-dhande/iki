@@ -60,7 +60,7 @@ from iki_server.runs.kubernetes import (
     job_manifest,
     secret_manifest,
 )
-from iki_server.runs.models import Job, JobState, Launch, LaunchState
+from iki_server.runs.models import Job, JobState, Launch, LaunchState, not_waiting_for_scan
 from iki_spec.compute import Template
 from iki_spec.model import Resources, action_from_dict
 
@@ -315,7 +315,11 @@ def demand(now: datetime, fleet: Fleet | None = None) -> dict[GroupKey, Group]:
         return {}
     jobs = (
         Job.objects.filter(
-            state=JobState.QUEUED, tier=tier, packed_into__isnull=True, queued_at__lte=now
+            not_waiting_for_scan(),
+            state=JobState.QUEUED,
+            tier=tier,
+            packed_into__isnull=True,
+            queued_at__lte=now,
         )
         .exclude(project__in=list(stop.projects))
         .exclude(project__team__in=list(stop.teams))

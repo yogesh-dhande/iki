@@ -159,6 +159,10 @@ def server(
             IKI_BUNDLE_SIGNING_KEY=settings.IKI_BUNDLE_SIGNING_KEY,
             # ...and imports those the test process signs, as "test".
             IKI_BUNDLE_TRUSTED_KEYS="test=ed25519:riAtz4Nv0SFcXARze-_ieUqB027N1ie892Fk7U0Ao-4",
+            # Plugins' writers run as a development server runs them: each export in a
+            # child process of the server's own (ADR 0230).
+            IKI_EXPORT_SANDBOX="local",
+            IKI_ALLOW_LOCAL_PLUGINS="true",
         )
         env["IKI_PUBLIC_URL"] = f"http://127.0.0.1:{env['IKI_PORT']}"
         for command in (["collectstatic", "--noinput"], ["setup_storage"]):
@@ -4958,6 +4962,7 @@ def _starter_api(page: Page) -> dict[str, Any]:
                 "label": "Dose-response plate assay",
                 "description": "Choose the review flow for new dose-response fits and assign "
                 "the assay roles.",
+                "governs": "dose-response fits",
                 "flows": [
                     {
                         "id": flow,

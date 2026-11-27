@@ -1,4 +1,5 @@
-/** A booking's local day is determined by its start time in the viewer's time zone. */
+/** A booking is drawn on each local day it covers in the viewer's time zone, from its start
+ * to its exclusive end: a booking from 22:00 to 02:00 is on both days. */
 export interface Booking {
   id: string;
   title: string;
@@ -66,6 +67,12 @@ const STYLE = `
 
 const DAYS = 7;
 const time = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+const when = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
 const day = new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long" });
 const monthName = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" });
 const weekday = new Intl.DateTimeFormat(undefined, { weekday: "short" });
@@ -77,6 +84,27 @@ function firstOfMonth(date: Date, offset = 0): Date {
   first.setMonth(first.getMonth() + offset);
   first.setHours(0, 0, 0, 0);
   return first;
+}
+
+function midnight(date: Date): Date {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+/** The local days of the month from `first` to `end` that a booking from `start` to
+ * `until` covers: its start's day, and each later day it's still on at midnight. */
+function daysCovered(start: Date, until: Date | null, first: Date, end: Date): number[] {
+  if (!Number.isFinite(start.getTime())) return [];
+  const last = until && until > start ? until : null;
+  if (start >= end || (last ? last <= first : start < first)) return [];
+  const days: number[] = [];
+  const at = midnight(start < first ? first : start);
+  do {
+    days.push(at.getDate());
+    at.setDate(at.getDate() + 1);
+  } while (last && at < last && at < end);
+  return days;
 }
 
 function button(text: string, clicked: () => void): HTMLButtonElement {
@@ -174,11 +202,10 @@ export class BookingCalendar extends HTMLElement {
     );
   }
 
-  #booking(booking: Booking, start: Date): HTMLLIElement {
-    const end = new Date(booking.endsAt ?? "");
-    const hours = Number.isFinite(end.getTime())
-      ? `${time.format(start)}–${time.format(end)}`
-      : time.format(start);
+  #booking(booking: Booking, start: Date, end: Date | null): HTMLLIElement {
+    // A booking over more than one day says when it starts and ends, by date.
+    const format = end && midnight(end) > midnight(start) ? when : time;
+    const hours = end ? `${format.format(start)}–${format.format(end)}` : time.format(start);
     const text =
       `${hours} ${booking.title}${booking.instrument ? ` (${booking.instrument})` : ""}` +
       (booking.bookedFor ? `, for ${booking.bookedFor}` : "") +
@@ -223,14 +250,18 @@ export class BookingCalendar extends HTMLElement {
     let cancelled = 0;
     for (const booking of bookings) {
       const start = new Date(booking.startsAt);
-      if (!(start >= first && start < end)) continue;
+      const until = new Date(booking.endsAt ?? "");
+      const finish = Number.isFinite(until.getTime()) ? until : null;
+      const days = daysCovered(start, finish, first, end);
+      if (!days.length) continue;
       if (booking.cancelled && offered && !showCancelled) continue;
       if (booking.cancelled) cancelled++;
       else count++;
-      const date = start.getDate();
-      const items = entries.get(date) ?? [];
-      items.push(this.#booking(booking, start));
-      entries.set(date, items);
+      for (const date of days) {
+        const items = entries.get(date) ?? [];
+        items.push(this.#booking(booking, start, finish));
+        entries.set(date, items);
+      }
     }
     const month = monthName.format(first);
     this.#status.textContent =

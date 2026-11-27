@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("via", models.CharField(max_length=16)),
-                ("format", models.CharField(max_length=40)),
+                ("format", models.CharField(max_length=200)),
                 ("selection", models.TextField()),
                 ("search", models.JSONField(blank=True, null=True)),
                 ("records", models.JSONField()),

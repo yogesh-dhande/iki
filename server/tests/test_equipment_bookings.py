@@ -41,7 +41,9 @@ COORDINATOR, ANALYST, ENGINEER, BYSTANDER = "admin", "editor", "runner", "viewer
 
 def test_a_booking_is_for_a_person_and_the_work_it_runs(tmp_path: Path, database: str) -> None:
     build = tmp_path / "build"
-    built = iki("plugin", "build", *build_order(PLUGIN), "--output", build, cwd=ROOT)
+    # Equipment doesn't need requests; a core that books its instruments for requests has both.
+    plugins = build_order(PLUGIN, PLUGIN.parent / "requests")
+    built = iki("plugin", "build", *plugins, "--output", build, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(build, database)
     sync(build, database)
@@ -119,7 +121,7 @@ def exercise() -> None:
     theirs = book(ANALYST, "Library QC", 6)
     named_self = book(ANALYST, "Pooled library run", 9, booked_by=str(users[ANALYST].pk))
 
-    _homes(world, request, for_analyst, hers, theirs, named_self)
+    _homes(world, request, for_analyst, hers, theirs, named_self, start)
     _what_it_names(world, core, request, sequencer, for_analyst, start)
     _lineage(world, request, for_analyst)
     called_off, rerun = _cancelled_frees_its_slot(world, book)
@@ -133,6 +135,7 @@ def _homes(
     hers: Entity,
     theirs: Entity,
     named_self: Entity,
+    start: datetime,
 ) -> None:
     home = {"home": True}
     # Your bookings: the time booked for you, whoever booked it.
@@ -156,6 +159,22 @@ def _homes(
     later = (datetime.now(UTC) + timedelta(days=40)).isoformat()
     month = {"where": {"field": "starts_at", "op": "gte", "value": later}}
     assert _shown(world, ANALYST, "booking_calendar", {**home, "refine": month}) == []
+    # The calendar's days find every booking on them: one that started before the first
+    # and ends after it, and one that starts during them.
+    days = {
+        "where": {
+            "all": [
+                {
+                    "field": "starts_at",
+                    "op": "lt",
+                    "value": (start + timedelta(hours=7)).isoformat(),
+                },
+                {"field": "ends_at", "op": "gt", "value": (start + timedelta(hours=1)).isoformat()},
+            ]
+        }
+    }
+    on_them = _shown(world, ANALYST, "booking_calendar", {**home, "refine": days})
+    assert _hrids(on_them) == {for_analyst.hrid, theirs.hrid}
 
 
 def _what_it_names(

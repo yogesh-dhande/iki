@@ -3,28 +3,47 @@ apiVersion: iki/v1
 kind: EntityType
 name: MouseStrain
 label: Mouse strain
-schema_version: 1
+schema_version: 2
 hrid: { prefix: MUS }
-description: A mouse strain registered in MGI, its current nomenclature and the JAX stock where one exists.
-identity: [mgi_id]
+description: >-
+  A mouse strain registered in MGI by its accession, or a local strain, such as an
+  in-house cross or a new founder line, by the lab's own designation. It keeps its
+  nomenclature and the repository stocks where it can be ordered.
+identity: [catalogue, mgi_id, local_id]
 fields:
+  catalogue:
+    type: enum
+    label: Registered in
+    values: [mgi, local]
+    required: true
+    immutable: true
+    default: mgi
+    indexed: true
+    description: MGI for a strain with an MGI accession, local for one the lab identifies itself.
   mgi_id:
     type: string
     label: MGI strain ID
-    required: true
     immutable: true
     indexed: true
     max_length: 32
     pattern: "^MGI:[1-9][0-9]*$"
     pattern_help: an MGI strain accession such as MGI:2163869
     link: "https://www.informatics.jax.org/strain/{value}"
+  local_id:
+    type: string
+    label: Local strain ID
+    immutable: true
+    indexed: true
+    max_length: 64
+    pattern: "^[^\\s]+$"
+    pattern_help: the lab's identifier for the strain, without spaces, such as ABC-0042
   nomenclature:
     type: string
     registry: fact
-    label: MGI strain nomenclature
+    label: Strain nomenclature
     max_length: 1000
     pattern: "^[^\\t\\r\\n]+$"
-    pattern_help: the published strain designation on one line
+    pattern_help: the strain designation on one line, as MGI publishes it for an MGI strain
   jax_stock:
     type: string
     registry: fact
@@ -35,11 +54,31 @@ fields:
     pattern: "^[0-9]{6}$"
     pattern_help: six digits including leading zeros, such as 000058
     link: "https://www.jax.org/strain/{value}"
+  repository_stocks:
+    type: list
+    label: Other repository stocks
+    registry: fact
+    max_items: 20
+    items:
+      type: string
+      max_length: 100
+      pattern: "^[A-Z][A-Za-z0-9]*:[^\\s]+$"
+      pattern_help: the repository and its stock ID, such as MMRRC:000042-UNC
+    description: Stocks of this strain at repositories other than JAX, each as REPOSITORY:ID.
   alleles:
     type: list
     registry: fact
     items: { type: ref, to: MouseAllele }
     max_items: 200
     description: Curated MGI alleles associated with this strain. A list may be partial.
+rules:
+  accession_for_catalogue:
+    label: Accession matches where it's registered
+    check: >-
+      record.catalogue == "mgi" ?
+      record.mgi_id != null && record.local_id == null :
+      record.local_id != null && record.mgi_id == null
+    message: An MGI strain has its MGI ID. A local strain has the lab's ID and no MGI ID.
+    fields: [mgi_id, local_id]
 display:
-  title: "{{ nomenclature or mgi_id }}"
+  title: "{{ nomenclature or mgi_id or local_id }}"

@@ -337,7 +337,9 @@ def material(api: Api, receipt: Receipt, core: str, requester: str, flow: str) -
         api,
         receipt,
         core,
-        "iki/samples.Sample",
+        # Research input is completed by the analyst; a QC sample's measurements are
+        # reviewed as well.
+        "iki/samples." + ("ReviewedSample" if flow == "regulated_qc" else "PlainSample"),
         {
             "source": tube["id"],
             "purpose": assay["id"],

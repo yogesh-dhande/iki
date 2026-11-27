@@ -7,14 +7,19 @@ model. The image's own check runs the real one."""
 
 import json
 import os
+import runpy
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
-from iki_spec import schemas
+import yaml
+from first_party_dependencies import FIRST_PARTY, PLUGINS
 
-SCRIPT = Path(__file__).resolve().parents[2] / "plugins" / "antibody" / "scripts" / "structure.py"
+from iki_spec import schemas
+from iki_spec.validate import load_plugin
+
+SCRIPT = Path(__file__).resolve().parents[2] / "plugins" / "ab_predict" / "scripts" / "structure.py"
 
 #: Stand-in torch: the script only sets its threads.
 TORCH = "def set_num_threads(n):\n    pass\n"
@@ -166,6 +171,11 @@ def test_an_igg_is_modelled_from_its_two_chains(tmp_path: Path) -> None:
     assert values["method"] == "predicted"
     assert values["chains"] == [heavy["id"], light["id"]]
     assert values["chain_ids"] == ["H", "L"]
+    # The error is this model's ensemble's, in this release, so the structure says which.
+    assert (values["immunebuilder_model"], values["immunebuilder_version"]) == (
+        "abodybuilder2",
+        "1.2",
+    )
     # Each residue's error is its number over 100: the mean over both chains', and over
     # the heavy chain's 105 to 117.
     numbers = [*range(1, len(HEAVY) + 1), *range(1, len(LIGHT) + 1)]
@@ -191,6 +201,7 @@ def test_a_vhh_is_modelled_as_a_single_domain(tmp_path: Path) -> None:
     values = output["creates"][0]["values"]
     assert (values["chains"], values["chain_ids"]) == ([heavy["id"]], ["H"])
     assert values["name"] == "Trastuzumab, predicted by NanoBodyBuilder2"
+    assert values["immunebuilder_model"] == "nanobodybuilder2"
 
 
 def test_an_scfv_is_modelled_from_both_domains_of_its_one_chain(tmp_path: Path) -> None:
@@ -271,3 +282,42 @@ def test_a_chain_of_two_binding_heads_isnt_modelled_as_one(tmp_path: Path) -> No
     scfv["values"]["variable_domains"] = domains[:2]
     result, _, called = run(tmp_path, antibody("scfv", scfv, None))
     assert result.returncode == 0, result.stderr
+
+
+def test_the_release_the_structure_names_is_the_one_the_image_installs() -> None:
+    """A structure's error is comparable only with others from the same model and release,
+    so the release it records is the action's software and the image's pin."""
+    plugin = SCRIPT.parents[1]
+    action = yaml.safe_load(
+        (plugin / "actions/predict_structure_with_immunebuilder.yaml").read_text()
+    )
+    release = runpy.run_path(str(SCRIPT))["RELEASE"]
+    assert {"name": "ImmuneBuilder", "version": release} in [
+        {k: s[k] for k in ("name", "version")} for s in action["software"]
+    ]
+    pins = (plugin / "images/structure-tools/requirements.txt").read_text()
+    assert f"\nimmunebuilder=={release} " in pins
+
+
+def test_the_antibody_plugin_installs_without_the_structure_provider() -> None:
+    """A lab numbering, screening and registering antibodies installs no model image or
+    weights: the antibody plugin's closure has neither ImmuneBuilder's action nor its
+    environment, and the provider is a plugin of its own on top of it (ADR 0257)."""
+    antibody = load_plugin(PLUGINS / "antibody", dependencies=FIRST_PARTY[PLUGINS / "antibody"])
+    assert antibody.plugin is not None, antibody.problems
+    assert PLUGINS / "ab_predict" not in FIRST_PARTY[PLUGINS / "antibody"]
+    assert set(antibody.plugin.actions) == {
+        "assemble",
+        "number_chains",
+        "find_liabilities",
+    }
+    assert set(antibody.plugin.environments) == {
+        "antibody-tools",
+        "numbering-tools",
+    }
+    assert not (PLUGINS / "antibody" / "images" / "structure-tools").exists()
+
+    provider = load_plugin(PLUGINS / "ab_predict", dependencies=FIRST_PARTY[PLUGINS / "ab_predict"])
+    assert provider.plugin is not None, provider.problems
+    assert PLUGINS / "antibody" in FIRST_PARTY[PLUGINS / "ab_predict"]
+    assert set(provider.plugin.actions) == {"predict_structure_with_immunebuilder"}

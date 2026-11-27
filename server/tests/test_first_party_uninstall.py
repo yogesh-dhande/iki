@@ -18,7 +18,7 @@ def test_all_first_party_migrations_reverse_after_sync(tmp_path: Path, database:
     # The retired provider and LIMS connector keep their mirror history, while a
     # product build installs neither the old apps nor the lab examples that replaced them.
     for old, example in (
-        ("iki/example_models", "lab/hosted_models"),
+        ("iki/example_models", "acme/hosted_models"),
         ("iki/lims_connector_example", "acme/lims_connector"),
     ):
         assert first_party.trees(old)

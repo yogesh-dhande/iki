@@ -56,6 +56,9 @@ spec:
             {{- end }}
             - name: IKI_KEEP_ALIVE_SECONDS
               value: {{ .Values.web.keepAliveSeconds | quote }}
+            {{- if .Values.sandbox.enabled }}
+            {{- include "iki.sandboxEnv" . | nindent 12 }}
+            {{- end }}
             {{- if .Values.web.devServer }}
             {{- if .Values.https }}
             {{- fail "web.devServer is for local development, which runs with https: false" }}

@@ -347,6 +347,14 @@ cluster's (ADR 0133), with no admission controller in front of its nodes. */}}
 {{- end }}
 {{- end -}}
 
+{{/*
+Where web pods and task runners send plugins' exports (ADR 0230). Only with sandbox.enabled.
+*/}}
+{{- define "iki.sandboxEnv" -}}
+- name: IKI_EXPORT_SANDBOX
+  value: {{ printf "tcp://%s-sandbox:8090" (include "iki.fullname" .) | quote }}
+{{- end -}}
+
 {{- define "iki.volumeMounts" -}}
 - name: tmp
   mountPath: /tmp
