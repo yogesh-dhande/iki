@@ -89,6 +89,15 @@ method is entered as measured.
   example to release purchased critical reagents while consumables are
   only made available. A lot's page and its exports always show which it is.
 
+  Where a project has both, a lot can need Lot QA's signed release whoever
+  else holds a role. A lot records **Needs a QA release** when it's
+  recorded: a reagent lot takes it from its stock item, and a lot made in
+  the lab takes it from its maker, unset by default. While a lot needs one,
+  a stock keeper can't make it available and is told why. Its **QA release
+  requirement** starts As recorded, and only Lot QA changes it, to Required
+  or Not required, saying why; its history keeps each change. Requiring it
+  of an Available lot leaves it in use until QA puts it on hold.
+
   A lot's page also shows when its dates restrict use. Starting on the
   retest date, only a QA sampling draw is allowed, even for a released lot.
   Starting on the expiry date, all draws, transfers out and splits are

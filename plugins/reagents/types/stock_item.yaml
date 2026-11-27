@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: StockItem
 label: Stock item
-schema_version: 2
+schema_version: 3
 hrid: { prefix: SCI }
 description: A supplier catalogue pack of a reagent or consumable. Choose a new catalogue record when its unit or pack size changes.
 stock_catalogue:
@@ -51,6 +51,25 @@ fields:
     description: >-
       Alert the project's stock managers when the available stock reaches or falls below this
       amount in stock units. Leave it empty for an item the lab doesn't reorder by level.
+  release_requirement:
+    type: state
+    label: QA release requirement
+    initial: not_required
+    description: >-
+      Whether its lots need Lot QA's signed release before use, as a critical reagent's
+      do. Each lot received takes it then; changing it later leaves lots already received
+      as they are. Only Lot QA changes it, saying why, and its history keeps each change.
+    states:
+      not_required:
+        label: Not required
+        description: Its lots may be made available by a stock keeper, under the lab's own procedure.
+        set_by: [iki/lots.qa]
+        reason: required
+      required:
+        label: Required
+        description: Each lot received is only made usable by Lot QA's signed release.
+        set_by: [iki/lots.qa]
+        reason: required
 rules:
   positive_pack:
     check: record.pack_size > 0

@@ -783,6 +783,71 @@
       "label": "Lot",
       "fields": [
         {
+          "name": "release_requirement",
+          "label": "QA release requirement",
+          "initial": "as_recorded",
+          "states": [
+            {
+              "name": "as_recorded",
+              "label": "As recorded",
+              "description": "A QA release is needed if the lot was recorded as needing one.",
+              "set_by": [],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [],
+              "signatures": []
+            },
+            {
+              "name": "required",
+              "label": "Required",
+              "description": "Only Lot QA's signed release makes it usable.",
+              "set_by": ["iki/lots.qa"],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": "required",
+              "guards": [],
+              "signatures": []
+            },
+            {
+              "name": "not_required",
+              "label": "Not required",
+              "description": "A stock keeper may make it available, under the lab's own procedure.",
+              "set_by": ["iki/lots.qa"],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": "required",
+              "guards": [],
+              "signatures": []
+            }
+          ],
+          "transitions": [
+            {
+              "from": "as_recorded",
+              "to": "required",
+              "conditional": false
+            },
+            {
+              "from": "not_required",
+              "to": "required",
+              "conditional": false
+            },
+            {
+              "from": "as_recorded",
+              "to": "not_required",
+              "conditional": false
+            },
+            {
+              "from": "required",
+              "to": "not_required",
+              "conditional": false
+            }
+          ]
+        },
+        {
           "name": "disposition",
           "label": "Disposition",
           "initial": "quarantined",
@@ -901,6 +966,13 @@
                   "check": "state.from == \"quarantined\" || (state.from == \"on_hold\" && last.disposition.on_hold.from == \"available\")",
                   "when": null,
                   "message": "A lot is made available from Quarantined, or from On hold when it was available before. QA lifts its own holds."
+                },
+                {
+                  "name": "needs_no_qa_release",
+                  "description": "A lot that needs Lot QA's signed release, as its stock item or its record says, or as Lot QA required, is only ever released by QA.",
+                  "check": "record.release_requirement == \"not_required\" || (record.release_requirement == \"as_recorded\" && record.requires_qa_release != true)",
+                  "when": null,
+                  "message": "This lot needs Lot QA's signed release, so a stock keeper can't make it available. Lot QA releases it once it's tested."
                 }
               ],
               "signatures": []
@@ -1033,7 +1105,7 @@
             {
               "from": "quarantined",
               "to": "available",
-              "conditional": false
+              "conditional": true
             },
             {
               "from": "on_hold",
