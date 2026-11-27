@@ -64,12 +64,14 @@ __all__ = [
     "firings",
     "in_project",
     "label",
+    "moved",
     "next_run",
     "noticed",
     "received",
     "recheck_edit",
     "rechecks",
     "recover",
+    "repointed",
     "run_as_choices",
     "source_changed",
     "tick",
@@ -203,6 +205,97 @@ def rechecks(entity_type: str, changed: set[str]) -> list[tuple[Trigger, tuple[s
             if action is not None:
                 found.append((spec, tuple(n for u in action.updates for n in u.fields)))
     return found
+
+
+def _calculations(entity_type: str) -> Iterator[tuple[Trigger, Action, frozenset[str]]]:
+    """Each calculation of an ``entity_type`` record (ADR 0080), a trigger ``on:
+    entity.updated`` without ``recheck`` whose action updates the record it's given, with
+    the references its input includes (``protein``, ``components.part``)."""
+    for spec in triggers().values():
+        if (
+            spec.on != "entity.updated"
+            or spec.recheck
+            or not spec.input
+            or not services.is_a(entity_type, spec.type)
+        ):
+            continue
+        action = catalog.action(f"{spec.plugin}.{spec.run}")
+        if action is None or not any(u.input == spec.input for u in action.updates):
+            continue
+        put = action.inputs.get(spec.input)
+        if put is not None and put.include:
+            yield spec, action, frozenset(put.include)
+
+
+def repointed(entity: Entity, fields: set[str]) -> int:
+    """A move to a superseded entry's or lab list option's replacement (ADR 0115, ADR 0270)
+    re-pointed these references of ``entity``: each calculation that reads through one
+    (ADR 0080) needs running again, as what it was worked out from is another record now,
+    even where all it reads of it is fixed (ADR 0143). Flags it, whether or not its project
+    turned it on; the re-pointing save fires those it did, as each calculation's trigger
+    watches its references, and a run clears the flag. Returns how many it flagged."""
+    actions = {
+        action.qualified_name
+        for _, action, include in _calculations(entity.type)
+        if fields & {name.partition(".")[0] for name in include}
+    }
+    Recalculation.objects.bulk_create(
+        [Recalculation(entity=entity, action=a) for a in sorted(actions)], ignore_conflicts=True
+    )
+    return len(actions)
+
+
+def moved(record: Entity) -> int:
+    """``record`` was moved to its superseded entry's replacement (ADR 0115): it's the
+    replacement's record now, with the replacement's facts. Each calculation of the
+    project's records that reads through a reference to it (ADR 0080) needs running again,
+    though the reference didn't change: flags each, and fires those the project turned on,
+    for records that aren't locked. Returns how many it flagged."""
+    if record.owner_project_id is None:
+        return 0
+    through: dict[UUID, set[str]] = {}
+    for node, field in Edge.objects.filter(kind=EdgeKind.REFERENCE, on_id=record.pk).values_list(
+        "node_id", "field"
+    ):
+        through.setdefault(node, set()).add(field)
+    referrers = Entity.objects.filter(
+        pk__in=through,
+        owner_project_id=record.owner_project_id,
+        archived_at__isnull=True,
+        purged_at__isnull=True,
+    ).order_by("pk")
+    run = _writing.get()
+    may_fire = run is None or run.via != Via.TRIGGER
+    on = {
+        row.trigger: row
+        for row in ProjectTrigger.objects.filter(project_id=record.owner_project_id, enabled=True)
+    }
+    flags: dict[tuple[UUID, str], Recalculation] = {}
+    firings: list[TriggerFiring] = []
+    for referrer in referrers:
+        for spec, action, include in _calculations(referrer.type):
+            if not through[referrer.pk] & include:
+                continue
+            flags[(referrer.pk, action.qualified_name)] = Recalculation(
+                entity=referrer, action=action.qualified_name
+            )
+            row = on.get(spec.qualified_name)
+            if may_fire and row is not None and not referrer.locked_by:
+                firings.append(
+                    TriggerFiring(
+                        trigger=row,
+                        entity=referrer,
+                        revision=referrer.revision,
+                        event="entity.updated",
+                    )
+                )
+    Recalculation.objects.bulk_create(list(flags.values()), ignore_conflicts=True)
+    TriggerFiring.objects.bulk_create(firings)
+    from iki_server.runs.tasks import fire_trigger
+
+    for firing in firings:
+        fire_trigger.enqueue(str(firing.pk))
+    return len(flags)
 
 
 def recheck_edit(user: User, entity: Entity, revision: Revision, spec: Trigger) -> str:

@@ -379,6 +379,10 @@ def test_each_kind_of_lot_works_out_its_values_when_its_recorded_and_measured() 
         "concentration_method",
     )
     assert actions["compute_plasmid_prep"].inputs["lot"].include == ("concentration_method",)
+    # And each is worked out again when the lab changes what its method calculates.
+    for kind in ("protein_lot", "conjugate_lot", "plasmid_prep"):
+        watched = result.plugin.triggers[f"compute_{kind}_when_measured"].watch_included
+        assert watched["concentration_method"] == ("calculation",), kind
 
 
 def script(tmp_path: Path, kind: str, *entities: dict[str, Any]) -> dict[str, Any]:
@@ -1329,6 +1333,90 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
         pending = Recalculation.objects.filter(action="iki/lots.compute_oligo_lot")
         assert pending.filter(entity=waiting).exists()
         assert not Recalculation.objects.filter(entity=unrelated).exists()
+
+        # What a concentration method calculates is fixed (ADR 0143): a lab that finds its
+        # own A280 method, on a variable path length, is one whose instrument reports the
+        # concentration directly supersedes it with an option that calculates nothing.
+        # Moving a project's lots to the replacement flags each lot that named it, and
+        # only those, and works it out again where the project turned the calculation on.
+        from iki_server.entities import entries, lists
+        from iki_server.org.models import Project, Registrar, Registry
+        registry = Registry.objects.get(pk=project.registry_id)
+        Registrar.objects.create(registry=registry, user=admin)
+        ProjectTrigger.objects.create(project=project,
+                                      trigger="iki/lots.compute_protein_lot_when_measured",
+                                      enabled_by=admin, enabled_at=timezone.now())
+        methods = "iki/lots.ProteinConcentrationMethod"
+        ours = lists.add(admin, registry, methods,
+                         {{"code": "a280_vpl", "label": "A280, variable path length",
+                           "calculation": "a280"}})
+        bca = lists.find(project.registry_id, methods, "bca")
+        insulin = services.create(
+            alice, "iki/protein.Protein", project,
+            {{"name": "insulin B chain", "sequence": "FVNQHLCGSHLVEALYLVCGERGFFYTPKT"}},
+        ).entity
+        by_method = {{
+            name: services.create(
+                alice, "iki/lots.ProteinLot", project,
+                {{"protein": str(insulin.pk), "a280": 0.52, "path_length": 0.1,
+                  **({{"concentration_method": str(method.entry.pk)}} if method else {{}})}},
+                amount={{"value": 5, "unit": "mg"}},
+            ).entity
+            for name, method in (("ours", ours), ("bca", bca), ("unnamed", None))
+        }}
+        flagged = Recalculation.objects.filter(action="iki/lots.compute_protein_lot")
+        refired = TriggerFiring.objects.filter(
+            trigger__trigger="iki/lots.compute_protein_lot_when_measured"
+        )
+        assert not flagged.exists() and not refired.exists()
+        # Its label is the option's own, which no calculation reads.
+        ours.entry.refresh_from_db()
+        lists.change(admin, ours.entry, {{"label": "A280, SoloVPE"}},
+                     reason="Name the instrument", expected_revision=ours.entry.revision)
+        assert not flagged.exists() and not refired.exists()
+        # Its calculation can't be changed, only superseded.
+        ours.entry.refresh_from_db()
+        assert errors(lambda: lists.change(
+            admin, ours.entry, {{"calculation": None}}, reason="Entered as measured",
+            expected_revision=ours.entry.revision,
+        ))
+        reported = lists.add(admin, registry, methods,
+                             {{"code": "solovpe_reported", "label": "SoloVPE, as reported"}})
+        entries.supersede(admin, ours.entry, reported.entry,
+                          reason="The instrument reports the concentration: enter it as measured")
+        # Superseding moves nothing: the lot names the old option until it's moved.
+        assert not flagged.exists() and not refired.exists()
+        moved = lists.repoint(alice, project, ours.entry, reason="To the option as reported")
+        assert [e.pk for e in moved] == [by_method["ours"].pk]
+        assert list(flagged.values_list("entity_id", flat=True)) == [by_method["ours"].pk]
+        assert list(refired.values_list("entity_id", flat=True)) == [by_method["ours"].pk]
+
+        # A record moved to its superseded entry's replacement is the replacement's: its
+        # lots read the replacement's facts, so each is flagged and worked out again, though
+        # its reference didn't change. Insulin A chain was registered with A21 mistyped.
+        flagged.delete()
+        refired.delete()
+        core = Project.objects.create(team=project.team, name="Protein core",
+                                      registry_id=project.registry_id)
+        ProjectMembership.objects.create(project=core, user=alice, role=ProjectRole.EDITOR)
+        mistyped = services.create(
+            alice, "iki/protein.Protein", project,
+            {{"name": "insulin A chain", "sequence": "GIVEQCCTSICSLYQLENYCD"}},
+        ).entity
+        right = services.create(
+            alice, "iki/protein.Protein", core,
+            {{"name": "insulin A chain", "sequence": "GIVEQCCTSICSLYQLENYCN"}},
+        ).entity
+        lot = services.create(
+            alice, "iki/lots.ProteinLot", project,
+            {{"protein": str(mistyped.pk), "a280": 0.52, "path_length": 0.1}},
+            amount={{"value": 5, "unit": "mg"}},
+        ).entity
+        entries.supersede(admin, Entity.objects.get(pk=mistyped.entry_id),
+                          Entity.objects.get(pk=right.entry_id), reason="A21 is asparagine")
+        entries.move(alice, mistyped, reason="To the right sequence")
+        assert list(flagged.values_list("entity_id", flat=True)) == [lot.pk]
+        assert list(refired.values_list("entity_id", flat=True)) == [lot.pk]
 
         # Who may release it: QA who neither made it nor recorded it, knowing where it
         # came from. Made by left empty isn't someone else.

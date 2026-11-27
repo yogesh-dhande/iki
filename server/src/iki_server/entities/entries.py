@@ -397,6 +397,10 @@ def move(user: User, record: Entity, *, reason: str) -> Moved:
         Entity.objects.filter(pk=locked.pk).update(entry=new, hrid=new.hrid)
         revision = services._revise(locked, RevisionKind.MOVED, [], user, said, moved_from=old.pk)
         repointed = _repoint(user, project, old, new, said)
+        from iki_server.runs import triggers
+
+        # What the project's records read through it is the replacement's now (ADR 0080).
+        triggers.moved(locked)
         log.record(
             "entity.moved",
             actor=user,
@@ -513,6 +517,10 @@ def _repoint_one(
         raise Refused(
             f"{locked.hrid} can't refer to {new.hrid} instead of {old.hrid}: {said}"
         ) from None
+    from iki_server.runs import triggers
+
+    # What it's worked out from is another record now (ADR 0080).
+    triggers.repointed(locked, set(values))
     return Entity.objects.get(pk=pk)
 
 
