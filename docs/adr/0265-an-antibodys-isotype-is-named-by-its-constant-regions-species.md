@@ -54,16 +54,21 @@ A match to a human reference at 90% identity told a human constant region from a
 mouse's (about 65%) but not from an Old World monkey's. A rhesus macaque's IgG1,
 IgG4 and IgM are 90.2-90.9% identical to the nearest human ones, so `assemble`
 recorded a rhesus IgG1 as `constant_species: human`, `isotype: igg1`, as
-registry facts. A rhesus Fab's CH1 is up to 93% identical, and a heavily
-engineered human Fc is about 95%, so no identity threshold separates the two.
+registry facts. A rhesus Fab's CH1 (PDB 9ZRZ) is 93.2% identical to a human
+one, and the most engineered human chains are only a little higher: a CH1 with
+R214 and four charge-pair changes is 95.4%, and an IgG1 Fc with 15 changes
+(knob-into-hole, LALA-PG, YTE, H435R/Y436F) is 95.5%. A threshold would have to
+sit in that 2-point gap, so identity alone isn't the test.
 
 `assemble` now also compares the chain with IMGT's constant regions of a rhesus
 macaque (EMBL/GenBank BK063715; IGHG1\*03, IGHG2\*08, IGHG3\*07, IGHG4\*05,
 IGHA\*22, IGHM\*03, IGHE\*01 and IGHD\*03), counting each residue of the chain
 that differs from each reference. It's human only when it's at least 93%
 identical to a human reference and at least 3 differences nearer it than any
-macaque one. Every human allele and marketed antibody in the tests is 7 or more
-nearer; every rhesus, cynomolgus, baboon and African green monkey constant
+macaque one. The 93% floor alone would pass the rhesus CH1; the comparison
+doesn't, because it's 6 differences nearer a macaque reference, while the
+engineered CH1 is 11 nearer a human one and the engineered Fc 27. Every human
+allele and marketed antibody in the tests is 7 or more nearer; every rhesus, cynomolgus, baboon and African green monkey constant
 region checked is nearer a macaque one, or, for a few CH1s alone (a baboon's
 IgG4, one rhesus assembly's), as near, and so not human.
 
