@@ -1,6 +1,6 @@
 # 0178. Spreadsheets are imported by mapping, previewing, then one run
 
-- Status: Accepted
+- Status: Accepted (preconditions amended by [0289](0289-a-change-names-the-revision-it-replaces-in-if-match.md))
 - Date: 2026-11-22
 - Builds on: [0036](0036-files-content-addressed-uploads.md),
   [0052](0052-imports-file-params-and-origins.md),
