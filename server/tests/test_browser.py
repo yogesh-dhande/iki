@@ -4291,7 +4291,8 @@ def test_a_registrar_supersedes_an_entry_and_a_project_moves_its_record(
 def test_a_count_made_while_someone_draws_is_recounted_not_recorded(
     open_as: Any, world: World, color_scheme: str
 ) -> None:
-    """A stock count is checked against the balance its counter saw (If-Balance-Revision).
+    """A stock count is checked against the balance its counter saw (its revision, as
+    If-Match).
     When someone draws meanwhile, nothing is recorded: the dialog says who drew what, keeps
     the count, and records it only once it's recounted against the new balance."""
     from decimal import Decimal
@@ -4308,7 +4309,7 @@ def test_a_count_made_while_someone_draws_is_recounted_not_recorded(
         amount={"value": 100, "unit": "uL"},
     )
     sample = made.entity
-    seen = Amount.objects.get(entity=sample).updated_at.isoformat()
+    seen = f'"{Amount.objects.get(entity=sample).revision}"'
     page = open_as("admin", f"/entities/{sample.hrid}/", color_scheme)
     volume = page.get_by_role("region", name="Volume")
     volume.get_by_role("button", name="Adjust").click()
@@ -4327,8 +4328,8 @@ def test_a_count_made_while_someone_draws_is_recounted_not_recorded(
     )
     with page.expect_response(lambda r: r.url.endswith("/amount/adjust")) as refused:
         dialog.get_by_role("button", name="Adjust").click()
-    assert refused.value.status == 409, refused.value.text()
-    assert refused.value.request.headers["if-balance-revision"] == seen
+    assert refused.value.status == 412, refused.value.text()
+    assert refused.value.request.headers["if-match"] == seen
     stale = dialog.get_by_role("alert")
     expect(stale).to_contain_text(
         "Your count wasn’t recorded: the volume changed after you started counting."
@@ -4341,8 +4342,8 @@ def test_a_count_made_while_someone_draws_is_recounted_not_recorded(
     )
     expect(count).to_have_value("95")
     expect(dialog.get_by_role("button", name="Adjust")).to_have_attribute("aria-disabled", "true")
-    # Chromium and WebKit log the refusal's 409 as a failed load: that, and nothing else.
-    PAGE_ERRORS[page][:] = [e for e in PAGE_ERRORS[page] if "status of 409 (Conflict)" not in e]
+    # Chromium and WebKit log the refusal's 412 as a failed load: that, and nothing else.
+    PAGE_ERRORS[page][:] = [e for e in PAGE_ERRORS[page] if "status of 412" not in e]
     assert_clean(page)
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate("document.documentElement.scrollWidth - window.innerWidth <= 1")
@@ -4359,7 +4360,9 @@ def test_a_count_made_while_someone_draws_is_recounted_not_recorded(
     with page.expect_response(lambda r: r.url.endswith("/amount/adjust")) as recorded:
         dialog.get_by_role("button", name="Adjust").click()
     assert recorded.value.status == 200, recorded.value.text()
-    assert recorded.value.request.headers["if-balance-revision"] != seen
+    # From the balance it was refused at: the draw's revision.
+    recounted_from = Amount.objects.get(entity=sample).revision - 1
+    assert recorded.value.request.headers["if-match"] == f'"{recounted_from}"'
     page.get_by_text(f"{sample.hrid} has 78 uL now.").wait_for()
     # Playwright's Firefox crashes in axe on the record's page once the count is recorded
     # (see assert_clean); the dialog's states above are checked in all three.

@@ -567,15 +567,17 @@ function Supersede({ entry }: { entry: Entry }) {
   const { say } = useMessages();
   const client = useQueryClient();
   const supersede = useApiMutation(
-    async () =>
+    async (header: { "If-Match": string }) =>
       unwrap(
         await iki.POST("/api/v1/entries/{ref}/supersede", {
-          params: { path: { ref: entry.id } },
+          params: { path: { ref: entry.id }, header },
           body: { replacement: replacement.trim().toUpperCase(), reason: reason.trim() },
         }),
       ),
     [ENTITIES],
   );
+  // The entry as the registrar confirmed it: one changed meanwhile is refused (412).
+  const opened = useOpenedRevision(entry.revision, { open: confirming, error: supersede.error });
   const form = useForm(confirming ? null : supersede.error, supersede.isPending);
   return (
     <section className="card" aria-labelledby="supersede-title">
@@ -638,7 +640,7 @@ function Supersede({ entry }: { entry: Entry }) {
           setConfirming(false);
         }}
         onConfirm={() => {
-          supersede.mutate(undefined, {
+          supersede.mutate(opened.ifMatch, {
             onSuccess: (saved) => {
               client.setQueryData(entryQuery(saved.hrid).queryKey, saved);
               setConfirming(false);

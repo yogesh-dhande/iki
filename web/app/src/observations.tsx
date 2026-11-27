@@ -57,7 +57,7 @@ function codeText(value: unknown): string {
 
 /** What a snapshot keeps for the record, but a reader needn't be told twice. */
 const UNSAID = new Set([
-  "line_revision",
+  "revision",
   "checked_by",
   "checked_at",
   "scanned_by",

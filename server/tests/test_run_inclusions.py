@@ -108,10 +108,15 @@ def test_command_receives_both_revision_pins_after_a_registry_move(
     # Moving the record changes its live entry ID and HRID. The worker must receive
     # the original registry identity and the independently curated entry revision.
     superseded = curator.post(
-        f"{entry}/supersede", {"replacement": replacement["hrid"], "reason": "Correction"}
+        f"{entry}/supersede",
+        {"replacement": replacement["hrid"], "reason": "Correction"},
+        headers={"If-Match": curator.get(entry)["ETag"]},
     )
     assert superseded.status_code == 200, superseded.content
-    moved = editor.post(f"/entities/{original['id']}/move", {"reason": "Correction"})
+    record = f"/entities/{original['id']}"
+    moved = editor.post(
+        f"{record}/move", {"reason": "Correction"}, headers={"If-Match": editor.get(record)["ETag"]}
+    )
     assert moved.status_code == 200, moved.content
     assert moved.json()["entry"]["id"] == replacement["entry"]["id"]
 

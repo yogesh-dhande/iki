@@ -19,17 +19,18 @@ from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest, HttpResponse
-from ninja import Field, HeaderEx, P, Query, Router, Schema
+from ninja import Field, Query, Router, Schema
 
 from iki_server.accounts.models import User
+from iki_server.api import preconditions
 from iki_server.api.common import caller, project
 from iki_server.api.entities import (
     EntityOut,
-    _expected,
     _find,
     _one,
     _out,
 )
+from iki_server.api.preconditions import IfMatch
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import ProjectRef, UserOut
 from iki_server.audit.models import AuditEvent
@@ -266,6 +267,7 @@ def services_list(asking: Project, type_name: str | None) -> list[Project]:
     "/entities/{ref}/submit",
     response=EntityOut,
     summary="Send a request to a service",
+    openapi_extra=preconditions.changes(),
 )
 def submit_request(
     request: HttpRequest,
@@ -273,7 +275,7 @@ def submit_request(
     payload: SubmitIn,
     response: HttpResponse,
     project: UUID | None = None,
-    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
     """Sends the request (ADR 0132) to a service that takes it from its project: it's linked
     into the service's project, with the records its `sends` fields name, which the service
@@ -282,7 +284,7 @@ def submit_request(
     doesn't take it answers 404, as one that doesn't exist does. Send If-Match."""
     me = caller(request)
     entity = _find(me, ref, project)
-    expected = _expected(if_match)
+    expected = preconditions.expected(if_match)
     service = Project.objects.select_related("team", "registry").filter(pk=payload.service).first()
     try:
         if service is None:
@@ -296,12 +298,10 @@ def submit_request(
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None
     except services.Stale as stale:
-        raise Problem(
-            412,
+        raise preconditions.stale(
+            stale.current,
             f"Someone changed it since you read it: it’s at revision {stale.current} now. "
             "Read it again, then send it.",
-            code="stale",
-            headers={"ETag": f'"{stale.current}"'},
         ) from None
     return _one(me, _find(me, str(entity.pk)), response)
 

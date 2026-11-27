@@ -3,7 +3,7 @@
  * where a record is, its location history, receipts and reconciliations.
  */
 
-import { unwrap, type Problem, type Schemas } from "@ikisci/sdk";
+import { ifMatch, unwrap, type Problem, type Schemas } from "@ikisci/sdk";
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
@@ -230,9 +230,10 @@ export async function changesSince(
 /** A correction's reason: 1–2,000 characters once trimmed. */
 export const REASON_MAX = 2000;
 
-/** What a correction carries: the line version the person reviewed, and why. */
+/** What a correction carries: the line revision the person reviewed (sent as If-Match), and
+ * why. */
 export interface Correction {
-  line_revision: number;
+  revision: number;
   reason: string;
 }
 
@@ -256,17 +257,21 @@ export async function scanReceipt(
 
 /**
  * A line's outcome and condition note. The first is sent as it is; a change to what was
- * recorded carries the version seen and why. A first one may answer that someone else had
- * already checked it: theirs stands.
+ * recorded carries the revision seen (If-Match) and why. A first one may answer that
+ * someone else had already checked it: theirs stands.
  */
 export async function checkReceiptLine(
   receipt: string,
   line: string,
   check: Schemas["ReceiptLineIn"],
+  revision?: number,
 ): Promise<ReceiptCheck> {
   return unwrap(
     await iki.PATCH("/api/v1/receipts/{receipt_id}/lines/{line_id}", {
-      params: { path: { receipt_id: receipt, line_id: line } },
+      params: {
+        path: { receipt_id: receipt, line_id: line },
+        ...(revision === undefined ? {} : { header: ifMatch(revision) }),
+      },
       body: check,
     }),
   );
@@ -279,8 +284,11 @@ export async function removeReceiptLine(
 ): Promise<Receipt> {
   return unwrap(
     await iki.DELETE("/api/v1/receipts/{receipt_id}/lines/{line_id}", {
-      params: { path: { receipt_id: receipt, line_id: line } },
-      body: correction,
+      params: {
+        path: { receipt_id: receipt, line_id: line },
+        header: ifMatch(correction.revision),
+      },
+      body: { reason: correction.reason },
     }),
   );
 }
@@ -292,19 +300,25 @@ export async function restoreReceiptLine(
 ): Promise<Receipt> {
   return unwrap(
     await iki.POST("/api/v1/receipts/{receipt_id}/lines/{line_id}/restore", {
-      params: { path: { receipt_id: receipt, line_id: line } },
-      body: correction,
+      params: {
+        path: { receipt_id: receipt, line_id: line },
+        header: ifMatch(correction.revision),
+      },
+      body: { reason: correction.reason },
     }),
   );
 }
 
+/* A receipt's own changes are made from the receipt's revision the person reviewed. */
+
 export async function describeReceipt(
   receipt: string,
+  revision: number,
   handoff: Schemas["ReceiptIn"],
 ): Promise<Receipt> {
   return unwrap(
     await iki.PATCH("/api/v1/receipts/{receipt_id}", {
-      params: { path: { receipt_id: receipt } },
+      params: { path: { receipt_id: receipt }, header: ifMatch(revision) },
       body: handoff,
     }),
   );
@@ -312,11 +326,12 @@ export async function describeReceipt(
 
 export async function cancelReceipt(
   receipt: string,
+  revision: number,
   cancel: Schemas["CancelReceiptIn"],
 ): Promise<Receipt> {
   return unwrap(
     await iki.POST("/api/v1/receipts/{receipt_id}/cancel", {
-      params: { path: { receipt_id: receipt } },
+      params: { path: { receipt_id: receipt }, header: ifMatch(revision) },
       body: cancel,
     }),
   );
@@ -324,11 +339,12 @@ export async function cancelReceipt(
 
 export async function previewReceiptPlacement(
   receipt: string,
+  revision: number,
   choice: Schemas["ReceiptPlacementIn"],
 ): Promise<Schemas["MovesOut"]> {
   return unwrap(
     await iki.POST("/api/v1/receipts/{receipt_id}/put-away/preview", {
-      params: { path: { receipt_id: receipt } },
+      params: { path: { receipt_id: receipt }, header: ifMatch(revision) },
       body: choice,
     }),
   );
@@ -336,11 +352,12 @@ export async function previewReceiptPlacement(
 
 export async function completeReceipt(
   receipt: string,
+  revision: number,
   approval: Schemas["CompleteReceiptIn"],
 ): Promise<Receipt> {
   return unwrap(
     await iki.POST("/api/v1/receipts/{receipt_id}/complete", {
-      params: { path: { receipt_id: receipt } },
+      params: { path: { receipt_id: receipt }, header: ifMatch(revision) },
       body: approval,
     }),
   );
@@ -366,14 +383,16 @@ export async function scanCount(count: string, scans: Schemas["ScansIn"]): Promi
   );
 }
 
+/** A decision on a count's line, made from the line's revision the person reviewed. */
 export async function resolveCountLine(
   count: string,
   line: string,
+  revision: number,
   decision: Schemas["ResolveIn"],
 ): Promise<Reconciliation> {
   return unwrap(
     await iki.PATCH("/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}", {
-      params: { path: { reconciliation_id: count, line_id: line } },
+      params: { path: { reconciliation_id: count, line_id: line }, header: ifMatch(revision) },
       body: decision,
     }),
   );
@@ -381,11 +400,12 @@ export async function resolveCountLine(
 
 export async function cancelCount(
   count: string,
+  revision: number,
   cancel: Schemas["CancelReconciliationIn"],
 ): Promise<Reconciliation> {
   return unwrap(
     await iki.POST("/api/v1/reconciliations/{reconciliation_id}/cancel", {
-      params: { path: { reconciliation_id: count } },
+      params: { path: { reconciliation_id: count }, header: ifMatch(revision) },
       body: cancel,
     }),
   );

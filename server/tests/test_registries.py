@@ -54,6 +54,16 @@ def create(api: Api, project: Project, values: dict[str, Any], type_name: str = 
     return api.post("/entities", {"type": type_name, "project": str(project.pk), "values": values})
 
 
+def entry_read(api: Api, record: dict[str, Any]) -> dict[str, str]:
+    """If-Match: a record's registry entry's revision, as read now (ADR 0289)."""
+    return {"If-Match": api.get(f"/entries/{record['entry']['id']}")["ETag"]}
+
+
+def record_read(api: Api, path: str) -> dict[str, str]:
+    """If-Match: a record's revision, as read now."""
+    return {"If-Match": api.get(path)["ETag"]}
+
+
 def registrar(world: World, principal: str = "auditor") -> Api:
     """Someone the Org Admin appoints a registrar of the default registry."""
     admin = api_as(world, "org_admin")
@@ -334,6 +344,7 @@ def test_a_registrar_supersedes_and_holders_move_their_records(
         editor.post(
             f"/entries/{wrong['hrid']}/supersede",
             {"replacement": right["hrid"], "reason": "Mistyped residue"},
+            headers=entry_read(curator, wrong),
         ),
         403,
         "forbidden",
@@ -342,15 +353,23 @@ def test_a_registrar_supersedes_and_holders_move_their_records(
         curator.post(
             f"/entries/{wrong['hrid']}/supersede",
             {"replacement": dna["hrid"], "reason": "Not the same kind"},
+            headers=entry_read(curator, wrong),
         ),
         422,
         "validation_failed",
     )
-    done = curator.post(
-        f"/entries/{wrong['hrid']}/supersede",
-        {"replacement": right["hrid"], "reason": "Mistyped residue"},
-    )
+    # It's made from the entry's revision the registrar read (ADR 0289).
+    supersede = f"/entries/{wrong['hrid']}/supersede"
+    replacing = {"replacement": right["hrid"], "reason": "Mistyped residue"}
+    problem(curator.post(supersede, replacing), 428, "precondition_required")
+    read = entry_read(curator, wrong)
+    stale = curator.post(supersede, replacing, headers={"If-Match": '"99"'})
+    problem(stale, 412, "stale")
+    assert stale["ETag"] == read["If-Match"]
+    assert not AuditEvent.objects.filter(action="entry.superseded").exists()
+    done = curator.post(supersede, replacing, headers=read)
     assert done.status_code == 200, done.content
+    assert done["ETag"] == f'"{done.json()["revision"]}"'
     assert done.json()["superseded"]["by"]["hrid"] == right["hrid"]
     # A holder learns which entry to move to and reads its facts once it holds it.
     ref = f"/entities/{theirs['id']}"
@@ -402,7 +421,11 @@ def test_a_registrar_supersedes_and_holders_move_their_records(
     assert right["hrid"] in str(again)
     # The rival's independent holder must state why it is moving its record.
     for body in ({}, {"reason": "   "}):
-        invalid = problem(outsider.post(f"{ref}/move", body), 422, "validation_failed")
+        invalid = problem(
+            outsider.post(f"{ref}/move", body, headers=record_read(outsider, ref)),
+            422,
+            "validation_failed",
+        )
         assert invalid["errors"][0]["pointer"] == "#/reason"
         unchanged = outsider.get(ref).json()
         assert unchanged["entry"]["id"] == wrong["entry"]["id"]
@@ -410,12 +433,23 @@ def test_a_registrar_supersedes_and_holders_move_their_records(
     assert not AuditEvent.objects.filter(action="entity.moved").exists()
 
     # The rival moves its record: its HRID is the replacement's now.
-    moved = outsider.post(f"{ref}/move", {"reason": "  Use the curator's corrected entry  "})
+    # From the record's revision its holder read: one changed since is refused.
+    why = {"reason": "  Use the curator's corrected entry  "}
+    problem(outsider.post(f"{ref}/move", why), 428, "precondition_required")
+    stale = outsider.post(f"{ref}/move", why, headers={"If-Match": '"99"'})
+    problem(stale, 412, "stale")
+    assert stale["ETag"] == record_read(outsider, ref)["If-Match"]
+    assert not AuditEvent.objects.filter(action="entity.moved").exists()
+    moved = outsider.post(f"{ref}/move", why, headers=record_read(outsider, ref))
     assert moved.status_code == 200, moved.content
     assert moved.json()["hrid"] == right["hrid"]
     assert moved.json()["entry"]["id"] == right["entry"]["id"]
     # The Atlas already has the replacement: it can't move onto it.
-    refused = editor.post(f"/entities/{wrong['id']}/move", {"reason": "Superseded"})
+    refused = editor.post(
+        f"/entities/{wrong['id']}/move",
+        {"reason": "Superseded"},
+        headers=record_read(editor, f"/entities/{wrong['id']}"),
+    )
     assert refused.status_code in (409, 422)
     # Its records that cite the old entry still do, until it moves.
     assert (

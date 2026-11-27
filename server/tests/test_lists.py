@@ -83,6 +83,16 @@ def option(api: Api, project: Project | None, code: str) -> dict[str, Any]:
     return next(o for o in options(api, project, archived=True) if o["code"] == code)
 
 
+def read_at(api: Api, code: str) -> dict[str, str]:
+    """If-Match: the option's revision as its curator reads it now (ADR 0289)."""
+    return {"If-Match": f'"{option(api, None, code)["revision"]}"'}
+
+
+def order(api: Api) -> dict[str, int]:
+    """Each option's revision as a curator reads the list now: what a new order names."""
+    return {o["code"]: o["revision"] for o in options(api, None, archived=True)}
+
+
 def prep(api: Api, project: Project, values: dict[str, Any]) -> Any:
     return api.post("/entities", {"type": PREP, "project": str(project.pk), "values": values})
 
@@ -137,7 +147,10 @@ def test_seeding_again_adds_only_what_a_registry_lacks(world: World) -> None:
     )
     assert relabelled.status_code == 200, relabelled.content
     archived = admin.post(
-        f"{OPTIONS}/dialysis/archive", {"reason": "We desalt instead"}, **scope(world)
+        f"{OPTIONS}/dialysis/archive",
+        {"reason": "We desalt instead"},
+        headers=read_at(admin, "dialysis"),
+        **scope(world),
     )
     assert archived.status_code == 200, archived.content
     ours = admin.post(OPTIONS, {"code": "imac", "label": "Ni-NTA"}, **scope(world))
@@ -246,7 +259,10 @@ def test_an_archived_option_stays_on_the_records_that_have_it(world: World) -> N
     dialysis = option(editor, world.project, "dialysis")
     made = prep(editor, world.project, {"name": "Prep 7", "method": dialysis["id"]}).json()
     archived = admin.post(
-        f"{OPTIONS}/dialysis/archive", {"reason": "Replaced by desalting"}, **scope(world)
+        f"{OPTIONS}/dialysis/archive",
+        {"reason": "Replaced by desalting"},
+        headers=read_at(admin, "dialysis"),
+        **scope(world),
     )
     assert archived.status_code == 200 and archived.json()["archived"], archived.content
     assert "dialysis" not in [o["code"] for o in options(editor, world.project)]
@@ -273,7 +289,12 @@ def test_an_archived_option_stays_on_the_records_that_have_it(world: World) -> N
     )
     assert searched.status_code == 200, searched.content
     assert [e["id"] for e in searched.json()["items"]] == [made["id"]]
-    restored = admin.post(f"{OPTIONS}/dialysis/restore", {"reason": "Back in use"}, **scope(world))
+    restored = admin.post(
+        f"{OPTIONS}/dialysis/restore",
+        {"reason": "Back in use"},
+        headers=read_at(admin, "dialysis"),
+        **scope(world),
+    )
     assert restored.status_code == 200 and not restored.json()["archived"]
     assert [o["code"] for o in options(editor, world.project)][-1] == "dialysis"
     actions = list(
@@ -461,25 +482,91 @@ def test_a_relabel_needs_a_reason_and_keeps_the_code(world: World) -> None:
 
 def test_reordering_names_every_option_once(world: World) -> None:
     admin, editor = registrar(world), api_as(world, "editor")
-    admin.post(f"{OPTIONS}/dialysis/archive", {"reason": "Not used"}, **scope(world))
-    problem(
-        admin.put(
-            f"/lists/{METHOD}/order", {"codes": ["sec", "protein_a"], "reason": "x"}, **scope(world)
-        ),
-        422,
-        "validation_failed",
-    )
-    done = admin.put(
-        f"/lists/{METHOD}/order",
-        {"codes": ["sec", "dialysis", "protein_a"], "reason": "Most used first"},
+    admin.post(
+        f"{OPTIONS}/dialysis/archive",
+        {"reason": "Not used"},
+        headers=read_at(admin, "dialysis"),
         **scope(world),
     )
+    path = f"/lists/{METHOD}/order"
+    read = order(admin)
+    left_out = {"codes": ["sec", "protein_a"], "expected_revisions": read, "reason": "x"}
+    problem(admin.put(path, left_out, **scope(world)), 422, "validation_failed")
+    # It names each option's revision as read (ADR 0289).
+    unnamed = {"codes": ["sec", "dialysis", "protein_a"], "reason": "Most used first"}
+    problem(admin.put(path, unnamed, **scope(world)), 428, "precondition_required")
+    done = admin.put(path, {**unnamed, "expected_revisions": read}, **scope(world))
     assert done.status_code == 200, done.content
     assert [o["code"] for o in done.json()] == ["sec", "dialysis", "protein_a"]
     assert [o["code"] for o in options(editor, world.project)] == ["sec", "protein_a"]
     event = AuditEvent.objects.get(action="list.reordered")
     assert event.data["changes"]["order"]["before"] == ["protein_a", "sec", "dialysis"]
     assert event.data["changes"]["order"]["after"] == ["sec", "dialysis", "protein_a"]
+
+
+def test_an_order_made_before_another_curators_change_is_refused(world: World) -> None:
+    """Two curators reorder at once: the second's, made from the order before the first's,
+    would undo it, so it's refused, naming what changed, and nothing moves."""
+    first, second = registrar(world), curator(world, "team_member")
+    path = f"/lists/{METHOD}/order"
+    read = order(second)
+    done = first.put(
+        path,
+        {
+            "codes": ["sec", "protein_a", "dialysis"],
+            "expected_revisions": order(first),
+            "reason": "Most used first",
+        },
+        **scope(world),
+    )
+    assert done.status_code == 200, done.content
+    moved = order(first)
+    later = {
+        "codes": ["dialysis", "protein_a", "sec"],
+        "expected_revisions": read,
+        "reason": "Alphabetical",
+    }
+    stale = problem(second.put(path, later, **scope(world)), 412, "stale")
+    assert stale["stale"] == [
+        {"code": c, "expected_revision": read[c], "current_revision": moved[c]}
+        for c in sorted(read)
+        if read[c] != moved[c]
+    ]
+    # Several options are named: no one ETag is the current one.
+    assert stale["stale"] and "ETag" not in second.put(path, later, **scope(world))
+    assert [o["code"] for o in options(second, None, archived=True)] == [
+        o["code"] for o in done.json()
+    ]
+    # An option added since is one the order doesn't name.
+    added = first.post(OPTIONS, {"code": "hplc", "label": "HPLC"}, **scope(world))
+    assert added.status_code == 201, added.content
+    named = {**later, "expected_revisions": moved}
+    stale = problem(second.put(path, named, **scope(world)), 412, "stale")
+    assert stale["stale"] == [
+        {"code": "hplc", "expected_revision": None, "current_revision": added.json()["revision"]}
+    ]
+    assert AuditEvent.objects.filter(action="list.reordered").count() == 1
+
+
+def test_archiving_restoring_and_superseding_name_the_option_revision_read(
+    world: World,
+) -> None:
+    admin = registrar(world)
+    read = option(admin, None, "dialysis")
+    for action, body in (
+        ("archive", {"reason": "Not used"}),
+        ("restore", {"reason": "Used again"}),
+        ("supersede", {"replacement": "sec", "reason": "Same column"}),
+    ):
+        path = f"{OPTIONS}/dialysis/{action}"
+        problem(admin.post(path, body, **scope(world)), 428, "precondition_required")
+        stale = admin.post(path, body, headers={"If-Match": '"99"'}, **scope(world))
+        problem(stale, 412, "stale")
+        assert stale["ETag"] == f'"{option(admin, None, "dialysis")["revision"]}"'
+        done = admin.post(path, body, headers=read_at(admin, "dialysis"), **scope(world))
+        assert done.status_code == 200, (action, done.content)
+        assert done["ETag"] == f'"{done.json()["revision"]}"'
+    assert read["revision"] < option(admin, None, "dialysis")["revision"]
 
 
 def test_a_wrong_code_is_superseded_and_each_project_moves_its_records(
@@ -502,6 +589,7 @@ def test_a_wrong_code_is_superseded_and_each_project_moves_its_records(
     done = admin.post(
         f"{OPTIONS}/protien_g/supersede",
         {"replacement": "protein_g", "reason": "Typo in the code"},
+        headers=read_at(admin, "protien_g"),
         **scope(world),
     )
     assert done.status_code == 200, done.content
@@ -560,6 +648,7 @@ def test_moving_records_to_the_replacement_keeps_the_types_rules(
     superseded = admin.post(
         f"{OPTIONS}/ion_x/supersede",
         {"replacement": "aex", "reason": "Say which exchange"},
+        headers=read_at(admin, "ion_x"),
         **scope(world),
     )
     assert superseded.status_code == 200, superseded.content
@@ -626,7 +715,12 @@ def test_a_sheet_names_an_option_by_its_code_or_label(world: World) -> None:
     from iki_server.spreadsheets.services import Resolver
 
     admin = registrar(world)
-    admin.post(f"{OPTIONS}/dialysis/archive", {"reason": "Not used"}, **scope(world))
+    admin.post(
+        f"{OPTIONS}/dialysis/archive",
+        {"reason": "Not used"},
+        headers=read_at(admin, "dialysis"),
+        **scope(world),
+    )
     found = {
         o["code"]: o["id"] for o in options(api_as(world, "editor"), world.project, archived=True)
     }

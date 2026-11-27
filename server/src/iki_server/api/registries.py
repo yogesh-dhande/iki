@@ -19,9 +19,10 @@ from uuid import UUID
 
 from django.db.models import Q, QuerySet
 from django.http import HttpRequest, HttpResponse
-from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
+from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
+from iki_server.api import preconditions
 from iki_server.api.common import caller, person, project, require
 from iki_server.api.entities import (
     CreatedOut,
@@ -33,7 +34,6 @@ from iki_server.api.entities import (
     TrailFilter,
     _created,
     _etag,
-    _expected,
     _find,
     _invalid,
     _lookup,
@@ -44,6 +44,7 @@ from iki_server.api.entities import (
     undisclosed,
 )
 from iki_server.api.pagination import PageParams, page
+from iki_server.api.preconditions import IfMatch
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, ProjectRef, RegistryRef, TeamRef, UserOut
 from iki_server.entities import access, entries, lists, services
@@ -492,7 +493,12 @@ def _addable(user: User, entry: Entity) -> list[Project]:
     ]
 
 
-@router.get("/entries/{ref}", response=EntryOut, summary="A registry entry, by ID or HRID")
+@router.get(
+    "/entries/{ref}",
+    response=EntryOut,
+    summary="A registry entry, by ID or HRID",
+    openapi_extra=preconditions.reads(),
+)
 def get_entry(request: HttpRequest, ref: str, response: HttpResponse) -> dict[str, Any]:
     """For whoever reads a record of it, and its registry's registrars."""
     me = caller(request)
@@ -506,13 +512,18 @@ class EntryPatch(Schema):
     reason: str = Field(min_length=1, max_length=2000, description="Why: every holder is told.")
 
 
-@router.patch("/entries/{ref}", response=EntryOut, summary="Change a registry entry's facts")
+@router.patch(
+    "/entries/{ref}",
+    response=EntryOut,
+    summary="Change a registry entry's facts",
+    openapi_extra=preconditions.changes(),
+)
 def patch_entry(
     request: HttpRequest,
     ref: str,
     payload: EntryPatch,
     response: HttpResponse,
-    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
     """Its registry's registrars, with a reason. Audited, and told to every holding project:
     who, when and why. Its identity and derived values never change: supersede it instead."""
@@ -521,15 +532,13 @@ def patch_entry(
     assert entry.registry is not None  # noqa: S101
     if not curates:
         require(me, Action.REGISTRY_CURATE, entry.registry)
-    expected = _expected(if_match)
+    expected = preconditions.expected(if_match)
     try:
         entries.curate(me, entry, payload.values, reason=payload.reason, expected_revision=expected)
     except services.Stale as stale:
-        raise Problem(
-            412,
+        raise preconditions.stale(
+            stale.current,
             f"It changed since you read it: it’s at revision {stale.current} now.",
-            code="stale",
-            headers={"ETag": f'"{stale.current}"'},
         ) from None
     except Invalid as error:
         raise _invalid(error) from None
@@ -543,19 +552,34 @@ class SupersedeIn(Schema):
     reason: str = Field(min_length=1, max_length=2000, description="Why: its holders are told it.")
 
 
-@router.post("/entries/{ref}/supersede", response=EntryOut, summary="Supersede a registry entry")
-def supersede_entry(request: HttpRequest, ref: str, payload: SupersedeIn) -> dict[str, Any]:
+@router.post(
+    "/entries/{ref}/supersede",
+    response=EntryOut,
+    summary="Supersede a registry entry",
+    openapi_extra=preconditions.changes(),
+)
+def supersede_entry(
+    request: HttpRequest,
+    ref: str,
+    payload: SupersedeIn,
+    response: HttpResponse,
+    if_match: IfMatch = None,
+) -> dict[str, Any]:
     """Its registry's registrars replace a mistaken entry with another of its type in the
-    registry, for good. Each holding project's Admins, and whoever added its record, are
-    told, to move their records to the replacement."""
+    registry, for good, from the revision they read (If-Match). Each holding project's
+    Admins, and whoever added its record, are told, to move their records to the
+    replacement."""
     me = caller(request)
     entry, curates = _entry(me, ref)
     assert entry.registry is not None  # noqa: S101
     if not curates:
         require(me, Action.REGISTRY_CURATE, entry.registry)
     replacement, _ = _entry(me, payload.replacement)
+    expected = preconditions.expected(if_match)
     try:
-        entries.supersede(me, entry, replacement, reason=payload.reason)
+        entries.supersede(me, entry, replacement, expected_revision=expected, reason=payload.reason)
+    except services.Stale as stale:
+        raise preconditions.stale_revision(stale.current) from None
     except Invalid as error:
         raise Problem(
             422,
@@ -566,6 +590,7 @@ def supersede_entry(request: HttpRequest, ref: str, payload: SupersedeIn) -> dic
             ],
         ) from None
     fresh = Entity.objects.select_related("registry").get(pk=entry.pk)
+    preconditions.tagged(response, fresh.revision)
     return _entry_out(me, fresh, True)
 
 
@@ -701,19 +726,28 @@ class MovedOut(EntityOut):
     "/entities/{ref}/move",
     response=MovedOut,
     summary="Move a record to the entry that superseded its own",
+    openapi_extra=preconditions.changes(),
 )
 def move_entity(
-    request: HttpRequest, ref: str, payload: MoveIn, response: HttpResponse
+    request: HttpRequest,
+    ref: str,
+    payload: MoveIn,
+    response: HttpResponse,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
-    """An Editor of its project. It keeps its data, history and runs; the project's own
-    records that refer to the superseded entry are changed to refer to the new one, each a
-    revision with the reason. Refused if the project has a record of the new one already."""
+    """An Editor of its project, from the record's revision they read (If-Match). It keeps
+    its data, history and runs; the project's own records that refer to the superseded
+    entry are changed to refer to the new one, each a revision with the reason. Refused if
+    the project has a record of the new one already."""
     me = caller(request)
     record = _find(me, ref)
     assert record.owner_project_id is not None  # noqa: S101 - records have projects
     project(me, record.owner_project_id, Action.PROJECT_EDIT)
+    expected = preconditions.expected(if_match)
     try:
-        moved = entries.move(me, record, reason=payload.reason)
+        moved = entries.move(me, record, expected_revision=expected, reason=payload.reason)
+    except services.Stale as stale:
+        raise preconditions.stale_revision(stale.current) from None
     except Invalid as error:
         raise Problem(
             422,

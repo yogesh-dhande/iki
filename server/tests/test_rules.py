@@ -355,7 +355,7 @@ def test_hold_review_requires_the_record_revision_seen(world: World) -> None:
         {"reason": "I reviewed the measurement.", "review_version": hold["review_version"]},
         headers={"If-Match": seen["ETag"]},
     )
-    problem(rejected, 412, "hold_changed")
+    problem(rejected, 412, "stale")
     assert rejected["ETag"] == edited["ETag"]
     assert not AuditEvent.objects.filter(action="entity.hold_reviewed").exists()
     assert RuleHold.objects.get(pk=hold["id"]).reviewed_at is None
@@ -393,7 +393,7 @@ def test_hold_review_requires_the_deployed_rule_version_seen(
     review = f"{record}/holds/{hold['id']}/review"
     headers = {"If-Match": seen["ETag"]}
     payload = {"reason": "I reviewed the hold.", "review_version": hold["review_version"]}
-    problem(api.post(review, payload, headers=headers), 412, "hold_changed")
+    problem(api.post(review, payload, headers=headers), 412, "stale")
     assert not AuditEvent.objects.filter(action="entity.hold_reviewed").exists()
     refreshed = api.call("GET", record, headers={"If-None-Match": seen["ETag"]})
     assert refreshed.status_code == 200, refreshed.content

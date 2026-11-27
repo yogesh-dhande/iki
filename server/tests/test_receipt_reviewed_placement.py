@@ -3,7 +3,7 @@
 from typing import Any
 
 import pytest
-from api_client import Api
+from api_client import Api, seen
 from test_receipt_observation_history import change, read
 from test_requests import Lab
 from test_storage import box, contents, errors, moved, sent_with_tubes, tube
@@ -45,7 +45,7 @@ def test_empty_and_partial_dispositions_cannot_complete_or_take_custody(lab: Lab
     receipt = change(api, "POST", path + "/scan", code="RC000")["receipt"]
     receipt = change(api, "PATCH", f"{path}/lines/{damaged}", outcome="damaged", note="Bent cap")
     receipt = change(api, "PATCH", path, receipt, handed_over_by="Courier 104")
-    base = {"plan_revision": receipt["plan_revision"], "missing_rest": True}
+    base = {"revision": receipt["revision"], "missing_rest": True}
     place = {"line": matched, "to": incoming["id"], "position": "A1"}
     ids = [tube["id"] for tube in tubes]
     before = custody_state(api, path, ids)
@@ -101,7 +101,7 @@ def test_live_custody_and_receipt_history_after_mixed_dispositions(lab: Lab) -> 
         keep_in_custody=[a],
         put_away=[{"line": b, "to": incoming["id"], "position": "A2"}],
     )
-    assert done["plan_revision"] == receipt["plan_revision"] + 1
+    assert done["revision"] == receipt["revision"] + 1
     assert done["status"] == "completed" and read(api, path) == done
     assert [(line["id"], line["outcome"]) for line in done["lines"]] == [
         (a, "matched"),
@@ -134,17 +134,18 @@ def test_live_custody_and_receipt_history_after_mixed_dispositions(lab: Lab) -> 
     # A later box count locates the held tube without changing the historical receipt.
     recon = change(api, "POST", f"/storage/containers/{incoming['id']}/reconciliations", status=201)
     count = f"/reconciliations/{recon['id']}"
-    seen = change(
+    scanned = change(
         api,
         "POST",
         count + "/scans",
         scans=[{"position": "A1", "code": "RC000"}, {"position": "A2", "code": "RC001"}],
     )
-    observed = next(line for line in seen["lines"] if line["entity"] == tubes[0]["id"])
+    observed = next(line for line in scanned["lines"] if line["entity"] == tubes[0]["id"])
     assert (observed["finding"], observed["found"]) == ("unexpected", "A1")
     resolved = api.patch(
         f"{count}/lines/{observed['id']}",
-        {"resolution": "placed", "line_revision": observed["line_revision"]},
+        {"resolution": "placed"},
+        headers=seen(observed["revision"]),
     )
     assert resolved.status_code == 200, resolved.content
     change(api, "POST", count + "/complete", resolved.json())
@@ -216,7 +217,7 @@ def test_next_free_receipt_placement_requires_the_current_reviewed_plan(lab: Lab
     receipt = change(api, "POST", path + "/scan", code="RC000")["receipt"]
     receipt = change(api, "PATCH", path, receipt, handed_over_by="Courier")
     body = {
-        "plan_revision": receipt["plan_revision"],
+        "revision": receipt["revision"],
         "put_away": [{"line": matched, "to": dest["id"]}],
     }
     ids = [tubes[0]["id"]]

@@ -20,14 +20,15 @@ import httpx2
 
 from iki import auth
 from iki.errors import (
-    Conflict,
     IkiError,
     ImportFailed,
     NotSignedIn,
     RunFailed,
+    Stale,
     TimedOut,
     from_response,
 )
+from iki.preconditions import if_match, if_none_match_any
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -518,14 +519,18 @@ class Entities(_Part):
             body["amount"] = _quantity(amount)
         return cast("CreatedOut", self._client.request("POST", "/entities", json=body))
 
-    def move(self, ref: str, *, reason: str) -> EntityOut:
+    def move(self, ref: str, *, revision: int, reason: str) -> EntityOut:
         """Moves a record of a superseded registry entry to the entry that replaced it,
         with its data, history and runs; the project's records that refer to the old
-        entry then refer to the new one, each with the reason."""
+        entry then refer to the new one, each with the reason. ``revision`` is the
+        record's you read: if it changed since, :class:`iki.Stale` is raised."""
         return cast(
             "EntityOut",
             self._client.request(
-                "POST", _path("/entities/{ref}/move", ref=ref), json={"reason": reason}
+                "POST",
+                _path("/entities/{ref}/move", ref=ref),
+                json={"reason": reason},
+                headers=if_match(revision),
             ),
         )
 
@@ -562,7 +567,7 @@ class Entities(_Part):
                 "POST",
                 _path("/entities/{ref}/holds/{hold}/review", ref=ref, hold=hold),
                 json={"reason": reason, "review_version": review_version},
-                headers={"If-Match": f'"{revision}"'},
+                headers=if_match(revision),
             ),
         )
 
@@ -594,7 +599,7 @@ class Entities(_Part):
                 "POST",
                 _path("/entities/{ref}/states/{field}", ref=ref, field=field),
                 json={"state": state, "reason": reason},
-                headers={"If-Match": f'"{revision}"'},
+                headers=if_match(revision),
             ),
         )
 
@@ -608,7 +613,7 @@ class Entities(_Part):
                 "POST",
                 _path("/entities/{ref}/take", ref=ref),
                 json={"field": field, "reason": reason},
-                headers={"If-Match": f'"{revision}"'},
+                headers=if_match(revision),
             ),
         )
 
@@ -634,7 +639,7 @@ class Entities(_Part):
                 "POST",
                 _path("/entities/{ref}/submit", ref=ref),
                 json={"service": self._client._project_id(service), "reason": reason},
-                headers={"If-Match": f'"{revision}"'},
+                headers=if_match(revision),
             ),
         )
 
@@ -681,7 +686,7 @@ class Entities(_Part):
                 "PATCH",
                 _path("/entities/{ref}", ref=ref),
                 json=body,
-                headers={"If-Match": f'"{revision}"'},
+                headers=if_match(revision),
             ),
         )
 
@@ -728,9 +733,17 @@ class Entities(_Part):
         body = {"to": to, "amount": _quantity(amount), "reason": reason}
         return self._move(ref, "transfer", body)
 
-    def adjust(self, ref: str, amount: Quantity, *, reason: str) -> AmountMovedOut:
-        """Sets how much there is to what it was found to be, saying why."""
-        return self._move(ref, "adjust", {"amount": _quantity(amount), "reason": reason})
+    def adjust(
+        self, ref: str, amount: Quantity, *, revision: int | None, reason: str
+    ) -> AmountMovedOut:
+        """Sets how much there is to what it was found to be, saying why. ``revision`` is
+        the amount's you read (its ``amount["revision"]``), or None if it had none
+        recorded: if it changed since, :class:`iki.Stale` is raised and nothing is
+        recorded, so recount it."""
+        headers = if_none_match_any() if revision is None else if_match(revision)
+        return self._move(
+            ref, "adjust", {"amount": _quantity(amount), "reason": reason}, headers=headers
+        )
 
     def split(
         self,
@@ -762,11 +775,21 @@ class Entities(_Part):
             self._client.request("POST", _path("/entities/{ref}/aliquots", ref=ref), json=body),
         )
 
-    def _move(self, ref: str, how: str, body: dict[str, Any]) -> AmountMovedOut:
+    def _move(
+        self,
+        ref: str,
+        how: str,
+        body: dict[str, Any],
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> AmountMovedOut:
         return cast(
             "AmountMovedOut",
             self._client.request(
-                "POST", _path("/entities/{ref}/amount/" + how, ref=ref), json=body
+                "POST",
+                _path("/entities/{ref}/amount/" + how, ref=ref),
+                json=body,
+                headers=headers,
             ),
         )
 
@@ -1134,19 +1157,21 @@ class Entries(_Part):
                 "PATCH",
                 _path("/entries/{ref}", ref=ref),
                 json={"values": dict(values), "reason": reason},
-                headers={"If-Match": f'"{revision}"'},
+                headers=if_match(revision),
             ),
         )
 
-    def supersede(self, ref: str, *, replacement: str, reason: str) -> EntryOut:
+    def supersede(self, ref: str, *, replacement: str, revision: int, reason: str) -> EntryOut:
         """For its registry's registrars: replaces a mistaken entry with `replacement`, for
-        good. Its holding projects are told, to move their records."""
+        good. Its holding projects are told, to move their records. `revision` is the
+        entry's you read."""
         return cast(
             "EntryOut",
             self._client.request(
                 "POST",
                 _path("/entries/{ref}/supersede", ref=ref),
                 json={"replacement": replacement, "reason": reason},
+                headers=if_match(revision),
             ),
         )
 
@@ -2093,8 +2118,13 @@ class Spreadsheets(_Part):
             )
         return ended
 
-    def discard(self, imported: str | Mapping[str, Any]) -> None:
-        self._client.request("DELETE", _path("/spreadsheet-imports/{i}", i=_id(imported)))
+    def discard(self, imported: str | Mapping[str, Any], *, revision: int | None = None) -> None:
+        """Discards it before it's committed, at ``revision`` (as for :meth:`change`)."""
+        self._client.request(
+            "DELETE",
+            _path("/spreadsheet-imports/{i}", i=_id(imported)),
+            headers=_if_match(imported, revision),
+        )
 
     def mappings(
         self,
@@ -2119,33 +2149,58 @@ class Spreadsheets(_Part):
         name: str,
         *,
         revision: int | None = None,
-        replace: str | Mapping[str, Any] | None = None,
-        target_revision: int | None = None,
     ) -> SavedMappingOut:
         """Keeps its mapping at ``revision`` (as for :meth:`change`) in its project, by its
-        headers, for the next sheet like it. To replace a template pass its reviewed
-        object, or its ID and target_revision. Read the import again after linking a
-        different template before approving it."""
-        body: dict[str, Any] = {"name": name}
-        if replace is not None:
-            reviewed = replace.get("revision") if isinstance(replace, Mapping) else target_revision
-            if type(reviewed) is not int or reviewed < 1:
-                raise IkiError("Give the reviewed template or its ID and positive target_revision.")
-            if target_revision is not None and (
-                type(target_revision) is not int or target_revision != reviewed
-            ):
-                raise IkiError("The target_revision must match the reviewed template.")
-            body.update(replace=_id(replace), target_revision=reviewed)
-        elif target_revision is not None:
-            raise IkiError("Give the template to replace with its target_revision.")
+        headers, for the next sheet like it. To replace a saved mapping, use
+        :meth:`replace_mapping`. Read the import again after linking a different template
+        before approving it."""
         return cast(
             "SavedMappingOut",
             self._client.request(
                 "POST",
                 _path("/spreadsheet-imports/{i}/mappings", i=_id(imported)),
-                json=body,
+                json={"name": name},
                 headers=_if_match(imported, revision),
             ),
+        )
+
+    def replace_mapping(
+        self,
+        mapping: str | Mapping[str, Any],
+        imported: str | Mapping[str, Any],
+        *,
+        name: str | None = None,
+        revision: int | None = None,
+        import_revision: int | None = None,
+    ) -> SavedMappingOut:
+        """Replaces a saved mapping with an import's mapping. ``revision`` is the saved
+        mapping's you agreed to replace, and ``import_revision`` the import's whose
+        mapping you reviewed: give each, or each as you read it. If either changed since,
+        :class:`iki.Stale` is raised and nothing changes. ``name`` keeps its own unless
+        given."""
+        if name is None:
+            if not isinstance(mapping, Mapping):
+                raise IkiError("Give the saved mapping as you read it, or its new name.")
+            name = str(mapping["name"])
+        reviewed = _revision_of(imported, import_revision)
+        return cast(
+            "SavedMappingOut",
+            self._client.request(
+                "PUT",
+                _path("/spreadsheet-mappings/{m}", m=_id(mapping)),
+                json={"name": name, "import": _id(imported), "import_revision": reviewed},
+                headers=_if_match(mapping, revision),
+            ),
+        )
+
+    def delete_mapping(
+        self, mapping: str | Mapping[str, Any], *, revision: int | None = None
+    ) -> None:
+        """Deletes a saved mapping, at ``revision``, or as you read it."""
+        self._client.request(
+            "DELETE",
+            _path("/spreadsheet-mappings/{m}", m=_id(mapping)),
+            headers=_if_match(mapping, revision),
         )
 
     def _until(
@@ -2169,7 +2224,7 @@ class Spreadsheets(_Part):
             delay = min(delay * 1.5, poll)
             found = self.get(str(found["id"]))
             if preview_revision is not None and found["revision"] != preview_revision:
-                raise Conflict(
+                raise Stale(
                     412,
                     f"Preview revision {preview_revision} was superseded by revision "
                     f"{found['revision']}. Review the current preview before importing it.",
@@ -2182,15 +2237,21 @@ def _id(imported: str | Mapping[str, Any]) -> str:
     return str(imported["id"]) if isinstance(imported, Mapping) else imported
 
 
-def _if_match(imported: str | Mapping[str, Any], revision: int | None) -> dict[str, str]:
-    """If-Match for a step of an import: the revision given, or the import's as it was read."""
-    if revision is None and isinstance(imported, Mapping):
-        revision = int(imported["revision"])
+def _revision_of(read: str | Mapping[str, Any], revision: int | None) -> int:
+    """The revision a change of an import or a saved mapping is made from: the one given,
+    or its own as it was read."""
+    if revision is None and isinstance(read, Mapping):
+        revision = int(read["revision"])
     if revision is None:
         raise IkiError(
-            "Give the import as you read it, or its revision: a step is made from what you saw."
+            "Give it as you read it, or its revision: a change is made from what you saw."
         )
-    return {"If-Match": f'"{revision}"'}
+    return revision
+
+
+def _if_match(read: str | Mapping[str, Any], revision: int | None) -> dict[str, str]:
+    """If-Match for a change of an import or a saved mapping (see :func:`_revision_of`)."""
+    return if_match(_revision_of(read, revision))
 
 
 def _download(

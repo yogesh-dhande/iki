@@ -766,12 +766,9 @@ def test_completing_the_count_requires_the_plan_reviewed_in_this_tab(
 
     with first.expect_response("**/reconciliations/*/complete") as refused:
         complete.click()
-    assert refused.value.status == 409, (refused.value.status, refused.value.json())
-    assert refused.value.request.post_data_json == {
-        "plan_revision": original["plan_revision"],
-        "missing_rest": True,
-        "note": original_note,
-    }
+    assert refused.value.status == 412, (refused.value.status, refused.value.json())
+    assert refused.value.request.header_value("if-match") == f'"{original["revision"]}"'
+    assert refused.value.request.post_data_json == {"missing_rest": True, "note": original_note}
     reconciliation = Reconciliation.objects.get(container_id=box["id"])
     assert reconciliation.status == ReceiptStatus.OPEN
     assert reconciliation.note == ""
@@ -804,12 +801,9 @@ def test_completing_the_count_requires_the_plan_reviewed_in_this_tab(
     with first.expect_response("**/reconciliations/*/complete") as accepted:
         complete.click()
     assert accepted.value.status == 200
-    assert accepted.value.request.post_data_json == {
-        "plan_revision": latest["plan_revision"],
-        "missing_rest": True,
-        "note": updated_note,
-    }
-    assert latest["plan_revision"] > original["plan_revision"]
+    assert accepted.value.request.header_value("if-match") == f'"{latest["revision"]}"'
+    assert accepted.value.request.post_data_json == {"missing_rest": True, "note": updated_note}
+    assert latest["revision"] > original["revision"]
     expect(first.get_by_role("heading", level=2, name="Completed")).to_be_visible()
     reconciliation.refresh_from_db()
     assert reconciliation.note == updated_note
@@ -820,7 +814,7 @@ def test_completing_the_count_requires_the_plan_reviewed_in_this_tab(
         (tube["id"], "moved"),
         (unchecked["id"], "removed"),
     }
-    assert audit.get().data["plan_revision"] == latest["plan_revision"]
+    assert audit.get().data["revision"] == latest["revision"]
     second.context.close()
     first.context.close()
 
@@ -1099,7 +1093,7 @@ def test_a_correction_refused_as_stale_shows_who_changed_it_and_keeps_the_reason
     )
     with page.expect_response("**/lines/*") as refused:
         dialog.get_by_role("button", name="Save the change").click()
-    assert refused.value.status == 409
+    assert refused.value.status == 412
     alert = dialog.get_by_role("alert")
     expect(alert).to_contain_text(f"{tube['hrid']} changed while you were looking at it")
     expect(alert).to_contain_text(
@@ -1110,7 +1104,7 @@ def test_a_correction_refused_as_stale_shows_who_changed_it_and_keeps_the_reason
     working.refresh_from_db()
     assert (working.outcome, working.note) == ("damaged", "Cap cracked")
     # Chromium and WebKit log the refusal as a failed load: that, and nothing else.
-    PAGE_ERRORS[page][:] = [e for e in PAGE_ERRORS[page] if "status of 409 (Conflict)" not in e]
+    PAGE_ERRORS[page][:] = [e for e in PAGE_ERRORS[page] if "status of 412" not in e]
     checked(page)
 
     # Sent again only when the person, having seen it, asks.
@@ -1640,7 +1634,7 @@ def test_an_unregistered_label_seen_in_another_slot_asks_which_tube_it_is(
     assert status == 200, reread
     with page.expect_response("**/api/v1/reconciliations/*/scans") as refused:
         move.click()
-    assert refused.value.status == 409
+    assert refused.value.status == 412
     assert refused.value.request.post_data_json == {
         "scans": [
             {
@@ -1662,6 +1656,7 @@ def test_an_unregistered_label_seen_in_another_slot_asks_which_tube_it_is(
         "aria-disabled", "true"
     )
     expected_refusals(page, "409")
+    expected_refusals(page, "412")
     checked(page)
     fits(page)
     page.set_viewport_size({"width": 1440, "height": 900})
@@ -2226,10 +2221,8 @@ def test_completing_waits_for_each_write_and_approves_the_revision_that_includes
     page.get_by_role("heading", level=2, name="Received").wait_for()
     short = path.removeprefix("/api/v1")
     assert order[:2] == [f"GET {short}", f"POST {short}/complete"]
-    body = answered.value.request.post_data_json
-    assert body is not None
     receipt.refresh_from_db()
-    assert body["plan_revision"] == receipt.plan_revision - 1
+    assert answered.value.request.header_value("if-match") == f'"{receipt.plan_revision - 1}"'
     (done,) = held_by(page, path)["receipt"]["lines"]
     assert (done["note"], done["received_unplaced"]) == ("Label smudged", True)
     assert held_by(page, path)["receipt"]["handed_over_by"] == "Courier, waybill 1Z999"

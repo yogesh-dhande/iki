@@ -21,7 +21,7 @@ import {
   renderApp,
 } from "./entity-fixtures";
 import { filterable, searchWords } from "./filters";
-import { answer, calls, page, problem, respond, signedIn } from "./test-server";
+import { answer, calls, page, problem, respond, signedIn, stale } from "./test-server";
 
 vi.mock("./apps", async (original) => {
   const real = await original<typeof import("./apps")>();
@@ -385,9 +385,9 @@ describe("holds and breaches", () => {
       review_version: "b".repeat(64),
     };
     answer(`GET ${record}`, lot({ revision: 3, holds: [updated] }));
-    answer(`POST ${route}`, problem(412, "hold_changed", "The hold changed. Read it again."));
+    answer(`POST ${route}`, stale(3));
     await user.click(clear);
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Read it again.");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Read it again");
     expect(clear).toHaveAttribute("aria-disabled", "true");
     expect(reason).toHaveValue("");
     expect(calls("POST", route)[0]?.headers.get("If-Match")).toBe('"2"');

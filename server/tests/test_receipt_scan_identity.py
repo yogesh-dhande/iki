@@ -5,7 +5,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from api_client import Api
+from api_client import Api, seen
 from test_requests import ASK, Lab, _member, submit, takes
 from test_storage import BOX, box, made, moved, tube
 from test_storage import lab as lab
@@ -159,10 +159,10 @@ def test_receiving_can_resolve_a_destination_barcode_and_refuses_unreviewed_dupl
     made(receiver, other, BOX, values)
     observed = receiver.post(path + "/scan", {"code": "TO-RECEIVE"}).json()
     reviewed = receiver.patch(
-        path, {"plan_revision": observed["receipt"]["plan_revision"], "handed_over_by": "Courier"}
+        path, {"handed_over_by": "Courier"}, headers=seen(observed["receipt"]["revision"])
     ).json()
     place = {"line": observed["line"], "to": "INCOMING", "position": "A1"}
-    body = {"plan_revision": reviewed["plan_revision"], "put_away": [place]}
+    body = {"revision": reviewed["revision"], "put_away": [place]}
     refused = receiver.post(path + "/complete", body)
     assert refused.status_code == 409
     assert receiver.get(path).json() == reviewed
@@ -198,10 +198,11 @@ def test_receiving_accepts_the_same_box_identifiers_as_the_destination_preview(l
         placement.append({"line": found["line"], "position": f"A{index}", **name})
     reviewed = receiver.patch(
         path,
-        {"plan_revision": receiver.get(path).json()["plan_revision"], "handed_over_by": "Courier"},
+        {"handed_over_by": "Courier"},
+        headers=seen(receiver.get(path).json()["revision"]),
     ).json()
     result = receiver.post(
-        path + "/complete", {"plan_revision": reviewed["plan_revision"], "put_away": placement}
+        path + "/complete", {"put_away": placement}, headers=seen(reviewed["revision"])
     )
     assert result.status_code == 200, result.content
     assert {line["put_away"]["id"] for line in result.json()["lines"]} == {target["id"]}
@@ -222,10 +223,10 @@ def test_a_destination_vendor_barcode_equal_to_another_box_id_requires_a_choice(
     )
     scanned = receiver.post(path + "/scan", {"code": "DOMICILE"}).json()
     reviewed = receiver.patch(
-        path, {"handed_over_by": "Courier", "plan_revision": scanned["receipt"]["plan_revision"]}
+        path, {"handed_over_by": "Courier"}, headers=seen(scanned["receipt"]["revision"])
     ).json()
     item = {"line": scanned["line"], "to": direct["id"], "position": "A1"}
-    approval = {"plan_revision": reviewed["plan_revision"], "put_away": [item]}
+    approval = {"revision": reviewed["revision"], "put_away": [item]}
     before = AuditEvent.objects.count()
     refused = receiver.post(path + "/complete", approval)
     assert refused.status_code == 409, refused.content
@@ -273,9 +274,9 @@ def test_receipt_history_preserves_the_input_and_matching_path_without_relabelli
             f"{path}/lines/{found['line']}",
             {
                 "outcome": None,
-                "line_revision": found["receipt"]["lines"][0]["line_revision"],
                 "reason": "Rechecked the label at delivery",
             },
+            headers=seen(found["receipt"]["lines"][0]["revision"]),
         )
         assert cleared.status_code == 200, cleared.content
         amendment = receiver.get(path + "/history").json()["items"][0]

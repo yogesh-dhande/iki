@@ -55,11 +55,11 @@ export interface Problem {
   /** Destination slot when an unregistered tube may be an earlier observation. */
   position?: string;
   /** Previous slots offered by a `count_unregistered_choice` response. */
-  observations?: { line_id: string; line_revision: number; position: string }[];
+  observations?: { line_id: string; revision: number; position: string }[];
   /** For `guard_refused`: the plugin's guard (ADR 0128) that refused the state. */
   guard?: string;
-  /** On a storage observation conflict, the affected lines and their current revisions. */
-  affected_lines?: { line_id: string; line_revision: number }[];
+  /** For a receipt's or count's `stale` (412): the lines that changed, at their revisions now. */
+  affected_lines?: { line_id: string; revision: number }[];
   /** For `inputs_outside_project`: the inputs that aren't in the run's project. */
   entities?: { id: string; hrid: string; type: string }[];
   /**
@@ -74,12 +74,28 @@ export interface Problem {
   plan?: Schemas["StarterSetupOut"];
   /** For `moves_plan_changed` (409): what the moves do now, to review. */
   moves?: Schemas["MovesOut"];
-  /** For a bulk reassignment's `stale` (412): each record that changed since it was read. */
-  stale?: { id: string; hrid: string; expected_revision: number; current_revision: number }[];
+  /** For a change of many things' `stale` (412): each that changed since it was read. */
+  stale?: (StaleRecord | StaleOption)[];
   request_id?: string;
 }
 
 /** True when ``value`` has the shape of a problem the API answered with. */
+/** A record a reassignment named that changed since it was read. */
+export interface StaleRecord {
+  id: string;
+  hrid: string;
+  expected_revision: number;
+  current_revision: number;
+}
+
+/** A lab list's option a reorder named that changed, came or went since it was read: a
+ * revision is null where it wasn't, or isn't, in the list. */
+export interface StaleOption {
+  code: string;
+  expected_revision: number | null;
+  current_revision: number | null;
+}
+
 export function isProblem(value: unknown): value is Problem {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -109,6 +125,39 @@ export class ApiError extends Error {
   get code(): string {
     return this.problem.code;
   }
+}
+
+/**
+ * `If-Match` for the revision you read (ADR 0289): every change to something with a
+ * revision sends it, so it can't overwrite a change made since.
+ *
+ * ```ts
+ * await iki.PATCH("/api/v1/entities/{ref}", { params: { path: { ref }, header: ifMatch(7) }, body });
+ * ```
+ */
+export function ifMatch(revision: number): { "If-Match": string } {
+  if (!Number.isInteger(revision) || revision < 1) {
+    throw new RangeError(`A revision is a positive whole number, not ${String(revision)}.`);
+  }
+  return { "If-Match": `"${String(revision)}"` };
+}
+
+/** `If-None-Match: *`, for a change made where you read nothing recorded (an amount's first
+ * count). */
+export function ifNoneMatchAny(): { "If-None-Match": "*" } {
+  return { "If-None-Match": "*" };
+}
+
+/** Whether a change was refused because what it named changed since it was read (412
+ * `stale`): nothing changed. Read it again, then decide. */
+export function isStale(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 412;
+}
+
+/** Whether a change was refused for not naming the revision it replaces (428
+ * `precondition_required`). */
+export function isPreconditionRequired(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 428;
 }
 
 export interface ClientOptions {

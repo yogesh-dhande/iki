@@ -27,7 +27,7 @@ from django.utils.http import content_disposition_header
 from ninja import Field, Router, Schema
 
 from iki_server.accounts.models import User
-from iki_server.api import csvs
+from iki_server.api import csvs, preconditions
 from iki_server.api.common import caller, project
 from iki_server.api.entities import (
     _CSV_OUT,
@@ -367,6 +367,7 @@ def _json(values: dict[str, Any]) -> dict[str, Any]:
     "/projects/{project_id}/sheet-edits",
     response=SheetEditSaveOut,
     summary="Save a sheet's changes, all or none",
+    openapi_extra=preconditions.changes(tagged=False),
 )
 def save_sheet(request: HttpRequest, project_id: UUID, payload: SheetEditSaveIn) -> dict[str, Any]:
     """Makes the changes reviewed (ADR 0228, 0207): each record's, from the revision read,
@@ -384,7 +385,12 @@ def save_sheet(request: HttpRequest, project_id: UUID, payload: SheetEditSaveIn)
         if r.entity is not None and r.revision is None
     ]
     if missing:
-        raise Problem(422, "Some fields are invalid.", code="validation_failed", errors=missing)
+        raise Problem(
+            428,
+            "Send the revision you read of each record you change.",
+            code="precondition_required",
+            errors=missing,
+        )
     rows = [
         sheets.Row(
             r.key,

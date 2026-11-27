@@ -27,14 +27,15 @@ from uuid import UUID
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.http import HttpRequest, HttpResponse
-from ninja import Field, HeaderEx, P, Query, Router, Schema
+from ninja import Field, Query, Router, Schema
 from ninja.responses import Status
 
 from iki_server.accounts.models import User
+from iki_server.api import preconditions
 from iki_server.api.common import caller, project, require
-from iki_server.api.entities import _expected
 from iki_server.api.files import _storage
 from iki_server.api.pagination import PageParams, page, page_by
+from iki_server.api.preconditions import IfMatch, ReadIfMatch
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, PersonRef
 from iki_server.entities import access, registry
@@ -165,9 +166,17 @@ class SpreadsheetCommitIn(Schema):
 
 class SavedMappingIn(Schema):
     name: str = Field(min_length=1, max_length=100)
-    replace: UUID | None = Field(None, description="A saved mapping to change, rather than add.")
-    target_revision: int | None = Field(
-        None, ge=1, strict=True, description="The reviewed saved template revision, with replace."
+
+
+class ReplacedMappingIn(Schema):
+    name: str = Field(min_length=1, max_length=100)
+    import_: UUID = Field(
+        alias="import", description="The spreadsheet import whose mapping replaces it."
+    )
+    import_revision: int = Field(
+        ge=1,
+        strict=True,
+        description="The import's revision you reviewed: its mapping is what's kept.",
     )
 
 
@@ -370,12 +379,8 @@ def _writable(me: User, import_id: UUID) -> SpreadsheetImport:
     return found
 
 
-def _etag(imported: SpreadsheetImport) -> str:
-    return f'"{imported.revision}"'
-
-
 def _one(me: User, imported: SpreadsheetImport, response: HttpResponse) -> dict[str, Any]:
-    response["ETag"] = _etag(imported)
+    preconditions.tagged(response, imported.revision)
     return _out(me, imported)
 
 
@@ -394,13 +399,11 @@ def _call(work: Any) -> Any:  # noqa: ANN401 - whatever it returns
     try:
         return work()
     except services.Stale as stale:
-        raise Problem(
-            412,
+        raise preconditions.stale(
+            stale.current,
             f"It changed since you read it, in another tab or session: it’s at revision "
             f"{stale.current} now, and nothing was changed. Read it again, then choose from "
             "what it is now.",
-            code="stale",
-            headers={"ETag": f'"{stale.current}"'},
         ) from None
     except Invalid as error:
         raise _invalid(error) from None
@@ -621,6 +624,7 @@ def list_imports(
     "/spreadsheet-imports/{import_id}",
     response=SpreadsheetImportOut,
     summary="A spreadsheet import",
+    openapi_extra=preconditions.reads(),
 )
 def get_import(request: HttpRequest, import_id: UUID, response: HttpResponse) -> dict[str, Any]:
     """Its ``ETag`` is its revision: send it back as If-Match to change it."""
@@ -632,13 +636,14 @@ def get_import(request: HttpRequest, import_id: UUID, response: HttpResponse) ->
     "/spreadsheet-imports/{import_id}",
     response=SpreadsheetImportOut,
     summary="Choose what a spreadsheet import imports",
+    openapi_extra=preconditions.changes(),
 )
 def change_import(
     request: HttpRequest,
     import_id: UUID,
     payload: SpreadsheetImportChange,
     response: HttpResponse,
-    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
     """Its sheet, header row and rows, and how its columns map (or a saved mapping to map
     them by), from the revision you read (If-Match). What's given is checked together, on
@@ -648,7 +653,7 @@ def change_import(
     unless the columns are given too. A preview starts again."""
     me = caller(request)
     found = _writable(me, import_id)
-    expected = _expected(if_match)
+    expected = preconditions.expected(if_match)
     given = payload.dict(exclude_unset=True)
     choice = services.Choice(
         sheet=given.get("sheet"),
@@ -671,19 +676,20 @@ def change_import(
     "/spreadsheet-imports/{import_id}/preview",
     response={202: SpreadsheetImportOut},
     summary="Check a spreadsheet import's rows",
+    openapi_extra=preconditions.changes(202),
 )
 def preview_import(
     request: HttpRequest,
     import_id: UUID,
     response: HttpResponse,
-    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+    if_match: IfMatch = None,
 ) -> Status[Any]:
     """Checks every row as importing would write it, a chunk at a time: what's wrong with
     each, by its column, and the records each would duplicate. Send the revision you read
     (If-Match). Each preview starts a new revision. Poll until that revision is previewed."""
     me = caller(request)
     found = _writable(me, import_id)
-    expected = _expected(if_match)
+    expected = preconditions.expected(if_match)
     with transaction.atomic():
         started = _call(lambda: services.preview(me, found, expected_revision=expected))
         return Status(202, _one(me, started, response))
@@ -693,18 +699,19 @@ def preview_import(
     "/spreadsheet-imports/{import_id}/rows",
     response=Page[PreviewRowOut],
     summary="What a preview found, row by row",
+    openapi_extra=preconditions.checked_reads(),
 )
 def import_rows(
     request: HttpRequest,
     import_id: UUID,
     params: Query[PreviewRowParams],
-    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+    if_match: ReadIfMatch = None,
 ) -> dict[str, Any]:
     """Read its rows in sheet order. Send the preview's If-Match on each page to read
     that revision; a superseded preview returns 412. ``outcome`` filters its rows."""
     me = caller(request)
     found = _find(me, import_id)
-    expected = _expected(if_match) if if_match is not None else None
+    expected = preconditions.expected(if_match) if if_match is not None else None
     if expected is not None:
         _call(lambda: services.check_revision(found, expected))
     rows = services.outcome_rows(found, params.outcome)
@@ -734,13 +741,14 @@ def _row_out(row: PreviewRow) -> dict[str, Any]:
     "/spreadsheet-imports/{import_id}/commit",
     response={202: SpreadsheetImportOut},
     summary="Import a previewed spreadsheet",
+    openapi_extra=preconditions.changes(202),
 )
 def commit_import(
     request: HttpRequest,
     import_id: UUID,
     payload: SpreadsheetCommitIn,
     response: HttpResponse,
-    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+    if_match: IfMatch = None,
 ) -> Status[Any]:
     """Writes its rows as records, all of them or none, as a run of
     ``iki/core.import_spreadsheet``, which checks them again as they are now. Send the
@@ -748,7 +756,7 @@ def commit_import(
     ``skip_problems`` leaves them out."""
     me = caller(request)
     found = _writable(me, import_id)
-    expected = _expected(if_match)
+    expected = preconditions.expected(if_match)
     _storage()
     _call(
         lambda: services.commit(
@@ -763,13 +771,18 @@ def commit_import(
 
 
 @router.delete(
-    "/spreadsheet-imports/{import_id}", response={204: None}, summary="Discard a spreadsheet import"
+    "/spreadsheet-imports/{import_id}",
+    response={204: None},
+    summary="Discard a spreadsheet import",
+    openapi_extra=preconditions.changes(204),
 )
-def discard_import(request: HttpRequest, import_id: UUID) -> Status[None]:
-    """Before it's committed. The workbook stays in the project."""
+def discard_import(request: HttpRequest, import_id: UUID, if_match: IfMatch = None) -> Status[None]:
+    """Before it's committed, from the revision you read (If-Match). The workbook stays in
+    the project."""
     me = caller(request)
     found = _writable(me, import_id)
-    _call(lambda: services.discard(me, found))
+    expected = preconditions.expected(if_match)
+    _call(lambda: services.discard(me, found, expected_revision=expected))
     return Status(204, None)
 
 
@@ -780,34 +793,98 @@ def discard_import(request: HttpRequest, import_id: UUID) -> Status[None]:
     "/spreadsheet-imports/{import_id}/mappings",
     response={201: SavedMappingOut},
     summary="Save a spreadsheet import's mapping",
+    openapi_extra=preconditions.changes(201, tagged=False),
 )
 def save_mapping(
     request: HttpRequest,
     import_id: UUID,
     payload: SavedMappingIn,
-    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+    if_match: IfMatch = None,
 ) -> Status[Any]:
     """Keeps how its columns map, by their headers, for the project's next sheet of the same
     kind: one from the same instrument or vendor maps itself. Send the revision you read
-    (If-Match): its mapping is what's kept. To replace a template send its ID and reviewed
-    target_revision. A stale template returns 409; a stale import returns 412."""
+    (If-Match): its mapping is what's kept. To replace a saved mapping, PUT it."""
     me = caller(request)
     found = _writable(me, import_id)
-    expected = _expected(if_match)
-    try:
-        saved = _call(
-            lambda: services.save_mapping(
+    expected = preconditions.expected(if_match)
+    saved = _call(
+        lambda: services.save_mapping(me, found, payload.name, expected_revision=expected)
+    )
+    return Status(201, saved)
+
+
+def _saved(me: User, mapping_id: UUID) -> SavedMapping:
+    """A saved mapping you may change."""
+    saved = SavedMapping.objects.select_related("project").filter(pk=mapping_id).first()
+    if saved is None or not can(me, Action.PROJECT_READ, saved.project):
+        raise Problem(404, "No such saved mapping.")
+    project(me, saved.project_id, access.edit_action(saved.type))
+    return saved
+
+
+def _stale_template(stale: services.StaleTemplate) -> Problem:
+    return preconditions.stale(stale.current, str(stale))
+
+
+@router.put(
+    "/spreadsheet-mappings/{mapping_id}",
+    response=SavedMappingOut,
+    summary="Replace a saved mapping",
+    openapi_extra=preconditions.changes(),
+)
+def replace_mapping(
+    request: HttpRequest,
+    mapping_id: UUID,
+    payload: ReplacedMappingIn,
+    response: HttpResponse,
+    if_match: IfMatch = None,
+) -> SavedMapping:
+    """Replaces it with an import's mapping, from the revision of it you read (If-Match),
+    and the import's revision whose mapping you reviewed (`import_revision`). If either
+    changed, it answers 412 and nothing changes."""
+    me = caller(request)
+    saved = _saved(me, mapping_id)
+    expected = preconditions.expected(if_match)
+    found = _writable(me, payload.import_)
+    if found.project_id != saved.project_id or found.type != saved.type:
+        raise Problem(
+            422,
+            "Some fields are invalid.",
+            errors=[
+                {
+                    "pointer": "#/import",
+                    "detail": "isn't an import of this mapping's type in its project.",
+                }
+            ],
+        )
+
+    def replace() -> SavedMapping:
+        try:
+            return services.save_mapping(
                 me,
                 found,
                 payload.name,
-                expected_revision=expected,
-                replace=payload.replace,
-                target_revision=payload.target_revision,
+                expected_revision=payload.import_revision,
+                replace=saved.pk,
+                replace_revision=expected,
             )
-        )
+        except services.Stale as stale:
+            # The import is named in the body, so its ETag isn't this answer's.
+            raise preconditions.stale(
+                None,
+                f"The import changed since you reviewed its mapping: it’s at revision "
+                f"{stale.current} now, and nothing was changed. Review it again.",
+            ) from None
+
+    try:
+        with transaction.atomic():
+            replaced: SavedMapping = _call(replace)
+    except services.StaleTemplate as stale:
+        raise _stale_template(stale) from None
     except SavedMapping.DoesNotExist:
-        raise Problem(404, "No such saved mapping for this type in the project.") from None
-    return Status(201, saved)
+        raise Problem(404, "No such saved mapping.") from None
+    preconditions.tagged(response, replaced.revision)
+    return replaced
 
 
 @router.get(
@@ -827,16 +904,22 @@ def list_mappings(
 
 
 @router.delete(
-    "/spreadsheet-mappings/{mapping_id}", response={204: None}, summary="Delete a saved mapping"
+    "/spreadsheet-mappings/{mapping_id}",
+    response={204: None},
+    summary="Delete a saved mapping",
+    openapi_extra=preconditions.changes(204),
 )
-def delete_mapping(request: HttpRequest, mapping_id: UUID) -> Status[None]:
+def delete_mapping(
+    request: HttpRequest, mapping_id: UUID, if_match: IfMatch = None
+) -> Status[None]:
+    """From the revision of it you read (If-Match). Imports that used it keep saying so."""
     me = caller(request)
-    saved = SavedMapping.objects.select_related("project").filter(pk=mapping_id).first()
-    if saved is None or not can(me, Action.PROJECT_READ, saved.project):
-        raise Problem(404, "No such saved mapping.")
-    project(me, saved.project_id, access.edit_action(saved.type))
+    saved = _saved(me, mapping_id)
+    expected = preconditions.expected(if_match)
     try:
-        _call(lambda: services.delete_mapping(me, saved))
+        _call(lambda: services.delete_mapping(me, saved, expected_revision=expected))
+    except services.StaleTemplate as stale:
+        raise _stale_template(stale) from None
     except SavedMapping.DoesNotExist:
         raise Problem(404, "No such saved mapping.") from None
     return Status(204, None)

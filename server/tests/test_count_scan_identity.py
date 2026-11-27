@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from api_client import Api
+from api_client import Api, seen
 from org_world import World
 from test_storage import box, contents, moved, tube, world
 
@@ -88,9 +88,7 @@ def test_shared_labels_at_their_recorded_positions_do_not_produce_a_move_or_remo
         f"{path}/scans",
         {
             "scans": [{"position": "A1", "code": LABEL}, {"position": "A2", "code": LABEL}],
-            "reviewed_lines": [
-                {"line_id": observed["id"], "line_revision": observed["line_revision"]}
-            ],
+            "reviewed_lines": [{"line_id": observed["id"], "revision": observed["revision"]}],
         },
     )
     assert rack.status_code == 200, rack.content
@@ -105,7 +103,7 @@ def test_shared_labels_at_their_recorded_positions_do_not_produce_a_move_or_remo
         (row["id"], "position") for row in reviewed["lines"]
     }
 
-    done = api.post(f"{path}/complete", {"plan_revision": reviewed["plan_revision"]})
+    done = api.post(f"{path}/complete", {}, headers=seen(reviewed["revision"]))
     assert done.status_code == 200, done.content
     assert done.json()["status"] == "completed" and contents(api, count.box) == original
     assert list(Event.objects.order_by("pk").values_list("pk", flat=True)) == original_events
@@ -151,7 +149,7 @@ def test_a_shared_label_at_an_unrecorded_position_needs_an_explicit_choice(
     assert accepted.status_code == 200, accepted.content
     latest = api.get(path).json()
     lines = {line["entity"]: line for line in latest["lines"]}
-    assert latest["plan_revision"] == original["plan_revision"] + 1
+    assert latest["revision"] == original["revision"] + 1
     assert lines[count.first["id"]]["finding"] == "unchecked"
     assert (lines[count.second["id"]]["finding"], lines[count.second["id"]]["found"]) == (
         "wrong_slot",
@@ -170,7 +168,7 @@ def test_a_shared_label_at_an_unrecorded_position_needs_an_explicit_choice(
     correction = {"scans": [recheck], "reason": "Rechecked the tube at A2"}
     stale = api.post(f"{path}/scans", correction)
     assert stale.status_code == 409 and stale.json()["affected_lines"] == [
-        {"line_id": chosen["id"], "line_revision": chosen["line_revision"]}
+        {"line_id": chosen["id"], "revision": chosen["revision"]}
     ]
     assert api.get(path).json() == latest
     saved = api.post(
@@ -207,10 +205,8 @@ def test_the_chosen_tube_must_still_have_the_scanned_label(count: Count, world: 
 
 def test_a_checked_out_reservation_does_not_break_a_shared_label_tie(count: Count) -> None:
     api, path = count.api, count.path
-    version = api.get(path).json()["plan_revision"]
-    closed = api.post(
-        f"{path}/cancel", {"plan_revision": version, "reason": "Start after check-out"}
-    )
+    version = api.get(path).json()["revision"]
+    closed = api.post(f"{path}/cancel", {"reason": "Start after check-out"}, headers=seen(version))
     assert closed.status_code == 200
     held = api.post("/storage/check-out", {"records": [count.first["id"]], "reason": "In use"})
     assert held.status_code == 200, held.content
@@ -265,9 +261,9 @@ def test_a_partial_count_needs_positive_identity_away_from_a_matching_readable_s
     count: Count, world: World
 ) -> None:
     owner, counter = Api(world.browser("editor")), Api(world.browser("via_team"))
-    version = owner.get(count.path).json()["plan_revision"]
+    version = owner.get(count.path).json()["revision"]
     closed = owner.post(
-        f"{count.path}/cancel", {"plan_revision": version, "reason": "Count after stocking A3"}
+        f"{count.path}/cancel", {"reason": "Count after stocking A3"}, headers=seen(version)
     )
     assert closed.status_code == 200
     third = tube(owner, world.project, "SERVICE-TUBE")

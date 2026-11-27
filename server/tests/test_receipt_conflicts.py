@@ -4,7 +4,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from api_client import problem
+from api_client import problem, seen
 from django.db import connection, transaction
 from test_receipt_observation_history import JsonObject, Receiving, change, read, row, timeline
 from test_receipt_observation_history import lab as lab
@@ -14,7 +14,7 @@ pytestmark = pytest.mark.django_db
 
 
 def version(line: JsonObject) -> JsonObject:
-    return {"line_id": line["id"], "line_revision": line["line_revision"]}
+    return {"line_id": line["id"], "revision": line["revision"]}
 
 
 def test_a_stale_line_command_names_only_its_current_line_including_a_removed_extra(
@@ -38,8 +38,8 @@ def test_a_stale_line_command_names_only_its_current_line_including_a_removed_ex
         ("DELETE", extra_path, old_extra, {"reason": "Revisit"}, retired),
         ("POST", extra_path + "/restore", old_extra, {"reason": "Revisit"}, retired),
     ):
-        error = change(second, method, url, line, status=409, **fields)
-        assert error["code"] == "refused"
+        error = change(second, method, url, line, status=412, **fields)
+        assert error["code"] == "stale"
         assert error["affected_lines"] == [version(latest)]
     assert read(second, path) == removed and read(second, path + "/history") == history
 
@@ -102,7 +102,8 @@ def test_stale_handoff_waits_for_a_new_line_and_reports_its_committed_revision(
             return problem(
                 receiver.patch(
                     path,
-                    {"plan_revision": reviewed["plan_revision"], "handed_over_by": "Courier 341"},
+                    {"handed_over_by": "Courier 341"},
+                    headers=seen(reviewed["revision"]),
                 ),
                 409,
                 "refused",
@@ -133,11 +134,9 @@ def test_stale_handoff_waits_for_a_new_line_and_reports_its_committed_revision(
                     time.sleep(0.01)
         refusal = waiting.result(timeout=15)
 
-    assert refusal["affected_lines"] == [
-        {"line_id": added["id"], "line_revision": added["line_revision"]}
-    ]
+    assert refusal["affected_lines"] == [{"line_id": added["id"], "revision": added["revision"]}]
     current = read(receiver, path)
     assert current == scan["receipt"] and current["handed_over_by"] == ""
     (event,) = timeline(receiver, path)
-    assert event["line_id"] == added["id"] and event["revision"] == current["plan_revision"]
+    assert event["line_id"] == added["id"] and event["revision"] == current["revision"]
     assert event["actor"]["email"] == added["checked_by"]["email"] == "tech@example.com"

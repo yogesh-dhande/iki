@@ -85,6 +85,13 @@ export function calls(method: string, path?: string): Sent[] {
   return sent.filter((s) => s.method === method && (path === undefined || s.path === path));
 }
 
+/** What a change sent: its body, with the If-Match it was made from, if any (ADR 0289). */
+export function made(call: Sent): unknown {
+  const tag = call.headers.get("If-Match");
+  if (tag === null) return call.body;
+  return { "If-Match": tag, ...(call.body as object | undefined) };
+}
+
 export const serverFetch: typeof fetch = async (input, init) => {
   const request = new Request(input, init);
   const url = new URL(request.url);

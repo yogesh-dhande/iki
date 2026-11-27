@@ -27,14 +27,16 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from django.db import transaction
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 from ninja import Field, Query, Router, Schema, Status
 from pydantic import ConfigDict
 
 from iki_server.accounts.models import User
+from iki_server.api import preconditions
 from iki_server.api.common import caller
 from iki_server.api.entities import RefOut, _find, _invalid, _lookup
 from iki_server.api.pagination import PageParams, page
+from iki_server.api.preconditions import IfMatch
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import AgentOut, Page, UserOut, agent_out
 from iki_server.entities import access
@@ -887,7 +889,11 @@ def _observation_history(
 
 class ReceiptLineOut(Schema):
     id: UUID
-    line_revision: int = Field(ge=1, description="The version of this line’s saved observation.")
+    revision: int = Field(
+        ge=1,
+        description="One more with each change to its observation. Its ETag: send it as "
+        "If-Match to correct, remove or restore it.",
+    )
     entity: UUID | None
     ref: RefOut | None
     code: str
@@ -904,7 +910,11 @@ class ReceiptLineOut(Schema):
 
 class ReceiptOut(Schema):
     id: UUID
-    plan_revision: int = Field(ge=1, description="The receipt revision shown for review.")
+    revision: int = Field(
+        ge=1,
+        description="One more with each change to it or its lines. Its ETag: send it as "
+        "If-Match to describe, complete or cancel it.",
+    )
     request: StepOut
     project: UUID = Field(description="The service receiving it.")
     status: Literal["open", "completed", "cancelled"]
@@ -969,7 +979,7 @@ def _receipt_out(
             ref = None
         item = {
             "id": line.pk,
-            "line_revision": line.line_revision,
+            "revision": line.line_revision,
             "entity": line.entity_id if ref else None,
             "ref": ref,
             "code": "" if line.entity_id and ref is None else line.code,
@@ -994,7 +1004,7 @@ def _receipt_out(
         (removed if line.removed else active).append(item)
     return {
         "id": receipt.pk,
-        "plan_revision": receipt.plan_revision,
+        "revision": receipt.plan_revision,
         "request": {**refs[request.pk], "id": request.pk, "position": None},
         "project": receipt.project_id,
         "status": receipt.status,
@@ -1040,13 +1050,12 @@ def _receiving(call: Any) -> Any:  # noqa: ANN401 - what it answers
                 "observations": choice.observations,
             },
         ) from None
-    except reconciliations.LinesChanged as changed:
-        raise Problem(
-            409,
-            str(changed),
-            code="count_lines_changed",
-            extensions={"affected_lines": changed.lines},
+    except (receipts.LinesChanged, reconciliations.LinesChanged) as changed:
+        raise preconditions.stale(
+            changed.current, str(changed), affected_lines=changed.lines
         ) from None
+    except receipts.RevisionRequired as required:
+        raise preconditions.required(str(required)) from None
     except PermissionError as refused:
         raise Problem(403, str(refused)) from None
     except Invalid as error:
@@ -1089,10 +1098,22 @@ def start_receipt(request: HttpRequest, ref: str) -> Status[dict[str, Any]]:
         return Status(201, _receipt_out(me, receipt, locked=True))
 
 
-@router.get("/receipts/{receipt_id}", response=ReceiptOut, summary="A receipt")
-def get_receipt(request: HttpRequest, receipt_id: UUID) -> dict[str, Any]:
+def _tagged(response: HttpResponse, out: dict[str, Any]) -> dict[str, Any]:
+    """A receipt or count, answered with its ETag."""
+    preconditions.tagged(response, out["revision"])
+    return out
+
+
+@router.get(
+    "/receipts/{receipt_id}",
+    response=ReceiptOut,
+    summary="A receipt",
+    openapi_extra=preconditions.reads(),
+)
+def get_receipt(request: HttpRequest, receipt_id: UUID, response: HttpResponse) -> dict[str, Any]:
+    """Its ETag is its `revision`."""
     me = caller(request)
-    return _receipt_out(me, _receipt(me, receipt_id))
+    return _tagged(response, _receipt_out(me, _receipt(me, receipt_id)))
 
 
 @router.get(
@@ -1119,11 +1140,7 @@ def _patch_note(payload: ReceiptIn | ReceiptLineIn | ResolveIn) -> str | None:
     return (payload.note or "").strip()
 
 
-class ReviewedReceiptIn(Schema):
-    plan_revision: int = Field(ge=1, strict=True, description="The receipt revision you reviewed.")
-
-
-class ReceiptIn(ReviewedReceiptIn):
+class ReceiptIn(Schema):
     reason: str | None = Field(
         None,
         max_length=2000,
@@ -1135,10 +1152,23 @@ class ReceiptIn(ReviewedReceiptIn):
     note: str | None = Field(None, max_length=2000, description=_PATCH_NOTE)
 
 
-@router.patch("/receipts/{receipt_id}", response=ReceiptOut, summary="Describe a receipt")
-def update_receipt(request: HttpRequest, receipt_id: UUID, payload: ReceiptIn) -> dict[str, Any]:
+@router.patch(
+    "/receipts/{receipt_id}",
+    response=ReceiptOut,
+    summary="Describe a receipt",
+    openapi_extra=preconditions.changes(),
+)
+def update_receipt(
+    request: HttpRequest,
+    receipt_id: UUID,
+    payload: ReceiptIn,
+    response: HttpResponse,
+    if_match: IfMatch = None,
+) -> dict[str, Any]:
+    """Who handed it over and its note, from the revision you reviewed (If-Match)."""
     me = caller(request)
     receipt = _receipt(me, receipt_id)
+    expected = preconditions.expected(if_match)
     with transaction.atomic():
         changed = _receiving(
             lambda: receipts.describe(
@@ -1146,11 +1176,11 @@ def update_receipt(request: HttpRequest, receipt_id: UUID, payload: ReceiptIn) -
                 receipt,
                 handed_over_by=payload.handed_over_by,
                 note=_patch_note(payload),
-                plan_revision=payload.plan_revision,
+                plan_revision=expected,
                 reason=payload.reason or "",
             )
         )
-        return _receipt_out(me, changed, locked=True)
+        return _tagged(response, _receipt_out(me, changed, locked=True))
 
 
 class ReceiptScanIn(Schema):
@@ -1189,12 +1219,9 @@ def scan_receipt(request: HttpRequest, receipt_id: UUID, payload: ReceiptScanIn)
 
 class ReceiptLineIn(Schema):
     outcome: Outcome | None = Field(
-        description="Null clears an expected line. First observations can omit line_revision."
+        description="Null clears an expected line, which takes its If-Match."
     )
     note: str | None = Field(None, max_length=2000, description=_PATCH_NOTE)
-    line_revision: int | None = Field(
-        None, ge=1, strict=True, description="Version of the line being corrected."
-    )
     reason: str | None = Field(
         None,
         max_length=2000,
@@ -1214,12 +1241,21 @@ class CheckedReceiptOut(Schema):
     "/receipts/{receipt_id}/lines/{line_id}",
     response=CheckedReceiptOut,
     summary="Check a receipt's line",
+    openapi_extra=preconditions.changes(tagged=False),
 )
 def check_line(
-    request: HttpRequest, receipt_id: UUID, line_id: UUID, payload: ReceiptLineIn
+    request: HttpRequest,
+    receipt_id: UUID,
+    line_id: UUID,
+    payload: ReceiptLineIn,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
+    """A first check records what you saw and needs no If-Match: if someone checked it
+    first, it answers `found: "again"` and keeps theirs. Correcting or clearing what was
+    recorded sends the line's ETag as If-Match (428 without it)."""
     me = caller(request)
     receipt = _receipt(me, receipt_id)
+    expected = preconditions.expected(if_match) if if_match is not None else None
     with transaction.atomic():
         result = _receiving(
             lambda: receipts.check(
@@ -1228,7 +1264,7 @@ def check_line(
                 line_id,
                 payload.outcome,
                 _patch_note(payload),
-                line_revision=payload.line_revision,
+                line_revision=expected,
                 reason=payload.reason or "",
             )
         )
@@ -1239,10 +1275,7 @@ def check_line(
         }
 
 
-class ReviewedExtraIn(Schema):
-    line_revision: int = Field(
-        ge=1, strict=True, description="The reviewed version of the extra line."
-    )
+class ExtraReasonIn(Schema):
     reason: str = Field(min_length=1, max_length=2000)
 
 
@@ -1250,15 +1283,19 @@ class ReviewedExtraIn(Schema):
     "/receipts/{receipt_id}/lines/{line_id}",
     response=ReceiptOut,
     summary="Remove an observed extra",
+    openapi_extra=preconditions.changes(tagged=False),
 )
 def drop_line(
     request: HttpRequest,
     receipt_id: UUID,
     line_id: UUID,
-    payload: ReviewedExtraIn,
+    payload: ExtraReasonIn,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
+    """From the line's revision you reviewed (If-Match), with a reason."""
     me = caller(request)
     receipt = _receipt(me, receipt_id)
+    expected = preconditions.expected(if_match)
     with transaction.atomic():
         changed = _receiving(
             lambda: receipts.set_removed(
@@ -1266,7 +1303,7 @@ def drop_line(
                 receipt,
                 line_id,
                 removed=True,
-                line_revision=payload.line_revision,
+                line_revision=expected,
                 reason=payload.reason,
             )
         )
@@ -1277,15 +1314,19 @@ def drop_line(
     "/receipts/{receipt_id}/lines/{line_id}/restore",
     response=ReceiptOut,
     summary="Restore a removed extra on an open receipt",
+    openapi_extra=preconditions.changes(tagged=False),
 )
 def restore_line(
     request: HttpRequest,
     receipt_id: UUID,
     line_id: UUID,
-    payload: ReviewedExtraIn,
+    payload: ExtraReasonIn,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
+    """From the line's revision you reviewed (If-Match), with a reason."""
     me = caller(request)
     receipt = _receipt(me, receipt_id)
+    expected = preconditions.expected(if_match)
     with transaction.atomic():
         changed = _receiving(
             lambda: receipts.set_removed(
@@ -1293,7 +1334,7 @@ def restore_line(
                 receipt,
                 line_id,
                 removed=False,
-                line_revision=payload.line_revision,
+                line_revision=expected,
                 reason=payload.reason,
             )
         )
@@ -1308,7 +1349,7 @@ class PutAwayIn(Schema):
     position: str | None = Field(None, max_length=8, description="Null: its next free one.")
 
 
-class ReceiptPlacementIn(ReviewedReceiptIn):
+class ReceiptPlacementIn(Schema):
     model_config = ConfigDict(extra="forbid")
 
     put_away: list[PutAwayIn] = Field(default_factory=list, max_length=storage.MAX_MOVES)
@@ -1344,28 +1385,42 @@ def _put_away(me: User, payload: ReceiptPlacementIn) -> list[receipts.PutAway]:
     "/receipts/{receipt_id}/put-away/preview",
     response=MovesOut,
     summary="Review a receipt's put-away positions",
+    openapi_extra=preconditions.changes(tagged=False),
 )
 def preview_receipt_placement(
-    request: HttpRequest, receipt_id: UUID, payload: ReceiptPlacementIn
+    request: HttpRequest, receipt_id: UUID, payload: ReceiptPlacementIn, if_match: IfMatch = None
 ) -> dict[str, Any]:
+    """What completing it would do, for the receipt's revision you reviewed (If-Match)."""
     me = caller(request)
     receipt = _receipt(me, receipt_id)
+    expected = preconditions.expected(if_match)
     planned = _receiving(
         lambda: receipts.preview_put_away(
-            me, receipt, _put_away(me, payload), plan_revision=payload.plan_revision
+            me, receipt, _put_away(me, payload), plan_revision=expected
         )
     )
     return _previewed(me, planned)
 
 
-@router.post("/receipts/{receipt_id}/complete", response=ReceiptOut, summary="Complete a receipt")
+@router.post(
+    "/receipts/{receipt_id}/complete",
+    response=ReceiptOut,
+    summary="Complete a receipt",
+    openapi_extra=preconditions.changes(),
+)
 def complete_receipt(
-    request: HttpRequest, receipt_id: UUID, payload: CompleteReceiptIn
+    request: HttpRequest,
+    receipt_id: UUID,
+    payload: CompleteReceiptIn,
+    response: HttpResponse,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
-    """Name each matched or damaged line once in put_away or keep_in_custody. Custody,
-    placements and discrepancy notices are recorded together."""
+    """From the revision you reviewed (If-Match). Name each matched or damaged line once in
+    put_away or keep_in_custody. Custody, placements and discrepancy notices are recorded
+    together."""
     me = caller(request)
     receipt = _receipt(me, receipt_id)
+    expected = preconditions.expected(if_match)
     with transaction.atomic():
         put = _put_away(me, payload)
         try:
@@ -1374,7 +1429,7 @@ def complete_receipt(
                     me,
                     receipt,
                     put,
-                    plan_revision=payload.plan_revision,
+                    plan_revision=expected,
                     keep_in_custody=payload.keep_in_custody,
                     missing_rest=payload.missing_rest,
                     plan=payload.plan,
@@ -1387,27 +1442,36 @@ def complete_receipt(
                 code="moves_plan_changed",
                 extensions={"moves": _previewed(me, changed_plan.planned)},
             ) from None
-        return _receipt_out(me, changed, locked=True)
+        return _tagged(response, _receipt_out(me, changed, locked=True))
 
 
-class CancelReceiptIn(ReviewedReceiptIn):
+class CancelReceiptIn(Schema):
     reason: str = Field(min_length=1, max_length=2000)
 
 
-@router.post("/receipts/{receipt_id}/cancel", response=ReceiptOut, summary="Cancel a receipt")
+@router.post(
+    "/receipts/{receipt_id}/cancel",
+    response=ReceiptOut,
+    summary="Cancel a receipt",
+    openapi_extra=preconditions.changes(),
+)
 def cancel_receipt(
-    request: HttpRequest, receipt_id: UUID, payload: CancelReceiptIn
+    request: HttpRequest,
+    receipt_id: UUID,
+    payload: CancelReceiptIn,
+    response: HttpResponse,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
-    """An open receipt, abandoned: nothing is received with it. It's kept, cancelled."""
+    """An open receipt, abandoned, from the revision you reviewed (If-Match): nothing is
+    received with it. It's kept, cancelled."""
     me = caller(request)
     receipt = _receipt(me, receipt_id)
+    expected = preconditions.expected(if_match)
     with transaction.atomic():
         changed = _receiving(
-            lambda: receipts.cancel(
-                me, receipt, plan_revision=payload.plan_revision, reason=payload.reason
-            )
+            lambda: receipts.cancel(me, receipt, plan_revision=expected, reason=payload.reason)
         )
-        return _receipt_out(me, changed, locked=True)
+        return _tagged(response, _receipt_out(me, changed, locked=True))
 
 
 # --- Reconciliations ----------------------------------------------------------------------------
@@ -1431,8 +1495,10 @@ class CountScanEvidenceOut(Schema):
 
 
 class ReconciliationLineOut(Schema):
-    line_revision: int = Field(
-        ge=1, description="The version of this line and its supporting slot evidence."
+    revision: int = Field(
+        ge=1,
+        description="One more with each change to the line or its slot's evidence. Its ETag: "
+        "send it as If-Match to resolve it.",
     )
     observation: CountScanEvidenceOut | None = Field(
         description="The scan supporting the finding, including a missing tube's expected slot."
@@ -1464,8 +1530,10 @@ class ReconciliationLineOut(Schema):
 
 class ReconciliationOut(Schema):
     id: UUID
-    plan_revision: int = Field(
-        ge=1, description="The version of the count's observations and decisions."
+    revision: int = Field(
+        ge=1,
+        description="One more with each change to its observations and decisions. Its ETag: "
+        "send it as If-Match to complete or cancel it.",
     )
     container: StepOut
     shape: ShapeOut
@@ -1551,7 +1619,7 @@ def _reconciliation_out(me: User, r: Reconciliation, *, locked: bool = False) ->
         counted[what] = counted.get(what, 0) + 1
     return {
         "id": r.pk,
-        "plan_revision": r.plan_revision,
+        "revision": r.plan_revision,
         "container": {**refs[r.container_id], "id": r.container_id, "position": None},
         "shape": _shape(shape),
         "status": r.status,
@@ -1571,7 +1639,7 @@ def _reconciliation_out(me: User, r: Reconciliation, *, locked: bool = False) ->
                 "expected": storage.label(shape, x.expected_row, x.expected_column),
                 "found": storage.label(shape, x.found_row, x.found_column),
                 "finding": what,
-                "line_revision": x.line_revision,
+                "revision": x.line_revision,
                 "observation": evidence.get(reconciliations.evidence_id(x, what, slots)),
                 "reviewed_observation": evidence.get(x.reviewed_observation_id),
                 "resolution": x.resolution,
@@ -1623,11 +1691,17 @@ def start_reconciliation(request: HttpRequest, ref: str) -> Status[dict[str, Any
 
 
 @router.get(
-    "/reconciliations/{reconciliation_id}", response=ReconciliationOut, summary="A reconciliation"
+    "/reconciliations/{reconciliation_id}",
+    response=ReconciliationOut,
+    summary="A reconciliation",
+    openapi_extra=preconditions.reads(),
 )
-def get_reconciliation(request: HttpRequest, reconciliation_id: UUID) -> dict[str, Any]:
+def get_reconciliation(
+    request: HttpRequest, reconciliation_id: UUID, response: HttpResponse
+) -> dict[str, Any]:
+    """Its ETag is its `revision`."""
     me = caller(request)
-    return _reconciliation_out(me, _reconciliation(me, reconciliation_id))
+    return _tagged(response, _reconciliation_out(me, _reconciliation(me, reconciliation_id)))
 
 
 @router.get(
@@ -1687,15 +1761,9 @@ class ScanIn(Schema):
         return reconciliations.Scan(self.position, self.code, self.mode, self.choice, intent)
 
 
-class ReviewedReconciliationIn(Schema):
-    plan_revision: int = Field(
-        ge=1, strict=True, description="The revision of the reconciliation plan being reviewed."
-    )
-
-
 class ReviewedCountLine(Schema):
     line_id: UUID
-    line_revision: int = Field(ge=1, strict=True)
+    revision: int = Field(ge=1, strict=True, description="The line's revision you reviewed.")
 
 
 class ScansIn(Schema):
@@ -1720,15 +1788,16 @@ class ScansIn(Schema):
     "/reconciliations/{reconciliation_id}/scans",
     response=ReconciliationOut,
     summary="Scan positions",
+    openapi_extra=preconditions.changes(tagged=False),
 )
 def scan_positions(
     request: HttpRequest, reconciliation_id: UUID, payload: ScansIn
 ) -> dict[str, Any]:
     """Record the scans in one transaction. Fresh positions and tubes need no precondition.
     Supply the reviewed line revisions for observations being replaced or repeated.
-    A change of slot or contents also needs a reason. A conflict returns 409 with the
-    currently affected line IDs and versions in `affected_lines`. A shared label at its
-    expected slot records a positional match. An ambiguous label elsewhere returns 409
+    A change of slot or contents also needs a reason. One that changed since answers 412
+    `stale`, with the affected line IDs and their revisions in `affected_lines`. A shared
+    label at its expected slot records a positional match. An ambiguous label elsewhere returns 409
     with the readable candidates and the zero-based scan index. A selected candidate
     is rechecked against the original label when the rack is submitted again.
 
@@ -1747,9 +1816,7 @@ def scan_positions(
                 me,
                 r,
                 [item.scan() for item in payload.scans],
-                reviewed_lines=[
-                    (line.line_id, line.line_revision) for line in payload.reviewed_lines
-                ],
+                reviewed_lines=[(line.line_id, line.revision) for line in payload.reviewed_lines],
                 reason=payload.reason or "",
             )
         )
@@ -1757,7 +1824,6 @@ def scan_positions(
 
 
 class ResolveIn(Schema):
-    line_revision: int = Field(ge=1, strict=True)
     reason: str | None = Field(
         None,
         max_length=2000,
@@ -1775,15 +1841,21 @@ class ResolveIn(Schema):
     "/reconciliations/{reconciliation_id}/lines/{line_id}",
     response=ReconciliationOut,
     summary="Resolve a reconciliation's line",
+    openapi_extra=preconditions.changes(tagged=False),
 )
 def resolve_line(
-    request: HttpRequest, reconciliation_id: UUID, line_id: UUID, payload: ResolveIn
+    request: HttpRequest,
+    reconciliation_id: UUID,
+    line_id: UUID,
+    payload: ResolveIn,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
-    """Save or clear the decision for the reviewed line_revision. A changed finding,
-    supporting scan, or decision on this line returns 409. Superseding a decision
-    requires a reason in addition to any note supporting the new decision."""
+    """Save or clear the decision for the line's revision you reviewed (If-Match). A
+    changed finding, supporting scan, or decision on this line answers 412. Superseding a
+    decision requires a reason in addition to any note supporting the new decision."""
     me = caller(request)
     r = _reconciliation(me, reconciliation_id)
+    expected = preconditions.expected(if_match)
     with transaction.atomic():
         _receiving(
             lambda: reconciliations.resolve(
@@ -1792,14 +1864,14 @@ def resolve_line(
                 line_id,
                 payload.resolution,
                 _patch_note(payload),
-                line_revision=payload.line_revision,
+                line_revision=expected,
                 reason=payload.reason or "",
             )
         )
         return _reconciliation_out(me, r, locked=True)
 
 
-class CompleteReconciliationIn(ReviewedReconciliationIn):
+class CompleteReconciliationIn(Schema):
     missing_rest: bool = Field(
         default_factory=bool,
         description="Treat unscanned occupants as missing and remove them. Defaults to false.",
@@ -1813,28 +1885,35 @@ class CompleteReconciliationIn(ReviewedReconciliationIn):
     "/reconciliations/{reconciliation_id}/complete",
     response=ReconciliationOut,
     summary="Complete a reconciliation",
+    openapi_extra=preconditions.changes(),
 )
 def complete_reconciliation(
-    request: HttpRequest, reconciliation_id: UUID, payload: CompleteReconciliationIn
+    request: HttpRequest,
+    reconciliation_id: UUID,
+    payload: CompleteReconciliationIn,
+    response: HttpResponse,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
-    """Applies the reviewed plan atomically. A stale plan revision returns 409. A decision
-    that needs review or a change in the container's recorded contents returns 422."""
+    """Applies the revision you reviewed (If-Match) atomically: a newer one answers 412. A
+    decision that needs review or a change in the container's recorded contents returns
+    422."""
     me = caller(request)
     r = _reconciliation(me, reconciliation_id)
+    expected = preconditions.expected(if_match)
     with transaction.atomic():
         _receiving(
             lambda: reconciliations.complete(
                 me,
                 r,
-                plan_revision=payload.plan_revision,
+                plan_revision=expected,
                 missing_rest=payload.missing_rest,
                 note=payload.note or "",
             )
         )
-        return _reconciliation_out(me, r, locked=True)
+        return _tagged(response, _reconciliation_out(me, r, locked=True))
 
 
-class CancelReconciliationIn(ReviewedReconciliationIn):
+class CancelReconciliationIn(Schema):
     reason: str = Field(
         min_length=1, max_length=2000, description="Why this count is being cancelled."
     )
@@ -1844,19 +1923,24 @@ class CancelReconciliationIn(ReviewedReconciliationIn):
     "/reconciliations/{reconciliation_id}/cancel",
     response=ReconciliationOut,
     summary="Cancel a reconciliation",
+    openapi_extra=preconditions.changes(),
 )
 def cancel_reconciliation(
-    request: HttpRequest, reconciliation_id: UUID, payload: CancelReconciliationIn
+    request: HttpRequest,
+    reconciliation_id: UUID,
+    payload: CancelReconciliationIn,
+    response: HttpResponse,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
+    """From the revision you reviewed (If-Match), with a reason."""
     me = caller(request)
     r = _reconciliation(me, reconciliation_id)
+    expected = preconditions.expected(if_match)
     with transaction.atomic():
         _receiving(
-            lambda: reconciliations.cancel(
-                me, r, plan_revision=payload.plan_revision, reason=payload.reason
-            )
+            lambda: reconciliations.cancel(me, r, plan_revision=expected, reason=payload.reason)
         )
-        return _reconciliation_out(me, r, locked=True)
+        return _tagged(response, _reconciliation_out(me, r, locked=True))
 
 
 # --- Labels -------------------------------------------------------------------------------------

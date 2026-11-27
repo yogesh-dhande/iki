@@ -262,14 +262,19 @@ def _taken_in_registry(form: Any, entry: Entity, new: Mapping[str, Any]) -> dict
 # --- Superseding --------------------------------------------------------------------------------
 
 
-def supersede(user: User, entry: Entity, replacement: Entity, *, reason: str) -> Revision:
-    """Replaces a mistaken entry with another, for good, and tells its holders."""
+def supersede(
+    user: User, entry: Entity, replacement: Entity, *, expected_revision: int, reason: str
+) -> Revision:
+    """Replaces a mistaken entry with another, for good, from the revision of it the
+    registrar read, and tells its holders. Raises :class:`services.Stale`."""
     found = _registrar(user, entry)
     if not reason.strip():
         raise Invalid({"reason": ["Say why: its holders are told."]})
     with transaction.atomic():
         locked = Entity.objects.select_for_update().get(pk=entry.pk)
         other = Entity.objects.select_for_update().get(pk=replacement.pk)
+        if locked.revision != expected_revision:
+            raise services.Stale(locked.revision)
         if locked.superseded_by_id is not None:
             raise Refused(f"{locked.hrid} was superseded already.")
         if other.pk == locked.pk:
@@ -367,13 +372,16 @@ class Moved:
     repointed: list[Entity]
 
 
-def move(user: User, record: Entity, *, reason: str) -> Moved:
-    """Moves a project's record to its superseded entry's replacement, with a reason."""
+def move(user: User, record: Entity, *, expected_revision: int, reason: str) -> Moved:
+    """Moves a project's record to its superseded entry's replacement, from the revision of
+    it the person read, with a reason. Raises :class:`services.Stale`."""
     said = reason.strip()
     if not said:
         raise Invalid({"reason": ["Say why the record is being moved."]})
     with transaction.atomic():
         locked = Entity.objects.select_for_update().get(pk=record.pk)
+        if locked.revision != expected_revision:
+            raise services.Stale(locked.revision)
         if locked.entry_id is None:
             raise Refused(f"{locked.hrid} isn't a record of a registry entry.")
         old = Entity.objects.get(pk=locked.entry_id)
