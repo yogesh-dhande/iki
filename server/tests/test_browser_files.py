@@ -356,11 +356,16 @@ def test_used_by_links_to_the_records_and_revisions_that_held_a_file(
 ) -> None:
     files = a_plate(world)
     # A trace as an upload leaves it, its bytes in the store: its page reads them to draw it.
-    trace = _stored_file(world, _s3_endpoint, _s3_bucket, ABIF / "3730.ab1", "application/x-abi")
-    trace.acquired_on = dt.date(2009, 12, 12)
-    trace.acquired_at = "2009-12-12T09:56:53"
-    trace.acquired_from = "abif"
-    trace.save()
+    trace = _stored_file(
+        world,
+        _s3_endpoint,
+        _s3_bucket,
+        ABIF / "3730.ab1",
+        "application/x-abi",
+        acquired_on=dt.date(2009, 12, 12),
+        acquired_at="2009-12-12T09:56:53",
+        acquired_from="abif",
+    )
     record = held(world, files["pdb"])
     page = open_as("admin", "/projects/kinase-atlas/files/", color_scheme)
     page.get_by_role("link", name="1 record").click()

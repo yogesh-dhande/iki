@@ -3371,9 +3371,11 @@ def _stored_file(
     media_type: str,
     *,
     scanned: bool = True,
+    **fields: Any,
 ) -> Any:
     """A file in the project, its bytes put straight into the store the server reads: found
-    clean by the scan, or, if not ``scanned``, still waiting for it."""
+    clean by the scan, or, if not ``scanned``, still waiting for it. ``fields`` are what an
+    upload also records (when its data was acquired, say): a file is never changed after."""
     import hashlib
 
     import boto3
@@ -3403,6 +3405,7 @@ def _stored_file(
         media_type=media_type,
         project=world.project,
         created_by=world.users["admin"],
+        **fields,
     )
 
 
@@ -5249,9 +5252,18 @@ def test_a_name_axe_and_a_locator_both_work_out_leaves_the_page_running(open_as:
     which is why axe once skipped Firefox on some pages and tests avoided finding by label."""
     page: Page = open_as("admin", "/account/apps/")
     page.evaluate(
-        """() => document.body.insertAdjacentHTML("beforeend",
-          '<div id="probe"><span id="save-label">Save the plate map</span>' +
-          '<button aria-labelledby="save-label"></button></div>')"""
+        """() => {
+          // Built node by node: the app's policy takes no HTML strings (Trusted Types).
+          const probe = document.createElement("div");
+          probe.id = "probe";
+          const label = document.createElement("span");
+          label.id = "save-label";
+          label.textContent = "Save the plate map";
+          const button = document.createElement("button");
+          button.setAttribute("aria-labelledby", "save-label");
+          probe.append(label, button);
+          document.body.append(probe);
+        }"""
     )
     read = "document.querySelector('#probe button').getAttribute('aria-labelledby')"
     for _ in range(2):
