@@ -30,6 +30,16 @@ amount ledger.
    lot's amount ledger and select the experiment under **Used in** when
    recording consumption.
 
+### Critical reagents
+
+Lot QA marks a stock item the lab treats as a critical reagent, such as an
+assay's detection antibody: from the item, set its **QA release
+requirement** to Required, saying why. Each lot received of it then needs
+Lot QA's signed release, and a stock keeper can't make it available.
+Changing the item later leaves the lots already received as they are; Lot
+QA changes a lot's own requirement on the lot, saying why. Only Lot QA sets
+either, and each change is in the record's history.
+
 ### Stock that arrives without an order
 
 From the item, **Receive without an order** records stock that no reorder

@@ -4,6 +4,7 @@
 - Date: 2026-11-26
 - Refines: [0162](0162-a-lot-is-a-projects-record-of-an-entrys-material.md),
   [0139](0139-a-records-amount-is-a-ledger-of-what-moved.md)
+- Amended: 2026-11-26 — a lot can need QA's release, whoever else holds a role (see Amendment)
 
 ## Context
 
@@ -75,3 +76,35 @@ Granting Stock keeper in a regulated project opens a route without a QA release.
 the project admin's audited choice, and an Available lot never passes for a released one.
 A lab that wants this enforced across projects keeps the role unassigned there, as it
 would keep Lot QA from people who shouldn't release.
+
+## Amendment. A lot can need QA's release, whoever else holds a role
+
+A project with both roles, Lot QA and Stock keeper, chose its route per lot only by who
+acted first: a stock keeper could make a critical reagent available before QA tested it.
+21 CFR 211.84(a) withholds each lot of a component from use until the quality control unit
+has released it, and ICH Q7 §7.2 keeps incoming material in quarantine until it's
+approved. A lab that treats a reagent as critical needs that to hold for every lot of it,
+not only for the lots a stock keeper didn't reach first.
+
+A lot records whether it needs Lot QA's signed release (`requires_qa_release`). While it
+does, the Available state's guard refuses a stock keeper and says why. Only QA's signed
+release makes it usable, and QA's own route is unchanged.
+
+- **Set when it's recorded.** A received reagent lot takes it from its stock item's QA
+  release requirement, which Lot QA sets. A lot recorded in the lab takes it from what its
+  maker enters, and is false unless they say so. It can't be edited after that.
+- **Changed only by Lot QA.** A lot's QA release requirement, a state field, starts
+  As recorded. Lot QA sets it to Required or Not required, with a required reason, and its
+  history keeps who, when and why. Nobody else, a stock keeper included, can set it. A
+  project admin who must act grants themselves Lot QA, which is audited, as for every state
+  a lab role sets (ADR 0125).
+- **Changing the item leaves the lots received.** A stock item's requirement applies at
+  receipt. Lot QA changes a received lot on that lot, saying why.
+- **Requiring it doesn't move the lot.** Requiring it of a lot already Available leaves it
+  in use, as with any disposition. QA puts it on hold to stop that, and then a stock keeper
+  can't make it available again.
+
+The field is a fact recorded at creation, and the state is QA's decision afterwards,
+because a state is set on its own by its lab role (ADR 0125), while a run or a form sets a
+record's values. Neither is a policy in core: a lab marks the stock items it treats as
+critical, and a lab with no Lot QA marks none.

@@ -1501,6 +1501,16 @@ def test_a_stock_keeper_makes_research_material_available_without_qa(
             lambda: amounts.draw(eve, vials, amounts.Given(Decimal("0.5"), "1"))
         )
         out["solvent_left"] = str(amounts.amounts_of([solvent])[solvent.pk].value)
+        # A lot recorded as needing QA's release, as a lab marks a critical reagent it
+        # makes itself, is never made available by a stock keeper.
+        critical = services.create(
+            eve, "iki/lots.GenericVolumeLot", project,
+            {"of": str(dmso.entry_id), "lot_number": "DMSO-HPLC-1", "source": "made",
+             "requires_qa_release": True},
+            amount={"value": 1, "unit": "L"},
+        ).entity
+        out["critical_sam_may"] = allowed(sam, critical)
+        out["critical_available"] = refused(lambda: move(sam, critical, "available"))
         out["vials_left"] = str(amounts.amounts_of([vials])[vials.pk].value)
 
         # Lot QA joins. A hold QA puts on a released lot is QA's to lift, and a lot past
@@ -1561,6 +1571,8 @@ def test_a_stock_keeper_makes_research_material_available_without_qa(
     assert Decimal(result["solvent_left"]) == Decimal("999.75")
     assert Decimal(result["vials_left"]) == Decimal(11)
     assert result["half_vial"] == "Wrong"
+    assert result["critical_sam_may"] == ["on_hold"]
+    assert result["critical_available"] == "GuardRefused"
     assert result["retest_due"] == "retest_due"
     assert result["retest_routine"] == "Wrong"
     assert result["hold_released"] == "on_hold"

@@ -4,7 +4,8 @@
 # registry entry, the molecule (ADR 0115). Every kind of lot extends this type, so one
 # search finds them all, and each has the same disposition (ADR 0162): released by QA's
 # signature, or made available by a stock keeper where the lab's procedure has no QA
-# release, as for research material (ADR 0242).
+# release, as for research material (ADR 0242). A lot the lab says needs QA's release
+# is never made available that way (ADR 0242's amendment).
 apiVersion: iki/v1
 kind: EntityType
 name: Lot
@@ -13,7 +14,7 @@ label_plural: Lots
 abstract: true
 # Its records are samples (ADR 0177): a project's Files finds files by them.
 sample: true
-schema_version: 3
+schema_version: 4
 description: >-
   A lot of a registered entity: what was made or bought of it at one time, which a
   label and a certificate of analysis name. The entity is the molecule, the same for
@@ -94,6 +95,37 @@ fields:
     type: text
     max_length: 10000
     description: Anything else about how it was made or tested.
+  requires_qa_release:
+    type: bool
+    label: Needs a QA release
+    default: false
+    immutable: true
+    description: >-
+      Whether it was recorded as needing Lot QA's signed release before use: received from
+      a stock item that needs one, such as a critical reagent, or marked so when it was
+      recorded. Lot QA changes what applies with its QA release requirement.
+  release_requirement:
+    type: state
+    label: QA release requirement
+    initial: as_recorded
+    description: >-
+      Whether only Lot QA's signed release makes it usable. While it's needed, a stock
+      keeper can't make it available. Only Lot QA changes it, saying why, and its history
+      keeps each change.
+    states:
+      as_recorded:
+        label: As recorded
+        description: A QA release is needed if the lot was recorded as needing one.
+      required:
+        label: Required
+        description: Only Lot QA's signed release makes it usable.
+        set_by: [qa]
+        reason: required
+      not_required:
+        label: Not required
+        description: A stock keeper may make it available, under the lab's own procedure.
+        set_by: [qa]
+        reason: required
   disposition:
     type: state
     label: Disposition
@@ -187,6 +219,16 @@ fields:
             message: >-
               A lot is made available from Quarantined, or from On hold when it was
               available before. QA lifts its own holds.
+          needs_no_qa_release:
+            description: >-
+              A lot that needs Lot QA's signed release, as its stock item or its record
+              says, or as Lot QA required, is only ever released by QA.
+            check: >-
+              record.release_requirement == "not_required" ||
+              (record.release_requirement == "as_recorded" && record.requires_qa_release != true)
+            message: >-
+              This lot needs Lot QA's signed release, so a stock keeper can't make it
+              available. Lot QA releases it once it's tested.
       retest_due:
         label: Due for retest
         description: >-

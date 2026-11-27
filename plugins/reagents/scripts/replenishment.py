@@ -75,6 +75,9 @@ def stock_lot(
         "delivery_line": line,
         "receipt_key": receipt_key(issuer, note, line),
         "packs": packs,
+        # A lot of a critical reagent needs Lot QA's release, as its item says when it's
+        # received. Changing the item later leaves this lot as it was received.
+        "requires_qa_release": catalogue.get("release_requirement") == "required",
     }
     if params.get("expires_on"):
         values["expires_on"] = params["expires_on"]

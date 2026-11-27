@@ -1,13 +1,13 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/reagents
-version: 0.2.0
+version: 0.3.0
 title: Reagents and consumables
 description: Track catalogue packs, stock across storage, reorder lines, partial deliveries and stock received without an order.
 iki: ">=0.1"
 license: Apache-2.0
 dependencies:
-  iki/lots: { types: { Lot: ">=2" } }
+  iki/lots: { types: { Lot: ">=4" } }
 settings:
   receipts_without_order:
     type: enum
