@@ -136,21 +136,27 @@ fields:
 # Its identity by ESI-MS is checked at every save from what's measured and what its
 # oligonucleotide's HELM gives, not from the mass difference a run writes later, so a
 # lot is held the moment its mass is out of its specification, or can't be checked,
-# with or without its triggers on (ADR 0127, ADR 0162). Compare to the inclusive bounds of the stated tolerance.
+# with or without its triggers on (ADR 0127, ADR 0162). Its masses and tolerance are
+# compared in whole nanodaltons, each rounded once from what's stored: exactly as their
+# decimals differ for any given to nine places or fewer (below 1,000,000 Da), so a
+# difference at its tolerance is within it however the decimals land in binary, and
+# 0.1000005 outside ±0.1 is outside. The run's script decides by the same arithmetic.
 rules:
   mass_within_tolerance:
     label: Its mass is its oligonucleotide's
     description: >-
       Identity by ESI-MS: its measured mass within its tolerance of its
-      oligonucleotide's monoisotopic or average mass. A lot outside it is kept as
-      measured, and held until QA reviews it.
+      oligonucleotide's monoisotopic or average mass, inclusive, to the nanodalton. A
+      lot outside it is kept as measured, and held until QA reviews it.
     check: >-
-      record.measured_mass <= (record.mass_basis == "average" ?
+      int(record.measured_mass * 1000000000.0 + 0.5) - int((record.mass_basis == "average" ?
       record.oligonucleotide.molecular_weight :
-      record.oligonucleotide.monoisotopic_mass) + record.mass_tolerance &&
-      record.measured_mass >= (record.mass_basis == "average" ?
-      record.oligonucleotide.molecular_weight :
-      record.oligonucleotide.monoisotopic_mass) - record.mass_tolerance
+      record.oligonucleotide.monoisotopic_mass) * 1000000000.0 + 0.5) <=
+      int(record.mass_tolerance * 1000000000.0 + 0.5) &&
+      int((record.mass_basis == "average" ? record.oligonucleotide.molecular_weight :
+      record.oligonucleotide.monoisotopic_mass) * 1000000000.0 + 0.5) -
+      int(record.measured_mass * 1000000000.0 + 0.5) <=
+      int(record.mass_tolerance * 1000000000.0 + 0.5)
     message: >-
       Its measured mass, {{ record.measured_mass }} Da, is outside its tolerance of
       ±{{ record.mass_tolerance }} Da of its oligonucleotide's {{ record.mass_basis }}

@@ -42,9 +42,12 @@ the appointment and start its review again.
 ## Service and use
 
 A new instrument is due for calibration. An instrument outside the calibration
-program, such as a centrifuge, is set to **Not required** by an Engineer or QA,
-who says why. It's still booked and serviced, and its schedule says no
-calibration is due.
+program is set to **Not required** by an Engineer or QA, who says why. That's one
+no method relies on the measurements of, such as a vortex mixer, or a centrifuge
+whose speed and temperature no method sets. A balance a result relies on stays in
+the program: it's calibrated at its interval as well as checked before use (21 CFR
+211.160(b)(4), USP <1251>). An instrument outside the program is still booked and
+serviced, and its schedule says no calibration is due.
 
 1. On the appointment, record the time, performer, outcome and original
    report: a PDF certificate, the instrument's text or CSV export, a workbook,

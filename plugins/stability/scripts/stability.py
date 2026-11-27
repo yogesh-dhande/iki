@@ -2,7 +2,7 @@
 
 A study's protocol plans its pulls: each condition, time point and replicate it
 assigns a tube and amount to, and the tests each gets. That's every condition at every
-time point, or a reduced design that says why (ICH Q1D). Time points count from the
+time point, or a reduced schedule that says why. Time points count from the
 start in calendar months, weeks or days (ADR 0243)."""
 
 from __future__ import annotations
@@ -98,7 +98,7 @@ def schedule(run: dict[str, Any]) -> dict[str, Any]:
     if reduced and not (values.get("design_justification") or "").strip():
         raise ValueError(
             "This design doesn't pull or test every condition at every time point: say why "
-            "in its design justification, as its protocol does (ICH Q1D)."
+            "in its design justification, as its protocol does."
         )
     for condition in conditions.values():
         humidity = condition.get("humidity")
