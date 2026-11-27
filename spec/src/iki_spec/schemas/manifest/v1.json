@@ -20,7 +20,8 @@
         "Workflow",
         "Trigger",
         "Component",
-        "ActionTest"
+        "ActionTest",
+        "ReviewProcedure"
       ]
     }
   },
@@ -63,6 +64,10 @@
     {
       "if": { "properties": { "kind": { "const": "ActionTest" } }, "required": ["kind"] },
       "then": { "$ref": "https://ikisci.org/schemas/action-test/v1" }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "ReviewProcedure" } }, "required": ["kind"] },
+      "then": { "$ref": "https://ikisci.org/schemas/review-procedure/v1" }
     }
   ]
 }

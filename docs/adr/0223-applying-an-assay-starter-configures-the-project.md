@@ -1,6 +1,7 @@
 # 0223. Applying an assay starter configures the project
 
 - Status: Proposed
+- Superseded in part by [0303](0303-a-plugin-declares-its-starters.md) and [0305](0305-a-type-is-a-kind-of-work-not-a-review-procedure.md): one AssayResult, pinned by the server
 - Date: 2026-11-25
 - Refines: [0198](0198-a-project-applies-a-versioned-assay-starter.md)
 

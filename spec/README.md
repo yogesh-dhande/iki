@@ -32,6 +32,7 @@ environments/        # kind: Environment
 workflows/           # kind: Workflow
 triggers/            # kind: Trigger
 components/          # kind: Component, with each one's JavaScript module
+procedures/          # kind: ReviewProcedure
 migrations/          # made by `iki plugin makemigrations`, committed and reviewed
 ```
 
@@ -628,10 +629,157 @@ approved:
   `guard_refused`, with the guard's name.
 - A state has at most 20.
 
+#### Who signs, declared
+
+A signed state can say who may sign it instead of writing the guard
+([ADR 0301](../docs/adr/0301-a-review-procedure-is-declared-once-and-a-type-says-what-it-needs.md)).
+`maker: {person: field}` says the signer is the person a field names.
+`independent_of` says whom the signer must not be:
+
+```yaml
+released:
+  set_by: [qa]
+  locks: true
+  signatures: [{ meaning: approval }]
+  independent_of:
+    - { creator: true, when: record.source == "made" }
+    - { editors: { in: [quarantined, retest_due] } }
+    - { people: [made_by] }
+```
+
+- `creator`: whoever created the record. `{editors: {in: [states]}}`:
+  whoever edited it since it last entered those states; add `fields:` to
+  count only those who changed some fields. `{signers: [states]}`: whoever
+  last signed into those states. `{people: [fields]}`: whom a person field,
+  a list of people, or one a reference away (`test.observed_by`) names.
+- Each mapping may take a `when`: it applies only while that's true.
+- Iki compiles them into the state's `maker` and `independent` guards, with
+  a message saying whom, and checks them as any guard. A hand-written guard
+  can't take either name.
+
 The [construct review example](../examples/plugins/construct_review/README.md)
 adds a state field to an Assembly subtype. Its guards check the current product
 comparison, who recorded the build and who edited it afterward. Its notifications
 tell the creator and watchers when a comparison fails or a reviewer verifies the record.
+
+### Review procedures
+
+Research, Regulated QC and Record only are review procedures. One is
+declared once, as `kind: ReviewProcedure` under `procedures/`, by Iki's core
+or by any plugin, a lab's own included
+([ADR 0301](../docs/adr/0301-a-review-procedure-is-declared-once-and-a-type-says-what-it-needs.md)).
+A type says what it needs of a procedure, and a project chooses one that fits
+([ADR 0302](../docs/adr/0302-a-project-chooses-each-types-review-procedure-and-the-server-pins-it.md)).
+
+```yaml
+apiVersion: iki/v1
+kind: ReviewProcedure
+name: gmp_result_review
+version: 2
+label: GMP result review (SOP-QA-012)
+slots:
+  analyst: { label: Analyst }
+  reviewer: { label: Second-person reviewer }
+  qa: { label: QA }
+states:
+  recorded: { label: In progress, by: [analyst, reviewer], reason: required }
+  submitted:
+    label: Submitted
+    by: analyst
+    locks: true
+    signature: { meaning: authorship }
+    maker: true
+  first_review:
+    label: First review
+    by: reviewer
+    locks: true
+    signature: { meaning: review }
+    independent_of: [creator, editors, signers: [submitted]]
+  second_review:
+    label: Second review
+    by: reviewer
+    locks: true
+    signature: { meaning: review }
+    independent_of: [creator, editors, signers: [submitted, first_review]]
+  released:
+    label: Approved
+    by: qa
+    locks: true
+    signature: { meaning: approval }
+    independent_of: [creator, editors, signers: [submitted, first_review, second_review]]
+flows:
+  gmp:
+    label: GMP
+    summary: Submitted, reviewed by two people and approved by QA.
+    route: [recorded, submitted, first_review, second_review, released]
+    moves: { recorded: [submitted, first_review, second_review] }
+```
+
+- It's referred to as `plugin.name@version`: `acme/qms.gmp_result_review@2`,
+  or core's `iki/core.result_review@1`, whose flows are `record_only`,
+  `accepted` (Accept without sign-off), `research` and `regulated_qc`.
+  Records pin a version, so a published one never changes: change it in a
+  new version.
+- `slots` are the parts people play. A starter binds each to a lab role, by
+  default the `iki/lab_roles` role of its name
+  ([ADR 0304](../docs/adr/0304-lab-roles-are-shared-and-a-procedures-slots-are-bound-at-setup.md)).
+  A state's `by` names the slots whose holders set it.
+- A flow's `route` is its states in order. Records start in the first, where
+  the work is recorded and edited, which can't lock. Each later state is set
+  from the one before; `moves` adds others, such as a return for correction.
+  The last is the flow's final state.
+- A state has `label`, `description`, `by`, `locks`, `reason`, `on_edit`
+  and at most one `signature`. A signed state declares exactly one of
+  `maker: true` (whoever created the record or edited it since it entered
+  the flow's first state) and `independent_of` (`creator`, `editors`,
+  `{editors: {fields: [...]}}` and `{signers: [states]}`). An authorship
+  signature is the maker's. A procedure can't name a type's fields or read
+  its records: the type adds those.
+- Iki compiles each flow into the guards a state field has: `route`,
+  `maker` and `independent`. The setup page and the flow diagram read the
+  same declarations, so what they say is what the server enforces.
+
+#### A reviewed type
+
+```yaml
+review:
+  pinned: create
+  needs:
+    open: recorded
+    final: [signed_off, released]
+    states: [submitted]
+    locks: signed
+  independent_of: [people: [analysts]]
+  guards:
+    sealed:
+      on: [submitted, signed_off]
+      check: record.case.sealed == true
+      message: Seal the release case before signing its certificate.
+```
+
+- Iki adds the state field the procedure drives (`review`, or `field:`),
+  labelled `label:`, and two immutable fields the server stamps when a
+  record is created: `review_procedure` and `review_flow`. The type doesn't
+  declare them.
+- `pinned` is `create` (the project's choice, or the deployment's default)
+  or `{by: field}`: the procedure of the record a required, immutable
+  reference names. `review: {opens: true}` is a type with no review of its
+  own that pins one for the records that follow it.
+- `needs`: `open`, the state its actions write in (`recorded` unless said);
+  `final`, the states its readers take as complete; `states`, others it
+  names; `locks`, `signed` or `final`; and `slots`, those its fields and
+  guards name. Its notifications, assignments, guards and rules name only
+  these states.
+- `independent_of` adds people to every state that declares independence.
+  `guards` add conditions `on` named states, `signed` or `final`.
+- `derived: true` re-issues a record already reviewed under the same flow,
+  such as a certificate of analysis: its route is the flow's first and final
+  states.
+- A procedure fits when each flow chosen starts in `open`, ends in one of
+  `final`, has `states`, locks as `locks` says, declares `slots` and has the
+  states its guards are on. One that doesn't is refused, saying which need
+  it misses.
+- A type is reviewed once in its lineage: its subtypes follow its review.
 
 ### Notifications
 
