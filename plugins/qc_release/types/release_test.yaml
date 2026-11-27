@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: ReleaseTest
 label: Release test
-schema_version: 2
+schema_version: 3
 hrid: { prefix: QRT }
 description: An immutable observed result and its evaluation against a pinned lot release criterion.
 fields:
