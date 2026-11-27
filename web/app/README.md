@@ -38,6 +38,13 @@ console.
   per kind of field, built from each type's fields and its JSON Schema. The
   browser checks what it can (required, numbers, ranges, lengths, patterns)
   and sends JSON as the API takes it; the API checks everything again.
+- `src/search-picker.tsx`: the one combo box that finds as people type
+  (`SearchPicker`), with React Aria's keyboard and announcements, Iki's
+  Escape and list placement, and a status line. A reference, a person, a long
+  lab list's options and `RecordPicker` are thin adapters over it, saying
+  only where it finds (a server search, or options it has) and how each one
+  reads, so a fix there reaches every picker. A sheet's list cell keeps its
+  own, for the grid's keyboard, and shares its matching (`lab-lists.ts`).
 - `src/uploads.ts`: uploading a file as the files API takes it (ADR 0036):
   its SHA-256 a slice at a time on the page (the CSP allows no worker
   scripts), then its parts straight to storage, retried and re-signed as

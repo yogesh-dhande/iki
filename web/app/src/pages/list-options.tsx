@@ -1594,12 +1594,13 @@ const ReorderItem = memo(function ReorderItem({
           className={buttonClass("quiet")}
           data-move="to"
           disabled={(index === 0 && last) || busy}
+          // Its name says what it moves, and keeps the words it shows (WCAG 2.5.3).
           aria-label={`Move ${label} to a position`}
           onClick={() => {
             onPlace(code);
           }}
         >
-          Move to…
+          To a position…
         </button>
       </span>
     </li>
