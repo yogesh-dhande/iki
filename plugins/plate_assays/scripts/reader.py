@@ -1,8 +1,9 @@
-"""Join a BMG LABTECH MARS raw OD endpoint export to an Iki plate layout.
+"""Read a plate reader export in a named format, then join its matrix to an Iki plate layout.
 
-The accepted MicroPlate View export and its settings are documented in data/reader.md.
-MARS writes row/column coordinates, not a rectangular table of records. Join the raw
-matrix by well before asking the ordinary Iki run output writer to commit measurements.
+Each format names the subset of an export it accepts and a version, recorded on the preview
+and the committed read (data/reader.md). Parsing a format yields one labelled matrix of
+readings, its readout and the export's own header. The join by well coordinate is the same
+for every format: a reading joins the assignment of its labelled row and numbered column.
 """
 
 from __future__ import annotations
@@ -11,6 +12,8 @@ import csv
 import io
 import math
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -20,6 +23,49 @@ MAX_MIB = 1  # AssayPlate.reader_file's upload limit.
 WELL = re.compile(r"([A-P])0?([1-9][0-9]?)", re.ASCII)
 RAW = re.compile(r"Raw Data\s*\((\d{1,4})\)", re.ASCII | re.IGNORECASE)
 NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", re.ASCII)
+MATRIX_HEADING = ["Normalized activity (%)"]
+# The MARS run header's own labels, kept verbatim. A date's order depends on the
+# instrument PC's locale, so it isn't interpreted.
+MARS_HEADER = {
+    "User": "user",
+    "Test name": "test_name",
+    "Test run no.": "test_run",
+    "Date": "date",
+    "Time": "time",
+    "ID1": "id1",
+    "ID2": "id2",
+    "ID3": "id3",
+}
+
+Rows = list[tuple[int, list[str]]]
+
+
+@dataclass(frozen=True)
+class Readout:
+    """What a matrix measures. Absorbance is never read as activity, nor the reverse."""
+
+    kind: str  # A WellMeasurement readout.
+    channel: str
+    unit: str  # AU or %.
+
+
+@dataclass(frozen=True)
+class Parsed:
+    readout: Readout
+    matrix: Rows
+    acquisition: dict[str, str]
+
+
+@dataclass(frozen=True)
+class Format:
+    id: str
+    version: int
+    label: str
+    parse: Callable[[Rows, int], Parsed]
+
+    @property
+    def described(self) -> dict[str, Any]:
+        return {"id": self.id, "version": self.version, "label": self.label}
 
 
 def _assignment(entry: object, rows: int, columns: int) -> dict[str, Any]:
@@ -81,7 +127,7 @@ def _layout(
     return assignments
 
 
-def _csv_rows(content: bytes) -> list[tuple[int, list[str]]]:
+def _csv_rows(content: bytes) -> Rows:
     if len(content) > MAX_MIB * 1024**2:
         raise ValueError(f"The endpoint CSV exceeds {MAX_MIB} MiB.")
     try:
@@ -90,9 +136,9 @@ def _csv_rows(content: bytes) -> list[tuple[int, list[str]]]:
         try:
             text = content.decode("cp1252")  # The legacy Windows MARS export.
         except UnicodeDecodeError as exc:
-            raise ValueError("Choose a UTF-8 or Windows-1252 MARS CSV export.") from exc
+            raise ValueError("Choose a UTF-8 or Windows-1252 CSV export.") from exc
     if "\0" in text:
-        raise ValueError("Choose a UTF-8 or Windows-1252 MARS CSV export.")
+        raise ValueError("Choose a UTF-8 or Windows-1252 CSV export.")
     parsed = []
     reader = csv.reader(io.StringIO(text, newline=""), strict=True)
     for row in reader:
@@ -107,14 +153,26 @@ def _csv_rows(content: bytes) -> list[tuple[int, list[str]]]:
     return parsed
 
 
-def _heading(parsed: list[tuple[int, list[str]]]) -> tuple[int, str, str]:
-    if parsed and parsed[0][1] == ["Normalized activity (%)"]:
-        return 0, "Normalized activity", "%"
-    if not parsed or not parsed[0][1][0].startswith("User:"):
+def _numbered(parsed: Rows, index: int, rows: int, columns: int) -> Rows:
+    """The matrix below a heading at ``index``: numbered columns, then lettered rows."""
+    headings = ["", *(str(column) for column in range(1, columns + 1))]
+    if index + 1 >= len(parsed) or parsed[index + 1][1] != headings:
         raise ValueError(
-            "Choose a BMG MARS MicroPlate View CSV with its export header "
-            "or a normalized activity matrix."
+            f"The matrix must label columns 1 through {columns} in order, "
+            f"once each, for a {rows * columns}-well plate."
         )
+    return parsed[index + 2 :]
+
+
+def _mars(parsed: Rows, rows: int, columns: int) -> Parsed:
+    """BMG LABTECH MARS MicroPlate View CSV: one raw absorbance endpoint, displayed in OD."""
+    if parsed and parsed[0][1] == MATRIX_HEADING:
+        raise ValueError(
+            "This file is an Iki plate matrix of normalized activity. "
+            "Choose that reader file format on the plate."
+        )
+    if not parsed or not parsed[0][1][0].startswith("User:"):
+        raise ValueError("Choose a BMG MARS MicroPlate View CSV with its export header.")
     starts = [i for i, (_, row) in enumerate(parsed) if row[0].lower().startswith("raw data")]
     if len(starts) != 1:
         raise ValueError("Export exactly one Raw Data absorbance endpoint matrix per file.")
@@ -125,45 +183,48 @@ def _heading(parsed: list[tuple[int, list[str]]]) -> tuple[int, str, str]:
     wavelength = RAW.fullmatch(title[0])
     if len(title) != 1 or not wavelength or int(wavelength[1]) == 0:
         raise ValueError("The Raw Data heading must give one absorbance wavelength in nm.")
-    return index, f"Absorbance {int(wavelength[1])} nm", "AU"
+    acquisition: dict[str, str] = {}
+    for _, row in parsed[:index]:
+        for cell in row:
+            label, colon, value = cell.partition(":")
+            if colon and (key := MARS_HEADER.get(label.strip())) and value.strip():
+                acquisition.setdefault(key, value.strip()[:200])
+    readout = Readout("absorbance", f"Absorbance {int(wavelength[1])} nm", "AU")
+    return Parsed(readout, _numbered(parsed, index, rows, columns), acquisition)
 
 
-def _matrix(
-    content: bytes, rows: int, columns: int
-) -> tuple[str, str, list[tuple[int, list[str]]]]:
-    parsed = _csv_rows(content)
-    index, channel, unit = _heading(parsed)
-    headings = ["", *(str(column) for column in range(1, columns + 1))]
-    if index + 1 >= len(parsed) or parsed[index + 1][1] != headings:
-        raise ValueError(
-            f"The matrix must label columns 1 through {columns} in order, "
-            f"once each, for a {rows * columns}-well plate."
-        )
-    return channel, unit, parsed[index + 2 :]
+def _iki_matrix(parsed: Rows, rows: int, columns: int) -> Parsed:
+    """Iki's plate matrix: its readout heading alone on line one, then the labelled matrix."""
+    if not parsed or parsed[0][1] != MATRIX_HEADING:
+        if parsed and parsed[0][1][0].startswith("User:"):
+            raise ValueError(
+                "This file is a BMG MARS export. Choose that reader file format on the plate."
+            )
+        raise ValueError("An Iki plate matrix starts with `Normalized activity (%)` on line one.")
+    readout = Readout("normalized_activity", "Normalized activity", "%")
+    return Parsed(readout, _numbered(parsed, 0, rows, columns), {})
 
 
-def preview_reader(content: bytes, plate_size: int, layout: list[dict[str, Any]]) -> dict[str, Any]:
-    """Preview all readings and errors. The caller commits only a preview with no issues.
+FORMATS = {
+    "bmg_mars_absorbance": Format(
+        "bmg_mars_absorbance", 1, "BMG LABTECH MARS absorbance endpoint (OD)", _mars
+    ),
+    "iki_plate_matrix": Format(
+        "iki_plate_matrix", 1, "Iki plate matrix of normalized activity (%)", _iki_matrix
+    ),
+}
 
-    `source_row` counts file lines from one. The join uses the exported row letter and
-    numbered column, independent of layout order. Controls and numeric zero are retained.
-    AU here labels dimensionless absorbance in the documented OD export profile
-    (IUPAC, https://doi.org/10.1351/goldbook.A00028).
-    """
-    issues: list[str] = []
+
+def _join(
+    readout: Readout,
+    matrix: Rows,
+    rows: int,
+    columns: int,
+    assignments: dict[str, dict[str, Any]],
+    issues: list[str],
+) -> list[dict[str, Any]]:
+    """Join each measured cell to its well's assignment, whatever format it came from."""
     readings: list[dict[str, Any]] = []
-    preview = {"readings": readings, "issues": issues, "channel": "", "unit": "AU"}
-    if plate_size not in DIMENSIONS:
-        issues.append("Choose a 96- or 384-well layout.")
-        return preview
-    rows, columns = DIMENSIONS[plate_size]
-    assignments = _layout(layout, rows, columns, issues)
-    try:
-        channel, unit, matrix = _matrix(content, rows, columns)
-    except (ValueError, csv.Error) as exc:
-        issues.append(str(exc))
-        return preview
-    preview.update(channel=channel, unit=unit)
     seen_rows: set[str] = set()
     measured: set[str] = set()
     unassigned: list[str] = []
@@ -185,7 +246,7 @@ def preview_reader(content: bytes, plate_size: int, layout: list[dict[str, Any]]
             well = f"{letter}{column}"
             measured.add(well)
             if not NUMBER.fullmatch(cell) or not math.isfinite(value := float(cell)):
-                kind = "OD" if unit == "AU" else "activity"
+                kind = "OD" if readout.unit == "AU" else "activity"
                 issues.append(f"File row {source_row}, {well}: expected a finite {kind} reading.")
                 continue
             if well not in assignments:
@@ -195,8 +256,9 @@ def preview_reader(content: bytes, plate_size: int, layout: list[dict[str, Any]]
                 {
                     **assignments[well],
                     "value": value,
-                    "unit": unit,
-                    "channel": channel,
+                    "unit": readout.unit,
+                    "readout": readout.kind,
+                    "channel": readout.channel,
                     "source_row": source_row,
                 }
             )
@@ -206,5 +268,49 @@ def preview_reader(content: bytes, plate_size: int, layout: list[dict[str, Any]]
     if missing:
         issues.append("Assigned wells missing a reading: " + ", ".join(missing) + ".")
     if not measured:
-        issues.append("The raw matrix contains no measurements.")
+        issues.append("The matrix contains no measurements.")
+    return readings
+
+
+def preview_reader(
+    content: bytes,
+    plate_size: int,
+    layout: list[dict[str, Any]],
+    reader_format: str = "bmg_mars_absorbance",
+) -> dict[str, Any]:
+    """Preview all readings and errors. The caller commits only a preview with no issues.
+
+    `source_row` counts file lines from one. The join uses the exported row letter and
+    numbered column, independent of layout order. Controls and numeric zero are retained.
+    AU here labels dimensionless absorbance in the documented OD export profile
+    (IUPAC, https://doi.org/10.1351/goldbook.A00028).
+    """
+    issues: list[str] = []
+    readings: list[dict[str, Any]] = []
+    chosen = FORMATS.get(reader_format)
+    preview: dict[str, Any] = {
+        "readings": readings,
+        "issues": issues,
+        "format": chosen.described if chosen else None,
+        "acquisition": {},
+        "channel": "",
+        "unit": "",
+    }
+    if chosen is None:
+        issues.append("Choose a supported reader file format.")
+        return preview
+    if plate_size not in DIMENSIONS:
+        issues.append("Choose a 96- or 384-well layout.")
+        return preview
+    rows, columns = DIMENSIONS[plate_size]
+    assignments = _layout(layout, rows, columns, issues)
+    try:
+        parsed = chosen.parse(_csv_rows(content), rows, columns)
+    except (ValueError, csv.Error) as exc:
+        issues.append(str(exc))
+        return preview
+    preview.update(
+        channel=parsed.readout.channel, unit=parsed.readout.unit, acquisition=parsed.acquisition
+    )
+    readings.extend(_join(parsed.readout, parsed.matrix, rows, columns, assignments, issues))
     return preview

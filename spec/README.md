@@ -757,6 +757,13 @@ fields:
   the project that asked (ADR 0232); anything else it says of `request` is
   its parent's to say (`request-redeclared`).
 
+A lab's own result type can answer only its own request type: it refines its
+request reference to that type, and its rules read the request type's fields
+(ADR 0235). A request is answered by the result types whose request reference
+refers to the type nearest it, so a refined result type is the only one for its
+requests, and a request type no result type is refined to keeps its parent's.
+A result of another type is refused when it's recorded.
+
 A lab's own request type adds what its service keeps of each request:
 
 ```yaml
@@ -1069,6 +1076,20 @@ refines:
     roles:
       heavy: { label: Heavy chain, min: 1, max: 1, to: { part: iki/protein.Protein } }
       light: { label: Light chain, max: 1, to: { part: iki/protein.Protein } }
+```
+
+**A subtype refines an inherited reference** (ADR 0235): `refines` with `to` names
+a reference an ancestor declares, or a list of references, and gives the types its
+records' may refer to, each with its subtypes. Each is one of the types its parent's
+refers to, or a subtype of one (`refines-wider`; `refines-not-a-reference`). Saving
+checks a record's references by its own type, forms offer only those types, and its
+rules and guards read what they have. The column, its search and its graph edges stay
+the declaring type's.
+
+```yaml
+extends: iki/requests.QCDeliverable
+refines:
+  request: { to: AnalyticalRequest } # so a rule can read record.request.analyses
 ```
 
 **Complexes** are `iki/core.Complex`'s
@@ -1905,6 +1926,24 @@ slots:
 | `search.results` | what the grid's search finds, as the person set it; it declares no search             |
 | `project.page`   | what its `search` finds in the project; the section shows once it finds something     |
 | `person.home`    | what its `search` finds in every project the person reads; it names `{{ me }}`        |
+
+A tab for `iki/core.Entity` is on every record's page, wherever its search
+finds something for that record, as a measurement's evidence is on whatever
+was measured (ADR 0237). Its search names the record with `{{ entity }}`
+(`tab-on-every-record`), and a record it finds nothing for has no such tab.
+The component's tab for a nearer type of the record's, if it has one, is
+used instead:
+
+```yaml
+entities: { type: InstrumentUse, fields: [result, measurement_at], limit: 1000 }
+slots:
+  - slot: entity.tab # an instrument's uses
+    type: Instrument
+    search: { where: { field: instrument, op: eq, value: "{{ entity }}" } }
+  - slot: entity.tab # any record measured on one: a QC deliverable, an assay result
+    type: iki/core.Entity
+    search: { where: { field: result, op: eq, value: "{{ entity }}" } }
+```
 
 A search is the API's, of `entities.type`: `where` conditions on its fields
 and `hrid`, `created_by`, `created_at` and `updated_at`, at most 20, 4
@@ -2812,7 +2851,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `self-hosted-apis`, `api-in-network`, `api-credential-is-secret`, `api-credential-header`, `webhook-needs-header`, `webhook-header`, `webhook-secret-is-credential`, `api-status-twice`, `api-polls-too-often`, `api-job-timeout`, `unknown-api`, `batch-parks`, `deterministic-with-api`; `unused-api` (warning)                                                                                                                                                                                                                                                                                                                                     | Outside APIs                    |
 | `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-each-takes-many`, `workflow-unknown-metric`, `workflow-condition-type`, `workflow-condition-each`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`, `workflow-input-from-project`                                                                                                                                                                                               | Workflows                       |
 | `trigger-unknown-action`, `trigger-unknown-input`, `trigger-input-ambiguous`, `trigger-input-missing`, `trigger-wrong-type`, `trigger-fields-not-updated`, `trigger-state-not-state-changed`, `trigger-state-field-missing`, `trigger-not-a-state-field`, `trigger-field-is-state`, `trigger-unknown-param`, `trigger-invalid-param`, `trigger-param-missing`, `trigger-type-missing`, `trigger-schedule-missing`, `trigger-schedule-invalid`, `trigger-schedule-never`, `trigger-schedule-entity`, `trigger-schedule-not-scheduled`, `trigger-timezone-unknown`, `duplicate-trigger`, `trigger-received-not-a-request`, `trigger-input-from-project` | Triggers                        |
-| `duplicate-component`, `element-twice`, `component-too-big`, `missing-file`, `unreadable-file`, `symlink`, `slot-needs-entities`, `slot-twice`, `home-not-personal`, `unknown-operator`, `unsortable-field`, `unknown-context`, `context-misplaced`, `search-too-big`                                                                                                                                                                                                                                                                                                                                                                                 | Components                      |
+| `duplicate-component`, `element-twice`, `component-too-big`, `missing-file`, `unreadable-file`, `symlink`, `slot-needs-entities`, `slot-twice`, `home-not-personal`, `tab-on-every-record`, `unknown-operator`, `unsortable-field`, `unknown-context`, `context-misplaced`, `search-too-big`                                                                                                                                                                                                                                                                                                                                                          | Components                      |
 | `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Environments                    |
 | `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`, `conda-lock-name`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Pinned packages                 |
 | `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-calls-api`, `setup-fills-nothing` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Volumes and setup               |

@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: Action
 name: import_search
 label: Import proteomics search reports
-description: Read identification and quantification tables from mzTab, MaxQuant, DIA-NN or FragPipe.
+description: Read identifications and quantities from an mzTab 1.0 file, MaxQuant txt tables, a DIA-NN main report TSV or FragPipe protein and peptide TSVs.
 inputs:
   dataset: { type: ProteomicsDataset }
   proteins:
@@ -14,8 +14,14 @@ inputs:
 params:
   format:
     type: enum
-    values: [mztab, maxquant, diann, fragpipe]
+    label: Report format
+    values: [mztab_1_0, maxquant_txt, diann_tsv, fragpipe_tsv]
     required: true
+    description: >-
+      mztab_1_0 is proteomics mzTab 1.0.0 or the PRIDE 1.0 rc5 export. maxquant_txt is
+      proteinGroups.txt, peptides.txt or evidence.txt. diann_tsv is DIA-NN's main report as
+      tab-separated text; convert a Parquet report to TSV first. fragpipe_tsv is a FragPipe protein
+      or peptide TSV, single or combined.
   version:
     { type: string, required: true, max_length: 120, label: Search engine or exporter version }
   reports:

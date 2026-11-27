@@ -1,6 +1,7 @@
 # ruff: noqa: F811 - browser fixtures imported by name are parameters here.
 """Equipment records in the plugin frame, with synthetic schedules and evidence."""
 
+import re
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
@@ -185,3 +186,38 @@ def test_equipment_evidence_fits_a_phone_and_opens_the_record(
     assert page.get_by_role("listitem").count() == 0
     assert ERRORS[page] == []
     page.context.close()
+
+
+def test_an_instrument_outside_the_calibration_program_is_due_for_nothing(
+    browser: Browser,
+) -> None:
+    """A centrifuge isn't calibrated, and its maintenance procedure sets no interval: its
+    schedule says neither is due."""
+    serviced = {
+        "hrid": "EQS-000004",
+        "values": {
+            "kind": "maintenance",
+            "due_on": "2026-04-20",
+            "procedure": "Rotor inspection (example procedure)",
+            "performed_at": "2026-04-20T09:00:00Z",
+            "outcome": "completed",
+            "review": "signed_off",
+        },
+    }
+    with serving(PLUGINS / "equipment" / "components", {MODULE: SERVICE}) as origin:
+        page = open_frame(
+            browser,
+            origin,
+            MODULE,
+            {"values": {"service": "in_service", "calibration": "not_required"}},
+            bypass_csp=True,
+        )
+        page.clock.set_fixed_time(datetime(2026, 5, 1, 12, tzinfo=UTC))
+        page.wait_for_function("(name) => document.querySelector(name) !== null", arg=SERVICE)
+        give(page, SERVICE, [serviced])
+        assert page.get_by_text("Not required", exact=True).is_visible()
+        assert page.get_by_text("Calibration evidence", exact=True).count() == 0
+        assert page.get_by_text("Calibration due", exact=True).count() == 0
+        assert page.get_by_text("Maintenance due", exact=True).count() == 0
+        # Its maintenance evidence: done when it was, and not due again.
+        assert page.get_by_text(re.compile(r"^Completed .*2026")).is_visible()

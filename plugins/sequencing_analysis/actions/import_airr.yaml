@@ -1,0 +1,38 @@
+apiVersion: iki/v1
+kind: Action
+name: import_airr
+label: Import AIRR rearrangements
+description: Keep one repertoire's rearrangements from an AIRR Rearrangement TSV a pipeline produced.
+inputs:
+  library: { type: iki/sequencing.SequencingLibrary }
+  run: { type: iki/sequencing.SequencingRun, optional: true }
+  material:
+    type: iki/core.Entity
+    optional: true
+    description: The registered donor, cell line or other material the library's sample represents.
+params:
+  report:
+    type: file
+    label: Rearrangement TSV
+    required: true
+    max_size: 2GiB
+    media_types: [text/tab-separated-values, text/plain, application/gzip, application/octet-stream]
+  tool: { type: string, label: Annotation tool or pipeline, required: true, max_length: 120 }
+  tool_version: { type: string, label: Tool or pipeline version, required: true, max_length: 120 }
+  reference:
+    type: string
+    label: Germline reference set
+    max_length: 250
+    description: The germline database and release behind the V, D and J calls, such as an IMGT/GENE-DB release.
+  repertoire_id:
+    type: string
+    label: AIRR repertoire ID
+    max_length: 250
+    description: The repertoire to keep. Needed when the file holds more than one.
+effects:
+  creates: [{ type: SequencingAnalysisResult, derived_from: [library, run, material] }]
+runs_on: { tier: backend, environment: analysis-tools }
+command: [python, ./scripts/import_result.py, airr]
+artifacts: { keep: [selected.tsv] }
+deterministic: true
+timeout: 30m

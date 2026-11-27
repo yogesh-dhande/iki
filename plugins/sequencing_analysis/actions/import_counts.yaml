@@ -1,0 +1,41 @@
+apiVersion: iki/v1
+kind: Action
+name: import_counts
+label: Import RNA-seq counts
+description: >-
+  Keep one sample's raw integer gene counts from a featureCounts report or a gene-by-sample
+  count matrix a pipeline produced.
+inputs:
+  library: { type: iki/sequencing.SequencingLibrary }
+  run: { type: iki/sequencing.SequencingRun, optional: true }
+  material:
+    type: iki/core.Entity
+    optional: true
+    description: The registered strain, cell line or other material the library's sample represents.
+params:
+  report:
+    type: file
+    label: Count matrix
+    required: true
+    max_size: 2GiB
+    media_types: [text/tab-separated-values, text/plain, application/gzip, application/octet-stream]
+  tool: { type: string, label: Counting tool or pipeline, required: true, max_length: 120 }
+  tool_version: { type: string, label: Tool or pipeline version, required: true, max_length: 120 }
+  reference:
+    type: string
+    label: Reference build and annotation
+    required: true
+    max_length: 250
+    description: The genome build and gene annotation release the reads were counted against.
+  column:
+    type: string
+    label: Sample column
+    max_length: 500
+    description: The sample's exact column heading. Needed when the matrix has more than one sample.
+effects:
+  creates: [{ type: SequencingAnalysisResult, derived_from: [library, run, material] }]
+runs_on: { tier: backend, environment: analysis-tools }
+command: [python, ./scripts/import_result.py, counts]
+artifacts: { keep: [selected.tsv] }
+deterministic: true
+timeout: 30m

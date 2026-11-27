@@ -9,6 +9,7 @@
     "iki/lab_roles.qa": "Sample and result QA",
     "iki/lab_roles.reviewer": "Reviewer",
     "iki/lots.qa": "Lot QA",
+    "iki/lots.stock_keeper": "Stock keeper",
     "iki/lots.verification_analyst": "Verification analyst",
     "iki/lots.verification_reviewer": "Verification reviewer",
     "iki/plate_assays.analyst": "Assay analyst",
@@ -67,48 +68,6 @@
                   "message": "Submit the deliverable from Recorded."
                 },
                 {
-                  "name": "has_sample",
-                  "description": null,
-                  "check": "record.material != null",
-                  "when": "record.analysis != null",
-                  "message": "Name the sample that was measured."
-                },
-                {
-                  "name": "has_result",
-                  "description": null,
-                  "check": "record.result != null",
-                  "when": "record.analysis != null",
-                  "message": "Record whether the sample passed or failed."
-                },
-                {
-                  "name": "has_purity",
-                  "description": null,
-                  "check": "record.purity != null",
-                  "when": "record.analysis == \"sec_purity\"",
-                  "message": "Record the SEC purity as a percentage."
-                },
-                {
-                  "name": "has_mass",
-                  "description": null,
-                  "check": "record.measured_mass != null",
-                  "when": "record.analysis == \"intact_mass\"",
-                  "message": "Record the measured intact mass."
-                },
-                {
-                  "name": "has_coverage",
-                  "description": null,
-                  "check": "record.peptide_coverage != null",
-                  "when": "record.analysis == \"peptide_map\"",
-                  "message": "Record the percentage of the protein sequence covered by the peptide map."
-                },
-                {
-                  "name": "has_endotoxin",
-                  "description": null,
-                  "check": "record.endotoxin != null",
-                  "when": "record.analysis == \"endotoxin\"",
-                  "message": "Record the endotoxin units per milligram of protein."
-                },
-                {
                   "name": "active_request",
                   "description": null,
                   "check": "record.request.standing == \"open\" && record.request.status == \"in_progress\"",
@@ -116,18 +75,11 @@
                   "message": "Sign the deliverable while the request is open and in progress at the service."
                 },
                 {
-                  "name": "measured_scope",
+                  "name": "still_requested",
                   "description": null,
-                  "check": "record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses && size(covered_subjects) > 0",
-                  "when": "record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)",
-                  "message": "The measurement must still answer this request for the material it sent."
-                },
-                {
-                  "name": "scope_still_matches",
-                  "description": null,
-                  "check": "record.request.facility_service == \"protein_production\" ? (record.protein != null && record.protein.id in record.request.records) : (record.request.facility_service != \"sequencing\" ||\n covered_subjects.exists(id, id in record.request.tubes))",
+                  "check": "record.material == null || size(covered_subjects) > 0",
                   "when": null,
-                  "message": "The protein or tube must still be on the request."
+                  "message": "The material must still be on the request, or be an aliquot or sample of it."
                 }
               ],
               "signatures": [
@@ -173,18 +125,11 @@
                   "message": "Sign the deliverable while the request is open and in progress at the service."
                 },
                 {
-                  "name": "measured_scope",
+                  "name": "still_requested",
                   "description": null,
-                  "check": "record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses && size(covered_subjects) > 0",
-                  "when": "record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)",
-                  "message": "The measurement must still answer this request for the material it sent."
-                },
-                {
-                  "name": "scope_still_matches",
-                  "description": null,
-                  "check": "record.request.facility_service == \"protein_production\" ? (record.protein != null && record.protein.id in record.request.records) : (record.request.facility_service != \"sequencing\" ||\n covered_subjects.exists(id, id in record.request.tubes))",
+                  "check": "record.material == null || size(covered_subjects) > 0",
                   "when": null,
-                  "message": "The protein or tube must still be on the request."
+                  "message": "The material must still be on the request, or be an aliquot or sample of it."
                 }
               ],
               "signatures": [
@@ -230,18 +175,11 @@
                   "message": "Sign the deliverable while the request is open and in progress at the service."
                 },
                 {
-                  "name": "measured_scope",
+                  "name": "still_requested",
                   "description": null,
-                  "check": "record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses && size(covered_subjects) > 0",
-                  "when": "record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)",
-                  "message": "The measurement must still answer this request for the material it sent."
-                },
-                {
-                  "name": "scope_still_matches",
-                  "description": null,
-                  "check": "record.request.facility_service == \"protein_production\" ? (record.protein != null && record.protein.id in record.request.records) : (record.request.facility_service != \"sequencing\" ||\n covered_subjects.exists(id, id in record.request.tubes))",
+                  "check": "record.material == null || size(covered_subjects) > 0",
                   "when": null,
-                  "message": "The protein or tube must still be on the request."
+                  "message": "The material must still be on the request, or be an aliquot or sample of it."
                 }
               ],
               "signatures": [
@@ -849,7 +787,7 @@
             {
               "name": "quarantined",
               "label": "Quarantined",
-              "description": "Made or received, and not yet released. It can be drawn from to be tested.",
+              "description": "Made or received, and not yet released or made available. It can be drawn from to be tested.",
               "set_by": ["iki/lots.qa"],
               "locks": false,
               "on_edit": null,
@@ -859,9 +797,9 @@
                 {
                   "name": "reopened",
                   "description": "A released lot goes back to quarantine only to correct it, saying why.",
-                  "check": "state.from == \"released\" || state.from == \"on_hold\"",
+                  "check": "state.from in [\"released\", \"on_hold\", \"available\", \"retest_due\"]",
                   "when": null,
-                  "message": "A lot goes back to quarantine from Released or On hold."
+                  "message": "A lot goes back to quarantine from Released, Available, Due for retest or On hold."
                 }
               ],
               "signatures": []
@@ -878,10 +816,10 @@
               "guards": [
                 {
                   "name": "from_quarantine",
-                  "description": "A lot is released from quarantine, or once a hold is lifted.",
-                  "check": "state.from == \"quarantined\" || state.from == \"on_hold\"",
+                  "description": "A lot is released from quarantine, once a hold is lifted, or once it's been retested.",
+                  "check": "state.from in [\"quarantined\", \"on_hold\", \"retest_due\"]",
                   "when": null,
-                  "message": "A lot is released from Quarantined or On hold."
+                  "message": "A lot is released from Quarantined, On hold or Due for retest."
                 },
                 {
                   "name": "has_a_certificate",
@@ -921,7 +859,7 @@
                 {
                   "name": "not_who_edited_it",
                   "description": null,
-                  "check": "edits.disposition.quarantined.all(e, e.by != actor.person)",
+                  "check": "edits.disposition.quarantined.all(e, e.by != actor.person) && edits.disposition.retest_due.all(e, e.by != actor.person)",
                   "when": "record.source == \"made\"",
                   "message": "You edited this lot's record, so someone else in QA releases it."
                 },
@@ -945,10 +883,57 @@
               ]
             },
             {
+              "name": "available",
+              "label": "Available",
+              "description": "In use under the lab's own procedure, without a QA release or certificate: research material and consumables. It isn't Released, and its values stay editable.",
+              "set_by": ["iki/lots.stock_keeper"],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": "optional",
+              "guards": [
+                {
+                  "name": "not_held_by_qa",
+                  "description": "A stock keeper makes a lot available once it's received, or again after a hold put on it while it was available. A hold on a released or retested lot is lifted by QA.",
+                  "check": "state.from == \"quarantined\" || (state.from == \"on_hold\" && last.disposition.on_hold.from == \"available\")",
+                  "when": null,
+                  "message": "A lot is made available from Quarantined, or from On hold when it was available before. QA lifts its own holds."
+                }
+              ],
+              "signatures": []
+            },
+            {
+              "name": "retest_due",
+              "label": "Due for retest",
+              "description": "Past its retest date, and not expired: only QA sampling, until QA releases it again on its retest or it expires.",
+              "set_by": ["iki/lots.qa"],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": "optional",
+              "guards": [
+                {
+                  "name": "past_its_retest_date",
+                  "description": null,
+                  "check": "record.retest_on != null && record.retest_on <= today",
+                  "when": null,
+                  "message": "Its retest date hasn't come."
+                },
+                {
+                  "name": "in_use",
+                  "description": null,
+                  "check": "state.from == \"released\" || state.from == \"available\"",
+                  "when": null,
+                  "message": "A released or available lot comes due for retest."
+                }
+              ],
+              "signatures": []
+            },
+            {
               "name": "on_hold",
               "label": "On hold",
               "description": "Kept from use while something is looked into, such as a deviation or a result out of its specification.",
-              "set_by": ["iki/lots.qa"],
+              "set_by": ["iki/lots.qa", "iki/lots.stock_keeper"],
               "locks": false,
               "on_edit": null,
               "holds_amount": true,
@@ -988,8 +973,8 @@
             {
               "name": "expired",
               "label": "Expired",
-              "description": "Past its expiry or retest date. It's kept, but not used.",
-              "set_by": ["iki/lots.qa"],
+              "description": "Past its expiry date, or past its retest date where the lab's procedure expires it then rather than marking it Due for retest. It's kept, but not used.",
+              "set_by": ["iki/lots.qa", "iki/lots.stock_keeper"],
               "locks": true,
               "on_edit": null,
               "holds_amount": true,
@@ -1013,6 +998,16 @@
               "conditional": false
             },
             {
+              "from": "available",
+              "to": "quarantined",
+              "conditional": false
+            },
+            {
+              "from": "retest_due",
+              "to": "quarantined",
+              "conditional": false
+            },
+            {
               "from": "on_hold",
               "to": "quarantined",
               "conditional": false
@@ -1023,8 +1018,33 @@
               "conditional": true
             },
             {
+              "from": "retest_due",
+              "to": "released",
+              "conditional": true
+            },
+            {
               "from": "on_hold",
               "to": "released",
+              "conditional": true
+            },
+            {
+              "from": "quarantined",
+              "to": "available",
+              "conditional": false
+            },
+            {
+              "from": "on_hold",
+              "to": "available",
+              "conditional": true
+            },
+            {
+              "from": "released",
+              "to": "retest_due",
+              "conditional": true
+            },
+            {
+              "from": "available",
+              "to": "retest_due",
               "conditional": true
             },
             {
@@ -1038,12 +1058,32 @@
               "conditional": false
             },
             {
+              "from": "available",
+              "to": "on_hold",
+              "conditional": false
+            },
+            {
+              "from": "retest_due",
+              "to": "on_hold",
+              "conditional": false
+            },
+            {
               "from": "quarantined",
               "to": "rejected",
               "conditional": false
             },
             {
               "from": "released",
+              "to": "rejected",
+              "conditional": false
+            },
+            {
+              "from": "available",
+              "to": "rejected",
+              "conditional": false
+            },
+            {
+              "from": "retest_due",
               "to": "rejected",
               "conditional": false
             },
@@ -1064,6 +1104,16 @@
             },
             {
               "from": "released",
+              "to": "expired",
+              "conditional": true
+            },
+            {
+              "from": "available",
+              "to": "expired",
+              "conditional": true
+            },
+            {
+              "from": "retest_due",
               "to": "expired",
               "conditional": true
             },

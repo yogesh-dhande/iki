@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# The core's request type: a Research request, so a reviewer at the core signs
+# off what it returns. It sends one protein, and asks for a mass of it.
+apiVersion: iki/v1
+kind: EntityType
+name: ProductionRequest
+label: Production request
+extends: iki/requests.ResearchRequest
+schema_version: 1
+hrid: { prefix: PPR }
+description: A request to express and purify a protein the asking project sends.
+refines:
+  # The records a production request sends are the protein to make (ADR 0235).
+  records: { to: iki/protein.Protein }
+fields:
+  requested_mass:
+    type: quantity
+    label: Requested mass
+    unit: mg
+    min: 0
+    required: true
+    immutable: true
+    description: How much purified protein the project needs.
+rules:
+  one_protein:
+    check: record.records != null && size(record.records) == 1
+    message: Send the one protein the core should produce.
+    fields: [records]
+  positive_mass:
+    check: record.requested_mass > 0
+    message: Ask for a positive mass of protein.
+    fields: [requested_mass]

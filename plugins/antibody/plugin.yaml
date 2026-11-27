@@ -2,9 +2,9 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/antibody
-version: 0.10.0
+version: 0.11.0
 title: Antibody
-description: Antibodies, by the proteins that are their chains, what their variable domains say about them, and their predicted structures.
+description: Antibodies, by the proteins that are their chains, their variable domains' numbering and germlines, and a screen for their sequence liabilities.
 license: Apache-2.0
 iki: ">=0.1"
 homepage: https://ikisci.org/plugins/antibody
@@ -12,4 +12,3 @@ dependencies:
   iki/protein:
     types:
       Protein: ">=2"
-      ProteinStructure: ">=2"

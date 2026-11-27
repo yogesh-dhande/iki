@@ -642,6 +642,90 @@ def test_a_subtype_refines_its_parents_rows_roles(tmp_path: Path) -> None:
     assert codes(nested(deeper.replace(f"      {light}\n", ""))) == []
 
 
+def test_a_subtype_refines_what_an_inherited_reference_refers_to(tmp_path: Path) -> None:
+    """ADR 0235: a subtype narrows an inherited reference to types among its parent's, and
+    its rules read what the narrower type has."""
+    request = TYPE.replace("Assay", "Request").replace(
+        "hrid: { prefix: ASY }\n", "abstract: true\n"
+    )
+    special = (
+        TYPE.replace("name: Assay", "name: SpecialRequest\nextends: Request").replace("ASY", "SPR")
+        + "fields:\n  panel: { type: enum, values: [purity, mass] }\n"
+    )
+    other = TYPE.replace("Assay", "Thing").replace("ASY", "THG")
+    result_base = (
+        fields(
+            """\
+        request: { type: ref, to: Request, required: true }
+        tubes: { type: list, items: { type: ref, to: iki/core.Entity } }
+        title: { type: string }
+        """
+        )
+        .replace("name: Assay", "name: Answer")
+        .replace("ASY", "ANS")
+    )
+
+    def made(subtype: str) -> Result:
+        return make(
+            tmp_path,
+            {
+                "types/request.yaml": request,
+                "types/special.yaml": special,
+                "types/thing.yaml": other,
+                "types/answer.yaml": result_base,
+                "types/special_answer.yaml": subtype,
+            },
+        )
+
+    subtype = """\
+apiVersion: iki/v1
+kind: EntityType
+name: SpecialAnswer
+extends: Answer
+schema_version: 1
+hrid: { prefix: SPA }
+refines:
+  request: { to: SpecialRequest }
+  tubes: { to: [Thing] }
+rules:
+  measured:
+    check: record.request.panel != null
+    message: The request names its panel.
+"""
+    result = made(subtype)
+    assert codes(result) == [], [(p.code, p.message) for p in result.problems]
+    assert result.plugin is not None
+    answer = result.plugin.types["acme/lab.SpecialAnswer"]
+    assert answer.refines_to == {
+        "request": ("acme/lab.SpecialRequest",),
+        "tubes": ("acme/lab.Thing",),
+    }
+    assert answer.refines == {}
+    assert plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin)))) == result.plugin
+    # Without the refinement, the parent's type has no `panel` to read.
+    assert "invalid-expression" in codes(
+        made(subtype.replace("  request: { to: SpecialRequest }\n", ""))
+    )
+    # Wider than its parent's: a type the parent's reference doesn't refer to.
+    assert codes(made(subtype.replace("to: SpecialRequest", "to: Thing"))) == [
+        "refines-wider",
+        "invalid-expression",
+    ]
+    # Anything the parent's refers to (`iki/core.Entity`) can be narrowed to any type.
+    assert codes(made(subtype.replace("to: [Thing]", "to: [Request]"))) == []
+    # Its own field, or one that isn't a reference.
+    own = subtype + "fields:\n  mine: { type: ref, to: Thing }\n"
+    assert codes(made(own.replace("tubes: { to: [Thing] }", "mine: { to: Thing }"))) == [
+        "refines-own-field"
+    ]
+    assert codes(made(subtype.replace("tubes: { to:", "nothing: { to:"))) == [
+        "refines-not-a-reference"
+    ]
+    assert codes(made(subtype.replace("tubes: { to: [Thing] }", "title: { to: Thing }"))) == [
+        "refines-not-a-reference"
+    ]
+
+
 def test_an_input_includes_a_rows_references(tmp_path: Path) -> None:
     """ADR 0161: `parts.part` includes each row's reference; a cell that isn't one, or a
     field that isn't rows, can't be."""

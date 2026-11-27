@@ -4,7 +4,7 @@ kind: EntityType
 name: PlainDeliverable
 label: Plain deliverable
 extends: Deliverable
-schema_version: 1
+schema_version: 2
 hrid: { prefix: DLV }
 description: A result the service project can return to the team that asked without a signature.
 result:
@@ -35,31 +35,6 @@ fields:
           active_request:
             check: record.request.standing == "open" && record.request.status == "in_progress"
             message: Deliver while the request is open and in progress.
-          scope_still_matches:
-            check: >-
-              record.request.facility_service == "protein_production" ?
-              (record.protein != null && record.protein.id in record.request.records) :
-              (record.request.facility_service != "sequencing" ||
-               covered_subjects.exists(id, id in record.request.tubes))
-            message: The returned evidence must match the current request.
-rules:
-  production_evidence:
-    when: record.request.facility_service == "protein_production"
-    check: >-
-      record.protein != null && record.protein.id in record.request.records &&
-      record.material == null && record.run_accession == null &&
-      (record.data_files == null || size(record.data_files) == 0) &&
-      (record.outcome == "unsuccessful" ||
-        (record.lot_number != null && record.lot_number != "" &&
-         record.delivered_mass != null && record.delivered_mass > 0))
-    message: Name the requested protein and give a lot number and positive mass for a successful delivery.
-    fields: [protein, lot_number, delivered_mass, material, run_accession, data_files, outcome]
-  sequencing_evidence:
-    when: record.request.facility_service == "sequencing"
-    check: >-
-      record.material != null &&
-      record.protein == null && record.lot_number == null && record.delivered_mass == null &&
-      (record.outcome == "unsuccessful" || record.run_accession != null ||
-        (record.data_files != null && size(record.data_files) > 0))
-    message: Name a tube on the request and attach files or a public run accession for a successful delivery.
-    fields: [material, data_files, run_accession, protein, lot_number, delivered_mass, outcome]
+          still_requested:
+            check: record.material == null || size(covered_subjects) > 0
+            message: The material must still be on the request, or be an aliquot or sample of it.

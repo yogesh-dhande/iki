@@ -57,6 +57,12 @@ const time = new Intl.DateTimeFormat(void 0, {
 	hour: "2-digit",
 	minute: "2-digit"
 });
+const when = new Intl.DateTimeFormat(void 0, {
+	day: "numeric",
+	month: "short",
+	hour: "2-digit",
+	minute: "2-digit"
+});
 const day = new Intl.DateTimeFormat(void 0, {
 	weekday: "long",
 	day: "numeric",
@@ -74,6 +80,25 @@ function firstOfMonth(date, offset = 0) {
 	first.setMonth(first.getMonth() + offset);
 	first.setHours(0, 0, 0, 0);
 	return first;
+}
+function midnight(date) {
+	const start = new Date(date);
+	start.setHours(0, 0, 0, 0);
+	return start;
+}
+/** The local days of the month from `first` to `end` that a booking from `start` to
+* `until` covers: its start's day, and each later day it's still on at midnight. */
+function daysCovered(start, until, first, end) {
+	if (!Number.isFinite(start.getTime())) return [];
+	const last = until && until > start ? until : null;
+	if (start >= end || (last ? last <= first : start < first)) return [];
+	const days = [];
+	const at = midnight(start < first ? first : start);
+	do {
+		days.push(at.getDate());
+		at.setDate(at.getDate() + 1);
+	} while (last && at < last && at < end);
+	return days;
 }
 function button(text, clicked) {
 	const element = document.createElement("button");
@@ -153,9 +178,9 @@ var BookingCalendar = class extends HTMLElement {
 			composed: true
 		}));
 	}
-	#booking(booking, start) {
-		const end = new Date(booking.endsAt ?? "");
-		const text = `${Number.isFinite(end.getTime()) ? `${time.format(start)}–${time.format(end)}` : time.format(start)} ${booking.title}${booking.instrument ? ` (${booking.instrument})` : ""}` + (booking.bookedFor ? `, for ${booking.bookedFor}` : "") + (booking.work ? ` · ${booking.work}` : "");
+	#booking(booking, start, end) {
+		const format = end && midnight(end) > midnight(start) ? when : time;
+		const text = `${end ? `${format.format(start)}–${format.format(end)}` : time.format(start)} ${booking.title}${booking.instrument ? ` (${booking.instrument})` : ""}` + (booking.bookedFor ? `, for ${booking.bookedFor}` : "") + (booking.work ? ` · ${booking.work}` : "");
 		const open = button(text, () => {
 			this.dispatchEvent(new CustomEvent("booking-open", {
 				detail: { id: booking.id },
@@ -189,14 +214,18 @@ var BookingCalendar = class extends HTMLElement {
 		let cancelled = 0;
 		for (const booking of bookings) {
 			const start = new Date(booking.startsAt);
-			if (!(start >= first && start < end)) continue;
+			const until = new Date(booking.endsAt ?? "");
+			const finish = Number.isFinite(until.getTime()) ? until : null;
+			const days = daysCovered(start, finish, first, end);
+			if (!days.length) continue;
 			if (booking.cancelled && offered && !showCancelled) continue;
 			if (booking.cancelled) cancelled++;
 			else count++;
-			const date = start.getDate();
-			const items = entries.get(date) ?? [];
-			items.push(this.#booking(booking, start));
-			entries.set(date, items);
+			for (const date of days) {
+				const items = entries.get(date) ?? [];
+				items.push(this.#booking(booking, start, finish));
+				entries.set(date, items);
+			}
 		}
 		const month = monthName.format(first);
 		this.#status.textContent = error ?? `${String(count)} booking${count === 1 ? "" : "s"} in ${month}` + (cancelled ? `, ${String(cancelled)} cancelled` : "") + (loading ? ", finding more…" : "") + (limited ? `: the first ${String(bookings.length)} it can show` : "");
@@ -280,13 +309,13 @@ var InstrumentBookings = class extends BookingCalendar {
 			where: { all: [
 				{
 					field: "starts_at",
-					op: "gte",
-					value: start
-				},
-				{
-					field: "starts_at",
 					op: "lt",
 					value: end
+				},
+				{
+					field: "ends_at",
+					op: "gt",
+					value: start
 				},
 				...this.#cancelled ? [] : [{
 					field: "cancelled",

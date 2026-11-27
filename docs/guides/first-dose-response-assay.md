@@ -51,7 +51,9 @@ their review requirements. A fit already running may need to be run again.
 
 Create an **Assay plate**, enter its procedure and revision, and assign your
 samples, replicates, concentrations and controls on the **Plate map** tab.
-Attach the reader file, preview the well mapping and commit the measurements.
+Choose the plate's reader file format, attach the export, preview the well
+mapping and commit the measurements. To read the same plate again, attach the
+next export and commit it as another read.
 Run **Fit a dose-response curve**, select the sample and endpoint, then review
 the curve and sign according to the project’s flow. If the assay is commissioned
 by another project, configure the service’s request intake and link the plate
@@ -88,7 +90,8 @@ completed examples are also available after the development seed runs.
 2. **Analyst** — Open **Tox21 firefly luciferase inhibition** and its **Plate map** tab.
    Rows A–C are apigenin replicates and D–F are daidzein replicates. Columns 1–11 span
    0.017–115.2 µM. Column 12 contains the active (ataluren) and inactive (caffeine) controls.
-3. Choose **Preview reader file**. Check the 72 signed percent-activity readings and the
+3. The plate's reader file format is the **Iki plate matrix of normalized activity (%)**.
+   Choose **Preview reader file**. Check the 72 signed percent-activity readings and the
    controls against their file rows. Choose **Commit measurements**. The committed read links
    to the input CSV and every individual measurement. [Plate layout and source data](../../plugins/plate_assays/data/curve-example.md).
 4. Run **Fit a dose-response curve** once for each compound on that read. Choose **IC50**

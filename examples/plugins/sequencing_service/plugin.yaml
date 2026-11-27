@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: acme/sequencing_service
+version: 0.1.0
+title: Sequencing service
+description: >-
+  A sequencing core's own request and deliverable: the tubes a project sends,
+  the method it asks for, and the reads the core returns for each tube.
+license: Apache-2.0
+iki: ">=0.1"
+dependencies:
+  iki/requests: { types: { QCRequest: ">=2", QCDeliverable: ">=3" } }

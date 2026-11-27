@@ -1868,25 +1868,16 @@ def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
     prefix = "iki/sequencing."
     give_lab_roles(alice, project, prefix + "reviewer")
     accession = "SRR8690267"
-    runs = matching_records(alice, project, prefix + "SequencingRun", "run_accession", accession)
-    run = (
-        runs[0]
-        if runs
-        else created(
-            alice,
-            project,
-            prefix + "SequencingRun",
-            {
-                "name": "Yeast RNA-seq excerpt",
-                "instrument_model": "Illumina HiSeq 2500",
-                "run_accession": accession,
-            },
-        )
-    )
-    read_sets = matching_records(alice, project, prefix + "ReadSet", "run", run["id"])
+    read_sets = matching_records(alice, project, prefix + "ReadSet", "run_accession", accession)
     if read_sets:
         reads = read_sets[0]
     else:
+        run = created(
+            alice,
+            project,
+            prefix + "SequencingRun",
+            {"name": "Yeast RNA-seq excerpt", "instrument_model": "Illumina HiSeq 2500"},
+        )
         sample = created(
             alice,
             project,
@@ -1915,7 +1906,7 @@ def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
             alice,
             project,
             prefix + "ReadSet",
-            {"run": run["id"], "library": library["id"], **files},
+            {"run": run["id"], "library": library["id"], "run_accession": accession, **files},
         )
     summaries = matching_records(alice, project, prefix + "FASTQSummary", "read_set", reads["id"])
     if summaries:
@@ -1966,10 +1957,9 @@ def sequencing_analysis(alice: requests.Session, project: dict[str, Any]) -> Non
         imported = launch(
             alice,
             project,
-            prefix + "import_result",
+            prefix + "import_counts",
             {"library": library["id"]},
             {
-                "format": "counts",
                 "report": report,
                 "tool": "featureCounts",
                 "tool_version": "Reported in GEO GSE176296",
@@ -2025,25 +2015,20 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
         _, plasmid = register_puc19(alice, project)
         launch(alice, project, "iki/plasmid.annotate_plasmid", {"plasmid": plasmid["id"]})
     accession = "SRR17915342"
-    runs = matching_records(
-        alice, project, "iki/sequencing.SequencingRun", "run_accession", accession
+    read_sets = matching_records(
+        alice, project, "iki/sequencing.ReadSet", "run_accession", accession
     )
-    run = (
-        runs[0]
-        if runs
-        else created(
-            alice,
-            project,
-            "iki/sequencing.SequencingRun",
-            {"name": "pUC19 MinION run", "instrument_model": "MinION", "run_accession": accession},
-        )
-    )
-    read_sets = matching_records(alice, project, "iki/sequencing.ReadSet", "run", run["id"])
     if read_sets:
         reads = read_sets[0]
         library = record(alice, reads["values"]["library"])
         prep = record(alice, library["values"]["sample"])
     else:
+        run = created(
+            alice,
+            project,
+            "iki/sequencing.SequencingRun",
+            {"name": "pUC19 MinION run", "instrument_model": "MinION"},
+        )
         prep = created(
             alice,
             project,
@@ -2070,7 +2055,12 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
             alice,
             project,
             "iki/sequencing.ReadSet",
-            {"run": run["id"], "library": library["id"], "read_1": read_1},
+            {
+                "run": run["id"],
+                "library": library["id"],
+                "run_accession": accession,
+                "read_1": read_1,
+            },
         )
     results = matching_records(
         alice, project, prefix + "WholePlasmidAlignment", "read_set", reads["id"]
@@ -2202,7 +2192,7 @@ def proteomics(alice: requests.Session, project: dict[str, Any]) -> None:
             project,
             prefix + "import_search",
             {"dataset": dataset["id"]},
-            {"format": "mztab", "version": "PRIDE 1.0 rc5", "reports": [report]},
+            {"format": "mztab_1_0", "version": "PRIDE 1.0 rc5", "reports": [report]},
         )
         artifact = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts")
         if [item["path"] for item in artifact.json()] != ["identifications.jsonl"]:
@@ -2212,6 +2202,9 @@ def proteomics(alice: requests.Session, project: dict[str, Any]) -> None:
     counts = result["values"]["summary"]["counts"]
     if counts != {"protein_group": 2, "spectrum_match": 2}:
         fail(f"{result['hrid']} recorded unexpected mzTab counts {counts}")
+    tables = [source["table"] for source in result["values"]["summary"]["sources"]]
+    if tables != ["mzTab 1.0 rc5"]:
+        fail(f"{result['hrid']} read its report as {tables}, not the PRIDE mzTab 1.0 rc5 export")
     ok(f"{result['hrid']}: imported the PRIDE 16649 proteomics excerpt")
 
 
@@ -2858,7 +2851,7 @@ def analysis_result(
         analyst,
         asking,
         "iki/requests.QCRequest",
-        {"title": "SEC purity", "materials": [sample["id"]], "analyses": ["sec_purity"]},
+        {"title": "SEC purity", "materials": [sample["id"]]},
     )
     path = start_service_work(analyst, core, request)
     report = upload(
@@ -2866,9 +2859,7 @@ def analysis_result(
     )
     measurement = {
         "material": sample["id"],
-        "analysis": "sec_purity",
-        "purity": 98.5,
-        "result": "pass",
+        "notes": "SEC-HPLC main peak 98.5 % (synthetic training measurement).",
     }
     result = created(
         analyst,
@@ -2905,12 +2896,12 @@ def analysis_result(
     if reversal["status"] != "signed" or not reversal["set"]:
         fail(f"Reopening {result['hrid']} for correction failed: {reversal}")
     reopened = record(analyst, result["id"])
-    measurement["purity"] = 97.0
+    measurement["notes"] = "SEC-HPLC main peak 97.0 % after reintegration (synthetic)."
     edit = api_call(
         analyst,
         "PATCH",
         result_path,
-        {"values": {"purity": measurement["purity"]}, "reason": "Correct the measured purity"},
+        {"values": {"notes": measurement["notes"]}, "reason": "Correct the measured purity"},
         {"If-Match": f'"{reopened["revision"]}"'},
     )
     if edit.status_code != 200 or edit.json()["values"]["review"] != "recorded":
@@ -2983,7 +2974,9 @@ def core_facility_requests(
     asking: dict[str, Any],
     core: dict[str, Any],
 ) -> None:
-    """The working core returns production and sequencing deliverables through Requests."""
+    """The working core returns production and sequencing deliverables through Requests.
+    The lot, mass and run accession are in each delivery report: a core that records them
+    as fields uses its own request types, as the facility examples show (ADR 0235)."""
     give_lab_roles(analyst, core, "iki/lab_roles.coordinator")
     example = Path(__file__).resolve().parents[2] / "examples" / "core-facility-requests"
     # The production transaction is simulated; only the registered UniProt identity is public.
@@ -3005,25 +2998,15 @@ def core_facility_requests(
         (
             "Research",
             "P00330-production.txt",
-            {
-                "title": "Training: ADH1 production",
-                "facility_service": "protein_production",
-                "records": [protein["id"]],
-                "requested_mass": 1,
-            },
-            {"protein": protein["id"], "lot_number": "TRAINING-ADH1-01", "delivered_mass": 0.8},
+            {"title": "Training: ADH1 production, 1 mg", "records": [protein["id"]]},
+            {},
             ((reviewer, "bob", "signed_off"),),
         ),
         (
             "QC",
             "ERR13376132-delivery.txt",
-            {
-                "title": "Training: long-read sequencing",
-                "facility_service": "sequencing",
-                "sequencing_method": "long_read",
-                "tubes": [tube["id"]],
-            },
-            {"material": tube["id"], "run_accession": "ERR13376132"},
+            {"title": "Training: long-read sequencing", "tubes": [tube["id"]]},
+            {"material": tube["id"]},
             (
                 (analyst, "alice", "submitted"),
                 (reviewer, "bob", "reviewed"),
@@ -4206,6 +4189,7 @@ def plate_assay(alice: requests.Session, project: dict[str, Any]) -> None:
                 "size": "plate_96",
                 "assignments": public_plate.assignments(compounds),
                 "reader_file": source,
+                "reader_format": "iki_plate_matrix",
                 "procedure": public_plate.ASSAY,
                 "procedure_revision": public_plate.SOURCE["procedure_revision"],
             },
@@ -4255,6 +4239,7 @@ def fit_assay_plate(
         or set(read["values"]["measurements"]) != {m["id"] for m in measurements}
         or any(
             m["values"]["reader_file"] != plate["values"]["reader_file"]
+            or m["values"]["readout"] != "normalized_activity"
             or m["values"]["activity_percent"] is None
             or m["values"]["signal"] is not None
             for m in measurements
@@ -5439,11 +5424,16 @@ def mouse_stocks(alice: requests.Session, project: dict[str, Any]) -> None:
         project,
         plugin + "register_mgi_strain",
         {},
-        {"file": report, "mgi_id": "MGI:3028467", "jax_stock": "000664"},
+        {"file": report, "mgi_id": "MGI:3028467"},
     )
     [effect] = imported["effects"]
     reference = record(alice, effect["entity"])["values"]
-    if (reference["nomenclature"], reference["jax_stock"]) != ("C57BL/6J", "000664"):
+    # The MGI report has no repository stocks: a JAX stock comes from the JAX catalogue.
+    if (reference["catalogue"], reference["nomenclature"], reference.get("jax_stock")) != (
+        "mgi",
+        "C57BL/6J",
+        None,
+    ):
         fail(f"{imported['hrid']} registered an unexpected catalogue strain {reference}")
     # https://www.jax.org/strain/000058 and https://www.informatics.jax.org/allele/MGI:1855985
     allele = created(
@@ -5475,14 +5465,26 @@ def mouse_stocks(alice: requests.Session, project: dict[str, Any]) -> None:
         alice,
         project,
         plugin + "MouseCryostock",
-        {**banked, "kind": "sperm", "genotype": donor["id"], "barcode": f"SYNTHETIC-S-{tag}"},
+        {
+            **banked,
+            "kind": "sperm",
+            "carrier": "straw",
+            "genotype": donor["id"],
+            "barcode": f"SYNTHETIC-S-{tag}",
+        },
     )
     embryo_code = f"SYNTHETIC-E-{tag}"
     embryos = created(
         alice,
         project,
         plugin + "MouseCryostock",
-        {**banked, "kind": "embryos", "embryos_at_banking": 4, "barcode": embryo_code},
+        {
+            **banked,
+            "kind": "embryos",
+            "carrier": "cryovial",
+            "embryos_at_banking": 4,
+            "barcode": embryo_code,
+        },
         {"value": 100, "unit": "uL"},
     )
     box = created(alice, project, plugin + "MouseCryobox", {"name": "Synthetic mouse cryobox"})
@@ -5870,6 +5872,7 @@ NUMBERING_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-antibody-numbering-tools"
     "@sha256:c314f625ee3c381add9a9cfcba3596cd7e0b61529764dc906c4fb09902007384"
 )
+#: The ab_predict plugin's ImmuneBuilder image (its environments/structure-tools.yaml).
 IMMUNEBUILDER_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-antibody-structure-tools"
     "@sha256:eb6f0596205fa9fac71d5909b25e992668854599fb8e53e60ab5e88604b81e85"
@@ -6113,6 +6116,7 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
         if (
             (got.get("chain_type"), got.get(cdr), got.get(gene), got.get("species"))
             != (kind, cdr3, v_gene, "human")
+            or got.get("germline_set") != "ANARCI 2026.2.13.2, IMGT germlines"
             or got.get("numbering_scheme") != "imgt"
             or not isinstance(identity, (int, float))
             or not 80 < identity < 90
@@ -6201,6 +6205,8 @@ def biologics_ms(alice: requests.Session, project: dict[str, Any], antibody_id: 
     )
     if heavy["covered"] != 9:
         fail(f"{comparison['hrid']} contains {heavy}, expected nine covered heavy chain residues")
+    if comparison["values"]["report_format"] != "iki_peptide_map_1":
+        fail(f"{comparison['hrid']} did not record the peptide map 1 interchange profile")
     ok(f"{comparison['hrid']}: mapped the published trastuzumab peptide onto {antibody['hrid']}")
 
 
@@ -6326,9 +6332,15 @@ def screened(
             (f["kind"], f["motif"], f["position"], f["number"], f["region"], f["severity"])
             for f in got.get("liabilities") or []
         ]
+        screen = {
+            "rule_set": "developability_v1",
+            "numbering_scheme": "imgt",
+            "cdr_definition": "imgt",
+        }
         counts = Counter(kind for kind, *_ in wanted)
         if (
             found != wanted
+            or got.get("liability_screen") != screen
             or got.get("liability_count") != len(wanted)
             or got.get("liability_counts") != dict(sorted(counts.items()))
         ):
@@ -6349,8 +6361,9 @@ def predicted(
     heavy: dict[str, Any],
     light: dict[str, Any],
 ) -> None:
-    """iki/antibody.predict_structure_with_immunebuilder: trastuzumab's structure from its chains,
-    which its input includes (ADR 0105), in a pod of its own with the plugin's image."""
+    """iki/ab_predict.predict_structure_with_immunebuilder, the optional structure provider:
+    trastuzumab's structure from its chains, which its input includes (ADR 0105), in a pod of
+    its own with that plugin's image. Registration, numbering and the screen ran without it."""
     # Numbering changed the chains: the run reads them as they are now.
     revisions = {
         c["id"]: api_call(alice, "GET", f"/entities/{c['id']}").json()["revision"]
@@ -6360,13 +6373,13 @@ def predicted(
     run = launch(
         alice,
         project,
-        "iki/antibody.predict_structure_with_immunebuilder",
+        "iki/ab_predict.predict_structure_with_immunebuilder",
         {"antibody": antibody},
         within=1800,
     )
     (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
     if attempt["environment_build"] != IMMUNEBUILDER_TOOLS.rpartition("@")[2]:
-        fail(f"{run['hrid']} didn't run in the antibody structure-tools image: {attempt}")
+        fail(f"{run['hrid']} didn't run in the ImmuneBuilder structure-tools image: {attempt}")
     if attempt["template"] != "container-antibody-structures":
         fail(f"{run['hrid']} didn't run on the antibody structures template: {attempt}")
     read = {(i["field"], i["entity"], i["revision"]) for i in run.get("included") or []}
@@ -6383,6 +6396,8 @@ def predicted(
     error = structure.get("predicted_error")
     if (
         structure.get("method") != "predicted"
+        or (structure.get("immunebuilder_model"), structure.get("immunebuilder_version"))
+        != ("abodybuilder2", "1.2")
         or structure.get("chains") != [entry_of(heavy), entry_of(light)]
         or structure.get("chain_ids") != ["H", "L"]
         or not isinstance(error, (int, float))
@@ -6391,7 +6406,7 @@ def predicted(
     ):
         fail(f"{run['hrid']} made {made[0]['hrid']} as {structure}")
     ok(
-        "iki/antibody.predict_structure_with_immunebuilder ran in a pod of its own "
+        "iki/ab_predict.predict_structure_with_immunebuilder ran in a pod of its own "
         f"({run['hrid']}): "
         f"{made[0]['hrid']}, from {heavy['hrid']} and {light['hrid']} as numbered, "
         f"estimated error {error} Å (CDR-H3 {structure.get('cdr_h3_predicted_error')} Å)"

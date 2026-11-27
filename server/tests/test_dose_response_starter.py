@@ -413,6 +413,7 @@ def _run_example(world: World, flow: str, directory: Path, adapter: SdkApi) -> N
     controls = [v for v in rows.values() if v["control"]]
     assert {r["well"] for r in controls} == {"A12", "B12", "C12", "D12", "E12", "F12"}
     assert all(r["signal"] is None for r in rows.values())
+    assert {r["readout"] for r in rows.values()} == {"normalized_activity"}
     with public_plate.READER_FILE.open() as archive:
         _, _, *matrix = csv.reader(archive)
     expected_activity = {
@@ -548,6 +549,7 @@ def _check_derivative_results(
             "request": str(request.pk),
             "size": "plate_96",
             "reader_file": ids["reader_file"],
+            "reader_format": "iki_plate_matrix",
             "assignments": layout,
             "procedure": "SOP-PLATE",
             "procedure_revision": "2",

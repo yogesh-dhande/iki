@@ -5,8 +5,8 @@ name: register_mgi_strain
 label: Register a mouse strain from an MGI report
 description: >-
   Looks up one MGI strain accession in the official strain nomenclature report.
-  Keeps its name and the exact source row's digest. Add a JAX stock number
-  from the JAX catalogue when one applies.
+  Keeps its name and the exact source row's digest. The report has no repository
+  stocks: add a JAX stock number to the strain from the JAX catalogue.
 params:
   file:
     type: file
@@ -20,11 +20,6 @@ params:
     label: MGI strain accession
     pattern: "^MGI:[1-9][0-9]*$"
     required: true
-  jax_stock:
-    type: string
-    label: JAX stock number
-    description: All six digits, including any leading zeros.
-    pattern: "^[0-9]{6}$"
 effects:
   creates:
     - { type: MouseStrain }

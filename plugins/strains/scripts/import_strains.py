@@ -8,18 +8,51 @@ import re
 from pathlib import Path
 from typing import Any
 
-COLUMNS = {"authority", "accession", "taxon_id", "scientific_name", "kind", "name", "genotype"}
+#: Each value a strain takes from the file, and the header Iki's own exchange format gives it.
+FIELDS = ("authority", "accession", "taxon_id", "scientific_name", "kind", "name", "genotype")
+#: Values a run can give for every row instead of a column.
+CONSTANTS = ("authority", "kind")
+#: Values that can be left out of a file altogether.
+OPTIONAL = ("name", "genotype")
 
 
-def catalogue(path: Path, file_id: str) -> list[dict[str, Any]]:
+def columns(headers: list[str], params: dict[str, Any]) -> tuple[dict[str, int], dict[str, str]]:
+    """Where each field is in a row, and the values given for every row instead."""
+    constant = {f: params[f] for f in CONSTANTS if params.get(f)}
+    where: dict[str, int] = {}
+    named: dict[str, str] = {}
+    for f in FIELDS:
+        header = params.get(f"{f}_column") or f
+        found = [i for i, h in enumerate(headers) if h.strip() == header]
+        if len(found) > 1:
+            raise ValueError(f"The header has more than one {header} column.")
+        if f in constant:
+            if found:
+                raise ValueError(f"Give {f} in the {header} column or for every row, not both.")
+            continue
+        if not found:
+            if f in OPTIONAL and header == f:
+                continue
+            given = ", or give it for every row" if f in CONSTANTS else ""
+            raise ValueError(f"The file has no {header} column for {f}{given}.")
+        if header in named.values():
+            other = next(k for k, v in named.items() if v == header)
+            raise ValueError(f"{other} and {f} name the same column, {header}.")
+        named[f] = header
+        where[f] = found[0]
+    return where, constant
+
+
+def catalogue(
+    path: Path, file_id: str, params: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     # Keep the original line endings for the digest of each CSV record, including
     # embedded newlines in quoted cells. Excel sometimes writes a UTF-8 BOM.
     with path.open(encoding="utf-8-sig", newline="") as stream:
         lines = stream.readlines()
     reader = csv.reader(lines, strict=True)
     headers = next(reader, [])
-    if len(headers) != len(COLUMNS) or set(headers) != COLUMNS:
-        raise ValueError("The header must contain each of " + ", ".join(sorted(COLUMNS)) + " once.")
+    where, constant = columns(headers, params or {})
 
     creates: list[dict[str, Any]] = []
     taxa: dict[int, str] = {}
@@ -34,7 +67,10 @@ def catalogue(path: Path, file_id: str) -> list[dict[str, Any]]:
         line = start + 1
         if len(cells) != len(headers):
             raise ValueError(f"Line {line} has {len(cells)} cells. Expected {len(headers)}.")
-        row = dict(zip(headers, (cell.strip() for cell in cells), strict=True))
+        row = {f: cells[i].strip() for f, i in where.items()}
+        row.update(constant)
+        for f in OPTIONAL:
+            row.setdefault(f, "")
         authority, accession = row["authority"], row["accession"]
         if not re.fullmatch(r"[A-Z][A-Z0-9_-]{0,63}", authority):
             raise ValueError(f"Line {line} needs an uppercase collection or lab code.")
@@ -96,10 +132,11 @@ def catalogue(path: Path, file_id: str) -> list[dict[str, Any]]:
 
 def main() -> None:
     run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    file_id = run["params"]["file"]
+    params = run["params"]
+    file_id = params["file"]
     given = run["files"][file_id]
     try:
-        creates = catalogue(Path(given["path"]), file_id)
+        creates = catalogue(Path(given["path"]), file_id, params)
     except (csv.Error, ValueError) as exc:
         print(f"::error {given['name']}: {exc}", flush=True)
         raise SystemExit(1) from exc

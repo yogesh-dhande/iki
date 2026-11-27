@@ -121,6 +121,43 @@ def test_preview_issues_and_repeated_wells(browser: Browser, plate_frame: str) -
     page.context.close()
 
 
+def test_a_committed_plate_takes_its_next_read(browser: Browser, plate_frame: str) -> None:
+    """The layout stays fixed; a committed export isn't offered again, the next one is."""
+    plate = synthetic_plate("plate_96", "A1")
+    values = plate["values"]
+    values["reader_file"] = "00000000-0000-4000-8000-000000000009"
+    values["preview"]["format"] = {
+        "id": "bmg_mars_absorbance",
+        "version": 1,
+        "label": "BMG LABTECH MARS absorbance endpoint (OD)",
+    }
+    values["preview"]["acquisition"] = {"test_name": "Synthetic read", "test_run": "2"}
+    values["preview"]["source"] = {"sha256": "b" * 64}
+    values["committed"] = True
+    values["committed_reads"] = [{"reader_file": "first", "sha256": "a" * 64}]
+    page = open_frame(browser, plate_frame, MODULE, plate)
+    place(page, ELEMENT, {"runs": [ASSIGN, PREVIEW, COMMIT]})
+    status = page.get_by_role("status").filter(has_text="1 read committed")
+    status.wait_for()
+    assert page.get_by_text(
+        "Read as BMG LABTECH MARS absorbance endpoint (OD), version 1. "
+        "Export: Synthetic read · run 2."
+    ).is_visible()
+    assert page.get_by_role("button", name="Assign a dilution series").count() == 0
+    page.get_by_role("button", name="Commit measurements").click()
+    assert page.evaluate("window.ran") == [COMMIT]
+    assert ERRORS[page] == []
+    page.context.close()
+    values["committed_reads"].append({"reader_file": values["reader_file"], "sha256": "b" * 64})
+    page = open_frame(browser, plate_frame, MODULE, plate)
+    place(page, ELEMENT, {"runs": [ASSIGN, PREVIEW, COMMIT]})
+    page.get_by_role("status").filter(has_text="2 reads committed").wait_for()
+    assert page.get_by_role("button", name="Commit measurements").count() == 0
+    assert page.get_by_role("button", name="Refresh reader preview").is_visible()
+    assert ERRORS[page] == []
+    page.context.close()
+
+
 @pytest.mark.parametrize("scheme", ["light", "dark"])
 def test_map_accessibility_at_phone_width(browser: Browser, plate_frame: str, scheme: str) -> None:
     page = open_frame(

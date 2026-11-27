@@ -8,19 +8,32 @@ has its own label, measurements, evidence and QA disposition.
 Every kind of lot extends one abstract type, so a search of `iki/lots.Lot`
 finds them all.
 
-| Type                     | HRID           | Lot of                                                    | Amount kept in | What's measured, and worked out                                                                                                                 |
-| ------------------------ | -------------- | --------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `iki/lots.OligoLot`      | `OLOT-000001`  | `iki/oligo.Oligonucleotide`                               | nmol, by µM    | Synthesis scale, purification, counterion, purity; yield in OD260 and nmol; mass by ESI-MS against the one its HELM gives                       |
-| `iki/lots.PlasmidPrep`   | `PREP-000001`  | `iki/plasmid.Plasmid`                                     | µg, by ng/µL   | Prep scale and method, kit, host strain; concentration from A260; A260/A280, A260/A230, supercoiled share, endotoxin; how it was verified       |
-| `iki/lots.ProteinLot`    | `PLOT-000001`  | `iki/protein.Protein`, `iki/core.Complex`                 | mg, by mg/mL   | Concentration from A280 and its sequence's ε280; purity and aggregates by SEC; endotoxin; formulation                                           |
-| `iki/lots.ConjugateLot`  | `CJLOT-000001` | `iki/conjugate.Conjugate`                                 | mg, by mg/mL   | As a protein lot's, with its own measured ε280; DAR from its drug load distribution (HIC, LC-MS, reduced chains), unconjugated share, free drug |
-| `iki/lots.PolymerLot`    | `PYLOT-000001` | `iki/polymer.Polymer`                                     | mg             | Mn, Mw, Mp, dispersity (Mw/Mn), how each was measured and against which standards                                                               |
-| `iki/lots.GenericLot`    | `GLOT-000001`  | any entity                                                | mg, by mg/mL   | Concentration and purity                                                                                                                        |
-| `iki/lots.StrainIsolate` | `ISO-000001`   | `iki/strains.BaseStrain`, `iki/strains.TransformedStrain` | µL             | Isolate label, transformation or parent stock, verification evidence                                                                            |
+| Type                        | HRID           | Lot of                                                    | Amount kept in | What's measured, and worked out                                                                                                                 |
+| --------------------------- | -------------- | --------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `iki/lots.OligoLot`         | `OLOT-000001`  | `iki/oligo.Oligonucleotide`                               | nmol, by µM    | Synthesis scale, purification, counterion, purity; yield in OD260 and nmol; mass by ESI-MS against the one its HELM gives                       |
+| `iki/lots.PlasmidPrep`      | `PREP-000001`  | `iki/plasmid.Plasmid`                                     | µg, by ng/µL   | Prep scale and method, kit, host strain; concentration from A260; A260/A280, A260/A230, supercoiled share, endotoxin; how it was verified       |
+| `iki/lots.ProteinLot`       | `PLOT-000001`  | `iki/protein.Protein`, `iki/core.Complex`                 | mg, by mg/mL   | Concentration from A280 and its sequence's ε280; purity and aggregates, by SEC unless named; endotoxin; formulation                             |
+| `iki/lots.ConjugateLot`     | `CJLOT-000001` | `iki/conjugate.Conjugate`                                 | mg, by mg/mL   | As a protein lot's, with its own measured ε280; DAR from its drug load distribution (HIC, LC-MS, reduced chains), unconjugated share, free drug |
+| `iki/lots.PolymerLot`       | `PYLOT-000001` | `iki/polymer.Polymer`                                     | mg             | Mn, Mw, Mp, dispersity (Mw/Mn), how each was measured and against which standards                                                               |
+| `iki/lots.GenericLot`       | `GLOT-000001`  | any entity                                                | mg, by mg/mL   | Concentration and purity                                                                                                                        |
+| `iki/lots.GenericVolumeLot` | `GVLOT-000001` | any entity                                                | mL, by mg/mL   | A liquid kept by volume, such as a solvent or buffer: concentration and purity                                                                  |
+| `iki/lots.GenericCountLot`  | `GCLOT-000001` | any entity                                                | whole items    | What each item is (a 1 mg vial, a 384-well plate) and purity                                                                                    |
+| `iki/lots.StrainIsolate`    | `ISO-000001`   | `iki/strains.BaseStrain`, `iki/strains.TransformedStrain` | µL             | Isolate label, transformation or parent stock, verification evidence                                                                            |
 
 `iki/lots.BiologicLot` is the abstract parent of the protein and conjugate
 lots: their A280, path length, dilution, ε280, concentration and
-its method, SEC purity and aggregates, endotoxin and formulation.
+its method, purity and aggregates with the methods that measured them (SEC unless
+named), endotoxin and formulation.
+
+### A lab's own methods
+
+Each menu of methods lists the common ones, and **Other** for a lab's own, which the
+record then names in the field beside it: a biologic lot's and a plasmid prep's
+concentration method, a plasmid prep's purification and how it was verified, and a
+polymer lot's Mn and Mw methods and SEC calibration standards. A rule keeps the two
+consistent: Other needs its name, and a name beside a listed method is refused. Iki's
+own calculations run only for the methods they implement, A260 and A280, so a lab's
+method is entered as measured.
 
 ## What every lot has
 
@@ -29,8 +42,9 @@ its method, SEC purity and aggregates, endotoxin and formulation.
 - **Where it came from:** its lot number (its supplier's, or the lab's own),
   whether it was made or bought, its supplier and catalogue number, who made
   it, when it was made and received, and when it's retested and expires,
-  with its storage conditions. Its expiry is after it was made, and its
-  retest date by its expiry: the type's rules keep both at every save.
+  with its storage conditions, and who's responsible for it, such as whoever
+  ordered a bought lot. Its expiry is after it was made, and its retest date
+  by its expiry: the type's rules keep both at every save.
 - **Its certificates of analysis**, as files (PDF, PNG, JPEG or CSV, up to 20
   of 50 MiB each): its supplier's, or the lab's, and the reports they cite.
 - **How much of it is left** (ADR 0139): each kind keeps its amount in the
@@ -46,21 +60,34 @@ its method, SEC purity and aggregates, endotoxin and formulation.
   A strain isolate's material is the isolate record itself. A transfer into
   either requires its particular material. A released lot
   takes only released material, whatever its concentration.
-- **Its disposition**, which QA sets (the plugin's `iki/lots.qa` role, Lot QA):
+- **Its disposition**, which QA sets (the plugin's `iki/lots.qa` role, Lot QA),
+  or, for material the lab uses without a QA release, a stock keeper
+  (`iki/lots.stock_keeper`):
 
-  | State       | Locks it | Holds its amount | Signed                        | Set                                                                                                                                                                                                                                                                                                         |
-  | ----------- | -------- | ---------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | Quarantined |          |                  |                               | Where every lot starts, as GMP keeps material until it's tested and released (21 CFR 211.84). It can be drawn from, to be tested. Set again from Released or On hold, with a reason, to correct it.                                                                                                         |
-  | Released    | ✓        |                  | QA release (approval)         | From Quarantined or On hold, on a certificate of analysis, saying whether it was made or bought, and for one made in the lab who made it; by someone in QA other than who made it or recorded it, signing in again (21 CFR Part 11), in Iki itself rather than through an agent. Not while a rule holds it. |
-  | On hold     |          | ✓                |                               | With a reason, such as a deviation under investigation.                                                                                                                                                                                                                                                     |
-  | Rejected    | ✓        | ✓                | QA rejection (responsibility) | With a reason. Kept, with its records, but not used.                                                                                                                                                                                                                                                        |
-  | Expired     | ✓        | ✓                |                               | Once its expiry or retest date has come.                                                                                                                                                                                                                                                                    |
+  | State          | Locks it | Holds its amount | Signed                        | Set                                                                                                                                                                                                                                                                                                                         |
+  | -------------- | -------- | ---------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | Quarantined    |          |                  |                               | Where every lot starts, as GMP keeps material until it's tested and released (21 CFR 211.84). It can be drawn from, to be tested. Set again from Released or On hold, with a reason, to correct it.                                                                                                                         |
+  | Released       | ✓        |                  | QA release (approval)         | From Quarantined, On hold or Due for retest, on a certificate of analysis, saying whether it was made or bought, and for one made in the lab who made it; by someone in QA other than who made it or recorded it, signing in again (21 CFR Part 11), in Iki itself rather than through an agent. Not while a rule holds it. |
+  | Available      |          |                  |                               | Set by a stock keeper, from Quarantined, or from On hold when it was Available before. In use under the lab's own procedure, with no QA release or certificate, as for research material and consumables. It isn't Released: its values stay editable, and a released lot takes none of it.                                 |
+  | Due for retest |          |                  |                               | Set by QA once its retest date has come, from Released or Available. Only QA sampling, until QA releases it again on its retest or it expires.                                                                                                                                                                              |
+  | On hold        |          | ✓                |                               | By QA or a stock keeper, with a reason, such as a deviation under investigation. A stock keeper lifts only a hold on an available lot.                                                                                                                                                                                      |
+  | Rejected       | ✓        | ✓                | QA rejection (responsibility) | With a reason. Kept, with its records, but not used.                                                                                                                                                                                                                                                                        |
+  | Expired        | ✓        | ✓                |                               | By QA or a stock keeper, once its expiry date has come, or its retest date where the lab expires it then rather than marking it Due for retest.                                                                                                                                                                             |
 
   For a lot made in the lab, the QA signer must also be independent of
-  anyone who edited its record since it last entered Quarantined.
-  Whoever made it hears when it's released, and when it's put on hold or
-  rejected (which they can't turn off). The states are the abstract type's,
-  and hold the amount of every kind, each in its own unit (ADR 0162).
+  anyone who edited its record since it last entered Quarantined or Due for
+  retest. Whoever made it and whoever's responsible for it hear when it's
+  released or made available. They, and the project's stock keepers, hear
+  when it's put on hold or rejected, which they can't turn off. The states
+  are the abstract type's, and hold the amount of every kind, each in its
+  own unit (ADR 0162).
+
+  Which route a project's lots take is who holds which role there (ADR 0242).
+  A GMP or GxP project leaves Stock keeper unassigned. Then only Lot QA's
+  signed release makes a lot usable, exactly as before. A research project
+  assigns Stock keeper and needs no Lot QA. A project can have both, for
+  example to release purchased critical reagents while consumables are
+  only made available. A lot's page and its exports always show which it is.
 
   A lot's page also shows when its dates restrict use. Starting on the
   retest date, only a QA sampling draw is allowed, even for a released lot.

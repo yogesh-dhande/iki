@@ -404,6 +404,20 @@ def test_the_entity_is_a_tabs_and_a_reference_to_its_type(tmp_path: Path) -> Non
     assert "refers to `acme/lab.Assay`" in only(other_type, "context-misplaced")
 
 
+def test_a_tab_on_every_record_names_the_record_it_shows_on(tmp_path: Path) -> None:
+    """A tab on every record (ADR 0237) shows only where its search finds something for the
+    record, so its search names it."""
+    measured = {"types/types.yaml": TYPES + "  measured: { type: ref, to: iki/core.Entity }\n"}
+    every = "entity.tab, type: iki/core.Entity"
+    entities = "{ type: Readout, fields: [well, measured] }"
+    found = search('{ field: measured, op: eq, value: "{{ entity }}" }', every)
+    assert made(tmp_path, found.replace(ENTITIES, entities), **measured).problems == []
+    unnamed = many(slots=f"[{{ slot: {every}, search: {{ sort: well }} }}]", entities=entities)
+    assert "its search names it" in only(made(tmp_path, unnamed, **measured), "tab-on-every-record")
+    bare = many(slots=f"[{{ slot: {every} }}]", entities=entities)
+    assert "its search names it" in only(made(tmp_path, bare, **measured), "tab-on-every-record")
+
+
 def test_me_is_a_person(tmp_path: Path) -> None:
     mine = made(tmp_path, search('{ field: created_by, op: eq, value: "{{ me }}" }'))
     assert mine.problems == []

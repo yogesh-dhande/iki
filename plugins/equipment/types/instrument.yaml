@@ -11,7 +11,8 @@ fields:
   name: { type: string, required: true, max_length: 200, indexed: true }
   location: { type: string, max_length: 200, description: "Where it is, such as a room." }
   # Two state fields (ADR 0125): whether it can be used, and whether it's calibrated. Each is
-  # set on its own; a retired instrument's record is locked.
+  # set on its own; a retired instrument's record is locked. A new instrument is due for
+  # calibration until an Engineer or QA says it's outside the calibration program.
   service:
     type: state
     label: Service
@@ -42,5 +43,12 @@ fields:
         }
       calibrated: { label: Calibrated, set_by: [iki/lab_roles.engineer], reason: optional }
       failed: { label: Failed, set_by: [iki/lab_roles.engineer], reason: required }
+      not_required:
+        label: Not required
+        description: >-
+          Outside the calibration program, such as a centrifuge or a balance checked only
+          before use. It's still booked and serviced; say why it needs no calibration.
+        set_by: [iki/lab_roles.engineer, iki/lab_roles.qa]
+        reason: required
 display:
   title: "{{ name }}"
