@@ -19,9 +19,11 @@ from iki_spec import action_helper
 from iki_spec.validate import load_plugin
 
 ROOT = Path(__file__).resolve().parents[2]
-#: A type compared by its qualified name, as `part["type"] == "iki/protein.Protein"` does.
+#: A type compared by its qualified name, as `part["type"] == "iki/protein.Protein"` or
+#: `part["type"].startswith("iki/protein.")` does: a lab's own subtype fails either.
 BY_NAME = re.compile(
-    r"""(\[["']type["']\]|\.get\(["']type["']\))\s*(==|!=)\s*["'][a-z0-9_]+/[a-z0-9_]+\.[A-Z]"""
+    r"""(\[["']type["']\]|\.get\(["']type["']\))\s*"""
+    r"""((==|!=)\s*["'][a-z0-9_]+/[a-z0-9_]+\.[A-Z]|\.startswith\()"""
 )
 PROTEIN = "00000000-0000-7000-8000-000000000001"
 ENTRY = "00000000-0000-7000-8000-0000000000e1"
