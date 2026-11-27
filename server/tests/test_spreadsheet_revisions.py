@@ -330,6 +330,12 @@ def test_a_template_replacement_requires_the_reviewed_template_and_import(
         problem(api.put(url, body, headers=headers), 428, "precondition_required")
     duplicate = api.post(f"{path}/mappings", {"name": "Saved"}, headers=seen(source))
     assert problem(duplicate, 422, "validation_failed")["errors"][0]["pointer"] == "#/name"
+    # The way a mapping was once replaced is refused, not taken as a new mapping.
+    old_way = {"name": "Overwrite", "replace": template["id"], "target_revision": 1}
+    refused = problem(
+        api.post(f"{path}/mappings", old_way, headers=seen(source)), 422, "validation_failed"
+    )
+    assert {e["pointer"] for e in refused["errors"]} == {"#/replace", "#/target_revision"}
     assert api.get(f"/projects/{world.project.pk}/spreadsheet-mappings").json() == [template]
     assert AuditEvent.objects.filter(action__startswith="spreadsheet_mapping.").count() == 1
     assert api.get(path).json() == source

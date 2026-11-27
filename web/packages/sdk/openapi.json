@@ -21294,6 +21294,7 @@
         "type": "object"
       },
       "ReplacedMappingIn": {
+        "additionalProperties": false,
         "properties": {
           "import": {
             "description": "The spreadsheet import whose mapping replaces it.",
@@ -24177,6 +24178,7 @@
         "type": "object"
       },
       "SavedMappingIn": {
+        "additionalProperties": false,
         "properties": {
           "name": {
             "maxLength": 100,

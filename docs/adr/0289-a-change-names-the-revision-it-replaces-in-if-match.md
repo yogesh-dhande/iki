@@ -102,7 +102,12 @@ transaction:
   what was overwritten in the body.
 
 Each is required. Leaving one out answers 428 `precondition_required` and a
-stale one 412 `stale`, naming which (`stale`, `affected_lines`).
+stale one 412 `stale`, naming which (`stale`, `affected_lines`). The one
+exception is a count scan's `reviewed_lines`, where an empty list is a real
+answer (the scan re-observes nothing recorded): leaving it out reads as
+empty, so a scan of a slot whose lines it didn't name is 412 `stale`, with
+those lines. A saved mapping's inputs refuse members they don't take, so a
+client still sending `replace` gets 422 rather than a new mapping.
 
 **A preview that came out differently is a 409, with the new preview.** A
 move plan (`moves_plan_changed`), a starter's plan (`starter_plan_changed`)
