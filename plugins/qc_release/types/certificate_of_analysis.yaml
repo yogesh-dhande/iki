@@ -6,10 +6,11 @@ label_plural: Certificates of analysis
 schema_version: 1
 hrid: { prefix: COA }
 description: >-
-  What the lab issues to a lot's recipient: the issuer, the lot and its dates, the
-  specification, and each criterion's limits and final result (ICH Q7 §11.4). It is signed
-  on its own, so its signed export carries nothing else. The evidence stays on the
-  certificate record it was issued from.
+  What the lab issues to a lot's recipient: the issuer, the material's name and grade, the
+  lot and its dates, the specification, and each criterion's limits and final reportable
+  result (ICH Q7 §11.41-11.43). It is signed on its own, which dates it, so its signed
+  export carries nothing else. The evidence stays on the certificate record it was issued
+  from.
 exports: [{ export: signed_report, report: coa, review: review, issued: [issued, released] }]
 fields:
   coa:
