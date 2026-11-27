@@ -41,6 +41,7 @@ from iki_server.audit import log as audit
 from iki_server.org.models import Project, Team
 from iki_server.org.services import Refused
 from iki_server.runs.models import (
+    HELD,
     LABEL_PATTERN,
     MAX_LABELS,
     RegistrationToken,
@@ -116,9 +117,6 @@ def update_for(worker: Worker) -> dict[str, str] | None:
     base = f"{settings.IKI_WORKER_DOWNLOADS}/v{wanted}/iki-worker-{wanted}-{{target}}.tar.gz"
     return {"version": wanted, "url": base, "bundle_url": f"{base}.sigstore.json"}
 
-
-#: The states in which a worker holds a job (queue.HELD, which imports this module).
-HELD_STATES = ("leased", "staging", "pending", "running", "uploading")
 
 #: A worker not heard from for this long shows as offline.
 OFFLINE_AFTER = timedelta(minutes=2)
@@ -319,7 +317,7 @@ def waiting(needs: set[Need]) -> dict[Need, Waiting | None]:
     live = list(
         Worker.objects.filter(tier=SELF_HOSTED, revoked_at__isnull=True)
         .prefetch_related("teams", "projects")
-        .annotate(held=Count("jobs", filter=Q(jobs__state__in=HELD_STATES)))
+        .annotate(held=Count("jobs", filter=Q(jobs__state__in=HELD)))
     )
     found: dict[Need, Waiting | None] = {}
     for need in needs:
