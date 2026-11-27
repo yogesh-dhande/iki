@@ -15276,6 +15276,35 @@
         "title": "Page[ApiCallOut]",
         "type": "object"
       },
+      "Page_AwaitingPutAwayOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AwaitingPutAwayOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[AwaitingPutAwayOut]",
+        "type": "object"
+      },
       "Page_BatchOut_": {
         "properties": {
           "items": {
@@ -17295,6 +17324,33 @@
           "type"
         ],
         "title": "PlaceSearchIn",
+        "type": "object"
+      },
+      "PlaceableLineOut": {
+        "properties": {
+          "line": {
+            "format": "uuid",
+            "title": "Line",
+            "type": "string"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why its record can't be put in the box at all; null if it can.",
+            "title": "Problem"
+          }
+        },
+        "required": [
+          "line",
+          "problem"
+        ],
+        "title": "PlaceableLineOut",
         "type": "object"
       },
       "PlannedOut": {
@@ -19586,6 +19642,48 @@
           "why"
         ],
         "title": "ReassignOut",
+        "type": "object"
+      },
+      "ReceiptBoxIn": {
+        "additionalProperties": false,
+        "properties": {
+          "box": {
+            "description": "The box's ID, HRID or label.",
+            "maxLength": 200,
+            "title": "Box",
+            "type": "string"
+          },
+          "box_choice": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Box Choice"
+          },
+          "box_mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScanMode"
+              }
+            ]
+          },
+          "plan_revision": {
+            "description": "The receipt revision you reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "plan_revision",
+          "box"
+        ],
+        "title": "ReceiptBoxIn",
         "type": "object"
       },
       "ReceiptIn": {
@@ -47870,6 +47968,62 @@
         ]
       }
     },
+    "/api/v1/receipts/{receipt_id}/put-away/placeable": {
+      "post": {
+        "description": "Each matched or damaged line, and why it can't be put in the box if it can't, whatever\nthe well: archived, a type the box doesn't hold, or a project the box's readers don't\nread. Completing checks the same again.",
+        "operationId": "iki_server_api_storage_receipt_placeable",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiptBoxIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PlaceableLineOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Which of a receipt's accepted lines can go in a box",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
     "/api/v1/receipts/{receipt_id}/put-away/preview": {
       "post": {
         "operationId": "iki_server_api_storage_preview_receipt_placement",
@@ -51468,19 +51622,48 @@
     },
     "/api/v1/storage/awaiting-put-away": {
       "get": {
-        "description": "Matched and damaged records you can read that are still in custody without a location.",
+        "description": "Matched and damaged records you can read that are still in custody without a location,\nlongest held first, a page at a time.",
         "operationId": "iki_server_api_storage_list_awaiting_put_away",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/AwaitingPutAwayOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_AwaitingPutAwayOut_"
                 }
               }
             },

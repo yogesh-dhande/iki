@@ -1762,7 +1762,7 @@ def held_by(page: Page, path: str) -> dict[str, Any]:
     out = page.request.get("/api/v1/storage/checked-out")
     waiting = page.request.get("/api/v1/storage/awaiting-put-away")
     assert receipt.ok and out.ok and waiting.ok
-    return {"receipt": receipt.json(), "out": out.json(), "waiting": waiting.json()}
+    return {"receipt": receipt.json(), "out": out.json(), "waiting": waiting.json()["items"]}
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
