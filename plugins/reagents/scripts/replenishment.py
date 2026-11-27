@@ -14,7 +14,8 @@ LOT_TYPES = {"mg": "MassStockLot", "mL": "VolumeStockLot", "1": "CountStockLot"}
 
 
 def required_text(params: dict[str, Any], name: str) -> str:
-    value = params[name].strip()
+    given = params[name]
+    value = given.strip() if isinstance(given, str) else ""
     if not value:
         raise ValueError(f"Enter the {name.replace('_', ' ')}.")
     return value
