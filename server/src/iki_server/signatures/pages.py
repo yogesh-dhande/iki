@@ -69,9 +69,13 @@ def signatures(request: HttpRequest) -> HttpResponse:
         if action == "unlock":
             person = get_object_or_404(User, pk=request.POST.get("user"))
             try:
-                services.unlock(me, person)
-            except Refused as refusal:
+                services.unlock(me, person, request.POST.get("reason", ""))
+            except (Refused, PermissionDenied) as refusal:
                 messages.error(request, str(refusal))
+            except Invalid as invalid:
+                messages.error(
+                    request, " ".join(m for said in invalid.errors.values() for m in said)
+                )
             else:
                 messages.success(
                     request,
@@ -98,6 +102,7 @@ def signatures(request: HttpRequest) -> HttpResponse:
         "signatures/settings.html",
         {
             "manage": manage,
+            "me": me,
             "form": form,
             "certification": services.certified(),
             "earlier": list(

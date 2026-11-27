@@ -1897,9 +1897,11 @@ export interface paths {
          *     those picked, in order, or every one a search finds, up to 10,000. Each is written at
          *     the revision it has now, read in one snapshot, so editing one afterwards doesn't change
          *     the file. Up to 100 are written at once (201, ready to download); more in the
-         *     background (202): read the export until it's ready. A record the format can't be
-         *     written for fails it, naming each such record, so no file holds fewer than asked for.
-         *     Asking and each download are in the audit log.
+         *     background (202): read the export until it's ready. You may have three waiting in
+         *     the background at once, and a project's records ten: past that, it's refused (429)
+         *     until one is written. A record the format can't be written for fails it, naming each
+         *     such record, so no file holds fewer than asked for. Asking and each download are in
+         *     the audit log.
          */
         post: operations["iki_server_api_record_exports_start_record_export"];
         delete?: never;
@@ -5558,8 +5560,9 @@ export interface paths {
         put?: never;
         /**
          * Unlock signing
-         * @description Unlocks someone's signing after failed attempts to sign as them locked it. Org
-         *     Admins only.
+         * @description Unlocks someone's signing after failed attempts to sign as them locked it, saying
+         *     why; the audit log keeps it. Another Org Admin unlocks theirs, signed in to Iki's web
+         *     app: no token, app or AI agent can.
          */
         post: operations["iki_server_api_signatures_unlock_signing"];
         delete?: never;
@@ -11300,6 +11303,11 @@ export interface components {
              * @description What keeps it from being applied.
              */
             problems: string[];
+            /**
+             * Signing Keys
+             * @description The signing keys it brings that this deployment doesn't trust yet: importing trusts each for the signatures it brings, and records it in the audit log. None can sign for this deployment.
+             */
+            signing_keys: components["schemas"]["ImportSigningKey"][];
             /** Types */
             types: components["schemas"]["ImportType"][];
         };
@@ -11318,6 +11326,24 @@ export interface components {
             progress: number | null;
             /** Status */
             status: string;
+        };
+        /** ImportSigningKey */
+        ImportSigningKey: {
+            /**
+             * Deployment
+             * @description The deployment it signs for, as the bundle says.
+             */
+            deployment: string;
+            /**
+             * Key
+             * @description The Ed25519 public key, as signatures name it.
+             */
+            key: string;
+            /**
+             * Source
+             * @description Whether that's the deployment the bundle is from; otherwise one it vouches for.
+             */
+            source: boolean;
         };
         /** ImportSource */
         ImportSource: {
@@ -20460,6 +20486,14 @@ export interface components {
              * @description As people write it.
              */
             symbol: string;
+        };
+        /** UnlockIn */
+        UnlockIn: {
+            /**
+             * Reason
+             * @description Why it's safe to unlock: who made the failed attempts.
+             */
+            reason: string;
         };
         /** UnusedImageBindingOut */
         UnusedImageBindingOut: {
@@ -29616,7 +29650,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnlockIn"];
+            };
+        };
         responses: {
             /** @description No Content */
             204: {

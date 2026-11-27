@@ -93,6 +93,7 @@ ACTIONS: dict[str, str] = {
     "bundle.import_discarded": "Discarded a bundle from another deployment, unimported",
     "bundle.imported": "Imported a bundle's entities, with their history, from another deployment",
     "bundle.import_failed": "Tried to import a bundle from another deployment, and nothing changed",
+    "bundle.signing_key_trusted": "Trusted another deployment's signing key that a bundle brought",
     "file.added": "Added a file",
     "file.download_link_issued": "Issued a file download link",
     "file.quarantined": "Quarantined content after a malware finding",

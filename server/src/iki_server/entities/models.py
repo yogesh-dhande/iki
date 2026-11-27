@@ -859,6 +859,10 @@ class RecordExport(models.Model):
     #: Every record read to write it, its own and what they refer to: whoever downloads it
     #: must still be able to read them all.
     references = ArrayField(models.UUIDField(), null=True, blank=True)
+    #: The limits of the token it was asked for with (ADR 0152), which writing it keeps
+    #: to in the background as it would while the request waited; None when it was asked
+    #: for in the browser.
+    limits = models.JSONField(null=True, blank=True)
     state = models.CharField(
         max_length=16, choices=RecordExportState.choices, default=RecordExportState.QUEUED
     )
