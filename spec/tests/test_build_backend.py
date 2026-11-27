@@ -71,10 +71,19 @@ def test_from_a_checkout_it_builds_iki_wasm_first(tmp_path: Path) -> None:
         "printf notice > spec/src/iki_spec/rust-standard-library.html",
     )
     (project / "src" / "iki_spec" / "iki_wasm.wasm").write_text("stale")
+    for script, carried in backend().PLUGIN_MODULES.items():
+        build = tmp_path / "scripts" / script
+        build.write_text(
+            f'#!/bin/sh\nset -eu\ncd "$(dirname "$0")/.."\nmkdir -p spec/src/iki_spec/modules\n'
+            f"printf module > spec/src/iki_spec/modules/{carried}\n"
+        )
+        build.chmod(build.stat().st_mode | stat.S_IXUSR)
 
     built = backend().ensure_wasm(project)
 
     assert built.read_text() == "wasm"
+    modules = project / "src" / "iki_spec" / "modules"
+    assert sorted(p.name for p in modules.iterdir()) == ["oligo-checks.wasm", "plasmid-tools.wasm"]
 
 
 def test_a_failed_wasm_build_fails_the_package_build(tmp_path: Path) -> None:
@@ -97,7 +106,30 @@ def test_without_a_checkout_iki_wasm_must_be_there(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match=r"iki-spec needs rust-standard-library\.html"):
         backend().ensure_wasm(project)
     (project / "src" / "iki_spec" / "rust-standard-library.html").write_text("notice")
+    # Each first-party plugin's module, which a deployment of the plugin is built from.
+    modules = project / "src" / "iki_spec" / "modules"
+    modules.mkdir()
+    for carried in backend().PLUGIN_MODULES.values():
+        with pytest.raises(RuntimeError, match=rf"iki-spec needs {carried}"):
+            backend().ensure_wasm(project)
+        (modules / carried).write_bytes(b"")
+        with pytest.raises(RuntimeError, match=rf"iki-spec needs {carried}"):
+            backend().ensure_wasm(project)
+        (modules / carried).write_bytes(b"\0asm")
     assert backend().ensure_wasm(project).is_file()
+
+
+def test_a_checkout_whose_plugin_module_isnt_built_builds_no_package(tmp_path: Path) -> None:
+    """A checkout's script that leaves no module (one missing from the checkout, say) can't
+    give a wheel without it either."""
+    project = checkout(
+        tmp_path,
+        'cd "$(dirname "$0")/.." && printf wasm > spec/src/iki_spec/iki_wasm.wasm\n'
+        "printf wasm > spec/src/iki_spec/oligo-measurement.wasm\n"
+        "printf notice > spec/src/iki_spec/rust-standard-library.html",
+    )
+    with pytest.raises(RuntimeError, match=r"iki-spec needs plasmid-tools\.wasm"):
+        backend().ensure_wasm(project)
 
 
 def test_iki_spec_carries_the_writer_sdk_from_its_checkout(tmp_path: Path) -> None:

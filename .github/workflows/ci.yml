@@ -326,11 +326,13 @@ jobs:
         with:
           pattern: python-shard-*
           path: ${{ runner.temp }}/shards
-      # Fails if a test ran in no shard or in two: a shard missing from the matrix, one
-      # there twice, or shards that collected different suites.
+      # Fails if a shard of the matrix above left no report (a whole version or kind
+      # included), or a test ran in no shard or in two: one there twice, or shards that
+      # collected different suites.
       - name: Every test ran exactly once
         run: |
           python3 scripts/ci/shard_summary.py "$RUNNER_TEMP/shards" \
+            --workflow .github/workflows/ci.yml --job python-tests \
             --durations "$RUNNER_TEMP/test-durations.json" --markdown "$GITHUB_STEP_SUMMARY"
       # Copy it to scripts/ci/test-durations.json when the shards drift apart.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -595,9 +597,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # A retained release, and the last one: development adopts each new release.
       - name: Check ImmuneBuilder weights pin
         if: matrix.image == 'iki-antibody-structure-tools'
-        run: bash scripts/ci/check-immunebuilder-weights.sh
+        run: bash scripts/ci/check-immunebuilder-weights.sh --latest
       - name: Build
         env:
           IMAGE: ${{ matrix.image }}
