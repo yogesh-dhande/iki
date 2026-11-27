@@ -193,6 +193,40 @@ export const EMPTY: SheetState = { added: [], edits: {}, next: 1 };
 
 export const NEW_ROW = "new-";
 
+/**
+ * The records a sheet has: in the order it first read them, each as it was last read.
+ * The table reads its records again as it goes (when the window gets focus, say), and
+ * sorted by when they changed, someone else's save moves a record to the top; a record
+ * can drop out of it too, archived or no longer matching its filter. The sheet's rows
+ * don't move under the person typing in them, and none goes while it's open.
+ */
+export interface Loaded {
+  /** The records' IDs, top first. */
+  order: string[];
+  byId: Record<string, Entity>;
+}
+
+export const NONE_LOADED: Loaded = { order: [], byId: {} };
+
+/** What the sheet has once the table reads `records`: those it had stay where they are,
+ * as the table has them now if it still does; those it hadn't come after them. The
+ * same `loaded` if nothing's new. */
+export function reloaded(loaded: Loaded, records: readonly Entity[]): Loaded {
+  let order = loaded.order;
+  let byId = loaded.byId;
+  for (const e of records) {
+    const had = byId[e.id];
+    if (had === e) continue;
+    if (byId === loaded.byId) byId = { ...loaded.byId };
+    if (!had) {
+      if (order === loaded.order) order = [...loaded.order];
+      order.push(e.id);
+    }
+    byId[e.id] = e;
+  }
+  return order === loaded.order && byId === loaded.byId ? loaded : { order, byId };
+}
+
 export function isNew(key: string): boolean {
   return key.startsWith(NEW_ROW);
 }
