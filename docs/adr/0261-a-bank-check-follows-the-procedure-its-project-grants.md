@@ -1,6 +1,7 @@
 # 0261. A bank check follows the procedure its project grants
 
 - Status: Accepted
+- Superseded in part by [0302](0302-a-project-chooses-each-types-review-procedure-and-the-server-pins-it.md) and [0305](0305-a-type-is-a-kind-of-work-not-a-review-procedure.md): a check's procedure is pinned, its grants say only who acts
 - Date: 2026-11-26
 - Refines: [0186](0186-cell-banks-and-the-checks-that-applied-to-a-culture.md)
 
