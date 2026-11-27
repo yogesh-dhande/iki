@@ -200,9 +200,10 @@ fields:
     immutable: true
     description: >-
       Each difference of the consensus from the plasmid's sequence, by its HGVS name, with
-      the bases it replaces and has, the features it lies in, the longest run of one base it
-      touches, and for reads, the reads across it and those that have its whole allele, each
-      read once, on each strand.
+      how many bases it replaces and has and the first 200 of each (differences.tsv has
+      them all), the features it lies in, the longest run of one base it touches, and for
+      reads, the reads across it and those that have its whole allele, each read once, on
+      each strand.
     schema:
       type: array
       maxItems: 500
@@ -210,7 +211,17 @@ fields:
         type: object
         additionalProperties: false
         required:
-          [hgvs, kind, start, end, reference, observed, length_change, homopolymer, features]
+          - hgvs
+          - kind
+          - start
+          - end
+          - reference
+          - observed
+          - reference_length
+          - observed_length
+          - length_change
+          - homopolymer
+          - features
         properties:
           hgvs: { type: string, minLength: 3, maxLength: 1000 }
           kind:
@@ -218,8 +229,22 @@ fields:
             description: As its HGVS name says.
           start: { type: integer, minimum: 1 }
           end: { type: integer, minimum: 1 }
-          reference: { type: string, maxLength: 200 }
-          observed: { type: string, maxLength: 200 }
+          reference:
+            type: string
+            maxLength: 200
+            description: The bases it replaces, at most the first 200.
+          observed:
+            type: string
+            maxLength: 200
+            description: The bases it has instead, at most the first 200.
+          reference_length:
+            type: integer
+            minimum: 0
+            description: How many bases it replaces, all of them.
+          observed_length:
+            type: integer
+            minimum: 0
+            description: How many bases it has instead, all of them.
           length_change: { type: integer }
           homopolymer: { type: integer, minimum: 1 }
           features: { type: array, maxItems: 20, items: { type: string, maxLength: 300 } }

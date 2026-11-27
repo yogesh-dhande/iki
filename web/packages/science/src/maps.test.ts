@@ -100,6 +100,8 @@ describe("plasmid map with sequencing evidence", () => {
           reference: "ACGT",
           observed: "",
           length_change: -4,
+          reference_length: 4,
+          observed_length: 0,
           homopolymer: 1,
           features: ["Wrap (misc_feature)"],
           depth: 30,
@@ -116,6 +118,8 @@ describe("plasmid map with sequencing evidence", () => {
           reference: "A",
           observed: "G",
           length_change: 0,
+          reference_length: 1,
+          observed_length: 1,
           homopolymer: 6,
         },
       ],
@@ -208,6 +212,76 @@ describe("plasmid map with sequencing evidence", () => {
     expect(root.querySelector("p.note")?.textContent).toBe(
       "The consensus's bases 101 to 200 of its 200 repeat bases already placed.",
     );
+  });
+
+  it("says a long change's true size, not its recorded first bases'", () => {
+    // The record keeps a change's first 200 bases of each side and the full lengths.
+    const repeat = (bases: string, n: number) => bases.repeat(n).slice(0, n);
+    const map = document.createElement("iki-plasmid-map");
+    map.data = {
+      name: "Synthetic circle",
+      length: 2000,
+      topology: "circular" as const,
+      differences: {
+        items: [
+          {
+            start: 101,
+            end: 400,
+            hgvs: "o.101_400del",
+            kind: "deletion" as const,
+            reference: repeat("ACGT", 200),
+            observed: "",
+            length_change: -300,
+            reference_length: 300,
+            observed_length: 0,
+          },
+          {
+            start: 1001,
+            end: 1250,
+            hgvs: "o.1001_1250delins[X:o.1001_1300]",
+            kind: "deletion_insertion" as const,
+            reference: repeat("ACGT", 200),
+            observed: repeat("TTGCA", 200),
+            length_change: 50,
+            reference_length: 250,
+            observed_length: 300,
+          },
+          {
+            start: 1500,
+            end: 1501,
+            hgvs: "o.1500_1501ins[X:o.1551_1750]",
+            kind: "insertion" as const,
+            reference: "",
+            observed: repeat("GGC", 200),
+            length_change: 200,
+            reference_length: 0,
+            observed_length: 200,
+          },
+          {
+            start: 1600,
+            end: 1611,
+            hgvs: "o.1600_1611delinsAC",
+            kind: "deletion_insertion" as const,
+            reference: "ACGTACGTACGT",
+            observed: "AC",
+            length_change: -10,
+            reference_length: 12,
+            observed_length: 2,
+          },
+        ],
+      },
+    };
+    document.body.append(map);
+    const changes = Array.from(
+      map.shadowRoot?.querySelectorAll('[aria-label="Differences"] tbody tr') ?? [],
+      (row) => row.children[2]?.textContent,
+    );
+    expect(changes).toEqual([
+      "deletion: 300 bp \u2192 \u2014",
+      "deletion-insertion: 250 bp \u2192 300 bp",
+      "insertion: \u2014 \u2192 200 bp",
+      "deletion-insertion: ACGTACGTACGT \u2192 AC",
+    ]);
   });
 
   it("reports measured gaps when their coordinates are missing", () => {

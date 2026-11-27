@@ -10,7 +10,8 @@ run's inputs say which. Each creates one `iki/plasmid_sequencing.WholePlasmidAli
   with every base in the artifact `coverage.tsv`;
 - the consensus, in the reference's frame, from its origin (`consensus.fasta`);
 - each difference from the reference, named as HGVS names it, with the features it falls
-  in and the reads that support it on each strand (`differences.tsv`).
+  in and the reads that support it on each strand. The record keeps a long change's first
+  bases and its full lengths; `differences.tsv` has every base of each.
 
 **Aligning.** minimap2 (Li 2018, https://doi.org/10.1093/bioinformatics/bty191) aligns reads
 with its `map-ont` or `map-hifi` preset, and a consensus with `asm5`, and writes each
@@ -110,7 +111,8 @@ OVERHANG = 1000
 #: Inserted bases a difference's name lists; a longer insertion is named by where its bases
 #: are in the consensus, as HGVS names one copied from another sequence.
 MAX_NAMED = 100
-#: The bases a difference's record lists; it keeps its full length.
+#: The bases of each side a difference's record keeps, a preview: the record has both sides'
+#: full lengths too, and differences.tsv every base of them.
 MAX_SHOWN = 200
 #: The run-output schema's limit on a message.
 MAX_TEXT = 2000
@@ -1076,6 +1078,8 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         )
     features = features_of(values, plasmid["values"])
     listed: list[dict[str, Any]] = []
+    #: Each difference's bases replaced and bases it has, whole, for differences.tsv.
+    alleles: list[tuple[str, str]] = []
     for change in comparison.changes:
         was = stretch(reference, change.start, change.stop)
         if change.stop > change.start:
@@ -1092,6 +1096,8 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             "end": last_base % size + 1,
             "reference": was[:MAX_SHOWN],
             "observed": change.bases[:MAX_SHOWN],
+            "reference_length": len(was),
+            "observed_length": len(change.bases),
             "length_change": len(change.bases) - len(was),
             "homopolymer": homopolymer(reference, change, circular),
             "features": falls_in(features, first_base, last_base, size),
@@ -1107,6 +1113,7 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
                 fraction=round(call.support / call.depth, 3) if call.depth else 0.0,
             )
         listed.append(row)
+        alleles.append((was, change.bases))
 
     unplaced = [
         {"start": a + 1, "end": b, "bases": b - a, "why": why} for a, b, why in comparison.unplaced
@@ -1149,14 +1156,16 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
                 [k + 1, reference[k], depths[k], comparison.before[k] + comparison.aligned[k]]
             )
     with (out_dir / "differences.tsv").open("w", encoding="utf-8", newline="") as handle:
-        columns = ["hgvs", "kind", "start", "end", "reference", "observed", "length_change"]
-        columns += ["homopolymer"]
+        # Each side whole, however long: the record's are only their first bases.
+        columns = ["hgvs", "kind", "start", "end", "reference", "observed", "reference_length"]
+        columns += ["observed_length", "length_change", "homopolymer"]
         if source == "reads":
             columns += ["depth", "support", "forward", "reverse", "fraction"]
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
         writer.writerow([*columns, "features"])
-        for row in listed:
-            writer.writerow([*(row[c] for c in columns), "; ".join(row["features"])])
+        for row, (was, now) in zip(listed, alleles, strict=True):
+            whole = {**row, "reference": was, "observed": now}
+            writer.writerow([*(whole[c] for c in columns), "; ".join(row["features"])])
 
     if listed or unplaced:
         verdict = "differs"

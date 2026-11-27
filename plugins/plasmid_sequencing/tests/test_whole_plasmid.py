@@ -95,7 +95,9 @@ def test_public_puc19_reads_show_their_multiple_cloning_site_insert(
     ]
     deletion, insertion, substitution = found["differences"][:3]
     assert insertion["length_change"] == 84
-    assert len(insertion["observed"]) == 84
+    assert len(insertion["observed"]) == insertion["observed_length"] == 84
+    assert insertion["reference_length"] == 0
+    assert (deletion["reference_length"], deletion["observed_length"]) == (6, 0)
     assert (deletion["depth"], deletion["support"], deletion["fraction"]) == (35, 35, 1.0)
     # The 84 inserted bases: every read across them has the whole insertion.
     assert (insertion["depth"], insertion["support"]) == (34, 34)
@@ -150,6 +152,13 @@ def test_reads_files_say_what_the_record_says(
     with (out_dir / "differences.tsv").open(encoding="utf-8") as handle:
         listed = list(csv.DictReader(handle, delimiter="\t"))
     assert [row["hgvs"] for row in listed] == [d["hgvs"] for d in found["differences"]]
+    assert [
+        (row["reference"], row["observed"], row["reference_length"], row["observed_length"])
+        for row in listed
+    ] == [
+        (d["reference"], d["observed"], str(d["reference_length"]), str(d["observed_length"]))
+        for d in found["differences"]
+    ]
     with gzip.open(out_dir / "alignments.paf.gz", "rt", encoding="utf-8") as handle:
         assert sum(1 for _ in handle) >= found["reads_aligned"]
     coverage_bins = found["coverage"]
@@ -263,6 +272,46 @@ def test_a_consensus_longer_than_the_plasmid_doesnt_match(
     _, out_dir = results["linear-longer"]
     consensus = "".join((out_dir / "consensus.fasta").read_text(encoding="utf-8").splitlines()[1:])
     assert consensus == replay.puc19() + replay.unrelated(450)
+
+
+def test_a_long_change_is_recorded_by_its_lengths_and_listed_whole(
+    script: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A 300-base deletion, and 250 bases replaced by 300 others: each side longer than the
+    # record's preview of it. What minimap2 would align is given, as the comparison of it.
+    reference = replay.puc19()
+    other = replay.unrelated(300)
+    consensus = reference[:100] + reference[400:1000] + other + reference[1250:]
+    aligned = list(reference)
+    for k in [*range(100, 400), *range(1000, 1250)]:
+        aligned[k] = "-"
+    changes = [
+        script.Change(100, 400, "", 100, 100),
+        script.Change(1000, 1250, other, 700, 1000),
+    ]
+    comparison = script.Comparison(aligned, [""] * len(reference), changes, consensus)
+    monkeypatch.setattr(script, "compare", lambda *_: comparison)
+    given = tmp_path / "given.fasta"
+    given.write_text(f">long-changes\n{consensus}\n", encoding="utf-8")
+    output = replay.run(script, replay.consensus_run(given, reference), tmp_path / "out")
+    deletion, replaced = output["creates"][0]["values"]["differences"]
+    assert (deletion["hgvs"], deletion["kind"]) == ("o.101_400del", "deletion")
+    assert (deletion["reference_length"], deletion["observed_length"]) == (300, 0)
+    assert deletion["length_change"] == -300
+    assert deletion["reference"] == reference[100:300]  # its first 200 bases, of 300
+    assert replaced["kind"] == "deletion_insertion"
+    assert (replaced["reference_length"], replaced["observed_length"]) == (250, 300)
+    assert replaced["length_change"] == 50
+    assert (replaced["reference"], replaced["observed"]) == (reference[1000:1200], other[:200])
+    with (tmp_path / "out" / "differences.tsv").open(encoding="utf-8") as handle:
+        listed = list(csv.DictReader(handle, delimiter="\t"))
+    assert [
+        (row["reference"], row["observed"], row["reference_length"], row["observed_length"])
+        for row in listed
+    ] == [
+        (reference[100:400], "", "300", "0"),
+        (reference[1000:1250], other, "250", "300"),
+    ]
 
 
 def test_a_consensus_file_must_hold_one_sequence(script: ModuleType, tmp_path: Path) -> None:

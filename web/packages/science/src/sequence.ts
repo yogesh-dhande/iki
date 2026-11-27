@@ -119,10 +119,26 @@ function qualifiersOf(value: unknown): Record<string, string> {
   );
 }
 
+/** What each list of features was read as, at the sequence length it was read for. */
+const readAs = new WeakMap<object, { length: number; features: readonly Feature[] }>();
+
 /** The features a field holds, as far as they can be drawn: anything else is left out,
- * so one bad entry doesn't hide the rest. Laned so overlapping ones don't cover each other. */
-export function readFeatures(value: unknown, length: number): Feature[] {
+ * so one bad entry doesn't hide the rest. Laned so overlapping ones don't cover each other.
+ * A field's value is read as it is, never changed in place (a record's new revision is a
+ * new value), so the same list read again, or what it was read as, gives the same features
+ * without laying them out again: a record page's features and its map share one layout. */
+export function readFeatures(value: unknown, length: number): readonly Feature[] {
   if (!Array.isArray(value)) return [];
+  const known = readAs.get(value);
+  if (known?.length === length) return known.features;
+  const features = Object.freeze(laned(parseFeatures(value, length), length));
+  const read = { length, features };
+  readAs.set(value, read);
+  readAs.set(features, read);
+  return features;
+}
+
+function parseFeatures(value: readonly unknown[], length: number): Feature[] {
   const out: Feature[] = [];
   value.forEach((item: unknown, index) => {
     if (typeof item !== "object" || item === null) return;
@@ -157,7 +173,7 @@ export function readFeatures(value: unknown, length: number): Feature[] {
       lane: 0,
     });
   });
-  return laned(out, length);
+  return out;
 }
 
 /** The stretches from `start` to `end`, from 1: one, or two if it wraps the origin. */
@@ -199,27 +215,97 @@ export function featureLength(feature: Feature, length: number): number {
 
 /** Copies of `features` laned among themselves alone: the coding sequences' translations,
  * say, each in the first lane where it overlaps no other. */
-export function lanedApart(features: Feature[], length: number): Feature[] {
+export function lanedApart(features: readonly Feature[], length: number): Feature[] {
   return laned(
     features.map((f) => ({ ...f })),
     length,
   );
 }
 
+interface Stretch {
+  start: number;
+  end: number;
+  priority: number;
+  left: Stretch | null;
+  right: Stretch | null;
+}
+
+/** One lane's stretches, which never overlap, by where they start: a treap (a binary search
+ * tree kept balanced by random priorities), so finding whether a stretch overlaps one and
+ * adding one each take time logarithmic in how many it holds. */
+class Lane {
+  #root: Stretch | null = null;
+  #seed = 0x9e3779b9;
+
+  /** Whether any of its stretches has a base from `from` to `to`: as they don't overlap,
+   * the one starting last at or before `to` ends last, so it's the only one to look at. */
+  overlaps(from: number, to: number): boolean {
+    let node = this.#root;
+    let end = -Infinity;
+    while (node) {
+      if (node.start <= to) {
+        end = node.end;
+        node = node.right;
+      } else {
+        node = node.left;
+      }
+    }
+    return end >= from;
+  }
+
+  add(start: number, end: number) {
+    // xorshift32: the same priorities each time, though the lanes don't depend on them.
+    this.#seed ^= this.#seed << 13;
+    this.#seed ^= this.#seed >>> 17;
+    this.#seed ^= this.#seed << 5;
+    const node = { start, end, priority: this.#seed >>> 0, left: null, right: null };
+    const [below, above] = split(this.#root, start);
+    this.#root = merge(merge(below, node), above);
+  }
+}
+
+/** A treap as those of its stretches starting before `at`, and the rest. */
+function split(node: Stretch | null, at: number): [Stretch | null, Stretch | null] {
+  if (!node) return [null, null];
+  if (node.start < at) {
+    const [below, above] = split(node.right, at);
+    node.right = below;
+    return [node, above];
+  }
+  const [below, above] = split(node.left, at);
+  node.left = above;
+  return [below, node];
+}
+
+/** Two treaps as one, each stretch of `a` starting before any of `b`'s. */
+function merge(a: Stretch | null, b: Stretch | null): Stretch | null {
+  if (!a) return b;
+  if (!b) return a;
+  if (a.priority > b.priority) {
+    a.right = merge(a.right, b);
+    return a;
+  }
+  b.left = merge(a, b.left);
+  return b;
+}
+
 /** Each feature in the first lane where it overlaps nothing, longest first so the
- * big ones (a gene) sit above the small ones (its parts). */
+ * big ones (a gene) sit above the small ones (its parts). Each lane's stretches are kept in
+ * order, so a feature is checked against the lanes above its own, not every feature in them:
+ * time n log n for features that don't overlap, or overlap only a few others. */
 function laned(features: Feature[], length: number): Feature[] {
-  const order = [...features].sort(
-    (a, b) => featureLength(b, length) - featureLength(a, length) || a.start - b.start,
-  );
-  const lanes: [number, number][][] = [];
-  for (const feature of order) {
+  const order = features
+    .map((feature) => ({ feature, bases: featureLength(feature, length) }))
+    .sort((a, b) => b.bases - a.bases || a.feature.start - b.feature.start);
+  const lanes: Lane[] = [];
+  for (const { feature } of order) {
     const mine = spans(feature, length);
-    let lane = lanes.findIndex((taken) =>
-      taken.every(([a, b]) => mine.every(([c, d]) => d < a || c > b)),
-    );
-    if (lane < 0) lane = lanes.push([]) - 1;
-    lanes[lane]?.push(...mine);
+    const free = (taken: Lane) => mine.every(([c, d]) => !taken.overlaps(c, d));
+    let lane = 0;
+    let into = lanes[0];
+    while (into && !free(into)) into = lanes[++lane];
+    if (!into) lanes.push((into = new Lane()));
+    for (const [c, d] of mine) into.add(c, d);
     feature.lane = lane;
   }
   return features;
@@ -245,7 +331,7 @@ export function columnOf(offset: number): number {
 
 /** The pieces of features in the row starting at `rowStart` (from 1): their parts, the lines
  * joining them, and sites between bases. */
-export function piecesIn(features: Feature[], rowStart: number, length: number): Piece[] {
+export function piecesIn(features: readonly Feature[], rowStart: number, length: number): Piece[] {
   const rowEnd = Math.min(rowStart + ROW - 1, length);
   const out: Piece[] = [];
   const place = (
@@ -302,7 +388,7 @@ export function piecesIn(features: Feature[], rowStart: number, length: number):
 }
 
 /** How many lanes each row's features need, so rows can be sized before they're drawn. */
-export function lanesPerRow(features: Feature[], length: number): number[] {
+export function lanesPerRow(features: readonly Feature[], length: number): number[] {
   const rows = new Array<number>(Math.ceil(length / ROW)).fill(0);
   for (const feature of features) {
     for (const [from, to] of spans(feature, length)) {
@@ -721,33 +807,33 @@ export function findMotif(
   const upper = sequence.toUpperCase();
   // Round the origin, the motif's length less one more of its start.
   const read = options.circular ? upper + upper.slice(0, motif.length - 1) : upper;
-  const found = new Map<number, Match>();
-  let more = false;
-  const scan = (wanted: string, strand: "forward" | "reverse") => {
+  // Where each strand's matches start (from 0), in order along the sequence.
+  function* starts(wanted: string) {
     const pattern = Array.from(wanted, (c) => classOf(c, alphabet)).join("");
-    const expression = new RegExp(`(?=${pattern})`, "g");
-    for (const hit of read.matchAll(expression)) {
-      if (hit.index >= length) break;
-      const start = hit.index + 1;
-      const was = found.get(start);
-      if (was) {
-        if (was.strand !== strand) was.strand = "both";
-        continue;
-      }
-      if (found.size >= MOST_MATCHES) {
-        more = true;
-        break;
-      }
-      const end = ((hit.index + motif.length - 1) % length) + 1;
-      found.set(start, { start, end, strand });
+    for (const hit of read.matchAll(new RegExp(`(?=${pattern})`, "g"))) {
+      if (hit.index >= length) return;
+      yield hit.index;
     }
-  };
-  scan(motif, "forward");
-  if (options.bothStrands && alphabet !== "protein") {
-    scan(reverseComplement(motif, alphabet), "reverse");
   }
-  const matches = [...found.values()].sort((a, b) => a.start - b.start);
-  return { matches, more };
+  const strands = options.bothStrands && alphabet !== "protein";
+  const forward = starts(motif);
+  const reverse = strands ? starts(reverseComplement(motif, alphabet)) : null;
+  // The two strands' matches, merged in order, so the cap keeps the first along the
+  // sequence whichever strand they're on, and a place both have is one match on both.
+  let ahead = forward.next();
+  let behind = reverse?.next();
+  const matches: Match[] = [];
+  for (;;) {
+    const f = ahead.done ? Infinity : ahead.value;
+    const r = !behind || behind.done ? Infinity : behind.value;
+    const at = Math.min(f, r);
+    if (at === Infinity) return { matches, more: false };
+    if (matches.length >= MOST_MATCHES) return { matches, more: true };
+    const strand = f === r ? "both" : f < r ? "forward" : "reverse";
+    matches.push({ start: at + 1, end: ((at + motif.length - 1) % length) + 1, strand });
+    if (f === at) ahead = forward.next();
+    if (r === at) behind = reverse?.next();
+  }
 }
 
 /** The match a step from the caret goes to: the first starting after `place` (a place

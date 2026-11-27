@@ -47,7 +47,9 @@ sequence than the plasmid, or with some of it twice over, differs: those
 bases are listed as not placed once.
 
 Each difference is named in HGVS, with the plasmid's features that hold it
-and the run of one base it lies in. For reads it also records the reads
+and the run of one base it lies in, and how many bases it replaces and has.
+The record keeps the first 200 bases of each side of a long change; the
+differences table the run keeps has every base. For reads it also records the reads
 across it and those with its whole allele, each read once however many
 times it passes, on each strand. A one-base deletion in a long homopolymer
 is a candidate nanopore error, to be weighed by its support: the reads

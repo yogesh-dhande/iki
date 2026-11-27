@@ -624,10 +624,12 @@ function readsOf(difference) {
 	const strands = difference.forward !== void 0 && difference.reverse !== void 0 ? ` (${String(difference.forward)} forward, ${String(difference.reverse)} reverse)` : "";
 	return `${String(difference.support)} of ${String(difference.depth)}, ${percentOf(difference.support, difference.depth)}${strands}`;
 }
+/** What a difference replaces and has: their bases where they're few enough to read, and
+* otherwise how many, from its full lengths, not its preview's. */
 function changeOf(difference) {
-	const shown = (bases, change) => bases.length > 12 ? `${String(bases.length + Math.max(change - bases.length, 0))} bp` : bases;
-	const was = difference.reference ? shown(difference.reference, 0) : "—";
-	const now = difference.observed ? shown(difference.observed, difference.length_change) : "—";
+	const side = (bases, length) => !length ? "—" : length <= 12 && bases.length === length ? bases : `${length.toLocaleString("en")} bp`;
+	const was = side(difference.reference, difference.reference_length);
+	const now = side(difference.observed, difference.observed_length);
 	return `${difference.kind.replace("_", "-")}: ${was} \u2192 ${now}`;
 }
 /** Each difference: its HGVS name, where it lies, what changed, the features it lies in,
