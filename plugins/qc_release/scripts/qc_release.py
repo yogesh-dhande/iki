@@ -475,9 +475,22 @@ def observation(
     if (
         values.get("endpoint_kind") != params["attribute"]
         or values.get("concentration_unit") != params["unit"]
-        or values.get("fit_version") != params["method"]
     ):
-        raise ValueError("The assay's endpoint, unit and fit method must match the criterion.")
+        raise ValueError("The assay's endpoint and unit must match the criterion.")
+    # A specification names the fit method it accepts, by its name and its version (ADR
+    # 0248): plate_assays' own 4PL-OLS/1, or a lab's method under its own name. A result
+    # fitted another way, or by another version, isn't evidence for it.
+    named = fit_method(criterion["method"])
+    if named is None:
+        raise ValueError(
+            "Name the fit method and its version in the specification criterion, such as "
+            "4PL-OLS/1, to release on a plate assay result."
+        )
+    if fit_method(values.get("fit_version")) != named:
+        raise ValueError(
+            f"The assay was fitted by {values.get('fit_version') or 'an unnamed method'}; "
+            f"the specification accepts {named[0]} version {named[1]}."
+        )
     for field in ("procedure", "procedure_revision"):
         expected = criterion.get(field)
         if not isinstance(expected, str) or not expected.strip() or values.get(field) != expected:
@@ -488,6 +501,15 @@ def observation(
         "evidence": assay["id"],
         "evidence_revision": assay["revision"],
     }
+
+
+def fit_method(text: object) -> tuple[str, str] | None:
+    """A fit method's name and version, as ``name/version`` states them, or None when either
+    is missing: a bare version, or a name without one, names no method."""
+    if not isinstance(text, str):
+        return None
+    name, _, version = text.strip().rpartition("/")
+    return (name, version) if name.strip() and version.strip() else None
 
 
 def optional_input(run: dict[str, Any], field: str) -> dict[str, Any] | None:
