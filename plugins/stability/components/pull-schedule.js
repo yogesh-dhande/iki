@@ -28,6 +28,9 @@ const STYLE = `
   .more { margin-top: .55rem; }
 `;
 const SCHEDULE = "iki/stability.schedule_pulls";
+// The planned amount's UCUM unit as it's written for people.
+const UNITS = { uL: "µL", mL: "mL", ug: "µg", mg: "mg" };
+
 const STATUSES = {
   upcoming: "Upcoming",
   open: "Window open",
@@ -165,7 +168,8 @@ class PullSchedule extends HTMLElement {
   #row(item, status) {
     const values = item.values;
     const tube = item.refs?.[values.tube]?.hrid ?? "Unavailable";
-    const heading = node("h3", `${values.condition_label} · Month ${values.month}`);
+    const replicate = values.replicate > 1 ? ` · Replicate ${values.replicate}` : "";
+    const heading = node("h3", `${values.condition_label} · ${values.time_point}${replicate}`);
     const state = node("span", STATUSES[status]);
     if (["late", "early", "missed", "overdue"].includes(status)) state.className = "warning";
     if (status === "pulled") state.className = "done";
@@ -178,14 +182,15 @@ class PullSchedule extends HTMLElement {
       node("dt", "Tube"),
       node("dd", tube),
     );
-    if (values.volume_ul != null) {
-      const given = values.volume_ul;
-      const volume = typeof given === "object" ? given.value : given;
-      const unit = given.unit === "uL" || !given.unit ? "µL" : given.unit;
+    if (values.amount != null) {
+      const unit = UNITS[values.amount_unit] ?? values.amount_unit;
       detail.append(
-        node("dt", values.status === "pulled" ? "Drawn" : "Planned volume"),
-        node("dd", `${volume} ${unit}`),
+        node("dt", values.status === "pulled" ? "Drawn" : "Planned amount"),
+        node("dd", `${values.amount} ${unit}`),
       );
+    }
+    if (values.tests?.length) {
+      detail.append(node("dt", "Tests"), node("dd", values.tests.join(", ")));
     }
     if (values.status === "pulled") {
       detail.append(node("dt", "Actual pull"), node("dd", date(values.pulled_on)));

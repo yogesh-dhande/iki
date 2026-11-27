@@ -5006,9 +5006,18 @@ def stability_study(alice: requests.Session, project: dict[str, Any]) -> None:
                     "humidity_tolerance": 5,
                 }
             ],
-            "time_points": [{"month": 0, "days_before": 0, "days_after": 1}],
+            "time_points": [
+                {"code": "T0", "interval": 0, "unit": "month", "days_before": 0, "days_after": 1}
+            ],
             "assignments": [
-                {"condition": "long_term", "month": 0, "tube": tube["id"], "volume_ul": 12}
+                {
+                    "condition": "long_term",
+                    "time_point": "T0",
+                    "replicate": 1,
+                    "tube": tube["id"],
+                    "amount": 12,
+                    "amount_unit": "uL",
+                }
             ],
             "tests": [{"test": "Demo peak area", "method": "Synthetic method v1", "unit": "AU"}],
         },

@@ -3,7 +3,7 @@ kind: EntityType
 name: Study
 label: Stability study
 label_plural: Stability studies
-schema_version: 2
+schema_version: 3
 hrid: { prefix: STB }
 description: One revision of a protocol for studying a lot at planned conditions and time points.
 fields:
@@ -40,29 +40,71 @@ fields:
     type: list
     required: true
     immutable: true
-    max_items: 30
+    max_items: 40
+    description: >-
+      When pulls are due, each counted from the start date in days, weeks or calendar
+      months, such as 0, 3, 6, 9 and 12 months, or 1 and 2 weeks for a short in-use study.
     items:
       type: row
-      identity: [month]
+      identity: [code]
       fields:
-        month: { type: int, label: Month from start, min: 0, max: 120, required: true }
+        code: { type: string, label: Time point, max_length: 24, required: true }
+        interval: { type: int, label: Time from start, min: 0, max: 3660, required: true }
+        unit:
+          type: enum
+          label: Counted in
+          values: [day, week, month]
+          required: true
         days_before: { type: int, label: Days before due date, min: 0, max: 365, required: true }
         days_after: { type: int, label: Days after due date, min: 0, max: 365, required: true }
   assignments:
     type: list
     required: true
     immutable: true
-    max_items: 360
-    description: Each condition and month has one assigned storage tube and planned volume.
+    max_items: 720
+    description: >-
+      The pulls the protocol plans: a condition, a time point and a replicate, each with
+      its storage tube and planned amount. Every condition and time point, or only some,
+      as a reduced design plans them (ICH Q1D), saying why in its design justification.
     items:
       type: row
-      identity: [condition, month]
+      identity: [condition, time_point, replicate]
       fields:
         condition: { type: string, max_length: 24, required: true }
-        month: { type: int, min: 0, max: 120, required: true }
+        time_point: { type: string, max_length: 24, required: true }
+        replicate: { type: int, min: 1, max: 20, default: 1, required: true }
         tube: { type: ref, to: iki/inventory.Tube, required: true }
-        volume_ul:
-          { type: quantity, unit: uL, label: Planned volume (µL), min: 0.000001, required: true }
+        amount: { type: float, label: Planned amount, min: 0.000001, required: true }
+        amount_unit:
+          type: enum
+          label: Unit
+          values: [uL, mL, ug, mg]
+          default: uL
+          required: true
+          description: >-
+            A volume, or a mass drawn as a volume at the tube's concentration.
+  test_plan:
+    type: list
+    immutable: true
+    max_items: 2000
+    description: >-
+      Which tests each condition and time point gets, when not every test is run at
+      every pull, as a matrixed design plans them. Left empty, each pull gets every test.
+    items:
+      type: row
+      identity: [condition, time_point, test]
+      fields:
+        condition: { type: string, max_length: 24, required: true }
+        time_point: { type: string, max_length: 24, required: true }
+        test: { type: string, max_length: 100, required: true }
+  design_justification:
+    type: text
+    max_length: 4000
+    immutable: true
+    description: >-
+      Why the study pulls or tests fewer than every condition and time point, such as
+      bracketing or matrixing under ICH Q1D, and where the protocol justifies it.
+      Scheduling a reduced design needs it.
   tests:
     type: list
     required: true
@@ -74,7 +116,16 @@ fields:
       fields:
         test: { type: string, label: Test or attribute, max_length: 100, required: true }
         method: { type: string, label: Method and revision, max_length: 200, required: true }
-        unit: { type: string, label: Reporting unit, max_length: 40, required: true }
+        kind:
+          type: enum
+          label: Result
+          values: [numeric, conforms]
+          default: numeric
+          required: true
+          description: >-
+            A number in its reporting unit, or a result that conforms or doesn't, such as
+            an appearance or a container's integrity (ICH Q6A).
+        unit: { type: string, label: Reporting unit, max_length: 40 }
   scheduled:
     type: bool
     label: Pulls generated
