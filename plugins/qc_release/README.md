@@ -71,9 +71,13 @@ tested under. The deployment's `successor_effective_dates` setting says how soon
    report if available. The plate-assay path uses a signed,
    reportable, in-range IC50 or EC50 result for the same physical lot and pins its revision.
    Record the same analytical procedure ID and revision on the plate and the
-   specification criterion. Set the criterion method to the assay's fit version,
-   for example `4PL-OLS/1`. Signed endpoints qualify as evidence when all three
-   identifiers agree.
+   specification criterion. Set the criterion method to the fit method the
+   specification accepts, by its name and version: `4PL-OLS/1` for plate_assays' own
+   fit, or a lab's locally qualified method under its own name, such as
+   `acme/5PL-WLS/1`. A result fitted by another method, or another version of it, isn't
+   evidence for the criterion, so a lab's method counts only where the specification
+   names it. Signed endpoints qualify as evidence when the procedure, its revision and
+   the fit method all agree.
    Regulated release requires a QA-released plate-assay result.
 3. Open the investigation created with an out-of-specification observation. Set its
    **Investigator**, which assigns it to that person. In Regulated QC the investigator must

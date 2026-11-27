@@ -10,6 +10,7 @@
 - Amended: 2026-11-26 — an investigation's own testing, an inconclusive conclusion and
   its investigator (see Amendment)
 - Amended: 2026-11-26 — specification contexts and release cycles (see Amendment)
+- Amended: 2026-11-27 — a criterion names the fit method it accepts (see Amendment)
 
 ## Context
 
@@ -174,3 +175,19 @@ material.
 
 The lot's disposition remains Lot QA's (ADR 0211). A retest cycle is evidence for the
 lot's re-release, not the re-release itself.
+
+## Amendment. A criterion names the fit method it accepts
+
+A dose-response fit is a named, versioned method, and a lab can add its own (ADR 0248). A
+criterion released on a plate assay result names the method it accepts as
+`name/version`: plate_assays' `4PL-OLS/1`, or a lab's method under its own name, such as
+`acme/5PL-WLS/1`. `record_test` compares the result's `fit_version` with it by name and by
+version. Another version of the same method is another method. A criterion that names a
+version without a method, or a method without a version, accepts no plate assay result.
+So a lab's method is evidence only where an approved specification names it, and the
+specification's approval is the lab's decision that the method is qualified for that
+attribute.
+
+The name is what the result records. Iki doesn't check which plugin fitted it: any
+installed plugin that creates plate assay results is deployment code the administrator
+installed, and could record any endpoint as well as any method name.
