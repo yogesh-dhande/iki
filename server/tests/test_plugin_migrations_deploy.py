@@ -212,6 +212,26 @@ def test_a_plugin_made_for_another_iki_is_refused(
     assert query(database, "SELECT to_regclass('django_migrations')") == [(None,)]
 
 
+def test_a_plugin_migration_that_needs_a_newer_iki_is_refused_naming_both(
+    two_builds: tuple[Path, Path], database: str
+) -> None:
+    """A plugin built with a newer Iki can depend on one of that Iki's migrations while its
+    `iki:` range still admits this one: refused before anything changes, naming the
+    plugin's migration and the one of Iki's it needs, not as Django's missing node."""
+    v1, _ = two_builds
+    (migration,) = (v1 / "iki_plugin_acme__lab" / "migrations").glob("0001_*.py")
+    source = migration.read_text()
+    needs = "dependencies = ["
+    assert needs in source
+    migration.write_text(source.replace(needs, f'{needs}("iki_entities", "0099_future"), ', 1))
+    err = refused(v1, database)
+    assert "acme/lab 0001_" in err
+    assert "needs Iki's migration iki_entities 0099_future" in err
+    assert "made with a newer Iki" in err and "nothing was migrated" in err
+    assert "NodeNotFoundError" not in err and "nonexistent parent node" not in err
+    assert query(database, "SELECT to_regclass('django_migrations')") == [(None,)]
+
+
 def test_applied_migrations_cant_change(two_builds: tuple[Path, Path], database: str) -> None:
     v1, _ = two_builds
     deployed(v1, database)
