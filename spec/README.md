@@ -1888,10 +1888,12 @@ apiVersion: iki/v1
 kind: Component
 name: plate_map
 label: Plate map
-module: ./components/plate-map.js # one file, up to 10 MiB
+module: ./components/plate-map.js # one file, up to 10 MiB, built from web/src/plate-map.js
 element: acme-plate-map # the custom element it defines
 slots: [{ slot: entity.tab, type: Plate }] # a tab on each plate's page
-events: { select: { type: Well } } # it lets people pick wells
+events:
+  select: { type: Well } # it lets people pick wells
+  run: { actions: [commit_reader] } # and offers its plugin's reader import on the plate
 ```
 
 `entity.tab` is a tab on the pages of entities of `type` and its subtypes,
@@ -1901,6 +1903,24 @@ page it's on, as the person may read it, and listens for `iki-select`
 events, whose `detail.entities` lists the HRIDs of the entities picked, of
 the type `events.select` declares. The page shows what was picked, among
 what the person may read, and offers to run an action on them.
+
+A tab may also offer its own plugin's actions on its entity, under
+`events.run` (ADR 0170). Its `place.runs` lists those the person viewing it
+may run there now, and an `iki-run` event with `detail.action` opens Iki's
+run page with that action and the entity chosen, for the person to check and
+start. The validator refuses an action the plugin doesn't have
+(`component-unknown-action`), one with no input that takes the tab's entity
+(`component-action-takes-no-entity`), and offers from a component with no
+entity tab (`component-run-needs-a-tab`).
+
+What a component is given and may send is
+[`@ikisci/component`](../web/packages/component)'s frame protocol, published
+with each release (ADR 0286). A component sends its events with that
+package's helpers (`select`, `more`, `refine`, `open` and `run`), and Iki's
+page reads them with the package's own validators. Its source is
+`web/src/<name>.js`, and `iki-component-bundle`, from the same package,
+builds it with everything it imports into `components/<name>.js`. Iki's
+builds leave `web/` out of what they ship.
 
 ### Components that show many entities
 

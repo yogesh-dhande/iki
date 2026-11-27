@@ -5,6 +5,7 @@
  * What expressions make is shown as text, never as HTML.
  */
 
+import { HRID } from "@ikisci/component";
 import { unwrap, type Problem, type Schemas } from "@ikisci/sdk";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -25,13 +26,7 @@ import {
   type Rendered,
 } from "../apps";
 import { usePlaceEntities } from "../component-entities";
-import {
-  componentsQuery,
-  HRID,
-  tabFor,
-  type PlaceSearch,
-  type PluginComponent,
-} from "../components";
+import { componentsQuery, tabFor, type PlaceSearch, type PluginComponent } from "../components";
 import {
   searchEntities,
   ENTITIES,
