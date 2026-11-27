@@ -53,7 +53,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: Batch
 schema_version: 1
-hrid: { prefix: BAT }
+hrid: { prefix: BTC }
 fields:
   name: { type: string, max_length: 100, required: true }
   method: { type: ref, to: PurificationMethod }

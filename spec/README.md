@@ -215,17 +215,17 @@ display:
   title: "{{ name or hrid }}"
 ```
 
-| Key                     | Meaning                                                                                                  |
-| ----------------------- | -------------------------------------------------------------------------------------------------------- |
-| `name`                  | PascalCase. Elsewhere the type is `plugin.Name`; in the same plugin, `Name` is enough.                   |
-| `label`, `label_plural` | What people see. Default: the name split into words, and that plus "s".                                  |
-| `schema_version`        | A whole number from 1. Dependencies and actions name the versions they work with.                        |
-| `extends`               | A parent type. Entities of this type are also entities of the parent, with its fields.                   |
-| `abstract`              | Only subtypes have entities. Abstract types have no `hrid`; every concrete type must have one.           |
-| `hrid`                  | Human-readable IDs: a 2–8 character prefix (capitals and digits), zero-padded to `digits` (3–12).        |
-| `identity`              | Fields that make an entity the same as another. Each must be `immutable`, and one `required`. See below. |
-| `display.title`         | Text with `{{ a or b or "text" }}` parts, naming fields or `hrid`.                                       |
-| `display.viewers`       | Iki's own viewers, each a tab on its entities' pages, configured by naming fields. See Viewers.          |
+| Key                     | Meaning                                                                                                                                                                                |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                  | PascalCase. Elsewhere the type is `plugin.Name`; in the same plugin, `Name` is enough.                                                                                                 |
+| `label`, `label_plural` | What people see. Default: the name split into words, and that plus "s".                                                                                                                |
+| `schema_version`        | A whole number from 1. Dependencies and actions name the versions they work with.                                                                                                      |
+| `extends`               | A parent type. Entities of this type are also entities of the parent, with its fields.                                                                                                 |
+| `abstract`              | Only subtypes have entities. Abstract types have no `hrid`; every concrete type must have one.                                                                                         |
+| `hrid`                  | Human-readable IDs: a 2–8 character prefix (capitals and digits), zero-padded to `digits` (3–12). The prefix is a default a deployment can override ([HRID prefixes](#hrid-prefixes)). |
+| `identity`              | Fields that make an entity the same as another. Each must be `immutable`, and one `required`. See below.                                                                               |
+| `display.title`         | Text with `{{ a or b or "text" }}` parts, naming fields or `hrid`.                                                                                                                     |
+| `display.viewers`       | Iki's own viewers, each a tab on its entities' pages, configured by naming fields. See Viewers.                                                                                        |
 
 ### Identities and registries
 
@@ -1468,6 +1468,43 @@ read-only view per type in the `iki_views` schema, such as
 and those other plugins add. Plugins installed together can't share an HRID
 prefix, a table, or a field they add to the same type.
 
+### HRID prefixes
+
+A type's `hrid.prefix` is a default. All the types in a deployment share one
+space of prefixes, so two plugins that don't know each other can choose the
+same one. When they do, the deployment's lockfile settles it by giving one of
+them another prefix (`hrids`, [below](#a-deployments-lockfile)). Neither
+plugin has to change. The build's refusal names both types and gives the
+override to add:
+
+```text
+error: iki/reagents.Buffer and acme/assays.Buffer both use the HRID prefix BUF.
+Give one of them its own prefix in the deployment's `plugins.lock.yaml`:
+`hrids: { acme/assays.Buffer: ABUF }`.
+```
+
+A type keeps one prefix for as long as it has records, because HRIDs are
+printed on labels and tubes. The deploy refuses to give a type another prefix
+while it has records under its old one, whether the change comes from the
+lockfile or from a new version of its plugin. The refusal names the type, the
+old prefix and one of its HRIDs.
+
+Iki lists the prefixes it uses in
+[`reserved_hrid_prefixes.json`](src/iki_spec/reserved_hrid_prefixes.json):
+
+- `core`: the prefixes of core's types and of the records the server numbers
+  itself (`RUN`, `BAT`, `WF`, `SETUP`). They are Iki's alone. A plugin that
+  takes one gets `duplicate-hrid-prefix`, and a deployment can't give a core
+  type another prefix.
+- `plugins`: the prefixes Iki's own plugins use.
+- `planned`: prefixes reserved for first-party types on the roadmap.
+
+A lab's plugin that takes a prefix from `plugins` or `planned` gets the
+warning `reserved-hrid-prefix`. Once a deployment installs both, one of them
+needs an override, so it's better to choose another prefix before the type
+has records. `make first-party` writes the file. A test fails while it is out
+of date.
+
 ## Units
 
 Quantities use [UCUM](https://ucum.org) codes, the units standard of lab
@@ -2414,7 +2451,18 @@ plugins:
     git: https://github.com/acme/iki-assays.git
     sha: 9b2e4c1d0a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d
     state: active
+hrids: # HRID prefixes this deployment gives types, in place of their plugins'
+  acme/assays.Buffer: ABUF
 ```
+
+`hrids` maps a type, as `namespace/plugin.Type`, to the prefix its HRIDs
+take in this deployment ([HRID prefixes](#hrid-prefixes),
+ADR 0033). The build checks
+every plugin with these prefixes and compiles them into the manifests the
+server reads, so the HRIDs and sequences use them. An override must name a
+concrete type of a plugin the lockfile builds (`hrid-override-unlisted`). It
+can't name a core type (`hrid-override-core`), and it can't move a type that
+already has records.
 
 `sha` is a full commit, never a branch or tag, so the same lockfile always
 installs the same plugins. `git ls-remote <repository> <tag>` prints a
@@ -3210,7 +3258,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `service-field-inherited`, `service-field-refers`, `service-field-unique`, `service-field-immutable`, `service-field-required`, `request-sends-not-a-reference`, `request-sends-service-field`, `request-with-identity`, `request-redeclared`, `result-with-identity`, `result-is-a-request`, `result-of-not-a-request`, `result-of-changes`, `result-released-without-states`, `result-released-initial`, `result-release-on-edit`, `result-release-lock`                                                                                                                                                                                            | Requests between projects       |
 | `amount-unit`, `amount-concentration`, `amount-aliquots`, `amount-twice`, `amount-on-identity`, `holds-without-amount`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Amounts                         |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Types                           |
-| `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HRIDs                           |
+| `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`; `reserved-hrid-prefix` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | HRIDs                           |
 | `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                                                                                                                                                                                                              | Identities                      |
 | `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Field options                   |
 | `unsupported-index`, `index-needs-max-length`, `unique-needs-index`, `link-not-https`, `link-without-value`, `link-unknown-placeholder`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Indexes                         |
@@ -3221,7 +3269,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Extensions                      |
 | `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Dependencies                    |
 | `setting-policy`, `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`, `setting-needed` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Settings                        |
-| `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `test-only-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                                                                                                                     | Lockfiles                       |
+| `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `test-only-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`, `hrid-override-core`, `hrid-override-unlisted`                                                                                                                                                                                                                                                                                     | Lockfiles                       |
 | `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`, `from-project-one`                                                                                                                                                                                                                                                                                                                                                                                               | Actions                         |
 | `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `updates-state`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | What actions write              |
 | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `self-hosted-secrets`, `self-hosted-network`, `reserved-secret`, `absolute-path-on-backend`, `missing-file`                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Where actions run               |
