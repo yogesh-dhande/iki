@@ -109,7 +109,13 @@ def exercise_history() -> None:
     with pytest.raises(Invalid, match="bank of this cell line"):
         make("CellBank", **{**working_values, "name": "Wrong line", "line": str(line.pk)})
 
-    vial = make("CellVial", name="Example vial", bank=str(working.pk), contents=str(working.pk))
+    vial = make("CellVial", name="Example vial", contents=str(working.pk))
+    # A vial's contents are its bank: anything else, or nothing, is refused.
+    with pytest.raises(Invalid) as wrong:
+        make("CellVial", name="Wrong contents", contents=str(clone.pk))
+    assert "contents" in wrong.value.errors
+    with pytest.raises(Invalid, match="vial's bank"):
+        make("CellVial", name="No bank")
     box = services.create(
         editor, "iki/inventory.Box", world.project, {"name": "Example box"}
     ).entity
@@ -358,7 +364,7 @@ def local_history(
         )
 
     # A vial of the received stock thaws at an unknown passage, and stays unknown.
-    vial = make("CellVial", name="Donor 7 vial", bank=str(received.pk), contents=str(received.pk))
+    vial = make("CellVial", name="Donor 7 vial", contents=str(received.pk))
     thaw = {
         "event": "thaw",
         "bank": str(received.pk),

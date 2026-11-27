@@ -2504,11 +2504,7 @@ def cell_bank_history(alice: requests.Session, project: dict[str, Any]) -> None:
         alice,
         project,
         plugin + "CellVial",
-        {
-            "bank": bank["id"],
-            "contents": bank["id"],
-            "barcode": f"SYNTHETIC-{secrets.token_hex(4)}",
-        },
+        {"contents": bank["id"], "barcode": f"SYNTHETIC-{secrets.token_hex(4)}"},
     )
     box = created(alice, project, INVENTORY + "Box", {"name": "Synthetic cell bank"})
     moved(alice, [(vial, box, "A1")], "Synthetic working bank deposit")

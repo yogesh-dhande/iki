@@ -66,7 +66,7 @@ rules:
   thaw_from_bank:
     when: record.event == "thaw"
     check: >-
-      record.vial.bank == record.bank.id && record.event_on >= record.bank.banked_on &&
+      record.vial.contents == record.bank.id && record.event_on >= record.bank.banked_on &&
       (record.bank.passage_unknown ? record.passage_unknown :
       record.passage_number == record.bank.passage_number)
     message: Use the vial's bank and its frozen passage number, on or after its banking date.
