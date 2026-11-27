@@ -1,6 +1,6 @@
 # 0033. Plugins compiled to Django apps, and migrations that keep history
 
-- Status: Accepted
+- Status: Accepted (refined by [0293](0293-a-plugin-made-for-one-iki-release-keeps-working-on-the-next.md): HRID prefixes per deployment)
 - Date: 2026-11-10
 - Refines: [0006](0006-deploy-time-plugins-as-django-apps.md),
   [0007](0007-typed-table-per-type-entity-storage.md)
