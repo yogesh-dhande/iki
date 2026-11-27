@@ -290,7 +290,7 @@ class Collection_members(models.Model):
 
 
 class Complex(Entity):
-    """Complex (iki/core.Complex), schema version 1. Molecules held together as one: an antibody's chains, hemoglobin's chains and hemes, a receptor bound to its ligand, or any other complex. It's its parts and how many copies of each, whatever their order, so one set of parts is one registry entry, whichever type of complex registered it."""
+    """Complex (iki/core.Complex), schema version 2. Molecules held together as one: an antibody's chains, hemoglobin's chains and hemes, a receptor bound to its ligand, or any other complex. It's its parts and how many copies of each, whatever their order, so one set of parts is one registry entry, whichever type of complex registered it."""
 
     IKI_TYPE = 'iki/core.Complex'
 
@@ -377,6 +377,8 @@ class Complex_Entry(Entity):
         related_name='+',
     )
     bond_map = models.TextField(null=True)
+    bonds_from = models.TextField(null=True)
+    bonds_source = models.CharField(max_length=500, null=True)
     molecular_formula = models.CharField(max_length=255, null=True)
     molecular_weight = QuantityField(unit='u', null=True, db_index=True)
     monoisotopic_mass = QuantityField(unit='u', null=True)
@@ -389,6 +391,22 @@ class Complex_Entry(Entity):
             models.CheckConstraint(
                 condition=Q(bond_map__in=['complete', 'incomplete', 'predominant']),
                 name='iki__core_complex__entry__bond_map__values',
+            ),
+            models.CheckConstraint(
+                condition=Q(bonds_from__in=['pattern', 'curated', 'observed']),
+                name='iki__core_complex__entry__bonds_from__values',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('bonds_source'), 1),
+                name='iki__core_complex__entry__bonds_source__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(bonds_source__regex='[\\r\\n]'),
+                name='iki__core_complex__entry__bonds_source__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(bonds_source__regex='^[A-Za-z][A-Za-z0-9+.-]*:[^\\s]+$'),
+                name='iki__core_complex__entry__bonds_source__format',
             ),
             models.CheckConstraint(
                 condition=GreaterThanOrEqual(Length('molecular_formula'), 1),
@@ -453,6 +471,8 @@ class Complex_Entry_History(models.Model):
     components = models.JSONField(null=True)
     bonds = models.JSONField(null=True)
     bond_map = models.TextField(null=True)
+    bonds_from = models.TextField(null=True)
+    bonds_source = models.TextField(null=True)
     molecular_formula = models.TextField(null=True)
     molecular_weight = QuantityField(unit='u', null=True)
     monoisotopic_mass = QuantityField(unit='u', null=True)

@@ -336,7 +336,10 @@ def assembled(
         "bond_map": bond_map,
     }
     if bonds:
+        # Placed where the format, subclass and numbering put them, not read from
+        # this molecule: a registrar records curated or observed ones (ADR 0267).
         values["bonds"] = bonds
+        values["bonds_from"] = "pattern"
     if isotype:
         values["isotype"] = isotype
     if species:

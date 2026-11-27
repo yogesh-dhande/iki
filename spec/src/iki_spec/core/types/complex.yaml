@@ -10,7 +10,7 @@ name: Complex
 label: Complex
 label_plural: Complexes
 abstract: true
-schema_version: 1
+schema_version: 2
 description: >-
   Molecules held together as one: an antibody's chains, hemoglobin's chains
   and hemes, a receptor bound to its ligand, or any other complex. It's
@@ -131,6 +131,29 @@ fields:
       molecules within each heavy chain. Left empty, it isn't said. A registry
       fact: given once, then changed only by its registrars, as when peptide
       mapping confirms its disulfides.
+  bonds_from:
+    type: enum
+    registry: fact
+    label: Its bonds come from
+    values: [pattern, curated, observed]
+    description: >-
+      Where its bonds come from: pattern, placed where its kind places them,
+      not read from this molecule, as `assemble` places an IgG1's or IgG4's
+      disulfides by its subclass; curated, a source that records this
+      molecule's, such as a database entry, a monograph or a solved structure;
+      observed, seen in this molecule, as by non-reduced peptide mapping.
+      Curated and observed bonds name their source. Left empty, it isn't said.
+      A registry fact: given once, then changed only by its registrars.
+  bonds_source:
+    type: string
+    format: uri
+    max_length: 500
+    registry: fact
+    label: Its bonds' source
+    description: >-
+      Where curated or observed bonds are recorded, as a link: a database
+      entry such as KEGG DRUG's https://www.kegg.jp/entry/D03257, a PDB entry,
+      a publication's DOI, or the peptide map that saw them. A registry fact.
   # What its parts and copies make it, whatever its type (computed by the complex plugin's
   # compute_composition): its registry entry's, as they come from its identity alone, so
   # its parts as they are, each cysteine's thiol free. Its bonds are a registry fact that

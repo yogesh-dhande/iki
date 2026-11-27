@@ -41,6 +41,8 @@ expect:
           target: HER2
           # An IgG1's are every bond it has.
           bond_map: complete
+          # Placed by its format, subclass and numbering, not read from it.
+          bonds_from: pattern
           # KEGG DRUG D03257's 16: H223-L214, H229-H'229 and H232-H'232 between its chains,
           # then each domain's own.
           bonds:
@@ -257,6 +259,8 @@ expect:
           format: fab
           isotype: igg1
           bond_map: complete
+          # Placed by its format, subclass and numbering, not read from it.
+          bonds_from: pattern
           bonds:
             - {
                 kind: disulfide,

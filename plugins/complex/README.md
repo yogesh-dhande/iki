@@ -13,7 +13,12 @@ entry, whichever type registered it: hemoglobin's two α chains, two β chains
 and four hemes are one hemoglobin, and an antibody's chains, two copies of
 each, registered as a protein complex are found to be that antibody. Its
 `bonds`, a registry fact, join one copy's residue to another's: a disulfide two
-cysteines.
+cysteines. `bonds_from` says where they come from: `pattern`, placed where its
+kind places them, not read from this molecule; `curated`, a source that records
+this molecule's, such as a database entry or a solved structure; or `observed`,
+seen in it, as by non-reduced peptide mapping. Curated and observed bonds name
+their source as a link (`bonds_source`), on every type of complex
+([ADR 0267](../../docs/adr/0267-a-complexs-bonds-say-where-they-come-from.md)).
 
 - **`iki/complex.ProteinComplex`** (`PCX-000001`): a complex of any parts in any
   roles, loosely checked: each part once, with its copies, and its bonds within

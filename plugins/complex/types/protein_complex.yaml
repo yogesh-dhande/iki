@@ -9,7 +9,7 @@ name: ProteinComplex
 label: Protein complex
 label_plural: Protein complexes
 extends: iki/core.Complex
-schema_version: 1
+schema_version: 2
 description: >-
   Molecules held together as one, of any parts: proteins, nucleic acids, small
   molecules or other complexes, each with how many copies it has and its role
@@ -34,5 +34,18 @@ fields:
     type: ref
     to: iki/protein.ProteinStructure
     description: A structure that shows it, such as its PDB entry's.
+rules:
+  stated_bonds_name_their_source:
+    label: Curated and observed bonds name their source
+    description: >-
+      Bonds read from a source or seen in this molecule say where, so a
+      reader can tell them from bonds placed by its kind's pattern.
+    check: record.bonds_source != null
+    when: record.bonds_from == "curated" || record.bonds_from == "observed"
+    message: >-
+      Give the source of its {{ record.bonds_from }} bonds as a link: the
+      database entry, structure or publication that records them, or the
+      peptide map that saw them.
+    fields: [bonds_source]
 display:
   title: "{{ name or hrid }}"
