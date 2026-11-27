@@ -10,7 +10,7 @@ label: Biologic lot
 label_plural: Biologic lots
 extends: Lot
 abstract: true
-schema_version: 2
+schema_version: 3
 description: >-
   A lot of a protein, a complex such as an antibody, or a protein conjugate, in
   solution: its concentration, by A280 from its ε280 or by another assay, its purity
