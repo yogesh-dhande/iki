@@ -188,6 +188,26 @@ def test_problems_become_errors_that_say_what_was_wrong(fake: FakeIki, client: C
     )
 
 
+def test_a_bad_parameter_is_named_as_the_parameter_it_is(fake: FakeIki, client: Client) -> None:
+    """A query or path parameter's error names it, as ADR 0027 says: a stale cursor is
+    the `cursor` parameter, not the body's `#`."""
+    fake.on(
+        "GET",
+        "/api/v1/entities/PRT-000001/amount/movements",
+        problem(
+            422,
+            "Some fields are invalid.",
+            "validation_failed",
+            errors=[{"parameter": "cursor", "detail": "Not a cursor from this API."}],
+        ),
+    )
+    with pytest.raises(iki.Invalid) as raised:
+        list(client.entities.movements("PRT-000001"))
+    (only,) = raised.value.errors
+    assert (only.parameter, only.pointer) == ("cursor", None)
+    assert str(only) == "parameter cursor: Not a cursor from this API."
+
+
 @pytest.mark.parametrize(
     ("status", "kind"),
     [
