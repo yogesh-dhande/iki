@@ -272,7 +272,10 @@ A record's request is:
 - **Values are given as the API gives them,** at the record's revision.
 - **A reference role holds the referenced record's fields, one step deep.**
   The referenced record is read as it was while this revision was the
-  record's latest, as ADR 0171 reads a plasmid's sequence.
+  record's latest, as ADR 0171 reads a plasmid's sequence. Its own
+  references are as the API gives them to the requester: each to a record
+  they can't read is `"unreadable"`, so the writer is never given an ID they
+  couldn't see.
 - **A reference the requester can't read is left out and named in
   `withheld`.** Iki adds its own note for it, so the file is never silently
   short. A writer that can't do without it refuses the record, as the Tecan

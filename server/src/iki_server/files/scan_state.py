@@ -110,17 +110,17 @@ def statuses_for_uploads(ids: Iterable[UUID]) -> dict[UUID, ScanStatus]:
     return _statuses(ids, blobs=False)
 
 
+#: Decisions whose bytes may be used, as :attr:`ScanStatus.usable` says, for queries.
+USABLE = (
+    Q(state="clean")
+    | Q(state="infected", release__isnull=False)
+    | Q(state="not_scanned", allow_unscanned=True)
+)
+
+
 def usable_upload_ids() -> QuerySet[BlobScan, UUID | None]:
     """For selecting checkpoints eligible to be kept or restored in one query."""
-    return (
-        BlobScan.objects.filter(upload__isnull=False)
-        .filter(
-            Q(state="clean")
-            | Q(state="infected", release__isnull=False)
-            | Q(state="not_scanned", allow_unscanned=True)
-        )
-        .values_list("upload_id", flat=True)
-    )
+    return BlobScan.objects.filter(USABLE, upload__isnull=False).values_list("upload_id", flat=True)
 
 
 def held() -> QuerySet[BlobScan]:

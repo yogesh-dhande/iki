@@ -1,4 +1,4 @@
-"""Human heavy chain constant regions, and which one a heavy chain's is.
+"""Human and macaque heavy chain constant regions, and which one a heavy chain's is.
 
 An antibody's isotype is its heavy chain constant region's class and subclass, so a
 heavy chain whose constant region is there says what it is. `assemble` reads it off the
@@ -24,7 +24,7 @@ exons), with each natural hinge (HINGES), so a short-hinge allele such as IGHG3*
 IgG3's. Each comparison keeps the form it aligns best with.
 
 A constant region is called the isotype whose reference it's nearest, when it's at least
-90% identical to it over the residues they share, and the next nearest is at least 3
+93% identical to it over the residues they share (below), and the next nearest is at least 3
 differences further away. Allotypes differ from the \\*01 alleles by a residue or two and
 engineered Fc regions (LALA, YTE, S228P and the like) by a few, while the nearest
 subclasses differ by 20 or more over a whole constant region and by 4 or more over CH1
@@ -35,8 +35,30 @@ way along, as eculizumab's CH2 does (CH1, the hinge and the start of CH2 IgG2's,
 of CH2 and CH3 IgG4's, as its Japanese review report gives it: PMDA, Soliris, 2010): a
 domain read as one subclass's and then another's, with at least 3 fewer differences than
 read as any one's, is a crossover, said with where it is, as far as the two subclasses
-tell it. One less than 90% identical to every reference, such as a mouse's, isn't called
-anything: these are human references only.
+tell it. One less than 93% identical to every human reference, such as a mouse's, isn't called
+anything.
+
+A constant region is also compared with a macaque's (MACAQUE_REFERENCES), and it's only
+called a human isotype when it's at least 3 differences nearer a human reference than any
+macaque one, counting each of its residues that differs from the reference: one that's
+nearer a macaque's, or as near, isn't human. Identity alone can't tell them apart. An Old
+World monkey's whole IgG is 88-91% identical to the nearest human one (rhesus IGHG1*03
+90.7%, a baboon's IgG1 90.4%, an African green monkey's 90.4%; rhesus IGHM*03 90.9%),
+and its CH1 alone up to 93% (a rhesus Fab's, PDB 9ZRZ, 93.2% to human IgG3's), while a
+human allele differs from the *01 reference by a residue or two and an engineered Fc by
+up to 15 or so (IGHG1*03's allotype with knob-into-hole, LALA-PG, YTE and H435R/Y436F is
+95.5% identical); so the 93% above keeps an Old World monkey's whole constant region out,
+and the comparison with a macaque's keeps its Fab out too. A human allele or engineered
+Fc is 7 or more differences nearer a human reference than a macaque one, and a rhesus,
+cynomolgus, baboon or African green monkey constant region at least as many nearer a
+macaque one, but for a baboon's or an African green monkey's CH1 alone, which may be as
+near either. Called with species "macaque", a constant region is read as a macaque
+isotype the same way, at least 90% identical to a macaque reference (other rhesus
+alleles are 94-100% identical to IMGT's) and 3 differences nearer it than any human one:
+a baboon's or an African green monkey's is as near a macaque's (93-99%), so these
+references don't tell those species apart, and the species is the registrant's to give.
+A great ape's, such as a chimpanzee's, is as near a human's as human alleles are to each
+other, so it's called human.
 """
 
 from __future__ import annotations
@@ -270,6 +292,211 @@ REFERENCES: dict[str, tuple[str, tuple[str, ...], str, tuple[tuple[str, str], ..
     ),
 }
 
+#: Macaque references: IMGT's IGHC genes of a rhesus macaque (Macaca mulatta, isolate
+#: AG07107), as IMGT's annotation of its IGH locus translates them (EMBL/GenBank BK063715,
+#: a third-party annotation; proteins DBA12923 to DBA12930; Nguefack Ngoune et al., IMGT
+#: biocuration and analysis of the rhesus monkey IG loci, Vaccines 10:394, 2022), each the
+#: secreted form, from CH1's first whole codon as the entries translate it (the human
+#: references also have the residue CH1's first, split codon makes). A macaque has one
+#: IGHA gene, so one IgA. Each is split into domains where it aligns with the human reference of
+#: its class. A cynomolgus macaque's are the same genes: its IgG1 (Lewis et al., Dev Comp
+#: Immunol 17:549-560, 1993; GenBank L13307) is 98.5% identical to IGHG1*03 here, and 89.5%
+#: to the nearest human one.
+MACAQUE_REFERENCES: dict[str, tuple[str, tuple[str, ...], str, tuple[tuple[str, str], ...]]] = {
+    "igg1": (
+        "IGHG1*03",
+        ("BK063715",),
+        "DBA12925.1",
+        (
+            (
+                "CH1",
+                "STKGPSVFPLAPSSRSTSESTAALGCLVKDYFPEPVTVSWNSGSLTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTY"
+                "VCNVNHKPSNTKVDKRV",
+            ),
+            ("hinge", "EIKTCGGGSKPPTCPPCP"),
+            (
+                "CH2",
+                "APELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSQEDPDVKFNWYVNGAEVHHAQTKPRETQYNSTYRVVSVLTVTH"
+                "QDWLNGKEYTCKVSNKALPAPIQKTISKDK",
+            ),
+            (
+                "CH3",
+                "GQPREPQVYTLPPSREELTKNQVSLTCLVKGFYPSDIVVEWESSGQPENTYKTTPPVLDSDGSYFLYSKLTVDKSRWQQG"
+                "NVFSCSVMHEALHNHYTQKSLSVSPGK",
+            ),
+        ),
+    ),
+    "igg2": (
+        "IGHG2*08",
+        ("BK063715",),
+        "DBA12926.1",
+        (
+            (
+                "CH1",
+                "STKGPSVFPLASCSRSTSQSTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFQAVLQSSGLYSLSSVVTVPSSSLGTQTY"
+                "VCNVVHEPSNTKVDKTV",
+            ),
+            ("hinge", "GLPCRSTCPPCP"),
+            (
+                "CH2",
+                "AELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSQEEPDVKFNWYVDGVEVHNAQTKPREEQFNSTYRVVSVLTVTHQ"
+                "DWLNGKEYTCKVSNKALPAPKQKTVSKTK",
+            ),
+            (
+                "CH3",
+                "GQPREPQVYTLPPPREELTKNQVSLTCLVKGFYPSDIVVEWASNGQPENTYKTTPPVLDSDGSYFLYSKLTVDKSRWQQG"
+                "NTFSCSVMHEALHNHYTQKSLSVSPGK",
+            ),
+        ),
+    ),
+    "igg3": (
+        "IGHG3*07",
+        ("BK063715",),
+        "DBA12927.1",
+        (
+            (
+                "CH1",
+                "STKGPSVFPLASCSRSTSQSTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTY"
+                "VCNVVHEPSNTKVDKRV",
+            ),
+            ("hinge", "EFTPPCGDTTPPCPPCP"),
+            (
+                "CH2",
+                "APELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSQEDPEVQFNWYVDGAEVHHAQTKPRERQFNSTYRVVSVLTVTH"
+                "QDWLNGKEYTCKVSNKGLPAPIEKTISKAK",
+            ),
+            (
+                "CH3",
+                "GQPREPQVYILPPPQEELTKNQVSLTCLVTGFYPSDIAVEWESNGQPENTYKTTPPVLDSDGSYFLYSKLIVDKSRWQQG"
+                "NTFSCSVMHEALHNHYTQKSLSVSPGK",
+            ),
+        ),
+    ),
+    "igg4": (
+        "IGHG4*05",
+        ("BK063715",),
+        "DBA12928.1",
+        (
+            (
+                "CH1",
+                "STKGPSVFPLASSSRSTSESTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTY"
+                "VCNVVHEPSNTKVDKRV",
+            ),
+            ("hinge", "EFTPPCPACP"),
+            (
+                "CH2",
+                "APELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSQEDPEVQFNWYVDGVEVHNAQTKPRERQFNSTYRVVSVLTVTH"
+                "QDWLNGKEYTCKVSNKGLPAPIEKTISKAK",
+            ),
+            (
+                "CH3",
+                "GQPREPQVYILPPPQEELTKNQVSLTCLVTGFYPSDIAVEWESNGQPENTYKTTPPVLDSDGSYLLYSKLTVNKSRWQPG"
+                "NIFTCSVMHEALHNHYTQKSLSVSPGK",
+            ),
+        ),
+    ),
+    "iga": (
+        "IGHA*22",
+        ("BK063715",),
+        "DBA12930.1",
+        (
+            (
+                "CH1",
+                "SPTRPKVFPLNLCSTQSDNVVVACLVQGFFPQEPLNVTWSKSGADVTVINFPPSQDASGGLYTTSSQLTLPAAQCPASES"
+                "VTCHVEHYTNPSQDVAVPCV",
+            ),
+            ("hinge", "PPITPPCPS"),
+            (
+                "CH2",
+                "CCEPRLSLRRPALEDLLLGSEANLTCTLTGLKDPSGATFTWTPSSGKNAVQQSPKRDPCGCYSVSSVLPGCAEPWNNRET"
+                "FTCTADHPELETPLTATISKS",
+            ),
+            (
+                "CH3",
+                "GNTFRPEVHLLPPPSEELALNELVTLTCLARGFSPEDVLIRWLKGTEQLPRDKYLTWESRKEPSQGTTTFAVTSILRVAA"
+                "EDWKKGDTFSCMVGHEALPLAFTQKTIDRLAGKPTHVNVSVVMAEVDGTCY",
+            ),
+        ),
+    ),
+    "igm": (
+        "IGHM*03",
+        ("BK063715",),
+        "DBA12923.1",
+        (
+            (
+                "CH1",
+                "SASAPTLFPLVSCENAPLDTNEVAVGCLAQDFLPDSITFSWKFKNNSDISKGVWGFPSVLRGGKYAATSQVLLASKDVMQ"
+                "GTDEHVVCKVQHPNGNKEQNVPLP",
+            ),
+            (
+                "CH2",
+                "VLAERPPNVSVFVPPRDGFVGNPRESKLICQATGFSPRQIEVSWLREGKQVGSGITTDRVEAEAKESGPTTFKVTSTLTV"
+                "SERDWLSQSVFTCRVDHRGLTFQKNVSSVCGP",
+            ),
+            (
+                "CH3",
+                "NPDTAIRVFAIPPSFASIFLTKSTKLTCLVTDLATYDSVTITWTRQNGEALKTHTNISESHPNGTFSAVGEASICEDDWN"
+                "SGERFRCTVTHTDLPSPLKQTISRPK",
+            ),
+            (
+                "CH4",
+                "GVAMHRPDVYLLPPAREQLNLRESATITCLVTGFSPADIFVQWMQRGQPLSPEKYVTSAPMPEPQAPGRYFAHSILTVSE"
+                "EDWNTGETYTCVVAHEALPNRVTERTVDKSTGKPTLYNVSLVMSDTAGTCY",
+            ),
+        ),
+    ),
+    "ige": (
+        "IGHE*01",
+        ("BK063715",),
+        "DBA12929.1",
+        (
+            (
+                "CH1",
+                "SIQSPFVFPLIPCCKHIASNATSVTLGCLATGYFPEPVMVTWDAGSLNRSTMTLPATTFTPSGHYATISLLTVSGAWAKE"
+                "TFTCHVVHTPSSADKEVNKTFG",
+            ),
+            (
+                "CH2",
+                "VCSRNFTPPTVKILQSSCDDDGHFPPTIQLLCLISGYTPGAINVTWLENGQVMKVNSPTPPATQEGELASTQSEFTLAQK"
+                "HWLSDRTYTCQVTYQGTTYNDSTKKCA",
+            ),
+            (
+                "CH3",
+                "DSNPRGVSAYLSRPSPFDLFISKSPTITCLVVDLAPSKETVNLTWSRASGKPVPHIPATEKKQQRNGTLTVTSILPVVTQ"
+                "DWIEGETYQCRVTHPHLPRALVRSMTKTS",
+            ),
+            (
+                "CH4",
+                "GPRAAPEVYVFATPEKLESRDKRTLACLIQNFMPEDISVQWLHSDVQLPDARHSVTQPRKTKGSGFFVFSRLEVTKAEWE"
+                "QKDEFICRAVHEAASPSWIVQQAVSVNPGK",
+            ),
+        ),
+    ),
+    "igd": (
+        "IGHD*03",
+        ("BK063715",),
+        "DBA12924.1",
+        (
+            (
+                "CH1",
+                "STKAPDVFPITSACQLPKDNSPVVLACLITGYNPKSVTVTWHLGTQIQNQIMFPETEREGSYTTSSQLAPTPPLSQQHQG"
+                "EYKCTVKHTPSDTSKEKTFRWP",
+            ),
+            ("hinge", "ESPKAQYPSVPTVQPQAEGGLSKATRPPATNRNTGRREKEDEEEKEQQEGETKTP"),
+            (
+                "CH2",
+                "ECPSHTQPLGVYLLPPALQDLWFQDKVTFTCFVVGSDLQDAHLSWEVAGKVPKGGMEEGPLEQHSNGSQSQHSRLALPRS"
+                "LWNAGTSVTCTLNHPSLPSQKLMALREP",
+            ),
+            (
+                "CH3",
+                "AAQAPVRLSLNLLASSDPPEAASWLLCEVSDFSPPNILLMWLENQREVNTSWFATTHPTPQPGSTMFWAWSVLRVPGPTS"
+                "PQPATYTCVVSHEDSRTLLNASRSLDVSYLTDRGPVK",
+            ),
+        ),
+    ),
+}
+
 #: Natural hinges other than the reference allele's, for a subclass whose hinge's length
 #: differs between alleles: each allele's IMGT name, the EMBL/GenBank entry it's read from,
 #: how many hinge exons it has, and its hinge. IgG3's hinge is exon h1 (17 residues) and
@@ -286,6 +513,11 @@ HINGES: dict[str, tuple[tuple[str, tuple[str, ...], int, str], ...]] = {
     ),
 }
 
+#: Each species' references, by the name `call` takes.
+SPECIES_REFERENCES = {"human": REFERENCES, "macaque": MACAQUE_REFERENCES}
+#: How each species' references are written, after "IMGT's".
+SOURCES = {"human": "", "macaque": "rhesus macaque "}
+
 #: How each isotype is written.
 NAMES = {
     "igg1": "IgG1",
@@ -297,9 +529,13 @@ NAMES = {
     "igm": "IgM",
     "ige": "IgE",
     "igd": "IgD",
+    "iga": "IgA",
 }
-#: A constant region less identical than this to every reference isn't called anything.
-MIN_IDENTITY = 0.9
+#: A constant region less identical than this to every reference of a species isn't called
+#: one of its isotypes: for a human, above an Old World monkey's whole constant region
+#: (91% at most) and below an engineered human Fc's (95% or more); for a macaque, below
+#: other rhesus alleles' (94% or more).
+MIN_IDENTITY = {"human": 0.93, "macaque": 0.9}
 #: How many more differences the next nearest reference must have, for the nearest to be
 #: called, over the whole region and in each domain; and how many fewer a domain must
 #: have when it's read as one subclass's and then another's, for it to be called a
@@ -339,11 +575,11 @@ class Form:
     hinge: tuple[str, tuple[str, ...], int] | None = None
 
 
-def forms(isotype: str) -> list[Form]:
-    """The ways a chain may have `isotype`'s constant region."""
-    domains = REFERENCES[isotype][3]
+def forms(isotype: str, species: str = "human") -> list[Form]:
+    """The ways a chain may have `isotype`'s constant region, as `species` has it."""
+    domains = SPECIES_REFERENCES[species][isotype][3]
     hinged = [Form(domains)]
-    for gene, accessions, exons, hinge in HINGES.get(isotype, ()):
+    for gene, accessions, exons, hinge in HINGES.get(isotype, ()) if species == "human" else ():
         swapped = tuple((n, hinge if n == "hinge" else s) for n, s in domains)
         hinged.append(Form(swapped, (gene, accessions, exons)))
     return [*hinged, *(Form(f.domains[1:], f.hinge) for f in hinged)]
@@ -369,19 +605,29 @@ class Match:
     #: before it).
     owners: tuple[str | None, ...] = field(default=(), repr=False, compare=False)
     costs: tuple[int, ...] = field(default=(), repr=False, compare=False)
+    #: Whose reference it is.
+    species: str = "human"
+
+    @property
+    def cost(self) -> int:
+        """How many of the chain's residues differ from the reference, or follow reference
+        residues it hasn't, counting those outside the aligned span: two references'
+        costs count the same residues, so they say which the chain is nearer."""
+        return sum(self.costs)
 
     @property
     def identity(self) -> float:
         return (self.compared - self.differences) / self.compared if self.compared else 0.0
 
     def describe(self) -> str:
-        gene, accessions, _, _ = REFERENCES[self.isotype]
+        gene, accessions, _, _ = SPECIES_REFERENCES[self.species][self.isotype]
         hinge = ""
         if self.hinge is not None:
             other, where, exons = self.hinge
             hinge = f", with {other}'s {exons}-exon hinge ({', '.join(where)}),"
         return (
-            f"{self.identity:.1%} identical to IMGT's {gene} ({', '.join(accessions)}){hinge} "
+            f"{self.identity:.1%} identical to IMGT's {SOURCES[self.species]}{gene} "
+            f"({', '.join(accessions)}){hinge} "
             f"over {self.compared} residues"
         )
 
@@ -415,8 +661,9 @@ class Call:
     one as another (``hybrid`` False) or its domains are different ones' (``hybrid`` True,
     with ``parts`` saying which domains are whose, and ``crossovers`` which domains are one
     subclass's and then another's along them, each in both of their ``parts``); and none
-    when it's no human reference's. ``matches`` compares it with each reference, nearest
-    first.
+    when it's no reference's of ``species``, or is nearer another species' or as near.
+    ``matches`` compares it with each of ``species``' references, nearest first, and
+    ``rival`` is the nearest of another species' (by :attr:`Match.cost`).
     """
 
     isotypes: tuple[str, ...]
@@ -424,6 +671,36 @@ class Call:
     hybrid: bool = False
     parts: dict[str, tuple[str, ...]] = field(default_factory=dict)
     crossovers: dict[str, Crossover] = field(default_factory=dict)
+    species: str = "human"
+    rival: Match | None = None
+
+    @property
+    def nearer(self) -> str | None:
+        """The other species whose reference it matches (:data:`MIN_IDENTITY`) and is at
+        least :data:`MARGIN` differences nearer than any of ``species``', if there's one."""
+        rival = self.rival
+        own = min(m.cost for m in self.matches)
+        if (
+            rival is not None
+            and rival.identity >= MIN_IDENTITY[rival.species]
+            and rival.cost + MARGIN <= own
+        ):
+            return rival.species
+        return None
+
+    @property
+    def undetermined(self) -> bool:
+        """Whether it matches a reference of ``species`` or of another, and is as near the
+        other species' as ``species``' (fewer than :data:`MARGIN` differences between), so
+        whose it is can't be told."""
+        rival, nearest = self.rival, self.matches[0]
+        if rival is None or self.nearer:
+            return False
+        matches = (
+            nearest.identity >= MIN_IDENTITY[self.species]
+            or rival.identity >= MIN_IDENTITY[rival.species]
+        )
+        return matches and rival.cost < min(m.cost for m in self.matches) + MARGIN
 
     def match(self, isotype: str) -> Match:
         return next(m for m in self.matches if m.isotype == isotype)
@@ -446,7 +723,8 @@ class Call:
         and how many the reference has."""
         nearest = self.matches[0]
         found = nearest.domains.get(domain)
-        return (found[1] if found else 0), len(dict(REFERENCES[nearest.isotype][3])[domain])
+        references = SPECIES_REFERENCES[self.species]
+        return (found[1] if found else 0), len(dict(references[nearest.isotype][3])[domain])
 
     def covers(self, domain: str) -> bool:
         """Whether the chain has all of `domain`: at least :data:`COMPLETE` of the nearest
@@ -459,8 +737,19 @@ class Call:
         …"."""
         nearest, runner_up = self.matches[0], self.matches[1]
         if not self.isotypes:
+            rival, species = self.rival, self.species
+            if rival is not None and (self.nearer or self.undetermined):
+                how = (
+                    f"is nearer a {rival.species} constant region than any {species} one"
+                    if self.nearer
+                    else f"is as near a {rival.species} constant region as a {species} one"
+                )
+                return (
+                    f"{how}: {NAMES[rival.isotype]}'s, {rival.describe()}; the nearest "
+                    f"{species} one, {NAMES[nearest.isotype]}'s, is {nearest.identity:.1%}"
+                )
             return (
-                "matches no human constant region: the nearest is "
+                f"matches no {species} constant region: the nearest is "
                 f"{NAMES[nearest.isotype]}'s, {nearest.describe()}"
             )
         if self.hybrid:
@@ -486,12 +775,12 @@ class Call:
         )
 
 
-def _compare(constant: str, isotype: str) -> Match:
-    """`constant` against `isotype`'s reference, in the form it aligns best with."""
+def _compare(constant: str, isotype: str, species: str = "human") -> Match:
+    """`constant` against `species`' `isotype` reference, in the form it aligns best with."""
     best = max(
         (
             (_ALIGNER.align(constant, "".join(s for _, s in f.domains))[0], f)
-            for f in forms(isotype)
+            for f in forms(isotype, species)
         ),
         key=lambda found: found[0].score,
     )
@@ -507,6 +796,7 @@ def _compare(constant: str, isotype: str) -> Match:
             hinge=form.hinge,
             owners=(None,) * len(constant),
             costs=(1,) * len(constant),
+            species=species,
         )
     compared = differences = 0
     per_domain: dict[str, list[int]] = {}
@@ -541,6 +831,7 @@ def _compare(constant: str, isotype: str) -> Match:
         form.hinge,
         tuple(owners),
         tuple(costs),
+        species,
     )
 
 
@@ -577,19 +868,31 @@ def _crossover(name: str, nearest: Match, matches: list[Match]) -> Crossover | N
     return Crossover(first, then, earliest, latest + 1)
 
 
-def call(constant: str) -> Call:
+def call(constant: str, species: str = "human") -> Call:
     """What the constant region `constant` (the residues after a heavy chain's variable
-    domain) is."""
+    domain) is, as one of `species`' isotypes: compared with its references, and with
+    every other species', whose nearest it mustn't be as near."""
+    references = SPECIES_REFERENCES[species]
     matches = sorted(
-        (_compare(constant, isotype) for isotype in REFERENCES),
+        (_compare(constant, isotype, species) for isotype in references),
         key=lambda m: (m.differences, -m.compared),
     )
+    others = [
+        _compare(constant, isotype, other)
+        for other, theirs in SPECIES_REFERENCES.items()
+        if other != species
+        for isotype in theirs
+    ]
+    rival = min(others, key=lambda m: (m.cost, m.differences)) if others else None
     nearest = matches[0]
-    if nearest.identity < MIN_IDENTITY:
-        return Call((), tuple(matches))
+    own = min(m.cost for m in matches)
+    if nearest.identity < MIN_IDENTITY[species] or (
+        rival is not None and rival.cost < own + MARGIN
+    ):
+        return Call((), tuple(matches), species=species, rival=rival)
     near = tuple(m.isotype for m in matches if m.differences < nearest.differences + MARGIN)
     if len(near) > 1:
-        return Call(near, tuple(matches))
+        return Call(near, tuple(matches), species=species, rival=rival)
     # Each domain the chain has enough of, compared on its own: a hybrid's domains are
     # nearer another subclass's, or one subclass's along part of it and another's along
     # the rest.
@@ -615,8 +918,14 @@ def call(constant: str) -> Call:
                 continue
         parts.setdefault(owner, []).append(name)
     if len(parts) > 1:
-        ordered = {i: tuple(parts[i]) for i in REFERENCES if i in parts}
+        ordered = {i: tuple(parts[i]) for i in references if i in parts}
         return Call(
-            tuple(ordered), tuple(matches), hybrid=True, parts=ordered, crossovers=crossovers
+            tuple(ordered),
+            tuple(matches),
+            hybrid=True,
+            parts=ordered,
+            crossovers=crossovers,
+            species=species,
+            rival=rival,
         )
-    return Call((nearest.isotype,), tuple(matches))
+    return Call((nearest.isotype,), tuple(matches), species=species, rival=rival)

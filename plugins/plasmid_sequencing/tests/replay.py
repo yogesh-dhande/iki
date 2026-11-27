@@ -195,6 +195,9 @@ def edited(reference: str) -> dict[str, tuple[str, str]]:
     substituted = reference[:999] + "C" + reference[1000:]
     # An EcoRI site (GAATTC) inserted after base 1,700, in AmpR.
     inserted = reference[:1700] + "GAATTC" + reference[1700:]
+    # Bases 1,101 to 1,400 (1-based) gone, and 2,001 to 2,300 replaced by 250 others:
+    # alleles longer than the 200 bases a record keeps of each.
+    long_changes = reference[:1100] + reference[1400:2000] + unrelated(250) + reference[2300:]
     return {
         "same-rotated": (rotated, "circular"),
         "origin-deletion": (across, "circular"),
@@ -203,6 +206,7 @@ def edited(reference: str) -> dict[str, tuple[str, str]]:
             "circular",
         ),
         "insertion": (inserted[2000:] + inserted[:2000], "circular"),
+        "long-alleles": (long_changes, "circular"),
         "linear-short": (reference[: len(reference) - 50], "linear"),
         # The whole plasmid twice over, as a dimer's consensus would be: every base is in it,
         # but each is there twice.

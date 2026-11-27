@@ -21,6 +21,7 @@ from django.tasks import TaskResultStatus, task_backends
 from django.tasks.exceptions import InvalidTask, TaskResultDoesNotExist
 from django.utils import timezone
 from real_server import NOT_ANSWERING, STARTUP, app_role, free_port, server_env
+from structlog.testing import capture_logs
 from task_fixtures import (
     add,
     attempt_number,
@@ -32,6 +33,14 @@ from task_fixtures import (
     urgent,
 )
 
+from iki_server.runs import budgets as runs_budgets
+from iki_server.runs import imports as runs_imports
+from iki_server.runs import queue as runs_queue
+from iki_server.runs import scan_waits as runs_scan_waits
+from iki_server.runs import setups as runs_setups
+from iki_server.runs import triggers as runs_triggers
+from iki_server.runs import workflows as runs_workflows
+from iki_server.spreadsheets import services as spreadsheets
 from iki_server.tasks import runner as runner_module
 from iki_server.tasks.backend import CHANNEL, IkiTask, PostgresBackend, load_task
 from iki_server.tasks.models import TaskRecord
@@ -235,6 +244,43 @@ def test_a_dead_runner_at_the_attempt_limit_fails_the_task() -> None:
     Runner.recover_expired()
     result.refresh()
     assert result.status == TaskResultStatus.FAILED
+
+
+def test_a_housekeeping_sweep_that_fails_doesnt_keep_the_others_from_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ran: list[str] = []
+
+    def sweep(name: str, ended: int = 0) -> Any:
+        def run() -> int:
+            ran.append(name)
+            if name == "jobs":
+                raise RuntimeError("a bug in the jobs' sweep")
+            return ended
+
+        return run
+
+    sweeps = {
+        (runs_queue, "recover_expired"): "jobs",
+        (runs_setups, "recover_expired"): "setups",
+        (runs_scan_waits, "recover"): "scan_waits",
+        (runs_workflows, "recover"): "workflows",
+        (runs_triggers, "tick"): "tick",
+        (runs_triggers, "recover"): "triggers",
+        (runs_imports, "recover"): "imports",
+        (spreadsheets, "recover"): "spreadsheets",
+        (runs_budgets, "send_alerts"): "budgets",
+    }
+    for (module, name), label in sweeps.items():
+        monkeypatch.setattr(module, name, sweep(label, ended=2 if label == "setups" else 0))
+    housekeeper = runner()
+    housekeeper.last_workflows = housekeeper.last_budgets = float("-inf")
+    with capture_logs() as logs:
+        housekeeper.housekeep()
+    assert ran == list(sweeps.values())
+    (failed,) = [e for e in logs if e["log_level"] == "error"]
+    assert (failed["event"], failed["sweep"]) == ("housekeeping_sweep_failed", "jobs_recovered")
+    assert {"event": "setups_recovered", "count": 2, "log_level": "info"} in logs
 
 
 def test_a_runner_that_lost_its_lease_cant_record_an_outcome() -> None:

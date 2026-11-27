@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 from api_client import Api, problem
 from org_world import World, build_world, post
+from test_oauth import bearer, signed_in_token
 from test_states import QA
 
 from iki_server.audit.models import AuditEvent
@@ -333,6 +334,45 @@ def test_registrars_and_the_lists_curators_curate_it(world: World) -> None:
     assert AuditEvent.objects.filter(action="registry.list_curator_appointed").count() == 1
     assert AuditEvent.objects.filter(action="registry.list_curator_removed").count() == 1
     assert AuditEvent.objects.get(action="list.option_added").data["code"] == "hplc"
+
+
+@pytest.mark.parametrize("appointed", [registrar, curator])
+def test_a_curators_token_curates_only_with_the_admin_scope_and_every_project(
+    world: World, appointed: Any
+) -> None:
+    """ADR 0270: a list's options are every project's in the registry, so a registrar's or
+    a curator's token curates them only with the admin scope, as a registry's curation
+    needs, and only when it was given every project; their browser session curates."""
+    appointed(world, "editor")
+    at = f"{OPTIONS}?registry={Registry.default().pk}"
+
+    def add(code: str, token: str | None = None) -> Any:
+        body = {"code": code, "label": code.upper()}
+        if token is None:
+            return api_as(world, "editor").post(OPTIONS, body, **scope(world))
+        return bearer(token, "POST", at, body)
+
+    def token(scopes: str, **choice: Any) -> str:
+        _, tokens = signed_in_token(world, "editor", scope=scopes, **choice)
+        given: str = tokens["access_token"]
+        return given
+
+    assert add("hplc").status_code == 201
+    assert add("iex", token("read write admin")).status_code == 201
+    problem(add("hic", token("read write")), 403, "insufficient_scope")
+    limited = add("tff", token("read write admin", projects=[world.project]))
+    assert limited.status_code == 403, limited.content
+    # A token that can't curate changes nothing, and reading still works with it.
+    codes = {o["code"] for o in options(api_as(world, "editor"), None)}
+    assert {"hplc", "iex"} <= codes and not {"hic", "tff"} & codes
+    listed = bearer(token("read"), "GET", at)
+    assert listed.status_code == 200, listed.content
+    # Archiving needs the same.
+    archive = f"/lists/{METHOD}/options/iex/archive?registry={Registry.default().pk}"
+    refused = bearer(token("read write"), "POST", archive, {"reason": "x"})
+    problem(refused, 403, "insufficient_scope")
+    done = bearer(token("read write admin"), "POST", archive, {"reason": "Not used here"})
+    assert done.status_code == 200, done.content
 
 
 def test_org_admins_appoint_a_lists_curators_on_its_registrys_page(world: World) -> None:

@@ -34,13 +34,25 @@ from typing import Any, NamedTuple
 from django.conf import settings
 from django.core.exceptions import EmptyResultSet
 from django.db import connection, transaction
-from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
+from django.db.models import (
+    Case,
+    Count,
+    DateTimeField,
+    ExpressionWrapper,
+    F,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    When,
+)
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce, Now
 from django.utils import timezone
 from opentelemetry import metrics
 
 from iki_server.audit import log as audit
+from iki_server.core import sweeps
 from iki_server.entities import registry
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
@@ -60,8 +72,17 @@ from iki_server.runs import (
     slurm,
     workers,
 )
+from iki_server.runs.leases import (
+    HEARTBEAT_EVERY,
+    LEASE_TTL,
+    MAX_LOG_BYTES,
+    TIMEOUT_GRACE,
+    LogGap,
+    Stale,
+)
 from iki_server.runs.models import (
     FINISHED,
+    HELD,
     ActionRun,
     Job,
     JobLog,
@@ -108,33 +129,10 @@ queue_wait = metrics.get_meter("iki.compute").create_histogram(
 )
 
 CHANNEL = "iki_jobs"
-#: A lease lasts this long unless a heartbeat renews it.
-LEASE_TTL = timedelta(seconds=60)
-#: How often workers should send heartbeats (they're told when they lease).
-HEARTBEAT_EVERY = timedelta(seconds=20)
-#: How long past its timeout a job may run before the server ends it, if its worker didn't.
-TIMEOUT_GRACE = timedelta(minutes=5)
-#: The most log one job keeps; past this, chunks are dropped and the log says so.
-MAX_LOG_BYTES = 16 * 1024**2
 #: Retries wait this long times their attempt number, so a failing dependency gets a moment.
 RETRY_BACKOFF = timedelta(seconds=10)
-
-#: States in which a worker holds the job.
-HELD = (
-    JobState.LEASED,
-    JobState.STAGING,
-    JobState.PENDING,
-    JobState.RUNNING,
-    JobState.UPLOADING,
-)
-#: The order a worker may report them in.
-PHASES = (
-    JobState.LEASED,
-    JobState.STAGING,
-    JobState.PENDING,
-    JobState.RUNNING,
-    JobState.UPLOADING,
-)
+#: The most attempts one recovery pass looks at in each sweep.
+RECOVER_AT_MOST = 500
 
 #: Why an attempt ended → the run's status, if it isn't retried.
 _FINAL = {
@@ -163,20 +161,8 @@ TIER_ACTIONS = {
 }
 
 
-class Stale(Exception):  # noqa: N818 - reads as "the lease is stale"
-    """The worker doesn't hold this job's current lease."""
-
-
 class OutOfScope(Stale):
     """A self-hosted worker holds a job in a project it no longer covers (ADR 0112)."""
-
-
-class LogGap(Exception):  # noqa: N818 - reads as "there's a gap in the log"
-    """A log chunk didn't start where the log ends."""
-
-    def __init__(self, expected: int) -> None:
-        super().__init__(f"The log continues at byte {expected}.")
-        self.expected = expected
 
 
 def lease_ttl(worker: Worker) -> timedelta:
@@ -792,9 +778,8 @@ def heartbeat(
         job = held(worker, job_id, token)
         fields = ["lease_expires_at"]
         if state is not None and state != job.state:
-            if state not in PHASES or PHASES.index(JobState(state)) < PHASES.index(
-                JobState(job.state)
-            ):
+            # HELD is in the order a worker may report its states.
+            if state not in HELD or HELD.index(JobState(state)) < HELD.index(JobState(job.state)):
                 raise ValueError(f"A job can't go from {job.state} back to {state}.")
             if state == JobState.PENDING and not worker.slurm_cluster:
                 raise ValueError("Only a Slurm cluster's jobs wait in its queue.")
@@ -1121,8 +1106,39 @@ def interrupt_outside(worker: Worker, covered: QuerySet[Any]) -> int:
     return count
 
 
-def _end_incompatible_pull_secrets() -> int:
-    """A run can only use its pinned Kubernetes Secret on a Kubernetes template."""
+def recover_expired() -> int:
+    """Ends attempts whose lease ran out (the worker went away), and those running well past
+    their timeout, as well as queued runs whose pinned pull Secret no template can use.
+    The task runner calls it every few seconds. Returns how many it ended.
+
+    Each sweep selects only what's due, soonest first, so however many long jobs are held
+    within their timeouts, the ones past theirs are found. Each attempt ends in its own
+    transaction (``sweeps.each``): one that can't is logged and left for the next pass."""
+    now = timezone.now()
+    lost = Job.objects.filter(state__in=HELD, lease_expires_at__lt=now).order_by("lease_expires_at")
+    ended = _each(lost, _worker_lost)
+    ended += _each(_overdue(now), _timed_out)
+    ended += _each(_incompatible_pull_secrets(), _unplaceable)
+    return ended
+
+
+def _overdue(now: datetime) -> QuerySet[Job]:
+    """Held attempts more than ``TIMEOUT_GRACE`` past their run's timeout, longest first. A
+    Slurm job's time counts from when the cluster started it, not from waiting in its queue
+    (ADR 0133), so one still waiting there isn't overdue."""
+    began = Case(When(slurm__isnull=True, then=F("started_at")), default=F("slurm__started_at"))
+    timeout = F("run__timeout") * timedelta(seconds=1)
+    return (
+        Job.objects.filter(state__in=HELD, packed_into__isnull=True)
+        .annotate(due=ExpressionWrapper(began + timeout, output_field=DateTimeField()))
+        .filter(due__lt=now - TIMEOUT_GRACE)
+        .order_by("due")
+    )
+
+
+def _incompatible_pull_secrets() -> QuerySet[Job]:
+    """Queued attempts pinned to a Kubernetes pull Secret that no Kubernetes template their
+    environment is bound to can use, oldest first."""
     compute = catalog.compute()
     kubernetes = {name for name, t in compute.templates.items() if t.provisioner in KUBERNETES}
     eligible = {
@@ -1130,68 +1146,55 @@ def _end_incompatible_pull_secrets() -> int:
         for name, binding in compute.bindings.items()
         if any(template in kubernetes for template, _ in binding.templates)
     }
-    jobs = (
-        Job.objects.select_for_update(skip_locked=True, of=("self",))
-        .filter(state=JobState.QUEUED, packed_into__isnull=True)
+    return (
+        Job.objects.filter(state=JobState.QUEUED, packed_into__isnull=True)
         .exclude(run__environment_image_pull_secret="")
         .exclude(environment__in=eligible)
-        .order_by("queued_at")[:500]
+        .order_by("queued_at")
     )
-    ended = 0
-    for job in jobs:
-        fail_queued(
-            job,
-            "unplaceable",
-            "This run's pinned image uses a Kubernetes pull Secret, but the deployment "
-            f"no longer binds `{job.environment}` to a Kubernetes template. Ask a compute "
-            "admin to restore a Kubernetes template, or queue a new run under the current binding.",
-        )
-        ended += 1
-    return ended
 
 
-def recover_expired() -> int:
-    """Ends attempts whose lease ran out (the worker went away), and those running well past
-    their timeout, as well as queued runs whose pinned pull Secret no template can use.
-    The task runner calls it every few seconds. Returns how many it ended."""
-    now = timezone.now()
-    ended = 0
-    with transaction.atomic():
-        for job in (
-            Job.objects.select_for_update(skip_locked=True)
-            .filter(state__in=HELD, lease_expires_at__lt=now)
-            .order_by("lease_expires_at")[:500]
-        ):
-            _end_pack(
-                job,
-                JobState.INTERRUPTED,
-                "worker_lost",
-                "The worker stopped sending heartbeats.",
-            )
-            ended += 1
-        overdue = (
-            Job.objects.select_for_update(skip_locked=True, of=("self",))
-            .filter(state__in=HELD, started_at__lt=now - TIMEOUT_GRACE, packed_into__isnull=True)
-            # A Slurm job's time counts from when the cluster started it, not from waiting in
-            # its queue (ADR 0133).
-            .filter(Q(slurm__isnull=True) | Q(slurm__started_at__lt=now - TIMEOUT_GRACE))
-            .select_related("run", "slurm")[:500]
+def _each(found: QuerySet[Job], end: Callable[[Job], object]) -> int:
+    """Ends each of `found`'s first ``RECOVER_AT_MOST`` attempts in its own transaction:
+    locked, skipping one another runner holds, and still one of `found` when it is."""
+    ids = list(found.values_list("pk", flat=True)[:RECOVER_AT_MOST])
+
+    def end_one(pk: uuid.UUID) -> bool:
+        job = (
+            found.select_for_update(skip_locked=True, of=("self",))
+            .filter(pk=pk)
+            .select_related("run")
+            .first()
         )
-        for job in overdue:
-            assert job.started_at is not None  # noqa: S101 - held jobs have started
-            placed = getattr(job, "slurm", None)
-            began = placed.started_at if placed is not None else job.started_at
-            assert began is not None  # noqa: S101 - filtered above
-            if began + timedelta(seconds=job.run.timeout) + TIMEOUT_GRACE < now:
-                _end_pack(
-                    job,
-                    JobState.TIMED_OUT,
-                    "timed_out",
-                    f"It ran past its {job.run.timeout}s timeout, and its worker didn't stop it.",
-                )
-                ended += 1
-        ended += _end_incompatible_pull_secrets()
-    return ended
+        if job is None:
+            return False
+        end(job)
+        return True
+
+    return sweeps.each(ids, end_one, failed="job_recovery_failed", key="job")
+
+
+def _worker_lost(job: Job) -> None:
+    _end_pack(job, JobState.INTERRUPTED, "worker_lost", "The worker stopped sending heartbeats.")
+
+
+def _timed_out(job: Job) -> None:
+    _end_pack(
+        job,
+        JobState.TIMED_OUT,
+        "timed_out",
+        f"It ran past its {job.run.timeout}s timeout, and its worker didn't stop it.",
+    )
+
+
+def _unplaceable(job: Job) -> None:
+    fail_queued(
+        job,
+        "unplaceable",
+        "This run's pinned image uses a Kubernetes pull Secret, but the deployment "
+        f"no longer binds `{job.environment}` to a Kubernetes template. Ask a compute "
+        "admin to restore a Kubernetes template, or queue a new run under the current binding.",
+    )
 
 
 def _end_pack(job: Job, state: str, reason: str, message: str) -> ActionRun:
