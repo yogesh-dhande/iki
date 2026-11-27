@@ -3,6 +3,8 @@
  * each type's fields, units and rules.
  */
 
+import { Fragment } from "react";
+
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 
@@ -203,6 +205,14 @@ export function TypeDetail() {
               </dd>
             </>
           ) : null}
+          {Object.entries(type.annotations ?? {}).map(([name, value]) => (
+            <Fragment key={name}>
+              <dt>
+                <code>{name}</code>
+              </dt>
+              <dd className="preserve-lines">{value}</dd>
+            </Fragment>
+          ))}
           {type.extends ? (
             <>
               <dt>Extends</dt>

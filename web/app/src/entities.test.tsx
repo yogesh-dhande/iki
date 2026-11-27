@@ -117,6 +117,25 @@ describe("the type browser", () => {
     );
   });
 
+  it("shows a type's annotations, the lab's own metadata about it", async () => {
+    withTypes();
+    answer("GET /api/v1/entity-types", [
+      {
+        ...PROTEIN,
+        annotations: {
+          "acme.com/owner": "Protein sciences",
+          gxp_classification: "GAMP 5 category 4",
+        },
+      },
+    ]);
+    await renderApp("/types/iki/protein.Protein/");
+    const owner = screen.getByText("acme.com/owner");
+    expect(owner.closest("dt")?.nextElementSibling).toHaveTextContent("Protein sciences");
+    expect(
+      screen.getByText("gxp_classification").closest("dt")?.nextElementSibling,
+    ).toHaveTextContent("GAMP 5 category 4");
+  });
+
   it("says when there's no such type", async () => {
     withTypes();
     await renderApp("/types/acme/nope.Nope/");

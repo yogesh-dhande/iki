@@ -13,6 +13,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+iki: ">=0.1"
 """
 
 METHOD = """\
@@ -258,6 +259,7 @@ def test_an_extension_of_a_list_adds_its_options_facts(tmp_path: Path) -> None:
             kind: Plugin
             name: acme/qc
             version: 1.0.0
+            iki: ">=0.1"
             dependencies:
               acme/lab: { types: { Category: ">=1" } }
             """

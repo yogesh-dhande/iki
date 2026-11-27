@@ -89,6 +89,18 @@
   },
   "unevaluatedProperties": false,
   "$defs": {
+    "annotations": {
+      "description": "A lab's own metadata about this manifest, such as its owner, GxP classification or validation status, by name: `gxp_classification: GAMP 5 category 4`. Iki keeps them, shows a plugin's and an entity type's on their pages, and never acts on them (ADR 0293).",
+      "type": "object",
+      "maxProperties": 64,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100,
+        "pattern": "^[a-z0-9]([a-z0-9._-]*[a-z0-9])?(/[a-z0-9]([a-z0-9._-]*[a-z0-9])?)?$"
+      },
+      "additionalProperties": { "type": "string", "maxLength": 2000 }
+    },
     "fieldName": {
       "description": "Lower-case letters, digits and single underscores, starting with a letter.",
       "type": "string",

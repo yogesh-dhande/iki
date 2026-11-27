@@ -65,6 +65,7 @@ def test_types_come_with_a_schema_of_their_values(world: World) -> None:
     assert dna["extends"] == "acme/dna.Sequence"
     assert dna["identity"] == ["bases"]
     assert dna["hrid_prefix"] == "DNA"
+    assert dna["annotations"] == {"gxp_classification": "GAMP 5 category 4"}
     fields = {f["name"]: f for f in dna["fields"]}
     # Inherited from iki/core.Sequence, by way of acme/dna.Sequence.
     assert fields["name"]["plugin"] == "iki/core"
@@ -79,6 +80,7 @@ def test_types_come_with_a_schema_of_their_values(world: World) -> None:
     assert schema["properties"]["length"]["readOnly"] is True
     assert schema["properties"]["bases"]["x-iki-immutable"] is True
     sequence = api.get("/entity-types/acme/dna.Sequence").json()
+    assert sequence["annotations"] == {}
     assert sequence["abstract"] and "acme/protein.Protein" in sequence["subtypes"]
     problem(api.get("/entity-types/acme/dna.Nothing"), 404, "not_found")
 

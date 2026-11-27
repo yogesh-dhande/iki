@@ -8963,6 +8963,13 @@ export interface components {
             abstract: boolean;
             /** @description How much of each of its records there is (ADR 0139), if it keeps that: drawn, transferred, split into aliquots and adjusted through `/entities/{ref}/amount`, never below zero. */
             amount?: components["schemas"]["TypeAmountOut"] | null;
+            /**
+             * Annotations
+             * @description Its lab's own metadata about the type, by name, such as its owner or validation status (ADR 0293): shown, never acted on.
+             */
+            annotations?: {
+                [key: string]: string;
+            };
             /** Description */
             description: string | null;
             /**

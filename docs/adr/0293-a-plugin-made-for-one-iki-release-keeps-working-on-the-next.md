@@ -101,10 +101,13 @@ command that doesn't exist.
 of names (`acme.com/owner`, `gxp_classification`) to text, on the top
 level of every kind a person writes. Iki keeps it in the compiled
 manifest, shows a plugin's and an entity type's on their pages, returns
-them in the API, and never reads them. A key starting `x-` is allowed on
-any mapping whose keys are fixed, for tools: the validator ignores it and
-the build drops it. Neither changes what a plugin does, so neither counts
-as a schema change (ADR 0095).
+them in the API, and never reads them. A key starting `x-` is allowed
+beside them, at the top level of every kind, for tools: the validator
+ignores it and the build drops it. Neither changes what a plugin does, so
+neither counts as a schema change (ADR 0095). They're allowed at the top
+level only, as Kubernetes keeps annotations in an object's metadata:
+that's where a lab's metadata about a manifest goes, and allowing them
+deeper later is additive.
 
 **A deployment may give a type its own HRID prefix.** A plugin's prefix
 is a default. The deployment's `plugins.lock.yaml` may map types to

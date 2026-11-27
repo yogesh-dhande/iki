@@ -681,6 +681,11 @@ class EntityTypeOut(Schema):
     )
     subtypes: list[str] = Field(description="The types that extend it, at any depth.")
     hrid_prefix: str | None
+    annotations: dict[str, str] = Field(
+        default_factory=dict,
+        description="Its lab's own metadata about the type, by name, such as its owner or "
+        "validation status (ADR 0293): shown, never acted on.",
+    )
     identity: list[str] = Field(
         description="The fields that tell two entities apart. With one, its entities are "
         "projects' records of registry entries (ADR 0115): one entry per identity in a "
@@ -1595,6 +1600,7 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "detached": services.frozen(form) is not None,
         "subtypes": sorted(subtypes(name) - {name}),
         "hrid_prefix": entity_type.hrid_prefix,
+        "annotations": entity_type.annotations,
         "identity": list(owner.identity) if owner is not None else [],
         "fields": fields,
         "values_schema": schema.for_type(name),

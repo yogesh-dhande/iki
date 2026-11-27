@@ -5,7 +5,13 @@
   "description": "A kind of entity, such as a protein or a compound. Each type gets its own table, with history and per-field provenance.",
   "type": "object",
   "required": ["apiVersion", "kind", "name", "schema_version"],
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  },
   "properties": {
+    "annotations": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations" },
     "apiVersion": {
       "description": "The spec version this manifest follows.",
       "const": "iki/v1"
@@ -278,7 +284,8 @@
       "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/guards"
     },
     "draw_purposes": {
-      "description": "The lab roles allowed to draw for each purpose in the record's project. Routine draws are open to Editors unless restricted. QA sampling requires a declaration. Subtypes inherit each purpose and may narrow its allowed roles.",
+      "x-iki-provisional": true,
+      "description": "The lab roles allowed to draw for each purpose in the record's project. Routine draws are open to Editors unless restricted. QA sampling requires a declaration. Subtypes inherit each purpose and may narrow its allowed roles. Provisional: a minor release may change its shape (ADR 0293).",
       "type": "object",
       "propertyNames": {
         "enum": ["routine", "qa_sampling"]
@@ -451,7 +458,8 @@
       "additionalProperties": false
     },
     "work_item": {
-      "description": "Its records are internal work for a request (ADR 0132). Only the service project creates and keeps them.",
+      "x-iki-provisional": true,
+      "description": "Its records are internal work for a request (ADR 0132). Only the service project creates and keeps them. Provisional: a minor release may change its shape (ADR 0293).",
       "type": "object",
       "required": ["of"],
       "properties": {
@@ -594,6 +602,7 @@
       }
     },
     "stock_catalogue": {
+      "x-iki-provisional": true,
       "type": "object",
       "required": ["name", "unit", "threshold", "notify", "lots", "orders"],
       "properties": {
@@ -672,7 +681,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Maps a catalogue record to its lots, ledger unit, routine-use reorder threshold, open orders and project alert recipients (ADR 0190)."
+      "description": "Maps a catalogue record to its lots, ledger unit, routine-use reorder threshold, open orders and project alert recipients (ADR 0190). Provisional: a minor release may change its shape (ADR 0293)."
     },
     "amount": {
       "description": "How much of each record there is (ADR 0139): kept in `unit`, never below zero, and changed only by drawing, transferring, splitting into aliquots or adjusting it, each kept in its ledger.",

@@ -16,6 +16,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/compound_store
 version: 1.0.0
+iki: ">=0.1"
 dependencies:
   iki/inventory: { types: { Container: ">=1", Box: ">=1" } }
 """
