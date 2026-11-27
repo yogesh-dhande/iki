@@ -28,7 +28,7 @@ from rdkit.Chem import rdDepictor
 from test_oauth import bearer, signed_in_token
 
 from iki_server.audit.models import AuditEvent
-from iki_server.entities import access, record_exports, services
+from iki_server.entities import access, plugin_writers, record_exports, services
 from iki_server.entities.models import ProjectLink, RecordExport
 from iki_server.org import holds
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
@@ -283,6 +283,48 @@ def test_a_tables_whole_search_is_one_genbank_file_in_its_order(
     assert [r["hrid"] for r in asked.data["records"]] == [second.hrid, first.hrid]
 
 
+def test_a_search_sorted_by_several_fields_is_exported_in_the_tables_order(
+    world: World,
+) -> None:
+    """The file's order is the table's: its first sort, then each further one for what that
+    ties, as ``POST /entities/search`` returns them, and the audit log keeps every sort."""
+    plasmid(world, name="pTie-A")
+    plasmid(world, BASES + "GGATCC", name="pTie-B")
+    plasmid(world, BASES + "AAGCTT", name="pTie-C", topology="circular")
+    api = api_as(world)
+    searched = {
+        "type": "acme/dna.Plasmid",
+        "project": str(world.project.pk),
+        "q": "pTie",
+        "sort": {"field": "topology", "descending": True},
+        "then": [{"field": "name", "descending": True}],
+    }
+    table = api.post("/entities/search", searched)
+    assert table.status_code == 200, table.content
+    shown = [item["hrid"] for item in table.json()["items"]]
+    response = ask(api, {"format": "genbank", "search": searched})
+    assert response.status_code == 201, response.content
+    content = downloaded(api, response.json())
+    records = list(SeqIO.parse(io.StringIO(content.decode()), "genbank"))  # type: ignore[no-untyped-call]
+    # Topology sorts in its values' order, so circular is first, descending; the two
+    # linear ones tie on it and go by name, descending: not by when they were made.
+    assert [r.name for r in records] == ["pTie-C", "pTie-B", "pTie-A"]
+    asked = AuditEvent.objects.get(action="entities.export_requested")
+    assert [r["hrid"] for r in asked.data["records"]] == shown
+    assert asked.data["search"]["then"] == [{"field": "name", "descending": True}]
+    made = RecordExport.objects.get(pk=response.json()["id"])
+    assert made.search is not None and made.search["then"] == asked.data["search"]["then"]
+
+
+def test_a_search_with_a_key_exports_dont_know_is_refused(world: World) -> None:
+    """A search part the export doesn't take is refused, not silently left out."""
+    response = ask(
+        api_as(world),
+        {"format": "genbank", "search": {"type": "acme/dna.Plasmid", "order": ["name"]}},
+    )
+    assert response.status_code == 422, response.content
+
+
 def test_a_search_that_finds_too_many_is_refused(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -388,6 +430,48 @@ def test_a_file_is_kept_a_week_unless_a_project_is_held(world: World) -> None:
     assert "expired" in response.json()["detail"]
 
 
+def test_an_inline_export_whose_write_was_interrupted_is_failed_by_maintenance(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A process that stops while writing an export its request waits for leaves it
+    writing, with no task behind it: maintenance fails it once it's past any deadline. A
+    background export's own task is left to finish it."""
+    alpha = protein(world, HBA)
+    api = api_as(world)
+
+    def killed(made: RecordExport, **_: Any) -> str:
+        made.state = "writing"
+        made.save(update_fields=["state"])
+        raise SystemExit  # the web process stops partway
+
+    with monkeypatch.context() as patched:
+        patched.setattr(record_exports, "_write", killed)
+        with pytest.raises(SystemExit):
+            record_exports.start(world.users["viewer"], "protein-fasta", entities=[alpha.hrid])
+    stuck = RecordExport.objects.get()
+    assert (stuck.state, stuck.background) == ("writing", False)
+    monkeypatch.setattr(record_exports, "INLINE", 0)
+    queued = ask(api, {"format": "protein-fasta", "entities": [alpha.hrid]}).json()
+    assert queued["state"] == "queued"
+    call_command("maintain", stdout=io.StringIO())
+    # Not yet: it may still be being written.
+    assert api.get(f"/entity-exports/{stuck.pk}").json()["state"] == "writing"
+    RecordExport.objects.update(
+        created_at=timezone.now()
+        - timedelta(seconds=plugin_writers.inline_deadline())
+        - record_exports.INTERRUPTED_AFTER
+    )
+    out = io.StringIO()
+    call_command("maintain", stdout=out)
+    assert "failed 1 interrupted record export(s)" in out.getvalue()
+    failed = api.get(f"/entity-exports/{stuck.pk}").json()
+    assert failed["state"] == "failed"
+    assert failed["error"] == "Writing it was interrupted, so no file was made: export again."
+    assert api.get(f"/entity-exports/{queued['id']}").json()["state"] == "queued"
+    assert run_tasks() == 1
+    assert api.get(f"/entity-exports/{queued['id']}").json()["state"] == "ready"
+
+
 # --- Who may ------------------------------------------------------------------------------------
 
 
@@ -435,6 +519,43 @@ def test_a_record_read_through_a_project_its_linked_into_is_exported(world: Worl
     assert downloaded(api, made).startswith(f">{alpha.hrid}".encode())
     ProjectMembership.objects.filter(project=elsewhere, user=world.users["outsider"]).delete()
     assert api.get(f"/entity-exports/{made['id']}").status_code == 404
+
+
+def test_an_export_of_two_projects_records_is_in_each_projects_audit_log(
+    world: World,
+) -> None:
+    """Asking for and downloading a file of several projects' records names no one project,
+    but filtering the audit log by either finds both events; a third project's doesn't."""
+    elsewhere = Project.objects.create(team=world.team, name="Structural Genomics")
+    unrelated = Project.objects.create(team=world.team, name="Assay Development")
+    for place in (elsewhere, unrelated):
+        ProjectMembership.objects.create(
+            project=place, user=world.users["editor"], role=ProjectRole.EDITOR
+        )
+    alpha = protein(world, HBA)
+    beta: Any = services.create(
+        world.users["editor"], "acme/protein.Protein", elsewhere, {"sequence": HBB}
+    ).entity
+    api = api_as(world, "editor")
+    made = ask(api, {"format": "protein-fasta", "entities": [alpha.hrid, beta.hrid]}).json()
+    downloaded(api, made)
+    events = AuditEvent.objects.filter(action__startswith="entities.export")
+    assert {(e.action, e.project_id) for e in events} == {
+        ("entities.export_requested", None),
+        ("entities.exported", None),
+    }
+    assert all(
+        sorted(e.data["projects"]) == sorted([str(world.project.pk), str(elsewhere.pk)])
+        for e in events
+    )
+    auditor = world.browser("auditor")
+    for place in (world.project, elsewhere):
+        for action in ("entities.export_requested", "entities.exported"):
+            query = {"project": str(place.pk), "action": action}
+            page = auditor.get("/admin/audit/", query).content.decode()
+            assert made["file_name"] in page, (place.name, action)
+    page = auditor.get("/admin/audit/", {"project": str(unrelated.pk)}).content.decode()
+    assert made["file_name"] not in page
 
 
 def test_a_file_whose_references_its_requester_cant_read_now_isnt_downloaded(

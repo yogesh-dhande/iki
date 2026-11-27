@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/experiments
-version: 0.2.1
+version: 0.2.3
 title: Experiment records
 description: Record an experiment's evidence, notebook entry, protocol, material drawn and result revisions, and sign it the way the project chose.
 iki: ">=0.1"

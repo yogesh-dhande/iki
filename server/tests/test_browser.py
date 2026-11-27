@@ -2103,6 +2103,58 @@ def test_creating_editing_and_archiving_an_entity(open_as: Any, world: World) ->
     assert Entity.objects.get(pk=made.pk).archived_at is not None
 
 
+def test_leaving_an_edit_with_changes_unsaved_asks_first(open_as: Any, world: World) -> None:
+    """A link in the sidebar, or Back, from an edit with a change typed and not saved asks
+    first: staying keeps what was typed, going leaves the record as it was. Saving goes to
+    the record without asking."""
+    from iki_server.entities import services as entities
+
+    made = Entity.objects.get(
+        pk=entities.create(
+            world.users["editor"],
+            "acme/protein.Protein",
+            world.project,
+            {"sequence": "GPSGVSPNYDKWEMERTDITMKHKLGGGQYGEVYEGVWKK", "name": "ABL1 kinase domain"},
+        ).entity.pk
+    )
+    page = open_as("editor", f"/entities/{made.hrid}/?project=kinase-atlas")
+    page.get_by_role("link", name="Edit").click()
+    page.get_by_role("heading", level=1, name="Edit ABL1 kinase domain").wait_for()
+    name = page.get_by_role("textbox", name="Name (optional)")
+    name.fill("ABL1 KD, construct 2")
+    nav = page.get_by_role("navigation", name="Main")
+    nav.get_by_role("link", name="My work").click()
+    dialog = page.get_by_role("alertdialog", name="Discard your changes?")
+    expect(dialog).to_contain_text(
+        f"Name has changes that aren’t saved. Discarding them leaves {made.hrid} as it is."
+    )
+    assert_clean(page)
+    dialog.get_by_role("button", name="Keep editing").click()
+    expect(dialog).to_have_count(0)
+    expect(page).to_have_url(re.compile(r"/edit/"))
+    expect(name).to_have_value("ABL1 KD, construct 2")
+    # Back, to the record's page, asks too.
+    page.go_back()
+    dialog.wait_for()
+    dialog.get_by_role("button", name="Keep editing").click()
+    expect(dialog).to_have_count(0)
+    expect(page).to_have_url(re.compile(r"/edit/"))
+    expect(name).to_have_value("ABL1 KD, construct 2")
+
+    # Saving goes to the record.
+    page.get_by_role("button", name="Save changes").click()
+    page.get_by_text(f"Saved revision 2 of {made.hrid}.").wait_for()
+    expect(dialog).to_have_count(0)
+    # Changed again, and left: nothing more is saved.
+    page.get_by_role("link", name="Edit").click()
+    name.fill("Something else")
+    nav.get_by_role("link", name="My work").click()
+    dialog.get_by_role("button", name="Discard changes").click()
+    page.wait_for_url(lambda url: "/entities/" not in url)
+    values = entities.current_values_of([made])[made.pk]
+    assert values["name"] == "ABL1 KD, construct 2"
+
+
 def test_a_picker_takes_a_press_as_the_page_scrolls(open_as: Any, world: World) -> None:
     """A press on a picker's option while the page scrolls (a trackpad still coasting, or
     the browser bringing the option into view) chooses it. The list is in the field and

@@ -5,25 +5,6 @@
 # --- Vulnerability exceptions -------------------------------------------------
 
 [[IgnoredVulns]]
-id = "GHSA-g3hv-75wg-m249"
-ignoreUntil = 2027-01-15T00:00:00Z
-reason = """minimatch (DoS via glob-pattern amplification) is pulled in only by ESLint, \
-a development tool, and only ever sees glob patterns from our own lint config, so the \
-attack isn't reachable. The fix is minimatch 11, which ESLint's config-array doesn't \
-accept yet. Remove this once ESLint moves to minimatch 11."""
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2026-0594"
-ignoreUntil = 2026-11-28T00:00:00Z
-reason = """cookie 0.18.2: private cookies sealed with AES-256-GCM can repeat a nonce across \
-a fork, because the nonce came from rand's thread_rng. iki-worker doesn't build the crate at \
-all: it sits in worker/Cargo.lock without being in the dependency graph for any target \
-(`cargo tree -i cookie --target all` prints nothing), and the flaw needs fork() without exec \
-plus PrivateJar::add on the forking thread, neither of which the worker does. The fix, cookie \
-0.18.3, was released on 2026-11-23, the day of the advisory, and is under the three-day \
-minimum age until 2026-11-26. Remove this and take 0.18.3 then."""
-
-[[IgnoredVulns]]
 id = "RUSTSEC-2026-0543"
 ignoreUntil = 2027-02-18T00:00:00Z
 reason = """chrono: an unmaintained-crate advisory, not a vulnerability, with no fixed \
@@ -183,6 +164,13 @@ license.override = ["Apache-2.0"]
 # like the rest of the workspace.
 [[PackageOverrides]]
 name = "iki-previews"
+ecosystem = "crates.io"
+license.override = ["Apache-2.0"]
+
+# The SDK a plugin's export writer is built with (ADR 0230). It sets its own license
+# instead of inheriting the workspace's, since writer builds use it alone; Apache-2.0.
+[[PackageOverrides]]
+name = "iki-writer"
 ecosystem = "crates.io"
 license.override = ["Apache-2.0"]
 

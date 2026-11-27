@@ -3471,11 +3471,13 @@ export interface paths {
         /**
          * Save a sheet's changes, all or none
          * @description Makes the changes reviewed (ADR 0228, 0207): each record's, from the revision read,
-         *     as a revision with the reason; each new record, with its starting amount and place.
-         *     All of them are made, or none. If a record changed since its revision, nothing is
-         *     (412, ``stale``, its rows in ``rows``); if any row has a problem, nothing is (422,
-         *     each problem at ``#/rows/<n>/values/<field>``, ``…/location``, ``…/amount`` or the row).
-         *     The audit trail records them as one change, ``records.sheet_saved``.
+         *     as a revision with the reason; each new record, with its starting amount, at the
+         *     exact position its check found. All of them are made, or none. If a record changed
+         *     since its revision, or another placement took one of those positions since the check,
+         *     nothing is (412, ``stale``: the records in ``rows``, the positions in ``places``);
+         *     if any row has a problem, nothing is (422, each problem at
+         *     ``#/rows/<n>/values/<field>``, ``…/location``, ``…/amount`` or the row). The audit
+         *     trail records them as one change, ``records.sheet_saved``.
          */
         post: operations["iki_server_api_sheets_save_sheet"];
         delete?: never;
@@ -9436,7 +9438,7 @@ export interface components {
         };
         /**
          * ExportSearchIn
-         * @description The records a table shows, as ``POST /entities/search`` finds them.
+         * @description The records a table shows, as ``POST /entities/search`` finds them, in its order.
          */
         ExportSearchIn: {
             /** Archived */
@@ -9459,6 +9461,11 @@ export interface components {
             /** Run */
             run?: string | null;
             sort?: components["schemas"]["SortIn"] | null;
+            /**
+             * Then
+             * @description Further sorts, in order, for what `sort` ties, as the table sorts them.
+             */
+            then?: components["schemas"]["SortIn"][];
             /**
              * Type
              * @description This type and its subtypes.
@@ -18212,9 +18219,9 @@ export interface components {
             container: string;
             /**
              * Position
-             * @description Its position, such as A1; none for the next free one.
+             * @description Its position, such as A1, as the check found it: a save takes this one, never another. Null only for a container without positions.
              */
-            position?: string | null;
+            position: string | null;
         };
         /** SheetEditPlaceOut */
         SheetEditPlaceOut: {

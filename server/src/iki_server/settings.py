@@ -108,6 +108,34 @@ if IKI_EXPORT_SANDBOX not in ("", "local") and not IKI_EXPORT_SANDBOX.startswith
     raise environ.ImproperlyConfigured(
         f"IKI_EXPORT_SANDBOX is tcp://host:port, or local; not {IKI_EXPORT_SANDBOX}."
     )
+# A deployment's limits on plugins' writers (ADR 0230): any may be lowered, and the fuel
+# and the wall clock raised. The sandbox enforces them; the server says which in each
+# export's header. The chart sets them from sandbox.limits.
+IKI_EXPORT_LIMITS: dict[str, int] = {
+    name: env.int(f"IKI_EXPORT_{name.upper()}")
+    for name in (
+        "fuel_base",
+        "fuel_per_byte",
+        "max_output",
+        "max_request",
+        "max_notes",
+        "max_note_chars",
+    )
+    if f"IKI_EXPORT_{name.upper()}" in os.environ
+}
+try:
+    from iki_spec.writers.limits import Limits as _WriterLimits
+
+    _WriterLimits(**IKI_EXPORT_LIMITS)
+except ValueError as _error:
+    raise environ.ImproperlyConfigured(f"IKI_EXPORT_*: {_error}") from None
+# The longest a plugin's writer may take over a file written while its request waits, and
+# over one written by a background task, in seconds. Raising the second past 30 minutes
+# needs the sandbox's sandbox.limits too, which the chart sets from the same value.
+IKI_EXPORT_INLINE_DEADLINE: int = env.int("IKI_EXPORT_INLINE_DEADLINE", default=120)
+IKI_EXPORT_BACKGROUND_DEADLINE: int = env.int("IKI_EXPORT_BACKGROUND_DEADLINE", default=30 * 60)
+if IKI_EXPORT_INLINE_DEADLINE <= 0 or IKI_EXPORT_BACKGROUND_DEADLINE <= 0:
+    raise environ.ImproperlyConfigured("IKI_EXPORT_*_DEADLINE is a number of seconds above 0.")
 # The mirrors of Iki's repository this deployment fetches Iki's own plugins from
 # (ADR 0114), as its admin set them (the chart's plugins.mirrors). The server
 # refuses plugins a build fetched from any other.

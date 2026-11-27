@@ -27,8 +27,9 @@ fields:
   calculation:
     type: enum
     label: Worked out by Iki from
+    immutable: true
     values: [a260]
     description: >-
       Which of Iki's calculations gives a concentration by this method: a260, from the
       prep's A260, dilution and path length. Empty for a method whose concentration is
-      entered as measured.
+      entered as measured. Fixed once the option is added: a wrong one is superseded.

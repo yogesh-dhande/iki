@@ -45,6 +45,7 @@ fields:
     max_items: 1000
     items:
       type: row
+      row_id: observation_id
       fields:
         observed_at: { type: datetime, required: true, label: Observed at }
         note: { type: text, required: true, max_length: 10000 }
@@ -121,6 +122,10 @@ fields:
           author_signed:
             check: state.from == "recorded" && record.review_flow == "author_signed"
             message: Capture the evidence with the author sign-off flow before signing this record.
+          never_submitted:
+            description: A record submitted for Regulated QC finishes that review (ADR 0240).
+            check: last.review.submitted == null
+            message: It was submitted for Regulated QC review, so it finishes that review. Submit it again.
           author:
             description: The authorship signature is the signer's own record, not a colleague's.
             check: history.review[0].by == actor.person || edits.review.recorded.exists(e, e.by == actor.person)
@@ -152,6 +157,10 @@ fields:
           research:
             check: state.from == "recorded" && record.review_flow == "research"
             message: Capture the evidence with the research review flow before witnessing this record.
+          never_submitted:
+            description: A record submitted for Regulated QC finishes that review (ADR 0240).
+            check: last.review.submitted == null
+            message: It was submitted for Regulated QC review, so it finishes that review. Submit it again.
           closed:
             check: >-
               size(edits.review.recorded) > 0 &&

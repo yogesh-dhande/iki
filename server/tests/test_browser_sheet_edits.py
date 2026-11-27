@@ -246,6 +246,54 @@ def test_a_batch_of_samples_is_edited_and_added_to_as_a_sheet(
     assert reasons == {"Purity by SEC, batch 12"}
 
 
+def test_leaving_a_sheet_with_changes_unsaved_asks_first(open_as: Any, world: World) -> None:
+    """A link in the sidebar, or closing the tab, with a sheet's changes typed and not
+    saved asks first: staying keeps them, going discards them and saves nothing."""
+    made = batch(world)
+    page = open_as("editor", f"/projects/kinase-atlas/entities/?type={SAMPLE}")
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.get_by_role("button", name="Edit as sheet").click()
+    sheet(page).wait_for()
+    kd1 = row_of(page, made["ABL1-KD-001"].hrid)
+    type_into(page, cell(page, kd1, PURITY), "98.5")
+    settled(page)
+    there = page.url
+
+    nav = page.get_by_role("navigation", name="Main")
+    nav.get_by_role("link", name="My work").click()
+    dialog = page.get_by_role("alertdialog", name="Discard your changes?")
+    expect(dialog).to_contain_text("1 row has changes that aren’t saved.")
+    checked(page)
+    dialog.get_by_role("button", name="Keep editing").click()
+    expect(dialog).to_have_count(0)
+    assert page.url == there
+    expect(cell(page, kd1, PURITY)).to_have_text("98.5")
+
+    # Closing the tab asks, as the browser does; staying keeps the sheet.
+    asked: list[str] = []
+
+    def stay(prompt: Any) -> None:
+        asked.append(prompt.type)
+        prompt.dismiss()
+
+    page.once("dialog", stay)
+    page.close(run_before_unload=True)
+    for _ in range(50):
+        if asked:
+            break
+        page.wait_for_timeout(100)
+    assert asked == ["beforeunload"]
+    expect(cell(page, kd1, PURITY)).to_have_text("98.5")
+
+    nav.get_by_role("link", name="My work").click()
+    dialog.get_by_role("button", name="Discard changes").click()
+    page.wait_for_url(lambda url: "/entities/" not in url)
+    purity = entities.current_values(
+        entities.specific(Entity.objects.get(pk=made["ABL1-KD-001"].pk))
+    ).get("purity")
+    assert purity is None
+
+
 def test_new_tubes_are_put_away_with_their_volumes_and_a_changed_record_is_brought_in(
     open_as: Any, world: World
 ) -> None:

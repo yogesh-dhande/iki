@@ -42,6 +42,7 @@ from iki_spec import units
 from iki_spec.model import Writer
 from iki_spec.writers import BUILD, DIRECTORY, IMAGE, MANIFEST
 from iki_spec.writers.check import ABI_VERSION
+from iki_spec.writers.limits import Limits
 from iki_spec.writers.manifest import ACTIVE_MEDIA_TYPES
 from iki_spec.writers.protocol import Session, SessionFailed, Unavailable, canonical
 
@@ -52,10 +53,18 @@ failures = metrics.get_meter("iki.exports").create_counter(
     description="Exports a plugin's writer refused or failed, or the sandbox couldn't take.",
 )
 
-#: The longest a plugin's writer may take over a file written while its request waits.
-INLINE_DEADLINE = 120
-#: And over one written by a background task.
-BACKGROUND_DEADLINE = 30 * 60
+
+def inline_deadline() -> float:
+    """The longest a plugin's writer may take over a file written while its request
+    waits: the deployment's (``IKI_EXPORT_INLINE_DEADLINE``), 120 seconds by default."""
+    return float(settings.IKI_EXPORT_INLINE_DEADLINE)
+
+
+def background_deadline() -> float:
+    """And over one written by a background task: 30 minutes by default."""
+    return float(settings.IKI_EXPORT_BACKGROUND_DEADLINE)
+
+
 #: How long connecting to the sandbox may take.
 CONNECT_TIMEOUT = 5
 #: What a 503 asks a client to wait before trying again.
@@ -86,6 +95,7 @@ class SandboxUnavailable(Exception):  # noqa: N818 - said as "the sandbox is una
 class PluginRecord:
     """A record at one revision, as a plugin's writer takes it (the ABI's record request)."""
 
+    id: uuid.UUID
     hrid: str
     name: str
     revision: int
@@ -259,11 +269,11 @@ class PluginWriter:
     """One file of a plugin's format, written by its writer in the sandbox: a fresh
     process, for this export alone. Close it when the file's written."""
 
-    def __init__(self, writer: Writer, *, deadline: float = INLINE_DEADLINE) -> None:
+    def __init__(self, writer: Writer, *, deadline: float | None = None) -> None:
         self.writer = writer
         self._runnable = runnable(writer)
         self.identity: Mapping[str, str] = self._runnable.identity
-        self._deadline = deadline
+        self._deadline = inline_deadline() if deadline is None else deadline
         self._connection: _Connection | None = None
         self._notes: list[str] = []
 
@@ -277,6 +287,9 @@ class PluginWriter:
                 "memory": self.writer.memory,
                 "deadline": self._deadline,
             }
+            # The deployment's limits, where they aren't Iki's (ADR 0230).
+            if limits := Limits(**settings.IKI_EXPORT_LIMITS).header():
+                header["limits"] = limits
             if self._runnable.path is not None:
                 header["path"] = self._runnable.path
             try:
@@ -302,21 +315,27 @@ class PluginWriter:
             else f"The export sandbox can't write {self.writer.label} now: {error}",
         )
 
-    def _call(self, entry: str, request: Mapping[str, Any]) -> tuple[bytes, list[str]]:
+    def _call(
+        self, entry: str, request: Mapping[str, Any], record: PluginRecord | None = None
+    ) -> tuple[bytes, list[str]]:
         try:
             answer = self._session().call(entry, canonical(request))
         except SessionFailed as failed:
             self.close()
             failures.add(1, {"writer": self.writer.qualified_name, "code": failed.code})
+            # Which record it failed on, as ADR 0230 has it: by ID in the log, which never
+            # holds values, and by HRID in what the person reads.
             logger.warning(
                 "writer_failed",
                 writer=self.writer.qualified_name,
                 module=self._runnable.sha256,
                 code=failed.code,
                 error=str(failed),
+                **({"record": str(record.id), "hrid": record.hrid} if record else {"call": entry}),
             )
+            on = f" on {record.hrid}" if record is not None else ""
             raise WriterBroke(
-                failed.code, f"{self.writer.label}'s writer failed: {failed}"
+                failed.code, f"{self.writer.label}'s writer failed{on}: {failed}"
             ) from None
         except Unavailable as error:
             self.close()
@@ -342,7 +361,7 @@ class PluginWriter:
         return content
 
     def record(self, record: PluginRecord) -> Written:
-        content, notes = self._call("record", record.request)
+        content, notes = self._call("record", record.request, record)
         # What its writer wasn't given, said by Iki, so a file is never silently short.
         withheld = [
             f"Its {role.replace('_', ' ')} is a record you can't read, so it wasn't given "

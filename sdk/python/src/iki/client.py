@@ -1897,9 +1897,11 @@ class Spreadsheets(_Part):
     ) -> SheetEditSaveOut:
         """Saves rows as :meth:`check_edits` returned them (or as ``{"entity",
         "revision", "values"}`` and, for a new record, ``location`` and ``amount``), each
-        change a revision with ``reason``, all of them or none. A record changed since its
-        revision raises ``iki.Conflict``, and any row's problem ``iki.ApiError`` with each
-        problem, and nothing is saved."""
+        change a revision with ``reason``, all of them or none. A new record's
+        ``location`` names its container and the exact ``position`` its check found (None
+        only for a container without positions). A record changed since its revision, or
+        a position another placement took since the check, raises ``iki.Conflict``, and
+        any row's problem ``iki.ApiError`` with each problem, and nothing is saved."""
         client = self._client
         body: dict[str, Any] = {
             "type": type,

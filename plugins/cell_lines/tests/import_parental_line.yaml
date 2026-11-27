@@ -2,8 +2,9 @@ apiVersion: iki/v1
 kind: ActionTest
 name: wi38_from_atcc
 description: >-
-  A catalogue excerpt from https://www.cellosaurus.org/CVCL_0579.txt, with
-  the supplier's reference from https://www.atcc.org/products/ccl-75.
+  WI-38's whole Cellosaurus text export, https://www.cellosaurus.org/CVCL_0579.txt:
+  its entry, then the 42 references it cites, each ending in //. The supplier's
+  reference is from https://www.atcc.org/products/ccl-75.
 action: import_parental_line
 params:
   file: { $file: catalogue }
@@ -81,3 +82,37 @@ params:
 files: { catalogue: tests/data/wi-38.txt }
 expect:
   error: Give both the supplier and its catalogue ID, or neither.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: database_cross_reference_is_no_supplier
+description: >-
+  Wikidata cross-references WI-38 too, but it's an encyclopedia, not a source of the
+  material: Cellosaurus classes it as an encyclopedic resource, not a cell line
+  collection.
+action: import_parental_line
+params:
+  file: { $file: catalogue }
+  supplier: Wikidata
+  catalogue_id: Q7950532
+files: { catalogue: tests/data/wi-38.txt }
+expect:
+  error: >-
+    Cellosaurus doesn't list Wikidata as a cell line supplier or collection, so its
+    cross-reference isn't a catalogue number for the material. Give a supplier such as
+    ATCC or DSMZ, or leave both blank and record the source yourself.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: two_cell_lines_in_one_file
+description: >-
+  Two lines' exports joined in one file: 1-5c-4's page export, with its references,
+  and WI-38's entry. Neither is chosen for the lab.
+action: import_parental_line
+params:
+  file: { $file: catalogue }
+files: { catalogue: tests/data/two-cell-lines.txt }
+expect:
+  error: >-
+    The file has 2 cell line entries (CVCL_2260, CVCL_0579): supply the export of one
+    cell line.

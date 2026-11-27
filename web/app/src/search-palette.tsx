@@ -7,6 +7,11 @@
  * the active option, which the box names with `aria-activedescendant`. ↵ opens it, ⌘↵
  * (Ctrl+↵) opens it in a new tab, and Esc closes the palette, putting focus back where
  * it was. The dialog keeps focus inside it while it's open.
+ *
+ * What the last text found stays on show while the next is found, but ↵ opens only what
+ * was found for the text in the box, of the kind chosen: pressed sooner, it waits for that
+ * answer and opens its first result, or nothing if it finds nothing. So pasting an HRID
+ * and pressing ↵ opens that record, never one the text before it found.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -30,7 +35,6 @@ import {
   KIND_LABELS,
   MIN_TEXT,
   RESULT_LABELS,
-  resultHref,
   SEARCH_EVENT,
   searchQuery,
   shownTotal,
@@ -131,12 +135,18 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
     in: null,
     index: 0,
   });
-  const q = useDebounced(text.trim().replace(/\s+/g, " "), DEBOUNCE_MS);
+  const typed = text.trim().replace(/\s+/g, " ");
+  const q = useDebounced(typed, DEBOUNCE_MS);
   const answer = useQuery(searchQuery(q, kind));
   // The kinds' counts come from searching all of them: a kind chosen keeps them.
   const everyKind = useQuery({ ...searchQuery(q, null), enabled: kind !== null && q !== "" });
   const data: SearchAnswer | undefined = answer.data;
   const current = data?.q === q;
+  // Whether what's shown answers what's in the box, of the kind chosen, rather than being
+  // what the text before it found, kept on show until the answer comes.
+  const fresh = typed === q && answer.isSuccess && !answer.isPlaceholderData;
+  // A ↵ (or ⌘↵) pressed before then, for the text and kind it was pressed for.
+  const waiting = useRef<{ text: string; kind: SearchKind | null; newTab: boolean } | null>(null);
 
   // It opens to type into; ⌘K again, while it's open, starts over from what's typed.
   useEffect(() => {
@@ -179,6 +189,19 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
     [onOpen],
   );
 
+  // The answer a ↵ waited for: it opens what that answer found first.
+  useEffect(() => {
+    const pressed = waiting.current;
+    if (!pressed) return;
+    if (pressed.text !== typed || pressed.kind !== kind || answer.isError) {
+      waiting.current = null;
+      return;
+    }
+    if (!fresh) return;
+    waiting.current = null;
+    go(rows[0], pressed.newTab);
+  }, [fresh, rows, typed, kind, answer.isError, go]);
+
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -187,7 +210,9 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
       setActive((active + step + rows.length) % rows.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      go(activeRow, event.metaKey || event.ctrlKey);
+      const newTab = event.metaKey || event.ctrlKey;
+      if (fresh) go(activeRow, newTab);
+      else waiting.current = { text: typed, kind, newTab };
     }
   }
 
@@ -270,6 +295,7 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
         ref={list}
         role="listbox"
         id={listbox}
+        aria-busy={!fresh && !answer.isError}
         aria-label={q ? `Results for ${q}` : "Recent"}
       >
         {recent.length ? (
@@ -338,12 +364,12 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
 function rowsOf(id: string, groups: SearchGroup[], recent: SearchResult[]): Row[] {
   const rows: Row[] = recent.map((r) => ({
     id: `${id}-recent-${r.kind}-${r.id}`,
-    href: resultHref(r),
+    href: r.href,
     result: r,
   }));
   for (const g of groups) {
     for (const r of g.items) {
-      rows.push({ id: `${id}-${g.kind}-${r.id}`, href: resultHref(r), result: r });
+      rows.push({ id: `${id}-${g.kind}-${r.id}`, href: r.href, result: r });
     }
     const shown = g.items.length;
     if (g.href && g.total !== null && (g.total > shown || g.more_than_total)) {
