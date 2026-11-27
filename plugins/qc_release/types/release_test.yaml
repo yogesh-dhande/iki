@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: ReleaseTest
 label: Release test
-schema_version: 1
+schema_version: 2
 hrid: { prefix: QRT }
 description: An immutable observed result and its evaluation against a pinned lot release criterion.
 fields:
@@ -11,10 +11,24 @@ fields:
   sequence: { type: int, min: 1, computed: true, immutable: true }
   attribute: { type: string, max_length: 120, computed: true, immutable: true, indexed: true }
   method: { type: string, max_length: 200, computed: true, immutable: true }
+  kind: { type: enum, label: Result, values: [numeric, conforms], computed: true, immutable: true }
   unit: { type: string, max_length: 50, computed: true, immutable: true }
   value: { type: float, computed: true, immutable: true }
   lower: { type: float, computed: true, immutable: true, label: Inclusive lower limit }
   upper: { type: float, computed: true, immutable: true, label: Inclusive upper limit }
+  acceptance: { type: string, max_length: 500, computed: true, immutable: true, label: Requirement }
+  result:
+    type: enum
+    label: Conforms
+    values: [conforms, does_not_conform]
+    computed: true
+    immutable: true
+  observation:
+    type: text
+    max_length: 2000
+    computed: true
+    immutable: true
+    description: What the analyst saw, for a result that conforms or doesn't.
   outcome: { type: enum, values: [pass, oos], computed: true, immutable: true, indexed: true }
   observed_by: { type: person, computed: true, immutable: true }
   repeat_of: { type: ref, to: ReleaseTest, computed: true, immutable: true }
@@ -40,8 +54,11 @@ rules:
     label: Keep the value, criterion and origin of every attempt
     check: >-
       record.case != null && record.lot != null && record.sequence != null &&
-      record.attribute != null && record.method != null && record.unit != null &&
-      record.value != null && (record.lower != null || record.upper != null) &&
+      record.attribute != null && record.method != null && record.kind != null &&
+      (record.kind == "conforms" ?
+      record.result != null && record.acceptance != null && record.value == null :
+      record.unit != null && record.value != null &&
+      (record.lower != null || record.upper != null) && record.result == null) &&
       record.outcome != null && record.observed_by != null &&
       (record.evidence != null) == (record.evidence_revision != null)
     message: Record the observation using the lot release testing action.

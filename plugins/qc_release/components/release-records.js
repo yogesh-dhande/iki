@@ -36,7 +36,14 @@ function summary(item) {
   const v = item.values;
   if (v.attribute) {
     const out = v.outcome === "pass" ? "Pass" : "Out of specification";
-    return [v.attribute, `${v.value} ${v.unit} · ${out} · ${v.method}`];
+    // A conforming result says whether it met its requirement; a number, its value.
+    const seen =
+      v.kind === "conforms"
+        ? v.result === "conforms"
+          ? "Conforms"
+          : "Does not conform"
+        : `${v.value} ${v.unit}`;
+    return [v.attribute, `${seen} · ${out} · ${v.method}`];
   }
   if (v.version) {
     const state = v.sealed == null ? "" : v.sealed ? " · Certificate prepared" : " · Testing open";

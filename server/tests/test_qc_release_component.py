@@ -59,6 +59,19 @@ REPORT: dict[str, Any] = {
             "outcome": "pass",
             "repeat_of": "test-failed",
         },
+        # USP Sodium Chloride's Identification A, a requirement it meets or doesn't.
+        {
+            "id": "test-identity",
+            "hrid": "QRT-000003",
+            "revision": 1,
+            "attribute": "Identification A (sodium)",
+            "method": "USP <191> Identification Tests—General, Sodium",
+            "kind": "conforms",
+            "acceptance": "Meets the requirements",
+            "result": "conforms",
+            "observation": "Synthetic: an intense yellow flame.",
+            "outcome": "pass",
+        },
     ],
     "investigations": [
         {
@@ -138,6 +151,10 @@ def test_certificate_preserves_the_original_result_and_investigation(
         expect(page.get_by_text("QOI-000001 · revision 5")).to_be_visible()
         expect(page.get_by_text("99.1 %")).to_be_visible()
         expect(page.get_by_text(REPORT["investigations"][0]["findings"])).to_be_visible()
+        identity = page.get_by_role("listitem").filter(has_text="Identification A (sodium)")
+        expect(identity.get_by_text("Meets the requirements", exact=True)).to_be_visible()
+        expect(identity.get_by_text("Conforms", exact=True)).to_be_visible()
+        expect(identity.get_by_text("Synthetic: an intense yellow flame.")).to_be_visible()
         accessible(page)
 
         # It's final in the state its procedure named, and no other.

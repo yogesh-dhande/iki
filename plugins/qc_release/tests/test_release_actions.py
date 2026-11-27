@@ -126,7 +126,7 @@ def test_certificate_preserves_original_and_ordered_retest(qc_actions: ModuleTyp
     case = run["inputs"]["case"][0]
     case["values"].update(update["values"])
     repeat = record("test2", 1, **recorded_repeat["values"])
-    prepare = {
+    prepare: dict[str, Any] = {
         "inputs": {"case": [case], "tests": [repeat, original], "investigations": [investigation]},
         "settings": {"certificate_issuer": "Synthetic Labs, 1 Example Way · +1 555 0100"},
     }
@@ -179,6 +179,7 @@ def test_certificate_preserves_original_and_ordered_retest(qc_actions: ModuleTyp
             "lower": 90,
             "upper": 110,
             "value": 90,
+            "kind": "numeric",
         }
     ]
     assert {"analysts", "investigations", "tests"}.isdisjoint(coa)
@@ -247,6 +248,103 @@ def test_lab_report_must_name_nonempty_run_input(qc_actions: ModuleType) -> None
     run["files"]["report1"]["size"] = 100
     (measurement,) = qc_actions.record_test(run)["creates"]
     assert measurement["values"]["lab_report"] == "report1"
+
+
+#: USP Sodium Chloride's Identification A, a test for sodium under USP <191>, whose
+#: requirement is met or not rather than a number (ICH Q6A §3.2.1 b, Identification).
+IDENTIFICATION = {
+    "attribute": "Identification A (sodium)",
+    "method": "USP <191> Identification Tests—General, Sodium",
+    "kind": "conforms",
+    "acceptance": "Meets the requirements",
+}
+
+
+def test_an_identification_conforms_to_its_requirement_or_is_out_of_specification(
+    qc_actions: ModuleType,
+) -> None:
+    run = inputs()
+    case = run["inputs"]["case"][0]
+    specification = case["included"]["specification"][0]
+    specification["values"]["criteria"].append(IDENTIFICATION)
+    identify = {k: IDENTIFICATION[k] for k in ("attribute", "method")}
+
+    def attempt(**params: Any) -> dict[str, Any]:
+        trial = deepcopy(run)
+        trial["params"] = identify | params
+        output: dict[str, Any] = qc_actions.record_test(trial)
+        return output
+
+    # It conforms or doesn't: neither a value nor a missing answer is a result.
+    with pytest.raises(ValueError, match="without a value"):
+        attempt(value=1.0, result="conforms")
+    with pytest.raises(ValueError, match="Say whether"):
+        attempt()
+    with pytest.raises(ValueError, match="is a number"):
+        qc_actions.record_test(run | {"params": run["params"] | {"result": "conforms"}})
+
+    seen = "Synthetic: yellow flame, as the sodium test describes."
+    (test,) = attempt(result="conforms", observation=seen)["creates"]
+    assert test["values"] | {"observed_by": None} == test["values"] | {
+        "kind": "conforms",
+        "result": "conforms",
+        "acceptance": "Meets the requirements",
+        "observation": seen,
+        "outcome": "pass",
+        "value": None,
+        "unit": None,
+        "observed_by": None,
+    }
+    failed = attempt(result="does_not_conform", observation="Synthetic: no yellow flame.")
+    original, investigation = failed["creates"]
+    assert original["values"]["outcome"] == "oos"
+    assert investigation["type"] == "iki/qc_release.QCOOSInvestigation"
+
+    # A numeric result keeps its kind, and a certificate pins both kinds of result.
+    run["params"] = run["params"] | {"value": 100}
+    (assay,) = qc_actions.record_test(run)["creates"]
+    assert assay["values"]["kind"] == "numeric"
+    case["values"]["attempts"] = [
+        {"sequence": 1, "attribute": "Assay", "outcome": "pass"},
+        {"sequence": 2, "attribute": IDENTIFICATION["attribute"], "outcome": "pass"},
+    ]
+    tests = [
+        record("test1", 1, **assay["values"] | {"sequence": 1}),
+        record("test2", 1, **test["values"] | {"sequence": 2}),
+    ]
+    prepared = qc_actions.prepare_certificate(
+        {
+            "inputs": {"case": [case], "tests": tests},
+            "settings": {"certificate_issuer": "Synthetic Labs, 1 Example Way · +1 555 0100"},
+        }
+    )
+    (certificate,) = prepared["creates"]
+    # What the certificate states: a number, and a requirement it conforms to.
+    stated = {row["attribute"]: row for row in certificate["values"]["coa"]["results"]}
+    assert stated["Assay"]["value"] == 100
+    assert stated[IDENTIFICATION["attribute"]]["result"] == "conforms"
+    assert stated[IDENTIFICATION["attribute"]]["acceptance"] == "Meets the requirements"
+    assert "value" not in stated[IDENTIFICATION["attribute"]]
+    pinned = {t["attribute"]: t for t in certificate["values"]["report"]["tests"]}
+    assert pinned[IDENTIFICATION["attribute"]]["result"] == "conforms"
+    assert pinned[IDENTIFICATION["attribute"]]["acceptance"] == "Meets the requirements"
+    assert pinned["Assay"]["value"] == 100
+
+
+@pytest.mark.parametrize(
+    ("change", "why"),
+    [
+        ({"acceptance": None}, "requirement"),
+        ({"upper": 1}, "no limits"),
+        ({"kind": "numeric", "acceptance": None}, "reporting unit"),
+    ],
+)
+def test_a_criterion_is_a_number_with_limits_or_a_requirement(
+    qc_actions: ModuleType, change: dict[str, Any], why: str
+) -> None:
+    version = {"values": {"criteria": [IDENTIFICATION | change]}}
+    with pytest.raises(ValueError, match=why):
+        qc_actions.criteria(version)
 
 
 def test_a_research_certificate_says_what_it_is_for(qc_actions: ModuleType) -> None:
