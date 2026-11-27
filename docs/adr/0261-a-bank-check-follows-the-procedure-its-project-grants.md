@@ -60,3 +60,25 @@ two; its admin chooses the grants.
 
 Citing a check without a repeat date relies on the lab's own procedure for
 how long that result applies.
+
+## Amendment of 2026-11-27 — the lab's own tests are a list
+
+"Another the lab names" was a free-text name beside the Other test, which
+ADR 0270 retires: "Endotoxin", "endotoxin" and "LAL" were three tests that a
+search or a bank's qualification couldn't group, and an Other test could
+record any result at all.
+
+The six tests stay the plugin's, because rules read them: each has its result
+vocabulary, and a culture cites an STR and a mycoplasma check by its test. An
+Other check names a test from the lab's list of bank tests
+(`iki/cell_lines.CellCheckTest`), which its curators keep. Each option says
+which results it gives (identity, contamination or conformance, with the
+vocabularies above), fixed once it's added because the checks recorded with
+it rely on it; a wrong one is superseded. The rule that a result belongs to
+its test holds for the lab's tests too. The list starts with endotoxin,
+post-thaw viability and tumorigenicity, each judged against the lab's
+criterion.
+
+The lab's tests aren't made the only list, with the six among its options,
+because a culture's rule would then read the test's facts through the check,
+two references away, and rules read one.
