@@ -14,9 +14,13 @@ params:
     values: [mass, peptide_map]
   report:
     type: file
+    label: Interchange table
     required: true
     max_size: 50MiB
     media_types: [text/plain, text/tab-separated-values, application/octet-stream]
+    description: >-
+      A TSV in Iki's mass table 1 (mass) or peptide map 1 (peptide map) profile. Iki doesn't read
+      vendor exports: convert them to the profile, and attach them to the result as source exports.
   mass_basis:
     type: enum
     default: average
@@ -25,7 +29,9 @@ params:
   tolerance_ppm:
     type: float
     min: 0
-    description: Enter the laboratory's absolute mass error tolerance for mass comparison.
+    description: >-
+      Enter the laboratory's absolute mass error tolerance for a mass comparison. A mass comparison
+      needs one; a peptide map doesn't use it.
 software:
   - { name: Biopython, version: "1.88", url: https://biopython.org }
 effects:

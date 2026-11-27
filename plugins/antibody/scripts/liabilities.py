@@ -6,8 +6,9 @@ writes its results to $IKI_OUTPUT, as every action's command does. It's the plug
 code, in pure Python: no third-party tool runs, so the action lists no software
 (ADR 0106).
 
-The rules are the ones published developability screens use, with the severities they
-give them:
+Its one rule set, `developability_v1`, applies the rules published developability screens use,
+with the severities they give them. Each chain records the rule set and the numbering
+it was read off (`liability_screen`), so a later rule set's results can't pass for these:
 
 - **N-glycosylation** `N-X-S/T`, X not proline: the sequon an N-linked glycan may be added
   at, a potential site. High, anywhere in a variable domain (LAP's `Ngly`, over the
@@ -67,6 +68,18 @@ DISULPHIDE: dict[str, dict[str, tuple[int, int]]] = {
     "chothia": {"H": (22, 92), "L": (23, 88)},
     "martin": {"H": (22, 92), "L": (23, 88)},
     "aho": {"H": (23, 106), "L": (23, 106)},
+}
+#: The rule sets a screen can apply, each with the motifs and severities above. A new rule
+#: set is a new name, so a chain's screen always says which rules found its liabilities.
+RULE_SETS = ("developability_v1",)
+#: The CDR definition each scheme's numbering is read with, unless another is chosen.
+#: Martin's numbering is Chothia's in the CDRs; AHo's defines no CDRs of its own.
+OWN_DEFINITION = {
+    "imgt": "imgt",
+    "kabat": "kabat",
+    "chothia": "chothia",
+    "martin": "chothia",
+    "aho": "imgt",
 }
 #: Deamidation motifs, by the residue after the asparagine, and how severe each is.
 DEAMIDATION = {"G": "high", "S": "medium", "T": "medium", "N": "medium"}
@@ -220,9 +233,11 @@ def liabilities(entity: dict[str, Any]) -> list[dict[str, Any]] | None:
     return sorted(found, key=lambda f: (f["position"], f["kind"]))
 
 
-def screened(entity: dict[str, Any], found: list[dict[str, Any]]) -> tuple[dict[str, Any], str]:
-    """A screened chain's three fields, from its liabilities, and what to say if some
-    weren't kept."""
+def screened(
+    entity: dict[str, Any], found: list[dict[str, Any]], rule_set: str = RULE_SETS[0]
+) -> tuple[dict[str, Any], str]:
+    """A screened chain's fields, from its liabilities and the rule set and numbering that
+    found them, and what to say if some weren't kept."""
     kept = found[:MAX_LIABILITIES]
     note = ""
     if len(found) > len(kept):
@@ -231,7 +246,13 @@ def screened(entity: dict[str, Any], found: list[dict[str, Any]]) -> tuple[dict[
             f"{MAX_LIABILITIES:,} along the chain were kept."
         )
     counts = Counter(f["kind"] for f in kept)
+    scheme = entity["values"].get("numbering_scheme") or "imgt"
     values = {
+        "liability_screen": {
+            "rule_set": rule_set,
+            "numbering_scheme": scheme,
+            "cdr_definition": entity["values"].get("cdr_definition") or OWN_DEFINITION[scheme],
+        },
         "liabilities": kept,
         "liability_counts": dict(sorted(counts.items())),
         "liability_count": len(kept),
@@ -241,6 +262,9 @@ def screened(entity: dict[str, Any], found: list[dict[str, Any]]) -> tuple[dict[
 
 def screen(run: dict[str, Any]) -> dict[str, Any]:
     entities = run["inputs"]["protein"]
+    rule_set = (run.get("params") or {}).get("rule_set") or RULE_SETS[0]
+    if rule_set not in RULE_SETS:
+        raise ValueError(f"{rule_set} isn't a rule set this screen has.")
     messages: list[dict[str, Any]] = []
     updates = []
     for done, entity in enumerate(entities, start=1):
@@ -267,7 +291,7 @@ def screen(run: dict[str, Any]) -> dict[str, Any]:
                 }
             )
         else:
-            values, note = screened(entity, found)
+            values, note = screened(entity, found, rule_set)
             if note:
                 messages.append({"level": "warning", "text": note, "entity": entity["id"]})
             counts = values["liability_counts"]

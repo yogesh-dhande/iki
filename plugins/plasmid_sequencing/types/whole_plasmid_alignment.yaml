@@ -9,7 +9,7 @@ kind: EntityType
 name: WholePlasmidAlignment
 label: Whole-plasmid alignment
 label_plural: Whole-plasmid alignments
-schema_version: 5
+schema_version: 6
 extends: iki/core.Alignment
 hrid: { prefix: WPA }
 description: >-
@@ -57,6 +57,7 @@ fields:
     values: [nanopore, pacbio_hifi]
     label: Reads from
     immutable: true
+    description: The platform the caller's minimap2 preset was chosen for.
   consensus_given:
     type: file
     label: Service's consensus
@@ -69,18 +70,21 @@ fields:
     max_length: 200
     label: Assembled by
     immutable: true
-    description: The service that assembled the consensus, and its order or sample ID.
-  agreement:
+    description: >-
+      Who assembled the consensus: a service and its order or sample ID, or the lab's own
+      validated caller and its version.
+  consensus_caller:
     type: enum
-    values: [matches, differs, incomplete]
+    values: [iki_majority_1, supplied]
+    label: Consensus called by
     computed: true
     immutable: true
     indexed: true
     description: >-
-      Matches where the consensus calls every base of the plasmid, none differs and every
-      base of the consensus is placed on the plasmid once; differs where any differs, or
-      some of the consensus isn't placed once; incomplete where none differs but some bases
-      weren't called.
+      iki_majority_1 is this plugin's caller, version 1: each base takes the majority of at
+      least the minimum depth of reads, indels moved 3', polished against the reads until it
+      holds. Its depth, read counts and polishing rounds describe that call. supplied is a
+      consensus given as FASTA and compared as it was given, with no per-read evidence.
   reference_length: { type: int, min: 1, computed: true, immutable: true, label: Plasmid length }
   topology:
     type: enum
@@ -102,17 +106,35 @@ fields:
     computed: true
     immutable: true
     label: Minimum depth
-    description: The fewest reads a base needed to be called; 1 for a service's consensus.
-  mean_depth: { type: float, min: 0, computed: true, immutable: true, label: Mean depth }
-  least_depth: { type: int, min: 0, computed: true, immutable: true, label: Least depth }
+    description: The fewest reads the caller needed to call a base; 1 for a supplied consensus.
+  mean_depth:
+    type: float
+    min: 0
+    computed: true
+    immutable: true
+    label: Mean depth
+    description: The reads the caller counted at each base, on average.
+  least_depth:
+    type: int
+    min: 0
+    computed: true
+    immutable: true
+    label: Least depth
+    description: The fewest reads the caller counted at any base.
   reads_total: { type: int, min: 0, computed: true, immutable: true, label: Reads }
-  reads_aligned: { type: int, min: 0, computed: true, immutable: true, label: Reads aligned }
+  reads_aligned:
+    type: int
+    min: 0
+    computed: true
+    immutable: true
+    label: Reads aligned
+    description: The reads minimap2 aligned to the plasmid for the caller.
   polishing_rounds:
     type: int
     min: 1
     computed: true
     immutable: true
-    description: The rounds of aligning the reads to their own consensus until it held.
+    description: The caller's rounds of aligning the reads to their own consensus until it held.
   coverage:
     type: json
     computed: true
@@ -255,19 +277,10 @@ rules:
     label: The comparison recorded its inputs and evidence
     check: >-
       record.plasmid_record_id != null && record.plasmid_revision != null && record.reference_length != null &&
-      record.consensus != null && record.called_percent != null &&
-      record.agreement != null && record.verdict == record.agreement
-    message: Record a whole-plasmid comparison with its reference revision, consensus, coverage and matching verdict.
+      record.consensus != null && record.called_percent != null && record.verdict != null
+    message: Record a whole-plasmid comparison with its reference revision, consensus, coverage and verdict.
     fields:
-      [
-        plasmid_record_id,
-        plasmid_revision,
-        reference_length,
-        consensus,
-        called_percent,
-        verdict,
-        agreement,
-      ]
+      [plasmid_record_id, plasmid_revision, reference_length, consensus, called_percent, verdict]
   reads_or_consensus:
     label: The result says what it compared
     check: >-
@@ -275,6 +288,31 @@ rules:
       (record.source == "consensus" && record.consensus_given != null && record.read_set == null && record.read_set_revision == null)
     message: A result from reads names its read set; one from a consensus keeps the file.
     fields: [source, read_set, read_set_revision, consensus_given]
+  caller_evidence:
+    label: The consensus says who called it, with that caller's evidence
+    check: >-
+      (record.consensus_caller == "iki_majority_1" && record.source == "reads" &&
+       record.platform != null && record.min_depth != null && record.mean_depth != null &&
+       record.least_depth != null && record.reads_total != null && record.reads_aligned != null &&
+       record.polishing_rounds != null) ||
+      (record.consensus_caller == "supplied" && record.source == "consensus" &&
+       record.platform == null && record.mean_depth == null && record.least_depth == null &&
+       record.reads_total == null && record.reads_aligned == null && record.polishing_rounds == null)
+    message: >-
+      A consensus from reads keeps the caller's platform, depths, read counts and polishing
+      rounds; a supplied consensus has none of them.
+    fields:
+      [
+        consensus_caller,
+        source,
+        platform,
+        min_depth,
+        mean_depth,
+        least_depth,
+        reads_total,
+        reads_aligned,
+        polishing_rounds,
+      ]
   reference_is_the_plasmids:
     label: The reference is the plasmid's sequence
     check: record.reference != null && record.reference.id == record.plasmid.sequence

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib
+import json
 from copy import deepcopy
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -41,7 +43,7 @@ def inputs() -> dict[str, Any]:
             },
         ],
     )
-    lot = record("lot1", 8, lot_number="Corrected after testing")
+    lot = record("lot1", 8, lot_number="Corrected after testing", retest_on="2023-04-01")
     case = record(
         "case1",
         1,
@@ -125,7 +127,8 @@ def test_certificate_preserves_original_and_ordered_retest(qc_actions: ModuleTyp
     case["values"].update(update["values"])
     repeat = record("test2", 1, **recorded_repeat["values"])
     prepare = {
-        "inputs": {"case": [case], "tests": [repeat, original], "investigations": [investigation]}
+        "inputs": {"case": [case], "tests": [repeat, original], "investigations": [investigation]},
+        "settings": {"certificate_issuer": "Synthetic Labs, 1 Example Way · +1 555 0100"},
     }
 
     omitted = deepcopy(prepare)
@@ -137,6 +140,11 @@ def test_certificate_preserves_original_and_ordered_retest(qc_actions: ModuleTyp
     confirmed["inputs"]["investigations"][0]["values"]["resolution"] = "confirmed"
     with pytest.raises(ValueError, match="A confirmed out-of-specification result"):
         qc_actions.prepare_certificate(confirmed)
+
+    anonymous = deepcopy(prepare)
+    anonymous["settings"]["certificate_issuer"] = "  "
+    with pytest.raises(ValueError, match="Set the certificate issuer"):
+        qc_actions.prepare_certificate(anonymous)
 
     result = qc_actions.prepare_certificate(prepare)
     (certificate,) = result["creates"]
@@ -152,6 +160,28 @@ def test_certificate_preserves_original_and_ordered_retest(qc_actions: ModuleTyp
     ]
     assert report["investigations"][0]["revision"] == 6
     assert report["investigations"][0]["findings"] == investigation["values"]["findings"]
+    assert report["issue"] == {"state": "released"}
+    # The certificate states the final result only, its issuer, and the lot's dates.
+    coa = certificate["values"]["coa"]
+    assert coa["issuer"] == prepare["settings"]["certificate_issuer"]
+    assert coa["title"] == "Certificate of analysis"
+    assert coa["lot"] == {
+        "lot_number": "Synthetic lot 1",
+        "hrid": "LOT1",
+        "revision": 8,
+        "retest_on": "2023-04-01",
+    }
+    assert coa["results"] == [
+        {
+            "attribute": "Assay",
+            "method": "Synthetic example",
+            "unit": "AU",
+            "lower": 90,
+            "upper": 110,
+            "value": 90,
+        }
+    ]
+    assert {"analysts", "investigations", "tests"}.isdisjoint(coa)
     sealed = result["updates"]["case"][0]
     assert sealed["require_unchanged"]
     case["values"].update(sealed["values"])
@@ -217,3 +247,180 @@ def test_lab_report_must_name_nonempty_run_input(qc_actions: ModuleType) -> None
     run["files"]["report1"]["size"] = 100
     (measurement,) = qc_actions.record_test(run)["creates"]
     assert measurement["values"]["lab_report"] == "report1"
+
+
+def test_a_research_certificate_says_what_it_is_for(qc_actions: ModuleType) -> None:
+    run = inputs()
+    case = run["inputs"]["case"][0]
+    case["values"]["review_flow"] = "research"
+    run["params"]["value"] = 100
+    output = qc_actions.record_test(run)
+    case["values"].update(output["updates"]["case"][0]["values"])
+    test = record("test1", 1, **output["creates"][0]["values"])
+    # No issuer is needed for one reviewer's research sign-off.
+    prepared = qc_actions.prepare_certificate({"inputs": {"case": [case], "tests": [test]}})
+    (certificate,) = prepared["creates"]
+    assert certificate["type"] == "iki/qc_release.ResearchCertificate"
+    coa = certificate["values"]["coa"]
+    assert coa["title"] == "Research certificate of analysis"
+    assert "not released by a quality unit" in coa["intended_use"]
+    assert "issuer" not in coa
+    assert coa["issue"] == {"state": "issued"}
+
+
+def test_a_certificate_of_analysis_is_issued_from_its_signed_record_alone(
+    qc_actions: ModuleType,
+) -> None:
+    """The certificate of analysis holds only what its record says it states, so its own
+    signed export carries nothing of the evidence. The record names it by its digest."""
+    run, original = start_oos(qc_actions)
+    investigation = investigation_for(original, "released", "invalidated")
+    run["inputs"]["investigation"] = [investigation]
+    output = qc_actions.record_test(run)
+    case = run["inputs"]["case"][0]
+    case["values"].update(output["updates"]["case"][0]["values"])
+    repeat = record("test2", 1, **output["creates"][0]["values"])
+    prepared = qc_actions.prepare_certificate(
+        {
+            "inputs": {
+                "case": [case],
+                "tests": [repeat, original],
+                "investigations": [investigation],
+            },
+            "settings": {"certificate_issuer": "Synthetic Labs, 1 Example Way · +1 555 0100"},
+        }
+    )
+    values = prepared["creates"][0]["values"]
+    certificate = record("cert1", 4, **values)
+
+    with pytest.raises(ValueError, match="Finish signing the certificate record"):
+        qc_actions.issue_certificate({"inputs": {"certificate": [certificate]}})
+    certificate["values"]["review"] = "released"
+    tampered = deepcopy(certificate)
+    tampered["values"]["coa"]["results"][0]["value"] = 101
+    with pytest.raises(ValueError, match="doesn't match its digest"):
+        qc_actions.issue_certificate({"inputs": {"certificate": [tampered]}})
+
+    (issued,) = qc_actions.issue_certificate({"inputs": {"certificate": [certificate]}})["creates"]
+    assert issued["type"] == "iki/qc_release.CertificateOfAnalysis"
+    assert issued["derived_from"] == ["cert1"]
+    assert issued["values"] == {
+        "coa": values["coa"],
+        "digest": values["coa_digest"],
+        "review_flow": "regulated_qc",
+    }
+    shared = json.dumps(issued["values"])
+    evidence = ["test1", "TEST1", "test2", "inv1", "INV1", "analyst1", '": 89', "Synthetic proof"]
+    assert [text for text in evidence if text in shared] == []
+
+
+def schedule_with(qc_actions: ModuleType, first: date, **schedule: Any) -> dict[str, Any]:
+    """A schedule whose one published version took effect on ``first``. Its criterion and
+    source are synthetic."""
+    version = record(
+        "v1",
+        1,
+        schedule="sched1",
+        version="1",
+        effective_from=first.isoformat(),
+        approval="approved",
+        source="Synthetic specification",
+        criteria=[{"attribute": "Assay", "method": "Synthetic", "unit": "AU", "lower": 1}],
+    )
+    found = record("sched1", 2, material="material1", versions=["v1"], **schedule)
+    found["included"] = {"versions": [version]}
+    return found
+
+
+def publish(
+    qc_actions: ModuleType,
+    schedule: dict[str, Any],
+    starts: date,
+    policy: str | None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    version = deepcopy(schedule["included"]["versions"][0])
+    version.update(id="v2", values={**version["values"], "version": "2"})
+    version["values"]["effective_from"] = starts.isoformat()
+    run: dict[str, Any] = {
+        "inputs": {"schedule": [schedule], "version": [version]},
+        "params": {"backdated_because": reason} if reason else {},
+        "settings": {"successor_effective_dates": policy} if policy else {},
+    }
+    result: dict[str, Any] = qc_actions.publish_version(run)
+    return result
+
+
+TODAY = datetime.now(UTC).date()
+LONG_AGO = TODAY - timedelta(days=400)
+
+
+@pytest.mark.parametrize(
+    ("policy", "starts", "reason", "refused"),
+    [
+        # The incumbent policy: a successor starts after today.
+        (None, TODAY + timedelta(days=1), None, None),
+        (None, TODAY, None, "future date"),
+        ("future", TODAY, None, "future date"),
+        ("same_day", TODAY, None, None),
+        ("same_day", TODAY - timedelta(days=1), None, "today or later"),
+        ("backdated", TODAY - timedelta(days=30), None, "Say why"),
+        ("backdated", TODAY - timedelta(days=30), "Importing the approved paper history", None),
+        ("backdated", TODAY, "Importing", "Leave the backdating reason empty"),
+        ("future", TODAY + timedelta(days=1), "Importing", "Leave the backdating reason empty"),
+        ("backdated", LONG_AGO, "Importing", "after its predecessor"),
+        ("weekly", TODAY + timedelta(days=1), None, "Choose future, same_day or backdated"),
+    ],
+)
+def test_a_successor_starts_when_the_sites_policy_allows(
+    qc_actions: ModuleType,
+    policy: str | None,
+    starts: date,
+    reason: str | None,
+    refused: str | None,
+) -> None:
+    schedule = schedule_with(qc_actions, LONG_AGO)
+    if refused:
+        with pytest.raises(ValueError, match=refused):
+            publish(qc_actions, schedule, starts, policy, reason)
+        return
+    (update,) = publish(qc_actions, schedule, starts, policy, reason)["updates"]["schedule"]
+    assert update == {
+        "entity": "sched1",
+        "values": {"versions": ["v1", "v2"]},
+        "require_unchanged": True,
+    }
+
+
+@pytest.mark.parametrize("policy", ["same_day", "backdated"])
+def test_no_policy_moves_a_testing_date_a_case_has_pinned(
+    qc_actions: ModuleType, policy: str
+) -> None:
+    """A case tested today, or ten days ago, already pinned the version in force then."""
+    for tested in (TODAY, TODAY - timedelta(days=10)):
+        schedule = schedule_with(qc_actions, LONG_AGO, tested_through=tested.isoformat())
+        reason = "Importing" if tested < TODAY else None
+        with pytest.raises(ValueError, match="already pinned the version in force"):
+            publish(qc_actions, schedule, tested, policy, reason)
+        if policy == "backdated":
+            later = tested + timedelta(days=1)
+            reason = "Importing" if later < TODAY else None
+            assert publish(qc_actions, schedule, later, policy, reason)["updates"]
+
+
+def test_opening_a_case_records_the_latest_testing_date(qc_actions: ModuleType) -> None:
+    lot = record("lot1", 1, of="material1", lot_number="Synthetic lot")
+    for before, tested, latest in (
+        (None, LONG_AGO + timedelta(days=5), LONG_AGO + timedelta(days=5)),
+        (TODAY.isoformat(), LONG_AGO + timedelta(days=5), TODAY),
+    ):
+        extra = {"tested_through": before} if before else {}
+        schedule = schedule_with(qc_actions, LONG_AGO, **extra)
+        run = {
+            "inputs": {"lot": [lot], "schedule": [schedule]},
+            "params": {"testing_on": tested.isoformat()},
+            "settings": {"review_flow": "research"},
+        }
+        (update,) = qc_actions.open_release(run)["updates"]["schedule"]
+        assert update["values"] == {"versions": ["v1"], "tested_through": latest.isoformat()}
+        assert update["require_unchanged"]

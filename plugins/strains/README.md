@@ -16,14 +16,30 @@ deletions with the symbol Δ. Species references use NCBI Taxonomy IDs
 [562](https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=562) and
 [4932](https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=4932).
 
-For a lab catalogue, supply a UTF-8 CSV with the same seven headers.
-`authority` is the collection or lab's uppercase code. `accession` is its
-case-sensitive identifier, including any leading zeros. `kind` is
-`bacterium` or `yeast`. The designation (`name`) and `genotype` cells can
-be empty. They record what the catalogue actually gives. A file can hold
-up to 1,000 strains and 512 KiB. A repeated accession within its authority
-or a malformed row fails the import. A successful import records the file
-and CSV record digest on each strain.
+For a lab catalogue, supply a UTF-8 CSV with a header row. Iki's own
+exchange format has seven columns:
+
+| Column            | Holds                                                                      |
+| ----------------- | -------------------------------------------------------------------------- |
+| `authority`       | The collection or lab's uppercase code, such as `ATCC`                     |
+| `accession`       | Its case-sensitive identifier there, including any leading zeros           |
+| `taxon_id`        | The species' NCBI Taxonomy ID                                              |
+| `scientific_name` | The species' scientific name                                               |
+| `kind`            | `bacterium` or `yeast`                                                     |
+| `name`            | The strain designation, if the catalogue gives one                         |
+| `genotype`        | The reported genotype in the source's notation, if the catalogue gives one |
+
+A file with other headers, such as a collection's own export, can be imported
+as it is. In the action's form, enter the header that holds each value. Give
+the collection code or the kind for every row when the file has no column for
+it, such as an export of one collection's bacteria. Columns Iki doesn't read
+are ignored, and `name` and `genotype` can be left out. The run records the
+mapping with its other parameters.
+
+A file can hold up to 1,000 strains and 512 KiB. A repeated accession within
+its authority, a malformed row, a missing identity column, or a value given
+both in a column and for every row fails the import. A successful import
+records the file and CSV record digest on each strain.
 
 The **Base strain** form also registers one strain directly. The collection
 and accession identify its registry entry. The project supplies a display

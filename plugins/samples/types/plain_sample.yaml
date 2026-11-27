@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: PlainSample
+label: Plain sample
+extends: Sample
+schema_version: 1
+hrid: { prefix: SMP }
+description: >-
+  A sample the analyst completes without a signed review, such as a discovery aliquot
+  drawn as an assay's input.
+draw_target: { from: source, state: { field: status, is: pending } }
+fields:
+  analyst:
+    type: person
+    role: iki/lab_roles.analyst
+    assignment: { field: status, states: [received, in_testing, retesting] }
+  status:
+    type: state
+    initial: pending
+    states:
+      pending: { label: Awaiting draw }
+      received:
+        label: Received
+        set_by: [iki/lab_roles.coordinator, iki/lab_roles.analyst]
+        guards:
+          drawn:
+            check: state.from == "pending" && size(draws) == 1
+            message: Record the draw from the assigned source before receiving this sample.
+      in_testing:
+        label: In testing
+        set_by: [iki/lab_roles.analyst]
+        guards:
+          received:
+            check: state.from == "received"
+            message: Receive the sample before testing it.
+      done:
+        label: Done
+        description: Used or measured. Return it to testing, with a reason, to correct it.
+        set_by: [iki/lab_roles.analyst]
+        locks: true
+        guards:
+          started:
+            check: state.from in ["received", "in_testing", "retesting"]
+            message: Receive the sample before completing it.
+      retesting:
+        label: Returned to testing
+        set_by: [iki/lab_roles.analyst]
+        reason: required
+        guards:
+          done:
+            check: state.from == "done"
+            message: Return a completed sample to testing.
+rules:
+  awaiting_testing:
+    when: record.status in ["pending", "received"]
+    check: record.measurements == null || size(record.measurements) == 0
+    message: Receive the draw and start testing before entering measurements.
+    fields: [measurements]

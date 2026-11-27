@@ -1,7 +1,7 @@
 """Many records as one file (ADR 0229): ``/entity-exports``."""
 
 from datetime import datetime, timedelta
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from django.http import HttpRequest, HttpResponse
@@ -23,8 +23,9 @@ from iki_server.org.services import Refused
 
 router = Router(tags=["entities"])
 
-#: The formats many records make one file of.
-ManyFormat = Literal["genbank", "fasta", "protein-fasta", "sdf"]
+#: The formats many records make one file of: Iki's (genbank, fasta, protein-fasta, sdf),
+#: or a plugin's writer's, by its qualified ID (ADR 0230).
+ManyFormat = Annotated[str, Field(min_length=1, max_length=200, pattern=r"^[a-z0-9][a-z0-9._/-]*$")]
 
 
 class ExportSearchIn(Schema):
@@ -44,7 +45,8 @@ class ExportSearchIn(Schema):
 class RecordExportIn(Schema):
     format: ManyFormat = Field(
         description="A format every record's type exports, as its `exports` list them, of "
-        "which many records make one file (`many: file`)."
+        "which many records make one file (`many: file`), or a ZIP of one file each (`many: "
+        "zip`)."
     )
     entities: list[str] = Field(
         default_factory=list,
@@ -90,7 +92,10 @@ class RecordExportOut(Schema):
         "so no file holds fewer records than were asked for."
     )
     error: str = Field(description="Why it failed, if it did.")
-    writer: dict[str, str] = Field(description="Which code wrote it: `builtin` and `version`.")
+    writer: dict[str, str] = Field(
+        description="Which code wrote it: Iki's `builtin` and `version`; or a plugin's "
+        "writer's `plugin`, `writer`, `commit`, `module_sha256` and `abi` (ADR 0230)."
+    )
     created_at: datetime
     finished_at: datetime | None
     expires_at: datetime | None = Field(

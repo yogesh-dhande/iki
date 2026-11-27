@@ -1,8 +1,11 @@
 # antibody
 
 Iki's antibody plugin: antibodies, assembled from the proteins that are their
-chains, what their variable domains say about
-them, and their predicted structures.
+chains, what their variable domains say about them, and a screen for their
+sequence liabilities. Predicting their structures is an optional provider, the
+[ab_predict plugin](../ab_predict), so a lab that registers, numbers and
+screens antibodies installs no model image or weights
+([ADR 0257](../../docs/adr/0257-an-antibodys-methods-are-separate-choices.md)).
 
 An antibody is a complex
 ([ADR 0161](../../docs/adr/0161-a-complex-is-its-parts-and-their-copies.md)):
@@ -57,7 +60,12 @@ within each domain, each from a copy's cysteine to another's.
     definition chosen (`cdr_definition`: IMGT's, Kabat's, Chothia's, AbM's or
     Contact's).
   - The species whose germline V gene it's closest to (`species`), such as
-    `alpaca` for a nanobody.
+    `alpaca` for a nanobody. It's an assignment against the germline set, not
+    the species the antibody or its sample came from.
+  - The germline set its species, genes and humanness were assigned against
+    (`germline_set`): the germlines the ANARCI release carries, today
+    `ANARCI 2026.2.13.2, IMGT germlines`. A later release can assign other
+    genes, and says so.
   - Its humanness: the human germline V gene each domain is closest to, and how
     much of its V region is the same (`heavy_germline_identity`,
     `light_germline_identity`). A human antibody is usually above 90%, a
@@ -70,7 +78,7 @@ within each domain, each from a copy's cysteine to another's.
     project, and another project's are its own.
 
 - **Proteins' sequence liabilities** (the same extension of `iki/protein.Protein`):
-  the motifs a developability screen reports in a numbered chain
+  the motifs a developability screen predicts in a numbered chain
   (`liabilities`), each with where it is, whether it falls in a CDR or in
   framework (or an `unknown` region, in a domain whose CDRs numbering couldn't
   find, where the motifs that count only in a CDR aren't looked for), and how
@@ -78,11 +86,8 @@ within each domain, each from a copy's cysteine to another's.
   (`liability_counts`); and how many in all (`liability_count`, indexed, so
   chains can be sorted and filtered by it). A chain with none has
   `liability_count` 0, which is not the same as one that hasn't been screened
-  (it has none of the three fields).
-
-- **Predicted structures' errors** (an extension of `iki/protein.ProteinStructure`):
-  for a structure `predict_structure_with_immunebuilder` made, how far ImmuneBuilder's models
-  disagree (`predicted_error`, `cdr_h3_predicted_error`).
+  (it has none of the fields). What found them is `liability_screen`: the rule
+  set, and the numbering scheme and CDR definition the screen read.
 
 Its chains are [protein plugin](../protein) proteins, so their properties,
 alignments and structures are the protein plugin's. The plugin depends on it,
@@ -90,22 +95,24 @@ and on the [dna plugin](../dna), which the protein plugin depends on.
 
 ## Actions
 
-| Action                                 | What it does                                                                 | Tier      |
-| -------------------------------------- | ---------------------------------------------------------------------------- | --------- |
-| `assemble`                             | Registers the antibody its chains make, or finds its registry entry.         | backend   |
-| `number_chains`                        | Numbers proteins' variable domains with ANARCI: CDRs, species and humanness. | container |
-| `find_liabilities`                     | Finds the sequence liabilities a developability screen reports in a chain.   | backend   |
-| `predict_structure_with_immunebuilder` | Predicts an antibody's structure with ImmuneBuilder, and how sure it is.     | container |
+| Action             | What it does                                                                         | Tier      |
+| ------------------ | ------------------------------------------------------------------------------------ | --------- |
+| `assemble`         | Registers the antibody its chains make, or finds its registry entry.                 | backend   |
+| `number_chains`    | Numbers proteins' variable domains with ANARCI: CDRs, species and humanness.         | container |
+| `find_liabilities` | Predicts the sequence liabilities a chosen developability rule set finds in a chain. | backend   |
 
-`number_chains`, `assemble` and `predict_structure_with_immunebuilder` list the
-software they run, with the versions their environments install, so what they
-make is recorded as made with it
+Numbering, the liability screen and structure prediction are separate choices:
+numbering never applies a screen, and a lab that doesn't screen, or doesn't
+predict structures, never runs one. The [ab_predict plugin](../ab_predict)
+adds `predict_structure_with_immunebuilder`.
+
+`number_chains` and `assemble` list the software they run, with the versions
+their environments install, so what they make is recorded as made with it
 ([ADR 0106](../../docs/adr/0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)):
 ANARCI 2026.2.13.2 and HMMER 3.4 for the numbering; Biopython 1.88 for
 `assemble`, whose pairwise aligner, with BLOSUM62, compares a heavy chain's
-constant region with IMGT's human ones; and for the structure ImmuneBuilder 1.2,
-OpenMM 8.6.1 and PDBFixer 1.12.0. `find_liabilities` is the plugin's own code,
-in pure Python on the stored numbering, so it runs none.
+constant region with IMGT's human ones. `find_liabilities` is the plugin's own
+code, in pure Python on the stored numbering, so it runs none.
 
 `assemble` checks that the format and the chains agree, from where their
 variable domains end and which constant domains follow, so the chains must have
@@ -341,8 +348,11 @@ which numbers for structural alignment and defines no CDRs of its own.
 
 ### Sequence liabilities
 
-`find_liabilities` reads a chain's liabilities off the numbering `number_chains`
-stored, so a chain has to be numbered first; one that hasn't been is left as it
+`find_liabilities` predicts a chain's liabilities from its sequence, read off the
+numbering `number_chains` stored, by the rule set its `rule_set` param names. It
+ships one, `developability_v1`, described below; a later or a lab's own rule set is
+another name, so a chain's `liability_screen` always says which rules found its
+liabilities, and on which numbering. A chain has to be numbered first; one that hasn't been is left as it
 was, and the run says so. It's the plugin's own code (`scripts/liabilities.py`),
 pure Python on the stored numbering, so it runs on the backend tier and lists no
 software. Each liability it reports gives its `kind`, the residues that make it
@@ -411,34 +421,16 @@ action doesn't compute them. LAP's own `Hydro` (`NP`), `FragM` (`TS`), low
 A liability is a site to look at, not a defect: what a screen reports needs
 measuring before it's believed. Which CDR definition a chain's numbering used
 decides where its CDRs are, and which scheme numbered it how a liability is
-numbered, so renumbering a chain changes the regions and numbers of the same
-residues: `number_chains` finds a screened chain's liabilities again on the new
-numbering, so they're never left on the old one's.
+numbered, so renumbering a chain in another scheme or with another definition
+changes the regions and numbers of the same residues. `number_chains` doesn't
+apply a screen itself: it clears a screen that read another numbering, and says
+so, and the lab screens the chain again with the rule set it chooses. Numbered
+again the same way, its numbering is the same, so its screen stays. The chain's
+history keeps the cleared screen.
 
 `liabilities` and `liability_counts` are JSON, which a chain's page shows as it
 is, under its fields; `liability_count` is an indexed integer, so chains can be
 filtered and sorted by how many they have, in the grid and through the API.
-
-`predict_structure_with_immunebuilder` runs [ImmuneBuilder](https://github.com/oxpig/ImmuneBuilder)
-(BSD-3-Clause) in the plugin's `structure-tools` image (`images/structure-tools`),
-with its trained weights ([Zenodo 7258553](https://zenodo.org/records/7258553),
-CC BY 4.0: cite its paper when you publish its structures). Its input includes the
-antibody's chains (ADR 0105), so it reads their sequences as they were when it was
-launched. ABodyBuilder2 models a heavy and a light chain's variable domains, from
-an IgG's or a Fab's two chains or an scFv's one; NanoBodyBuilder2 a VHH's single
-domain. Each models one binding head, the first domain of each type it finds, so
-a chain numbering found more in (a tandem scFv's, a DVD-Ig's) is refused, saying
-which it has, rather than modelled in part as if whole: each binding head,
-registered as an antibody of its own, is modelled. Each runs four models and
-keeps the one closest to the others, refined with OpenMM. It makes an `iki/protein.ProteinStructure` of the antibody's chains
-(chain IDs H and L), derived from the antibody, with how far the four models
-disagree: `predicted_error` over every residue and `cdr_h3_predicted_error` over
-CDR-H3, in Å, and each residue's in the file as its B-factor. Refining isn't
-exactly repeatable, so the action isn't deterministic: running it again makes a
-new structure, with the same estimated errors. An antibody takes about a minute on one CPU, and about 15 seconds on four.
-
-The image carries OpenMM's licences, which its wheel doesn't: OpenMM is MIT, and
-the OpenCL platform its wheel carries, which these runs don't use, LGPL-3.0.
 
 ## Tests
 
@@ -467,7 +459,6 @@ place, and `server/tests/test_antibody_liabilities.py` screens real chains on
 the numbering ANARCI gave them, through the same stand-in. The dev cluster's
 end-to-end check screens trastuzumab's chains after numbering them.
 
-`server/tests/test_antibody_structure.py` runs `predict_structure_with_immunebuilder`'s script with a
-stand-in ImmuneBuilder. The structure-tools image's `check.py` models
-trastuzumab's Fv and the GFP enhancer nanobody with the real one, and the
-end-to-end check predicts trastuzumab's structure in a pod of its own.
+The plugin's tests need neither the ab_predict plugin nor its image:
+`server/tests/test_antibody_structure.py` checks that the antibody plugin's
+closure has no structure action or environment, and tests the provider apart.

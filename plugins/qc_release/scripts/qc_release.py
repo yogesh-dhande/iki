@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -14,16 +15,28 @@ from typing import Any
 PLUGIN = "iki/qc_release"
 MAX_ATTEMPTS = 250
 LOT_MATERIAL_FIELDS = ("of", "protein", "oligonucleotide", "conjugate", "polymer", "plasmid")
-FLOWS = {
+SUCCESSOR_POLICIES = {"future", "same_day", "backdated"}
+FLOWS: dict[str, dict[str, Any]] = {
     "research": {
         "investigation": "ResearchOOSInvestigation",
         "certificate": "ResearchCertificate",
         "investigation_final": "signed_off",
+        "certificate_final": "signed_off",
+        "issued": "issued",
+        "title": "Research certificate of analysis",
+        # Said on the certificate, so it is never mistaken for a quality unit's release.
+        "intended_use": (
+            "For research use. Issued on one reviewer's sign-off, not released by a quality unit."
+        ),
     },
     "regulated_qc": {
         "investigation": "QCOOSInvestigation",
         "certificate": "QCCertificate",
         "investigation_final": "released",
+        "certificate_final": "released",
+        "issued": "released",
+        "title": "Certificate of analysis",
+        "intended_use": None,
     },
 }
 
@@ -125,6 +138,36 @@ def scheduled_versions(schedule: dict[str, Any]) -> list[tuple[date, dict[str, A
     return dated
 
 
+def successor(run: dict[str, Any], schedule: dict[str, Any], day: date, previous: date) -> None:
+    """A successor starts after its predecessor and every pinned testing date, and today or
+    earlier only as the deployment's policy allows."""
+    policy = run.get("settings", {}).get("successor_effective_dates", "future")
+    if policy not in SUCCESSOR_POLICIES:
+        raise ValueError("Choose future, same_day or backdated for successor effective dates.")
+    reason = str(run["params"].get("backdated_because") or "").strip()
+    today = datetime.now(UTC).date()
+    if day <= previous:
+        raise ValueError("A successor version must start after its predecessor.")
+    tested = schedule["values"].get("tested_through")
+    if tested is not None and day <= calendar_date(tested):
+        raise ValueError(
+            f"A release case has already pinned the version in force on {tested}. "
+            "A successor must start after that testing date."
+        )
+    if policy == "future" and day <= today:
+        raise ValueError("A successor version must start on a future date after its predecessor.")
+    if policy == "same_day" and day < today:
+        raise ValueError("A successor version must start today or later, after its predecessor.")
+    if day < today and not reason:
+        raise ValueError(
+            "Say why this version took effect in the past, such as importing an approved history."
+        )
+    if day >= today and reason:
+        raise ValueError(
+            "Leave the backdating reason empty for a version that starts today or later."
+        )
+
+
 def publish_version(run: dict[str, Any]) -> dict[str, Any]:
     schedule = run["inputs"]["schedule"][0]
     version = run["inputs"]["version"][0]
@@ -134,8 +177,10 @@ def publish_version(run: dict[str, Any]) -> dict[str, Any]:
     ids = [row["id"] for _, row in dated]
     if version["id"] in ids:
         return output("schedule", schedule, {"versions": ids})
-    if dated and (day <= dated[-1][0] or day <= datetime.now(UTC).date()):
-        raise ValueError("A successor version must start on a future date after its predecessor.")
+    if dated:
+        successor(run, schedule, day, dated[-1][0])
+    elif str(run["params"].get("backdated_because") or "").strip():
+        raise ValueError("A schedule's first version needs no backdating reason.")
     return output("schedule", schedule, {"versions": [*ids, version["id"]]})
 
 
@@ -175,12 +220,15 @@ def open_release(run: dict[str, Any]) -> dict[str, Any]:
         "attempts": [],
         "sealed": False,
     }
-    # This no-op takes and checks the schedule lock, so a competing append cannot
-    # race a case whose selected version would no longer be in force.
+    # Rewriting the versions takes and checks the schedule lock, so a competing append
+    # cannot race a case whose selected version would no longer be in force. The latest
+    # pinned testing date keeps any later successor after it.
+    tested = schedule["values"].get("tested_through")
+    latest = max(testing_on, calendar_date(tested)) if tested is not None else testing_on
     return output(
         "schedule",
         schedule,
-        {"versions": [row["id"] for _, row in dated]},
+        {"versions": [row["id"] for _, row in dated], "tested_through": latest.isoformat()},
         create("ReleaseCase", values, lot, schedule),
     )
 
@@ -408,6 +456,92 @@ def review_attempts(
         )
 
 
+#: A final result's fields the certificate states, where the test has them.
+STATED = ("attribute", "method", "unit", "lower", "upper", "value", "kind", "acceptance", "result")
+
+
+def statement(
+    case: dict[str, Any],
+    lot: dict[str, Any],
+    specification: dict[str, Any],
+    tests: list[dict[str, Any]],
+    issuer: str | None,
+) -> dict[str, Any]:
+    """What the issued certificate states (ICH Q7 §11.4): its issuer, the lot and its
+    dates, the specification, and each criterion's limits and final reportable result.
+    Failed attempts, investigations and analysts stay in the evidence."""
+    values = case["values"]
+    flow = FLOWS[values["review_flow"]]
+    final: dict[str, dict[str, Any]] = {}
+    for test in tests:
+        if test["values"].get("purpose") != "investigational":
+            final[test["values"]["attribute"]] = test
+    lot_values = lot["values"]
+    return {
+        "format": "iki/coa/v2",
+        "title": flow["title"],
+        **({"intended_use": flow["intended_use"]} if flow["intended_use"] else {}),
+        **({"issuer": issuer} if issuer else {}),
+        "lot": {
+            "lot_number": values["lot_number"],
+            "hrid": lot["hrid"],
+            # Read when the certificate was prepared, from the lot's current revision.
+            "revision": lot["revision"],
+            **{
+                name: lot_values[name]
+                for name in ("made_on", "retest_on", "expires_on")
+                if lot_values.get(name)
+            },
+        },
+        "specification": {
+            "version": values["version"],
+            "hrid": specification["hrid"],
+            "revision": specification["revision"],
+            "effective_from": specification["values"]["effective_from"],
+            "source": specification["values"]["source"],
+        },
+        "testing_on": values["testing_on"],
+        # The results as stated, without the records they came from: those stay in the
+        # evidence, on the certificate record.
+        "results": [
+            {
+                k: final[name]["values"][k]
+                for k in STATED
+                if final[name]["values"].get(k) is not None
+            }
+            for name in criteria(specification)
+        ],
+        # The certificate of analysis's own issuing state, not its record's.
+        "issue": {"state": flow["issued"]},
+    }
+
+
+def digest(coa: dict[str, Any]) -> str:
+    """The SHA-256 of a certificate's canonical JSON, which links its record to it."""
+    text = json.dumps(coa, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def issue_certificate(run: dict[str, Any]) -> dict[str, Any]:
+    """The certificate of analysis a finally signed certificate record states, signed on its
+    own when it's issued: its export holds only what it states (ICH Q7 §11.4). The record
+    keeps the evidence, and names the certificate by its digest."""
+    record = run["inputs"]["certificate"][0]
+    values = record["values"]
+    flow = values.get("review_flow")
+    coa = values.get("coa")
+    if flow not in FLOWS or values.get("review") != FLOWS[flow]["certificate_final"]:
+        raise ValueError("Finish signing the certificate record before issuing its certificate.")
+    if not isinstance(coa, dict) or digest(coa) != values.get("coa_digest"):
+        raise ValueError("The certificate record's certificate doesn't match its digest.")
+    issued = {"coa": coa, "digest": values["coa_digest"], "review_flow": flow}
+    return {
+        "apiVersion": "iki/v1",
+        "kind": "RunOutput",
+        "creates": [create("CertificateOfAnalysis", issued, record)],
+    }
+
+
 def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
     case = run["inputs"]["case"][0]
     specification = check_case(case)
@@ -418,9 +552,17 @@ def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
     review_attempts(case, specification, tests, investigations)
     sequence = {test["id"]: test["values"]["sequence"] for test in tests}
     ordered_investigations = sorted(investigations, key=lambda row: sequence[row["values"]["test"]])
+    flow = values["review_flow"]
+    issuer = str(run.get("settings", {}).get("certificate_issuer") or "").strip() or None
+    if flow == "regulated_qc" and issuer is None:
+        raise ValueError(
+            "Set the certificate issuer in the release testing settings: a regulated "
+            "certificate states its manufacturer's name, address and telephone."
+        )
     report = {
-        "format": "iki/coa/v1",
-        "title": "Certificate of analysis",
+        "format": "iki/coa-evidence/v1",
+        "title": "Certificate evidence",
+        "issue": {"state": FLOWS[flow]["certificate_final"]},
         "testing_on": values["testing_on"],
         "case": pin_fields(case, ()),
         "lot": {
@@ -469,7 +611,9 @@ def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
         "review_flow": values["review_flow"],
         "analysts": sorted({test["values"]["observed_by"] for test in tests}),
         "report": report,
+        "coa": statement(case, lot, specification, tests, issuer),
     }
+    certificate["coa_digest"] = digest(certificate["coa"])
     kind = FLOWS[values["review_flow"]]["certificate"]
     # The signed records above are permanently locked. A newly recorded test races this
     # seal on the case revision and either invalidates the preparation or is refused.
@@ -486,6 +630,7 @@ ACTIONS = {
     "open_release": open_release,
     "record_test": record_test,
     "prepare_certificate": prepare_certificate,
+    "issue_certificate": issue_certificate,
 }
 
 

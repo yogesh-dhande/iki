@@ -1717,6 +1717,40 @@
         "title": "AttemptPackOut",
         "type": "object"
       },
+      "AttemptScanWaitOut": {
+        "properties": {
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the files' scans were done, whether they were found usable or one was held. None while it waits, and for one cancelled as it waited.",
+            "title": "Ended At"
+          },
+          "files": {
+            "description": "How many of the files it reads it waited for.",
+            "title": "Files",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "started_at",
+          "ended_at",
+          "files"
+        ],
+        "title": "AttemptScanWaitOut",
+        "type": "object"
+      },
       "AttemptSlurmOut": {
         "properties": {
           "account": {
@@ -5984,6 +6018,7 @@
               "discriminator": {
                 "mapping": {
                   "compound": "#/components/schemas/CompoundExportOut",
+                  "plugin": "#/components/schemas/PluginExportOut",
                   "protein": "#/components/schemas/ProteinExportOut",
                   "sequence": "#/components/schemas/FileExportOut",
                   "signed_report": "#/components/schemas/SignedReportExportOut"
@@ -6002,6 +6037,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SignedReportExportOut"
+                },
+                {
+                  "$ref": "#/components/schemas/PluginExportOut"
                 }
               ]
             },
@@ -7026,15 +7064,13 @@
           },
           "format": {
             "description": "Which file, as its type's `exports` list them.",
-            "enum": [
+            "examples": [
               "genbank",
-              "fasta",
-              "protein-fasta",
-              "sdf",
-              "molfile",
-              "signed-report-html",
-              "signed-report-json"
+              "acme/liquid_handling.tecan-worklist"
             ],
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._/-]*$",
             "title": "Format",
             "type": "string"
           },
@@ -8160,16 +8196,7 @@
             "type": "string"
           },
           "format": {
-            "description": "What `/entities/{ref}/export` takes.",
-            "enum": [
-              "genbank",
-              "fasta",
-              "protein-fasta",
-              "sdf",
-              "molfile",
-              "signed-report-html",
-              "signed-report-json"
-            ],
+            "description": "What `/entities/{ref}/export` takes: one of Iki's formats, such as `genbank`, or a plugin's writer's qualified ID (ADR 0230).",
             "title": "Format",
             "type": "string"
           },
@@ -8179,10 +8206,11 @@
             "type": "string"
           },
           "many": {
-            "description": "`file`: many records make one file of it, from `POST /entity-exports` (ADR 0229); `one`: it holds one record.",
+            "description": "`file`: many records make one file of it, from `POST /entity-exports` (ADR 0229); `one`: it holds one record; `zip`: one record each, so many records make a ZIP of them.",
             "enum": [
               "file",
-              "one"
+              "one",
+              "zip"
             ],
             "title": "Many",
             "type": "string"
@@ -8191,6 +8219,18 @@
             "description": "Its media type, such as chemical/seq-na-genbank.",
             "title": "Media Type",
             "type": "string"
+          },
+          "plugin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plugin whose writer writes it, in the export sandbox (ADR 0230); null for Iki's own.",
+            "title": "Plugin"
           }
         },
         "required": [
@@ -8199,7 +8239,8 @@
           "extension",
           "media_type",
           "description",
-          "many"
+          "many",
+          "plugin"
         ],
         "title": "FileFormatOut",
         "type": "object"
@@ -13706,7 +13747,7 @@
             "type": "string"
           },
           "kind": {
-            "description": "What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.Sample.in_review.",
+            "description": "What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.ReviewedSample.in_review.",
             "title": "Kind",
             "type": "string"
           },
@@ -16736,6 +16777,45 @@
         "title": "PluginCandidateIn",
         "type": "object"
       },
+      "PluginExportOut": {
+        "properties": {
+          "export": {
+            "const": "plugin",
+            "description": "What it writes. `plugin`: a plugin's format, by its writer (ADR 0230).",
+            "title": "Export",
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The field each of the writer's roles reads.",
+            "title": "Fields",
+            "type": "object"
+          },
+          "formats": {
+            "description": "The file it's written as; none when this deployment can't write it.",
+            "items": {
+              "$ref": "#/components/schemas/FileFormatOut"
+            },
+            "title": "Formats",
+            "type": "array"
+          },
+          "writer": {
+            "description": "The writer, by its qualified ID.",
+            "title": "Writer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export",
+          "writer",
+          "formats",
+          "fields"
+        ],
+        "title": "PluginExportOut",
+        "type": "object"
+      },
       "PluginFindingOut": {
         "properties": {
           "blocking": {
@@ -19701,13 +19781,10 @@
             "title": "Fields"
           },
           "format": {
-            "description": "A format every record's type exports, as its `exports` list them, of which many records make one file (`many: file`).",
-            "enum": [
-              "genbank",
-              "fasta",
-              "protein-fasta",
-              "sdf"
-            ],
+            "description": "A format every record's type exports, as its `exports` list them, of which many records make one file (`many: file`), or a ZIP of one file each (`many: zip`).",
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._/-]*$",
             "title": "Format",
             "type": "string"
           },
@@ -19866,7 +19943,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Which code wrote it: `builtin` and `version`.",
+            "description": "Which code wrote it: Iki's `builtin` and `version`; or a plugin's writer's `plugin`, `writer`, `commit`, `module_sha256` and `abi` (ADR 0230).",
             "title": "Writer",
             "type": "object"
           }
@@ -22125,6 +22202,17 @@
             ],
             "description": "The checkpoint an earlier attempt saved that this one resumed from."
           },
+          "scan_wait": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttemptScanWaitOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it waited for files it reads to be scanned for malware (ADR 0234)."
+          },
           "secrets": {
             "description": "The secrets its worker was given, by name (ADR 0054).",
             "items": {
@@ -22214,7 +22302,8 @@
           "bulk_import",
           "checkpoint",
           "resumed_from",
-          "slurm"
+          "slurm",
+          "scan_wait"
         ],
         "title": "RunAttemptOut",
         "type": "object"
@@ -23218,8 +23307,19 @@
                 "type": "null"
               }
             ],
-            "description": "Why a queued run hasn't started: a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).",
+            "description": "Why a queued run hasn't started: a file it reads is being scanned (`waiting_for_scan`), a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).",
             "title": "Waiting"
+          },
+          "waiting_for_scan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunScanWaitOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "While files it reads are being scanned for malware (ADR 0234): no worker takes it until they're found usable, and it fails, saying why, if one is held. Its attempts' `scan_wait` say when it waited."
           },
           "workflow": {
             "anyOf": [
@@ -23271,6 +23371,7 @@
           "metrics",
           "messages",
           "waiting",
+          "waiting_for_scan",
           "needs_worker",
           "seed",
           "reused",
@@ -23340,6 +23441,36 @@
           "action"
         ],
         "title": "RunRefOut",
+        "type": "object"
+      },
+      "RunScanWaitOut": {
+        "properties": {
+          "files": {
+            "description": "The files it still waits for that you can read, by name.",
+            "items": {
+              "$ref": "#/components/schemas/ScanWaitFileOut"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "others": {
+            "description": "How many more it waits for, that you can't read.",
+            "title": "Others",
+            "type": "integer"
+          },
+          "since": {
+            "description": "When it began waiting.",
+            "format": "date-time",
+            "title": "Since",
+            "type": "string"
+          }
+        },
+        "required": [
+          "since",
+          "files",
+          "others"
+        ],
+        "title": "RunScanWaitOut",
         "type": "object"
       },
       "RunStatus": {
@@ -24200,6 +24331,25 @@
           "candidates"
         ],
         "title": "ScanResolveOut",
+        "type": "object"
+      },
+      "ScanWaitFileOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ScanWaitFileOut",
         "type": "object"
       },
       "ScansIn": {
@@ -28721,9 +28871,24 @@
             "type": "array"
           },
           "result_type": {
-            "description": "Qualified result type for new fits in this flow.",
+            "description": "Qualified result type whose states this flow's records pass through.",
             "title": "Result Type",
             "type": "string"
+          },
+          "states": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The result type's states in this flow, where its one state field has a route per flow. Null: all of them.",
+            "title": "States"
           }
         },
         "required": [
@@ -28759,6 +28924,11 @@
             "title": "Flows",
             "type": "array"
           },
+          "governs": {
+            "description": "The records the project's choice applies to from now on, such as `release cases`. Those already opened keep the flow they were opened with.",
+            "title": "Governs",
+            "type": "string"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -28792,6 +28962,7 @@
           "version",
           "label",
           "description",
+          "governs",
           "flows",
           "roles",
           "types",
@@ -29533,8 +29704,15 @@
             "type": "string"
           },
           "threshold": {
-            "title": "Threshold",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
           },
           "unit": {
             "title": "Unit",
@@ -37706,7 +37884,7 @@
     },
     "/api/v1/entities/{ref}/export": {
       "get": {
-        "description": "The record as one of the files its type exports (ADR 0171), at its latest revision or\nthe one asked for, written from its values then, so a revision is always the same file.\nAnyone who can read it may; each download is in the audit log (``entity.exported``),\nwith the file's SHA-256. What the file can't say, such as a feature across a linear\nmolecule's ends, is listed in it where the format has a place (GenBank's COMMENT, an\nSDF's ``IKI_NOTES``), and ``Iki-Left-Out`` says how many such notes there are. Many\nrecords make one file from ``POST /entity-exports`` (ADR 0229).",
+        "description": "The record as one of the files its type exports (ADR 0171), at its latest revision or\nthe one asked for, written from its values then, so a revision is always the same file.\nAnyone who can read it may; each download is in the audit log (``entity.exported``),\nwith the file's SHA-256. What the file can't say, such as a feature across a linear\nmolecule's ends, is listed in it where the format has a place (GenBank's COMMENT, an\nSDF's ``IKI_NOTES``), and ``Iki-Left-Out`` says how many such notes there are. Many\nrecords make one file from ``POST /entity-exports`` (ADR 0229).\n\nA plugin's format is written by its writer in the export sandbox (ADR 0230), and its\naudit event names the plugin's commit and the module's digest. A writer that refuses\nthe record (``writer_refused``) or fails (``writer_failed``) is 422, and no file is\nmade; a sandbox that's busy or away is 503 (``sandbox_unavailable``) with\n``Retry-After``.",
         "operationId": "iki_server_api_entities_export_entity",
         "parameters": [
           {
@@ -37720,20 +37898,26 @@
           },
           {
             "description": "Which file, as its type's `exports` list them.",
+            "examples": {
+              "example0": {
+                "value": "genbank"
+              },
+              "example1": {
+                "value": "acme/liquid_handling.tecan-worklist"
+              }
+            },
             "in": "query",
             "name": "format",
             "required": true,
             "schema": {
               "description": "Which file, as its type's `exports` list them.",
-              "enum": [
+              "examples": [
                 "genbank",
-                "fasta",
-                "protein-fasta",
-                "sdf",
-                "molfile",
-                "signed-report-html",
-                "signed-report-json"
+                "acme/liquid_handling.tecan-worklist"
               ],
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[a-z0-9][a-z0-9._/-]*$",
               "title": "Format",
               "type": "string"
             }
@@ -37803,6 +37987,9 @@
           "200": {
             "content": {
               "application/json": {},
+              "application/octet-stream": {
+                "description": "A plugin's format, as its media type (ADR 0230)."
+              },
               "chemical/seq-aa-fasta": {},
               "chemical/seq-na-fasta": {},
               "chemical/seq-na-genbank": {},
@@ -37811,6 +37998,12 @@
               "text/html": {}
             },
             "description": "The file, as an attachment named for the record."
+          },
+          "422": {
+            "description": "Its plugin's writer refused it, or failed (ADR 0230)."
+          },
+          "503": {
+            "description": "The export sandbox can't take it now: try again."
           }
         },
         "security": [
@@ -49273,7 +49466,7 @@
     },
     "/api/v1/starters/{starter}/apply": {
       "post": {
-        "description": "Apply the reviewed flow and role grants to the assay project.\nIf what applying does changed since the preview, as when another Admin removed a grant or\napplied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,\nwhat applying would do now, for review (ADR 0207). Reapplying a setup that's in place\nchanges nothing. Changing the flow selects the result type for future fits. Existing\nresults keep their flow.",
+        "description": "Apply the reviewed flow and role grants to the assay project.\nIf what applying does changed since the preview, as when another Admin removed a grant or\napplied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,\nwhat applying would do now, for review (ADR 0207). Reapplying a setup that's in place\nchanges nothing. Changing the flow applies to records opened from now on, such as\nnew fits or release cases. Existing ones keep their flow.",
         "operationId": "iki_server_api_starters_apply_starter",
         "parameters": [
           {

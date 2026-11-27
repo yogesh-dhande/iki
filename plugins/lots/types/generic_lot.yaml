@@ -7,8 +7,9 @@ label_plural: Generic lots
 extends: Lot
 schema_version: 1
 description: >-
-  A lot of any entity that has no lot type of its own: its amount by mass, its
-  concentration, if it's a solution, and its purity.
+  A lot of any entity that has no lot type of its own, kept by mass: its concentration,
+  if it's a solution, and its purity. A liquid kept by volume is a Generic lot by volume,
+  and whole items, such as vials or plates, a Generic lot by count.
 hrid: { prefix: GLOT }
 # How much of it is left (ADR 0139): kept by mass, drawn by volume at its concentration;
 # only what it's a lot of.

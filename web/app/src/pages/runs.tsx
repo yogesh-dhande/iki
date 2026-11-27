@@ -605,6 +605,43 @@ function ReproduceRun({ run }: { run: Run }) {
   );
 }
 
+/** A run waiting for the files it reads to be scanned for malware (ADR 0234): which, since
+ * when, and what happens once they are. */
+function ScanWaitNote({ run, wait }: { run: Run; wait: NonNullable<Run["waiting_for_scan"]> }) {
+  const count = wait.files.length + wait.others;
+  const one = count === 1;
+  return (
+    <div className="alert alert-info" role="status">
+      <p className="alert-title">Waiting for a malware scan</p>
+      <p>
+        {one ? "A file it reads" : `${String(count)} files it reads`}
+        {wait.files.length ? (
+          <>
+            {" ("}
+            {wait.files.map((file, index) => (
+              <span key={file.id}>
+                {index ? ", " : null}
+                <Link to="/files/$id/" params={{ id: file.id }}>
+                  {file.name}
+                </Link>
+              </span>
+            ))}
+            {wait.others ? `, and ${String(wait.others)} you can’t read` : null})
+          </>
+        ) : null}{" "}
+        {one ? "is" : "are"} being scanned, since <RelativeTime value={wait.since} />. No worker
+        takes the run until {one ? "it’s" : "they’re"} found clean; then it starts by itself. If{" "}
+        {one ? "it’s" : "one is"} quarantined, the run fails, saying why.
+      </p>
+      <p>
+        <Link to="/files/" search={{ run: run.hrid }}>
+          Files it reads or made
+        </Link>
+      </p>
+    </div>
+  );
+}
+
 /** For a run that reused another's results: which, and a way to run it after all. */
 function ReusedNote({ run }: { run: Run }) {
   const { say } = useMessages();
@@ -1041,6 +1078,26 @@ function approvalText(approval: Approval) {
   }
 }
 
+/** When an attempt waited for its files' scans (ADR 0234), for its history. */
+function scanWaitNote(wait: NonNullable<Attempt["scan_wait"]>, finished: string | null) {
+  const what = wait.files === 1 ? "a file it reads" : `${String(wait.files)} files it reads`;
+  // One cancelled as it waited stopped waiting when it ended.
+  const ended = wait.ended_at ?? finished;
+  if (!ended) {
+    return (
+      <>
+        Waiting for {what} to be scanned for malware, since <RelativeTime value={wait.started_at} />
+      </>
+    );
+  }
+  return (
+    <>
+      Waited {duration(wait.started_at, ended)} for {what} to be scanned for malware, until{" "}
+      <Time value={ended} />
+    </>
+  );
+}
+
 function duration(from: string, to: string): string {
   const seconds = Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 1000));
   if (seconds < 60) return `${String(seconds)} s`;
@@ -1396,6 +1453,9 @@ function AttemptRow({
             </span>
           </div>
         ) : null}
+        {attempt.scan_wait ? (
+          <p className="row-meta">{scanWaitNote(attempt.scan_wait, attempt.finished_at)}</p>
+        ) : null}
         {attempt.error && !(latest && runError) ? (
           <p className="row-reason">{attempt.error.message}</p>
         ) : null}
@@ -1561,7 +1621,9 @@ export function RunPage() {
       {run.approval?.state === "pending" ? (
         <ApprovalRequest run={run} approval={run.approval} />
       ) : null}
-      {run.waiting ? (
+      {run.waiting_for_scan ? (
+        <ScanWaitNote run={run} wait={run.waiting_for_scan} />
+      ) : run.waiting ? (
         <div className="alert alert-info" role="status">
           <p>Waiting to start: {run.waiting}</p>
         </div>

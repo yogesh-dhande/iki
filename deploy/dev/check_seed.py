@@ -47,11 +47,12 @@ def check_seed(atlas: Project) -> None:
 
     # Results of the eleven scenarios previously reached only through the example connector.
     require("iki/equipment.Booking", 3)
-    require("iki/samples.Sample", signature="reviewed")
+    require("iki/samples.ReviewedSample", signature="reviewed")
     require("iki/stability.Measurement", signature="signed")
     require("iki/plate_assays.ResearchAssayResult", 2, signature="signed")
     require("iki/reagents.CountStockLot", 2)
     require("iki/qc_release.ResearchCertificate", signature="signed_off")
+    require("iki/qc_release.CertificateOfAnalysis", signature="issued")
     require("iki/sequencing.FASTQSummary", signature="signed_off")
     require("iki/sequencing_analysis.SequencingAnalysisResult")
     require("iki/proteomics.ProteomicsResult")
@@ -86,7 +87,11 @@ def check_seed(atlas: Project) -> None:
     # that followed the fake hosted prediction. Several produce a shared core type, so
     # check their successful runs rather than count generic alignments and structures.
     expected_actions = {
+        # The antibody plugin's own methods, and the optional structure provider apart.
+        "iki/ab_predict.predict_structure_with_immunebuilder",
         "iki/antibody.assemble",
+        "iki/antibody.find_liabilities",
+        "iki/antibody.number_chains",
         "iki/conjugate.compute_composition",
         "iki/dna.align_reads",
         "iki/dna.compute_composition",

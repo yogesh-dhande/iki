@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: GenericCountLot
+label: Generic lot by count
+label_plural: Generic lots by count
+extends: Lot
+schema_version: 1
+description: >-
+  A lot of any entity that has no lot type of its own, kept as whole items, such as vials
+  of a lyophilised standard or plates of a library.
+hrid: { prefix: GCLOT }
+# As a generic lot by mass (ADR 0139), counted in whole items (ADR 0242).
+amount:
+  unit: "1"
+  label: Count
+  description: How many are left.
+  material: of
+  whole_units: true
+fields:
+  of:
+    type: ref
+    to: iki/core.Entity
+    label: Lot of
+    required: true
+    immutable: true
+    description: What it's a lot of.
+  item:
+    type: string
+    label: Each is a
+    max_length: 100
+    description: What one of them is, such as a 1 mg vial or a 384-well plate.
+  purity:
+    type: quantity
+    unit: "%"
+    min: 0
+    max: 100
+    indexed: true
+    description: How pure it is.
+  purity_method:
+    type: string
+    label: Purity by
+    max_length: 200
+    description: How its purity was measured, such as HPLC at 254 nm.
+display:
+  title: "{{ lot_number or hrid }}"

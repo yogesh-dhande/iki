@@ -840,7 +840,8 @@ class RecordExport(models.Model):
         "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     via = models.CharField(max_length=16)
-    format = models.CharField(max_length=40)
+    #: Iki's format, or a plugin's writer by its qualified ID (ADR 0230).
+    format = models.CharField(max_length=200)
     #: What was picked, in words: "12 plasmids picked", or the search.
     selection = models.TextField()
     #: The search it's from, as given, if it's a table's; None for records picked.

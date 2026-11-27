@@ -3,9 +3,10 @@ kind: Action
 name: import_base_strains
 label: Import a strain catalogue
 description: >-
-  Register the bacterial and yeast base strains in a CSV with authority, accession,
-  taxon_id, scientific_name, kind, name and genotype columns. Each record retains
-  its source file and row. All rows are checked before any are imported.
+  Register the bacterial and yeast base strains in a CSV. Name the column that holds
+  each value if the file's headers differ from Iki's, and give the collection or kind
+  for every row if the file has no column for it. Each record retains its source file
+  and row. All rows are checked before any are imported.
 params:
   file:
     type: file
@@ -13,6 +14,26 @@ params:
     required: true
     media_types: [text/csv, text/plain]
     max_size: 512KiB
+  authority:
+    type: string
+    label: Collection or lab code for every row
+    description: Use when the file has no authority column, such as one collection's export.
+    pattern: "^[A-Z][A-Z0-9_-]*$"
+    max_length: 64
+  kind:
+    type: enum
+    label: Kind for every row
+    values: [bacterium, yeast]
+    description: Use when the file has no kind column.
+  authority_column: { type: string, label: Authority column, default: authority, max_length: 100 }
+  accession_column: { type: string, label: Accession column, default: accession, max_length: 100 }
+  taxon_id_column:
+    { type: string, label: NCBI Taxonomy ID column, default: taxon_id, max_length: 100 }
+  scientific_name_column:
+    { type: string, label: Scientific name column, default: scientific_name, max_length: 100 }
+  kind_column: { type: string, label: Kind column, default: kind, max_length: 100 }
+  name_column: { type: string, label: Designation column, default: name, max_length: 100 }
+  genotype_column: { type: string, label: Genotype column, default: genotype, max_length: 100 }
 effects:
   creates:
     - { type: iki/core.Organism, cardinality: many }
