@@ -174,6 +174,31 @@ class AppointRegistrarForm(forms.Form):
     person = PersonField(help_text=lazy(_registrar_help, str)())
 
 
+def _curator_help() -> str:
+    return (
+        "They add the list's options, change them, reorder the list, and archive and "
+        f"supersede options, each with a reason. People can be appointed "
+        f"{once_they_have_an_account()}."
+    )
+
+
+def list_choices() -> list[tuple[str, str]]:
+    """The installed lab lists, by their plural label."""
+    from iki_server.entities import lists
+
+    return sorted(
+        ((name, t.label_plural) for name, t in lists.types().items()),
+        key=lambda c: (c[1].casefold(), c[0]),
+    )
+
+
+class AppointListCuratorForm(forms.Form):
+    """A lab list's curator (ADR 0270), appointed by an Org Admin, a list at a time."""
+
+    list_type = forms.ChoiceField(label="List", choices=list_choices)
+    person = PersonField(help_text=lazy(_curator_help, str)())
+
+
 class LegalHoldReleaseForm(forms.Form):
     """Why a hold is released: required, as `holds.release` requires it, and kept in the
     hold and its audit event."""

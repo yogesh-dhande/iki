@@ -27,6 +27,7 @@ from iki_server.oauth.forms import CredentialForm
 from iki_server.org import holds, permissions, registries, services
 from iki_server.org.forms import (
     AddTeamMemberForm,
+    AppointListCuratorForm,
     AppointRegistrarForm,
     LegalHoldForm,
     LegalHoldReleaseForm,
@@ -35,9 +36,11 @@ from iki_server.org.forms import (
     ServiceAccountForm,
     ServiceAccountRolesForm,
     TeamForm,
+    list_choices,
 )
 from iki_server.org.models import (
     LegalHold,
+    ListCurator,
     OrgRole,
     OrgRoleAssignment,
     ProjectMembership,
@@ -490,6 +493,29 @@ def registry_list(request: HttpRequest) -> HttpResponse:
     return render(request, "org/registry_list.html", {"registries": found, "form": form})
 
 
+def _lab_lists(found: Registry) -> list[dict[str, Any]]:
+    """The installed lab lists (ADR 0270), by label, each with its curators in the registry."""
+    from iki_server.entities import lists
+
+    curators: dict[str, list[ListCurator]] = {}
+    for row in (
+        ListCurator.objects.filter(registry=found)
+        .select_related("user", "appointed_by")
+        .order_by("user__name", "user__email")
+    ):
+        curators.setdefault(row.list_type, []).append(row)
+    every = sorted(lists.types().items(), key=lambda t: (t[1].label_plural.casefold(), t[0]))
+    return [
+        {
+            "type": name,
+            "label": t.label_plural,
+            "app_path": f"/types/{name}/?registry={found.pk}",
+            "curators": curators.get(name, []),
+        }
+        for name, t in every
+    ]
+
+
 @page("GET", "POST")
 @refusals
 def registry_detail(request: HttpRequest, registry_id: str) -> HttpResponse:
@@ -507,6 +533,9 @@ def registry_detail(request: HttpRequest, registry_id: str) -> HttpResponse:
         },
     )
     appoint = AppointRegistrarForm(request.POST if action == "appoint" else None)
+    curate = AppointListCuratorForm(
+        request.POST if action == "appoint_curator" else None, prefix="curator"
+    )
     if request.method == "POST":
         if action == "save" and form.is_valid():
             try:
@@ -546,6 +575,35 @@ def registry_detail(request: HttpRequest, registry_id: str) -> HttpResponse:
                     request, f"{person.get_full_name()} is no longer a registrar of {found.name}."
                 )
             return redirect(request.path)
+        elif action == "appoint_curator" and curate.is_valid():
+            person = curate.cleaned_data["person"]
+            list_type = curate.cleaned_data["list_type"]
+            label = dict(list_choices()).get(list_type, list_type)
+            try:
+                made = registries.appoint_curator(found, list_type, person, by=me)
+            except services.Refused as refusal:
+                curate.add_error("person", str(refusal))
+            else:
+                if made:
+                    messages.success(
+                        request, f"{person.get_full_name()} curates {label} in {found.name}."
+                    )
+                else:
+                    messages.info(request, f"{person.get_full_name()} curates {label} already.")
+                return redirect(f"{request.path}#list-curators-title")
+        elif action == "dismiss_curator":
+            from iki_server.entities import lists
+
+            person = get_object_or_404(User, pk=request.POST.get("user"))
+            list_type = request.POST.get("list", "")
+            listed = lists.types().get(list_type)
+            if registries.dismiss_curator(found, list_type, person, by=me):
+                messages.success(
+                    request,
+                    f"{person.get_full_name()} no longer curates "
+                    f"{listed.label_plural if listed else list_type} in {found.name}.",
+                )
+            return redirect(f"{request.path}#list-curators-title")
     registrars = (
         Registrar.objects.filter(registry=found)
         .select_related("user", "appointed_by")
@@ -559,6 +617,8 @@ def registry_detail(request: HttpRequest, registry_id: str) -> HttpResponse:
             "registry": found,
             "form": form,
             "appoint": appoint,
+            "curate": curate,
+            "lab_lists": _lab_lists(found),
             "registrars": registrars,
             "projects": projects,
             "is_registrar": any(r.user_id == me.pk for r in registrars),
