@@ -140,10 +140,13 @@ difference its action writes later: an edit out of its tolerance is held as
 it's saved, with the project's triggers on or off, and before a run could
 lag behind a release. A measured mass the entry has no mass to check against
 is held too (`mass_is_checked`), for QA to review its identity another way.
-They're compared to a micro-dalton, finer than any mass spectrometer
-resolves and coarser than the binary rounding of two decimals' difference,
-so 5555.03254 against 5554.98250 is 0.05004 Da, outside ±0.05001, and
-exactly 2 Da is within ±2. Tolerance is a field, the lab's specification, 2 Da by default. What
+They're compared in whole nanodaltons, each rounded once from what's
+stored, finer than any mass spectrometer resolves and coarser than the
+binary rounding of two decimals' difference: exactly as their decimals
+differ, for any given to nine places or fewer. So 5555.03254 against
+5554.98250 is 0.05004 Da, outside ±0.05001; 0.1000005 Da is outside ±0.1;
+and exactly 2 Da is within ±2. The rule and the run's log decide it by the
+same arithmetic, so they never disagree. Tolerance is a field, the lab's specification, 2 Da by default. What
 can't be true is refused: a polymer's Mw below its Mn, a distribution of both
 intact and reduced species.
 

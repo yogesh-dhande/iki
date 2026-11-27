@@ -823,7 +823,8 @@ export function EntityGrid({
   // A project's own tab says "this project"; across projects, the one picked, by name.
   const where = fixedProject ? "in this project" : project ? `in ${project.name}` : "you can read";
   // A type's records in a project, edited as a sheet (ADR 0228): those the table loaded,
-  // with its search and filters, which stay as they are until it's done.
+  // with its search and filters, which stay as they are until it's done. The table reads
+  // them again as it goes; the sheet keeps its rows where they were (sheet.ts `Loaded`).
   const sheetType =
     type && !type.detached && fixedProject?.can.edit && !fixedProject.archived && !shownAs
       ? type

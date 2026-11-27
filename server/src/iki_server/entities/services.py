@@ -880,6 +880,7 @@ def update(
     allow_correction: bool = False,
     _recording_draw: bool = False,
     _recheck_note: str = "",
+    _repointing: frozenset[str] = frozenset(),
 ) -> Saved:
     """Changes some of an entity's fields. Fields not named keep their values. Its registry
     entry's are set only while they're empty (see :func:`fill_entry`).
@@ -892,6 +893,11 @@ def update(
     project). ``taking``: someone takes the record in an assignment field (ADR 0122), as
     its lab role lets them. A direct edit can opt into a declared reasoned return
     with ``allow_correction``. Other operations keep every state lock.
+
+    ``_repointing``: the references a move to a superseded entry's or option's replacement
+    rewrites (ADR 0115, ADR 0270). They change though they're computed or fixed, as what they
+    named was a mistake. The rest of the save is as for any other: its rules and holds,
+    rechecks, request sides and notifications.
     """
     with transaction.atomic(), _unique_values():
         locked = Entity.objects.select_for_update().get(pk=entity.pk)
@@ -976,7 +982,12 @@ def update(
             if name == ledger_field and not _recording_draw:
                 errors[name] = ["is recorded by the amounts ledger when material is drawn into it."]
                 continue
-            if f.computed and not by_run and name not in (ledger_field, _recheck_note):
+            if (
+                f.computed
+                and not by_run
+                and name not in (ledger_field, _recheck_note)
+                and name not in _repointing
+            ):
                 errors[name] = ["is computed: only actions set it."]
                 continue
             if f.type == "state":
@@ -1024,7 +1035,7 @@ def update(
                 continue
             if part.entry:
                 for_entry[name] = converted
-            elif f.immutable and current is not None:
+            elif f.immutable and current is not None and name not in _repointing:
                 errors[name] = ["can't change once it's set."]
             elif f.required and converted is None:
                 errors[name] = ["is required."]
