@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -42,7 +43,7 @@ def inputs() -> dict[str, Any]:
             },
         ],
     )
-    lot = record("lot1", 8, lot_number="Corrected after testing")
+    lot = record("lot1", 8, lot_number="Corrected after testing", retest_on="2023-04-01")
     case = record(
         "case1",
         1,
@@ -126,8 +127,9 @@ def test_certificate_preserves_original_and_ordered_retest(qc_actions: ModuleTyp
     case = run["inputs"]["case"][0]
     case["values"].update(update["values"])
     repeat = record("test2", 1, **recorded_repeat["values"])
-    prepare = {
-        "inputs": {"case": [case], "tests": [repeat, original], "investigations": [investigation]}
+    prepare: dict[str, Any] = {
+        "inputs": {"case": [case], "tests": [repeat, original], "investigations": [investigation]},
+        "settings": {"certificate_issuer": "Synthetic Labs, 1 Example Way · +1 555 0100"},
     }
 
     omitted = deepcopy(prepare)
@@ -139,6 +141,11 @@ def test_certificate_preserves_original_and_ordered_retest(qc_actions: ModuleTyp
     confirmed["inputs"]["investigations"][0]["values"]["resolution"] = "confirmed"
     with pytest.raises(ValueError, match="A confirmed out-of-specification result"):
         qc_actions.prepare_certificate(confirmed)
+
+    anonymous = deepcopy(prepare)
+    anonymous["settings"]["certificate_issuer"] = "  "
+    with pytest.raises(ValueError, match="Set the certificate issuer"):
+        qc_actions.prepare_certificate(anonymous)
 
     result = qc_actions.prepare_certificate(prepare)
     (certificate,) = result["creates"]
@@ -154,6 +161,29 @@ def test_certificate_preserves_original_and_ordered_retest(qc_actions: ModuleTyp
     ]
     assert report["investigations"][0]["revision"] == 6
     assert report["investigations"][0]["findings"] == investigation["values"]["findings"]
+    assert report["issue"] == {"state": "released"}
+    # The certificate states the final result only, its issuer, and the lot's dates.
+    coa = certificate["values"]["coa"]
+    assert coa["issuer"] == prepare["settings"]["certificate_issuer"]
+    assert coa["title"] == "Certificate of analysis"
+    assert coa["lot"] == {
+        "lot_number": "Synthetic lot 1",
+        "hrid": "LOT1",
+        "revision": 8,
+        "retest_on": "2023-04-01",
+    }
+    assert coa["results"] == [
+        {
+            "attribute": "Assay",
+            "method": "Synthetic example",
+            "unit": "AU",
+            "lower": 90,
+            "upper": 110,
+            "value": 90,
+            "kind": "numeric",
+        }
+    ]
+    assert {"analysts", "investigations", "tests"}.isdisjoint(coa)
     sealed = result["updates"]["case"][0]
     assert sealed["require_unchanged"]
     case["values"].update(sealed["values"])
@@ -285,7 +315,10 @@ def test_an_investigation_tests_under_its_plan_and_replaces_nothing(
         record("test2", 1, **retest["values"]),
         record("test3", 1, **repeat["values"]),
     ]
-    prepare = {"inputs": {"case": [case], "tests": tests, "investigations": [investigation]}}
+    prepare: dict[str, Any] = {
+        "inputs": {"case": [case], "tests": tests, "investigations": [investigation]},
+        "settings": {"certificate_issuer": "Synthetic Labs, 1 Example Way · +1 555 0100"},
+    }
     with pytest.raises(ValueError, match="every attempt"):
         qc_actions.prepare_certificate(
             prepare | {"inputs": prepare["inputs"] | {"tests": tests[::2]}}
@@ -299,6 +332,171 @@ def test_an_investigation_tests_under_its_plan_and_replaces_nothing(
     ]
     assert report["tests"][1]["investigation_revision"] == 6
     assert report["investigations"][0]["plan"] == plan
+    # The certificate states the reportable repeat, not the investigation's own test.
+    stated = certificate["values"]["coa"]["results"]
+    assert [row["value"] for row in stated] == [tests[2]["values"]["value"]]
+
+
+#: USP Sodium Chloride's Identification A, a test for sodium under USP <191>, whose
+#: requirement is met or not rather than a number (ICH Q6A §3.2.1 b, Identification).
+IDENTIFICATION = {
+    "attribute": "Identification A (sodium)",
+    "method": "USP <191> Identification Tests—General, Sodium",
+    "kind": "conforms",
+    "acceptance": "Meets the requirements",
+}
+
+
+def test_an_identification_conforms_to_its_requirement_or_is_out_of_specification(
+    qc_actions: ModuleType,
+) -> None:
+    run = inputs()
+    case = run["inputs"]["case"][0]
+    specification = case["included"]["specification"][0]
+    specification["values"]["criteria"].append(IDENTIFICATION)
+    identify = {k: IDENTIFICATION[k] for k in ("attribute", "method")}
+
+    def attempt(**params: Any) -> dict[str, Any]:
+        trial = deepcopy(run)
+        trial["params"] = identify | params
+        output: dict[str, Any] = qc_actions.record_test(trial)
+        return output
+
+    # It conforms or doesn't: neither a value nor a missing answer is a result.
+    with pytest.raises(ValueError, match="without a value"):
+        attempt(value=1.0, result="conforms")
+    with pytest.raises(ValueError, match="Say whether"):
+        attempt()
+    with pytest.raises(ValueError, match="is a number"):
+        qc_actions.record_test(run | {"params": run["params"] | {"result": "conforms"}})
+
+    seen = "Synthetic: yellow flame, as the sodium test describes."
+    (test,) = attempt(result="conforms", observation=seen)["creates"]
+    assert test["values"] | {"observed_by": None} == test["values"] | {
+        "kind": "conforms",
+        "result": "conforms",
+        "acceptance": "Meets the requirements",
+        "observation": seen,
+        "outcome": "pass",
+        "value": None,
+        "unit": None,
+        "observed_by": None,
+    }
+    failed = attempt(result="does_not_conform", observation="Synthetic: no yellow flame.")
+    original, investigation = failed["creates"]
+    assert original["values"]["outcome"] == "oos"
+    assert investigation["type"] == "iki/qc_release.QCOOSInvestigation"
+
+    # A numeric result keeps its kind, and a certificate pins both kinds of result.
+    run["params"] = run["params"] | {"value": 100}
+    (assay,) = qc_actions.record_test(run)["creates"]
+    assert assay["values"]["kind"] == "numeric"
+    case["values"]["attempts"] = [
+        {"sequence": 1, "attribute": "Assay", "outcome": "pass"},
+        {"sequence": 2, "attribute": IDENTIFICATION["attribute"], "outcome": "pass"},
+    ]
+    tests = [
+        record("test1", 1, **assay["values"] | {"sequence": 1}),
+        record("test2", 1, **test["values"] | {"sequence": 2}),
+    ]
+    prepared = qc_actions.prepare_certificate(
+        {
+            "inputs": {"case": [case], "tests": tests},
+            "settings": {"certificate_issuer": "Synthetic Labs, 1 Example Way · +1 555 0100"},
+        }
+    )
+    (certificate,) = prepared["creates"]
+    # What the certificate states: a number, and a requirement it conforms to.
+    stated = {row["attribute"]: row for row in certificate["values"]["coa"]["results"]}
+    assert stated["Assay"]["value"] == 100
+    assert stated[IDENTIFICATION["attribute"]]["result"] == "conforms"
+    assert stated[IDENTIFICATION["attribute"]]["acceptance"] == "Meets the requirements"
+    assert "value" not in stated[IDENTIFICATION["attribute"]]
+    pinned = {t["attribute"]: t for t in certificate["values"]["report"]["tests"]}
+    assert pinned[IDENTIFICATION["attribute"]]["result"] == "conforms"
+    assert pinned[IDENTIFICATION["attribute"]]["acceptance"] == "Meets the requirements"
+    assert pinned["Assay"]["value"] == 100
+
+
+@pytest.mark.parametrize(
+    ("change", "why"),
+    [
+        ({"acceptance": None}, "requirement"),
+        ({"upper": 1}, "no limits"),
+        ({"kind": "numeric", "acceptance": None}, "reporting unit"),
+    ],
+)
+def test_a_criterion_is_a_number_with_limits_or_a_requirement(
+    qc_actions: ModuleType, change: dict[str, Any], why: str
+) -> None:
+    version = {"values": {"criteria": [IDENTIFICATION | change]}}
+    with pytest.raises(ValueError, match=why):
+        qc_actions.criteria(version)
+
+
+def test_a_research_certificate_says_what_it_is_for(qc_actions: ModuleType) -> None:
+    run = inputs()
+    case = run["inputs"]["case"][0]
+    case["values"]["review_flow"] = "research"
+    run["params"]["value"] = 100
+    output = qc_actions.record_test(run)
+    case["values"].update(output["updates"]["case"][0]["values"])
+    test = record("test1", 1, **output["creates"][0]["values"])
+    # No issuer is needed for one reviewer's research sign-off.
+    prepared = qc_actions.prepare_certificate({"inputs": {"case": [case], "tests": [test]}})
+    (certificate,) = prepared["creates"]
+    assert certificate["type"] == "iki/qc_release.ResearchCertificate"
+    coa = certificate["values"]["coa"]
+    assert coa["title"] == "Research certificate of analysis"
+    assert "not released by a quality unit" in coa["intended_use"]
+    assert "issuer" not in coa
+    assert coa["issue"] == {"state": "issued"}
+
+
+def test_a_certificate_of_analysis_is_issued_from_its_signed_record_alone(
+    qc_actions: ModuleType,
+) -> None:
+    """The certificate of analysis holds only what its record says it states, so its own
+    signed export carries nothing of the evidence. The record names it by its digest."""
+    run, original = start_oos(qc_actions)
+    investigation = investigation_for(original, "released", "invalidated")
+    run["inputs"]["investigation"] = [investigation]
+    output = qc_actions.record_test(run)
+    case = run["inputs"]["case"][0]
+    case["values"].update(output["updates"]["case"][0]["values"])
+    repeat = record("test2", 1, **output["creates"][0]["values"])
+    prepared = qc_actions.prepare_certificate(
+        {
+            "inputs": {
+                "case": [case],
+                "tests": [repeat, original],
+                "investigations": [investigation],
+            },
+            "settings": {"certificate_issuer": "Synthetic Labs, 1 Example Way · +1 555 0100"},
+        }
+    )
+    values = prepared["creates"][0]["values"]
+    certificate = record("cert1", 4, **values)
+
+    with pytest.raises(ValueError, match="Finish signing the certificate record"):
+        qc_actions.issue_certificate({"inputs": {"certificate": [certificate]}})
+    certificate["values"]["review"] = "released"
+    tampered = deepcopy(certificate)
+    tampered["values"]["coa"]["results"][0]["value"] = 101
+    with pytest.raises(ValueError, match="doesn't match its digest"):
+        qc_actions.issue_certificate({"inputs": {"certificate": [tampered]}})
+
+    (issued,) = qc_actions.issue_certificate({"inputs": {"certificate": [certificate]}})["creates"]
+    assert issued["type"] == "iki/qc_release.CertificateOfAnalysis"
+    assert issued["derived_from"] == ["cert1"]
+    assert issued["values"] == {
+        "coa": values["coa"],
+        "digest": values["coa_digest"],
+        "review_flow": "regulated_qc",
+    }
+    shared = json.dumps(issued["values"])
+    evidence = ["test1", "TEST1", "test2", "inv1", "INV1", "analyst1", '": 89', "Synthetic proof"]
+    assert [text for text in evidence if text in shared] == []
 
 
 def schedule_with(qc_actions: ModuleType, first: date, **schedule: Any) -> dict[str, Any]:

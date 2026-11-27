@@ -107,10 +107,18 @@ fields:
     type: quantity
     unit: u
     min: 0
-    default: 2
-    required: true
     description: >-
-      How far its measured mass may be from the expected one, by its specification.
+      How far its measured mass may be from the expected one, as the lab's approved
+      identity specification says for this instrument and basis, such as ±0.02 u for a
+      resolved monoisotopic mass or ±2 u for an unresolved average one. Iki assumes
+      none: a measured mass needs it.
+  mass_specification:
+    type: string
+    label: Tolerance from
+    max_length: 200
+    description: >-
+      The approved specification the tolerance comes from, such as its identity test's
+      method and revision (SOP-AN-031 rev 4).
   expected_mass:
     type: quantity
     unit: u
@@ -148,6 +156,21 @@ rules:
       record.oligonucleotide.monoisotopic_mass }} Da.
     fields: [measured_mass]
     hold: { reviewed_by: [qa] }
+  mass_tolerance_is_stated:
+    label: A measured mass has its specification's tolerance
+    description: >-
+      A measured mass is checked against the tolerance the lab's approved specification
+      gives, which the lot names. Iki has no tolerance of its own to fall back on.
+    check: record.measured_mass == null || record.mass_tolerance != null
+    message: >-
+      Give the mass tolerance its identity specification allows before recording its
+      measured mass.
+    fields: [mass_tolerance]
+  mass_tolerance_names_its_specification:
+    label: Its tolerance names its specification
+    check: record.mass_tolerance == null || record.mass_specification != null
+    message: Name the specification its mass tolerance comes from.
+    fields: [mass_specification]
   mass_is_checked:
     label: Its mass is checked against its oligonucleotide's
     description: >-

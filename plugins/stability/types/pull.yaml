@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: Pull
 label: Stability pull
-schema_version: 2
+schema_version: 3
 hrid: { prefix: STP }
 due: due_on
 sample: true
@@ -14,24 +14,38 @@ draw_target:
   by: [coordinator]
   stored: true
   ready: study_revision
-  amount: volume_ul
+  amount: amount
+  unit: amount_unit
 fields:
   study: { type: ref, to: Study, required: true, immutable: true, indexed: true }
   study_revision: { type: int, min: 1, computed: true }
   lot: { type: ref, to: iki/lots.Lot, required: true, immutable: true }
   tube: { type: ref, to: iki/inventory.Tube, required: true, immutable: true }
-  volume_ul:
-    {
-      type: quantity,
-      unit: uL,
-      label: Planned volume (µL),
-      min: 0.000001,
-      required: true,
-      immutable: true,
-    }
+  amount: { type: float, label: Planned amount, min: 0.000001, required: true, immutable: true }
+  amount_unit:
+    { type: enum, label: Unit, values: [uL, mL, ug, mg], required: true, immutable: true }
   condition: { type: string, max_length: 24, required: true, immutable: true, indexed: true }
   condition_label: { type: string, max_length: 100, required: true, immutable: true }
-  month: { type: int, min: 0, max: 120, required: true, immutable: true, indexed: true }
+  time_point: { type: string, max_length: 24, required: true, immutable: true, indexed: true }
+  interval:
+    { type: int, label: Time from start, min: 0, max: 3660, required: true, immutable: true }
+  interval_unit:
+    { type: enum, label: Counted in, values: [day, week, month], required: true, immutable: true }
+  elapsed_days:
+    type: int
+    label: Days from start
+    min: 0
+    required: true
+    immutable: true
+    indexed: true
+    description: The days from the study's start to its due date, to compare time points in any unit.
+  replicate: { type: int, min: 1, max: 20, required: true, immutable: true }
+  tests:
+    type: list
+    immutable: true
+    max_items: 30
+    items: { type: string, max_length: 100 }
+    description: The protocol's tests planned for this pull.
   opens_on: { type: date, required: true, immutable: true }
   due_on: { type: date, required: true, immutable: true, indexed: true }
   closes_on: { type: date, required: true, immutable: true }
@@ -86,4 +100,4 @@ rules:
     check: record.opens_on <= record.due_on && record.due_on <= record.closes_on
     message: The window must contain the due date.
 display:
-  title: "{{ condition_label }} · Month {{ month }}"
+  title: "{{ condition_label }} · {{ time_point }}"

@@ -2,9 +2,9 @@ apiVersion: iki/v1
 kind: EntityType
 name: SpecificationVersion
 label: Specification version
-schema_version: 2
+schema_version: 3
 hrid: { prefix: SPV }
-description: A specification's acceptance criteria and methods at a single effective date.
+description: A specification's acceptance criteria and methods at a single effective date, as numbers with limits or requirements a result conforms to.
 fields:
   schedule: { type: ref, to: SpecificationSchedule, required: true, immutable: true }
   version: { type: string, required: true, max_length: 100 }
@@ -26,9 +26,26 @@ fields:
         procedure: { type: string, max_length: 200, label: Plate assay procedure ID }
         procedure_revision: { type: string, max_length: 80, label: Plate assay procedure revision }
         method: { type: string, required: true, max_length: 200 }
-        unit: { type: string, required: true, max_length: 50 }
+        kind:
+          type: enum
+          label: Result
+          values: [numeric, conforms]
+          default: numeric
+          required: true
+          description: >-
+            A number checked against inclusive limits, or a result that conforms or
+            doesn't to a stated requirement, such as an identification test or an
+            appearance (ICH Q6A).
+        unit: { type: string, max_length: 50, description: A numeric result's reporting unit. }
         lower: { type: float, label: Inclusive lower limit }
         upper: { type: float, label: Inclusive upper limit }
+        acceptance:
+          type: string
+          max_length: 500
+          label: Requirement
+          description: >-
+            What a conforming result must show, such as "Meets the requirements" or "White
+            crystalline powder".
         source: { type: string, max_length: 1000, label: Criterion source }
   approval:
     type: state
@@ -46,8 +63,11 @@ fields:
           documented:
             check: >-
               state.from == "draft" && size(record.criteria) > 0 &&
-              record.criteria.all(c, c.lower != null || c.upper != null)
-            message: Record an acceptance limit for every attribute before approving this draft.
+              record.criteria.all(c, c.kind == "conforms" ? c.acceptance != null :
+              c.lower != null || c.upper != null)
+            message: >-
+              Record an acceptance limit for every numeric attribute, and the requirement
+              for every conforming one, before approving this draft.
 rules:
   distinct_version:
     label: Give each specification version a distinct identifier
@@ -61,6 +81,15 @@ rules:
     label: Give each attribute one criterion
     check: record.criteria.all(c, record.criteria.exists_one(other, other.attribute == c.attribute))
     message: Each attribute needs exactly one acceptance criterion.
+  typed_criteria:
+    label: Each criterion is a number or a requirement
+    check: >-
+      record.criteria.all(c, c.kind == "conforms" ?
+      c.lower == null && c.upper == null && c.unit == null :
+      c.unit != null && c.acceptance == null)
+    message: >-
+      A numeric criterion has a unit and limits; a conforming one has its requirement,
+      and neither limits nor a unit.
   ordered_limits:
     label: Put the lower limit before the upper limit
     check: record.criteria.all(c, c.lower == null || c.upper == null || c.lower <= c.upper)

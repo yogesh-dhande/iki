@@ -7,7 +7,7 @@ module: ./components/release-records.js
 element: release-tests
 entities:
   type: ReleaseTest
-  fields: [attribute, method, unit, value, outcome, purpose, sequence]
+  fields: [attribute, method, kind, unit, value, result, outcome, purpose, sequence]
   limit: 250
 slots:
   - slot: entity.tab

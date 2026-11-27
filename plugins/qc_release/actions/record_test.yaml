@@ -29,8 +29,20 @@ params:
       investigation's plan, such as a retest of the same preparation, and replaces nothing.
   attribute: { type: string, max_length: 120, required: true }
   method: { type: string, max_length: 200, required: true }
-  unit: { type: string, max_length: 50, required: true }
+  unit:
+    type: string
+    max_length: 50
+    description: The numeric criterion's reporting unit. Leave it empty for a conforming result.
   value: { type: float, label: Observed value }
+  result:
+    type: enum
+    label: Conforms
+    values: [conforms, does_not_conform]
+    description: For a criterion with a requirement, whether the observation meets it.
+  observation:
+    type: text
+    max_length: 2000
+    description: What was seen, such as the solution's colour or the spectrum's match.
   lab_report:
     type: file
     label: Laboratory report
