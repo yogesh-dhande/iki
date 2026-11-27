@@ -1,0 +1,12 @@
+apiVersion: iki/v1
+kind: EntityType
+name: StockStore
+label: Stock storage
+abstract: true
+schema_version: 1
+description: Where received lots are kept. A stock location has numbered positions; a stock area doesn't.
+storage:
+  holds: [StockLot]
+fields:
+  name: { type: string, required: true, max_length: 160, indexed: true }
+display: { title: "{{ name }}" }

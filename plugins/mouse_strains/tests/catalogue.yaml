@@ -4,19 +4,18 @@ apiVersion: iki/v1
 kind: ActionTest
 name: register_c57bl6j_from_catalogue
 description: >-
-  Look up the second of two strains by MGI accession and preserve the leading zeros in
-  the corresponding JAX stock number (https://www.jax.org/strain/000664).
+  Look up the second of two strains by MGI accession. The report has no repository
+  stocks, so the strain's JAX stock is added from the JAX catalogue separately.
 action: register_mgi_strain
 params:
   file: { $file: report }
   mgi_id: "MGI:3028467"
-  jax_stock: "000664"
 files: { report: tests/data/MGI_Strain.rpt }
 expect:
   output:
     creates:
       - type: iki/mouse_strains.MouseStrain
-        values: { mgi_id: "MGI:3028467", nomenclature: C57BL/6J, jax_stock: "000664" }
+        values: { catalogue: mgi, mgi_id: "MGI:3028467", nomenclature: C57BL/6J }
         origin:
           source: MGI strain nomenclature report
           id: "MGI:3028467"

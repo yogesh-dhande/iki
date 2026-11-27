@@ -32,16 +32,20 @@ def _protein(tmp_path: Path, requirements: str) -> workers.WorkerPlugin:
 
 def test_iki_keeps_runtime_provenance_and_compiled_components(tmp_path: Path) -> None:
     products = Path(__file__).parents[2] / "plugins"
-    antibody = tmp_path / "antibody"
-    workers.stage_runtime("iki/antibody", products / "antibody", antibody)
+    predictor = tmp_path / "ab_predict"
+    workers.stage_runtime("iki/ab_predict", products / "ab_predict", predictor)
     weights = Path("images/structure-tools")
     for filename in ("WEIGHTS-NOTICE.txt", "SHA256SUMS"):
         weight_file = weights / filename
-        assert (antibody / weight_file).read_bytes() == (
-            products / "antibody" / weight_file
+        assert (predictor / weight_file).read_bytes() == (
+            products / "ab_predict" / weight_file
         ).read_bytes()
-    assert not (antibody / weights / "Dockerfile").exists()
-    assert not (antibody / weights / "prepare-weights.sh").exists()
+    assert not (predictor / weights / "Dockerfile").exists()
+    assert not (predictor / weights / "prepare-weights.sh").exists()
+    # The antibody plugin itself carries no model image or weights.
+    antibody = tmp_path / "antibody"
+    workers.stage_runtime("iki/antibody", products / "antibody", antibody)
+    assert not (antibody / weights).exists()
 
     oligo = tmp_path / "oligo"
     workers.stage_runtime("iki/oligo", products / "oligo", oligo)
@@ -54,6 +58,62 @@ def test_iki_keeps_runtime_provenance_and_compiled_components(tmp_path: Path) ->
         assert (oligo / path).read_bytes() == (products / "oligo" / path).read_bytes()
     for path in ("web", "data/build_monomers.py", "requirements.in", "tests"):
         assert not (oligo / path).exists()
+
+
+def test_no_distribution_carries_a_first_party_plugins_web_or_image_sources(
+    tmp_path: Path,
+) -> None:
+    """Intended (ADR 0219): the server serves the built components/, not web/'s source, and
+    a worker runs published images, never builds one. So the server's build, the archive
+    self-hosted workers fetch and the worker image all leave web/ and images/' build inputs
+    out, and the two worker distributions hold the same files."""
+    source = tmp_path / "small_molecule"
+    for relative, text in {
+        "plugin.yaml": (
+            "apiVersion: iki/v1\nkind: Plugin\nname: iki/small_molecule\nversion: 1.0.0\n"
+        ),
+        "components/depiction.yaml": (
+            "apiVersion: iki/v1\nkind: Component\nname: depiction\nlabel: Structure\n"
+            "description: The compound drawn from its SMILES.\n"
+            "module: ./components/depiction.js\nelement: compound-depiction\n"
+            "slots: [{ slot: entity.tab, type: iki/core.Complex }]\n"
+        ),
+        "components/depiction.js": (
+            "customElements.define('compound-depiction', class extends HTMLElement {});\n"
+        ),
+        "web/src/depiction.js": "export const source = true;\n",
+        "images/rdkit-tools/Dockerfile": "FROM scratch\n",
+        "images/rdkit-tools/NOTICE.txt": "RDKit is BSD-3-Clause.\n",
+        "scripts/descriptors.py": "print('descriptors')\n",
+    }.items():
+        (source / relative).parent.mkdir(parents=True, exist_ok=True)
+        (source / relative).write_text(text)
+    (tmp_path / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        "  - { name: iki/small_molecule, local: ./small_molecule, state: active }\n"
+    )
+    server, image = tmp_path / "server", tmp_path / "image"
+    command = ["deploy", "build", str(tmp_path), "--allow-local", "-o", str(server)]
+    assert main([*command, "--workers", str(image)]) == 0
+
+    archive = server / "iki_installed_plugins" / "bundles" / "iki__small_molecule-local.tar.gz"
+    with tarfile.open(archive) as tar:
+        archived = set(tar.getnames())
+    staged = image / "plugins" / "iki__small_molecule"
+    assert archived == {p.relative_to(staged).as_posix() for p in staged.rglob("*") if p.is_file()}
+    assert archived == {
+        "plugin.yaml",
+        "components/depiction.yaml",
+        "components/depiction.js",
+        "images/rdkit-tools/NOTICE.txt",
+        "scripts/descriptors.py",
+    }
+    package = server / "iki_plugin_iki__small_molecule"
+    assert (package / "components" / "depiction.js").read_bytes() == (
+        source / "components" / "depiction.js"
+    ).read_bytes()
+    shipped = [p.relative_to(server) for p in server.rglob("*")]
+    assert not [p for p in shipped if p.name == "Dockerfile" or "web" in p.parts]
 
 
 def test_pinned_packages_are_installed_by_hash_and_nothing_else(tmp_path: Path) -> None:
@@ -125,7 +185,7 @@ def test_a_module_is_taken_from_iki_spec_and_bundled(
     monkeypatch.setattr(modules, "module", lambda name: carried if name == "tools.wasm" else None)
 
     directory = _with_a_module(tmp_path, digest, None)
-    workers.bundle(directory, tmp_path / "bundle.tar.gz")
+    workers.bundle("acme/protein", directory, tmp_path / "bundle.tar.gz")
 
     placed = directory / "data" / "tools.wasm"
     assert placed.read_bytes() == bytes_of_it
@@ -140,7 +200,7 @@ def test_a_module_that_isnt_the_one_its_digest_names_is_refused(
     monkeypatch.setattr(workers, "_digests_hold_here", lambda: True)
     directory = _with_a_module(tmp_path, "a" * 64, b"\x00asm\x01\x00\x00\x00 another module")
     with pytest.raises(ValueError, match=r"isn't the module its digest names"):
-        workers.bundle(directory, tmp_path / "bundle.tar.gz")
+        workers.bundle("acme/protein", directory, tmp_path / "bundle.tar.gz")
 
 
 def test_on_another_platform_a_module_is_still_required_but_not_compared(
@@ -150,16 +210,16 @@ def test_on_another_platform_a_module_is_still_required_but_not_compared(
     monkeypatch.setattr(workers, "_digests_hold_here", lambda: False)
     directory = _with_a_module(tmp_path, "a" * 64, b"\x00asm\x01\x00\x00\x00 this platform's")
     with pytest.raises(ValueError, match="module its digest names"):
-        workers.bundle(directory, tmp_path / "pinned.tar.gz", pinned=True)
+        workers.bundle("acme/protein", directory, tmp_path / "pinned.tar.gz", pinned=True)
     assert not (tmp_path / "pinned.tar.gz").exists()
-    workers.bundle(directory, tmp_path / "bundle.tar.gz")
+    workers.bundle("acme/protein", directory, tmp_path / "bundle.tar.gz")
     with tarfile.open(tmp_path / "bundle.tar.gz") as tar:
         assert "data/tools.wasm" in tar.getnames()
 
     monkeypatch.setattr(modules, "module", lambda name: None)
     missing = _with_a_module(tmp_path / "none", "a" * 64, None)
     with pytest.raises(ValueError, match=r"isn't built and this iki-spec hasn't got it"):
-        workers.bundle(missing, tmp_path / "none.tar.gz")
+        workers.bundle("acme/protein", missing, tmp_path / "none.tar.gz")
 
 
 def test_a_module_nobody_has_is_refused_rather_than_left_out(
@@ -171,14 +231,14 @@ def test_a_module_nobody_has_is_refused_rather_than_left_out(
     monkeypatch.setattr(modules, "module", lambda name: None)
     directory = _with_a_module(tmp_path, "b" * 64, None)
     with pytest.raises(ValueError, match=r"isn't built and this iki-spec hasn't got it"):
-        workers.bundle(directory, tmp_path / "bundle.tar.gz")
+        workers.bundle("acme/protein", directory, tmp_path / "bundle.tar.gz")
 
 
 def test_an_empty_digest_is_refused(tmp_path: Path) -> None:
     directory = _with_a_module(tmp_path, "", None)
     (directory / "data" / "tools.wasm.sha256").write_text("")
     with pytest.raises(ValueError, match=r"is empty; it holds a SHA-256"):
-        workers.bundle(directory, tmp_path / "bundle.tar.gz")
+        workers.bundle("acme/protein", directory, tmp_path / "bundle.tar.gz")
 
 
 @pytest.mark.parametrize(
@@ -228,7 +288,7 @@ def test_a_first_party_plugins_module_travels_from_iki_spec_into_its_bundle(
             workers.prepared_source(f"iki/{plugin}", exported, tmp_path / "staged", pinned=True)
         return
     staged = workers.prepared_source(f"iki/{plugin}", exported, tmp_path / "staged", pinned=True)
-    workers.bundle(staged, tmp_path / "bundle.tar.gz", pinned=True)
+    workers.bundle(f"iki/{plugin}", staged, tmp_path / "bundle.tar.gz", pinned=True)
 
     placed = staged / "data" / name
     assert placed.read_bytes() == carried.read_bytes()
@@ -263,7 +323,7 @@ def test_only_the_pinned_dna_plugin_receives_the_installed_measurement(
 
     clean = workers.prepared_source("iki/dna", directory, tmp_path / "prepared")
     archive = tmp_path / "served.tar.gz"
-    digest = workers.bundle(clean, archive)
+    digest = workers.bundle("iki/dna", clean, archive)
     with tarfile.open(archive, "r:gz") as tar:
         payload = tar.extractfile(relative.as_posix())
         assert payload and payload.read() == module
@@ -284,7 +344,7 @@ def test_only_the_pinned_dna_plugin_receives_the_installed_measurement(
     stale_notice.write_bytes(b"stale notice")
     stale_notice.chmod(0o444)
     stale = workers.prepared_source("iki/dna", directory, tmp_path / "stale")
-    assert workers.bundle(stale, tmp_path / "rebuilt.tar.gz") == digest
+    assert workers.bundle("iki/dna", stale, tmp_path / "rebuilt.tar.gz") == digest
     assert generated.read_bytes() == b"stale checkout artifact"
     assert stale_notice.read_bytes() == b"stale notice"
     assert generated.stat().st_mode & 0o777 == stale_notice.stat().st_mode & 0o777 == 0o444

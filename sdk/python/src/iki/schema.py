@@ -3132,7 +3132,7 @@ class NotificationOut(TypedDict):
     count: int
     created_at: str
     id: str
-    #: What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.Sample.in_review.
+    #: What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.ReviewedSample.in_review.
     kind: str
     #: What people's settings call its kind.
     kind_label: str
@@ -6278,8 +6278,10 @@ class StarterFlowOut(TypedDict):
     label: str
     #: Qualified lab roles needed to run this flow.
     required_roles: list[str]
-    #: Qualified result type for new fits in this flow.
+    #: Qualified result type whose states this flow's records pass through.
     result_type: str
+    #: The result type's states in this flow, where its one state field has a route per flow. Null: all of them.
+    states: NotRequired[list[str] | None]
 
 
 class StarterOut(TypedDict):
@@ -6287,6 +6289,8 @@ class StarterOut(TypedDict):
     applied: AppliedStarterOut | None
     description: str
     flows: list[StarterFlowOut]
+    #: The records the project's choice applies to from now on, such as `release cases`. Those already opened keep the flow they were opened with.
+    governs: str
     id: str
     label: str
     roles: list[StarterRoleOut]
@@ -6457,7 +6461,7 @@ class StockSummary(TypedDict):
     outstanding_packs: int
     physical: str
     stored: str
-    threshold: str
+    threshold: str | None
     unit: str
 
 

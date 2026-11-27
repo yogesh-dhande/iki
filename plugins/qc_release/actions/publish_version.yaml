@@ -2,10 +2,22 @@ apiVersion: iki/v1
 kind: Action
 name: publish_version
 label: Publish an approved specification version
-description: Append an approved version to its material's schedule. The release date of each new version must follow the previous one.
+description: >-
+  Append an approved version to its material's schedule. A successor takes effect after
+  its predecessor and after every testing date a release case has pinned; the deployment's
+  successor_effective_dates policy says whether it may start today or on an earlier date.
 inputs:
   schedule: { type: SpecificationSchedule, include: [versions] }
   version: { type: SpecificationVersion }
+params:
+  backdated_because:
+    type: string
+    label: Why it took effect in the past
+    max_length: 1000
+    description: >-
+      Required to publish a successor whose effective date has passed, under the backdated
+      policy, such as "Importing the approved history from the paper specification file".
+      The run keeps it.
 effects:
   updates: [{ input: schedule, fields: [versions] }]
 runs_on: { tier: backend, environment: qc-tools }

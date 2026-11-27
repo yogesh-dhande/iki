@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { START_TIMEOUT_MS } from "./component-frame";
 import {
   entityTabs,
+  EVERY_RECORD,
   lineageOf,
   MAX_FRAME_HEIGHT,
   MAX_SELECTED,
@@ -36,6 +37,33 @@ const RESIDUES: PluginComponent = {
 };
 
 const CHILD = { ...STRUCTURE, name: "iki/protein.Mutant", extends: "iki/protein.Protein" };
+
+const EVIDENCE: PluginComponent = {
+  ...RESIDUES,
+  name: "iki/equipment.instrument_uses",
+  label: "Instrument evidence",
+  slots: [
+    {
+      slot: "entity.tab",
+      type: EVERY_RECORD,
+      label: "Instrument evidence",
+      search: {
+        where: { field: "result", op: "eq", value: "{{ entity }}" },
+        sort: null,
+        descending: false,
+      },
+    },
+  ],
+  entities: { type: "iki/equipment.InstrumentUse", fields: ["result"], limit: 1000 },
+};
+const EVIDENCE_PATH = "/api/v1/components/iki/equipment.instrument_uses/entities";
+
+/** A protein's page, with a tab on every record whose search finds `found` for it. */
+function onEvidence(found: unknown[]) {
+  onResidues();
+  answer("GET /api/v1/components", [RESIDUES, EVIDENCE]);
+  answer(`POST ${EVIDENCE_PATH}`, page(found));
+}
 
 function onResidues() {
   withTypes();
@@ -90,6 +118,42 @@ describe("tabs", () => {
     expect(frame).toHaveAttribute("referrerpolicy", "no-referrer");
     expect(screen.getByText("How many residues a protein has.")).toBeInTheDocument();
     expect(screen.getByText("Starting Residues…")).toHaveAttribute("role", "status");
+  });
+
+  it("on every record give way to one for a nearer type", () => {
+    const types = [PROTEIN, STRUCTURE, CHILD];
+    const evidence: PluginComponent = {
+      ...RESIDUES,
+      name: "iki/equipment.instrument_uses",
+      slots: [
+        { slot: "entity.tab", type: "iki/protein.Protein", label: "Own uses", search: null },
+        { slot: "entity.tab", type: EVERY_RECORD, label: "Evidence", search: null },
+      ],
+    };
+    expect(entityTabs("iki/protein.Mutant", types, [evidence])).toEqual([
+      { component: evidence, label: "Own uses", slot: evidence.slots[0] },
+    ]);
+    expect(entityTabs("iki/protein.ProteinStructure", types, [evidence])).toEqual([
+      { component: evidence, label: "Evidence", slot: evidence.slots[1] },
+    ]);
+  });
+
+  it("on every record show only where their search finds something for it", async () => {
+    onEvidence([]);
+    await renderApp("/entities/PRT-000001/");
+    expect(await screen.findByRole("link", { name: "Residues" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Instrument evidence" })).toBeNull();
+    const [asked] = calls("POST", EVIDENCE_PATH);
+    expect(asked?.body).toEqual({ home: false, entity: PROTEIN_ID, limit: 1 });
+  });
+
+  it("on every record show where their search finds something for it", async () => {
+    onEvidence([{ id: "u", hrid: "EQU-000001" }]);
+    await renderApp("/entities/PRT-000001/");
+    expect(await screen.findByRole("link", { name: "Instrument evidence" })).toHaveAttribute(
+      "href",
+      "/entities/PRT-000001/components/iki/equipment.instrument_uses/",
+    );
   });
 
   it("say so when there's no such component for the entity", async () => {

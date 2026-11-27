@@ -181,8 +181,10 @@ def test_a_month_of_bookings_by_day_asking_only_for_what_it_shows(
             "detail": {
                 "where": {
                     "all": [
-                        {"field": "starts_at", "op": "gte", "value": start.strftime(iso)},
+                        # Every booking on the month's days, from one ending in it to
+                        # one starting in it.
                         {"field": "starts_at", "op": "lt", "value": end.strftime(iso)},
+                        {"field": "ends_at", "op": "gt", "value": start.strftime(iso)},
                         ACTIVE,
                     ]
                 },

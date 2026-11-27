@@ -13,6 +13,7 @@ from typing import Any
 
 PLUGIN = "iki/qc_release"
 MAX_ATTEMPTS = 250
+SUCCESSOR_POLICIES = {"future", "same_day", "backdated"}
 FLOWS = {
     "research": {
         "investigation": "ResearchOOSInvestigation",
@@ -124,6 +125,36 @@ def scheduled_versions(schedule: dict[str, Any]) -> list[tuple[date, dict[str, A
     return dated
 
 
+def successor(run: dict[str, Any], schedule: dict[str, Any], day: date, previous: date) -> None:
+    """A successor starts after its predecessor and every pinned testing date, and today or
+    earlier only as the deployment's policy allows."""
+    policy = run.get("settings", {}).get("successor_effective_dates", "future")
+    if policy not in SUCCESSOR_POLICIES:
+        raise ValueError("Choose future, same_day or backdated for successor effective dates.")
+    reason = str(run["params"].get("backdated_because") or "").strip()
+    today = datetime.now(UTC).date()
+    if day <= previous:
+        raise ValueError("A successor version must start after its predecessor.")
+    tested = schedule["values"].get("tested_through")
+    if tested is not None and day <= calendar_date(tested):
+        raise ValueError(
+            f"A release case has already pinned the version in force on {tested}. "
+            "A successor must start after that testing date."
+        )
+    if policy == "future" and day <= today:
+        raise ValueError("A successor version must start on a future date after its predecessor.")
+    if policy == "same_day" and day < today:
+        raise ValueError("A successor version must start today or later, after its predecessor.")
+    if day < today and not reason:
+        raise ValueError(
+            "Say why this version took effect in the past, such as importing an approved history."
+        )
+    if day >= today and reason:
+        raise ValueError(
+            "Leave the backdating reason empty for a version that starts today or later."
+        )
+
+
 def publish_version(run: dict[str, Any]) -> dict[str, Any]:
     schedule = run["inputs"]["schedule"][0]
     version = run["inputs"]["version"][0]
@@ -133,8 +164,10 @@ def publish_version(run: dict[str, Any]) -> dict[str, Any]:
     ids = [row["id"] for _, row in dated]
     if version["id"] in ids:
         return output("schedule", schedule, {"versions": ids})
-    if dated and (day <= dated[-1][0] or day <= datetime.now(UTC).date()):
-        raise ValueError("A successor version must start on a future date after its predecessor.")
+    if dated:
+        successor(run, schedule, day, dated[-1][0])
+    elif str(run["params"].get("backdated_because") or "").strip():
+        raise ValueError("A schedule's first version needs no backdating reason.")
     return output("schedule", schedule, {"versions": [*ids, version["id"]]})
 
 
@@ -250,8 +283,11 @@ def open_release(run: dict[str, Any]) -> dict[str, Any]:
         "attempts": [],
         "sealed": False,
     }
-    # This no-op takes and checks the schedule lock, so a competing append cannot
-    # race a case whose selected version would no longer be in force.
+    # Rewriting the versions takes and checks the schedule lock, so a competing append
+    # cannot race a case whose selected version would no longer be in force. The latest
+    # pinned testing date keeps any later successor after it.
+    tested = schedule["values"].get("tested_through")
+    latest = max(testing_on, calendar_date(tested)) if tested is not None else testing_on
     parents = [
         lot,
         schedule,
@@ -260,7 +296,7 @@ def open_release(run: dict[str, Any]) -> dict[str, Any]:
     result = output(
         "schedule",
         schedule,
-        {"versions": [row["id"] for _, row in dated]},
+        {"versions": [row["id"] for _, row in dated], "tested_through": latest.isoformat()},
         create("ReleaseCase", values, *parents, *(run["inputs"].get("investigations") or [])),
     )
     if previous is not None:

@@ -10,9 +10,10 @@ description: >-
   one closest to the others, refines it with OpenMM, and gives how far the four
   disagree as its estimated error, over every residue and over CDR-H3. The
   structure is made from the antibody's chains as they were when it was
-  launched.
+  launched, and says which of the two models made it, and in which
+  ImmuneBuilder release.
 inputs:
-  antibody: { type: Antibody, schema: ">=2", include: [components.part] }
+  antibody: { type: iki/antibody.Antibody, schema: ">=2", include: [components.part] }
 effects:
   creates:
     - type: iki/protein.ProteinStructure

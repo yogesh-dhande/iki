@@ -176,7 +176,7 @@ def test_strain_identity_and_stock_to_data_lineage(tmp_path: Path, database: str
             amounts.draw(user, source, quantity, confirm="SYNTHETIC-1")
         source = services.update(user, source, {"on_hold": True, "hold_reason": "Inspect vial"},
                                  expected_revision=source.revision).entity
-        with pytest.raises(amounts.Wrong, match="tube is on hold"):
+        with pytest.raises(amounts.Wrong, match="container is on hold"):
             sample("SYNTHETIC-1")
         source = services.update(
             user, source, {"on_hold": False, "hold_reason": None},

@@ -2,7 +2,9 @@
 #
 # A lot is a project's record of material: what was made or bought at one time of a
 # registry entry, the molecule (ADR 0115). Every kind of lot extends this type, so one
-# search finds them all, and each has the same disposition, which QA sets (ADR 0162).
+# search finds them all, and each has the same disposition (ADR 0162): released by QA's
+# signature, or made available by a stock keeper where the lab's procedure has no QA
+# release, as for research material (ADR 0242).
 apiVersion: iki/v1
 kind: EntityType
 name: Lot
@@ -11,7 +13,7 @@ label_plural: Lots
 abstract: true
 # Its records are samples (ADR 0177): a project's Files finds files by them.
 sample: true
-schema_version: 2
+schema_version: 3
 description: >-
   A lot of a registered entity: what was made or bought of it at one time, which a
   label and a certificate of analysis name. The entity is the molecule, the same for
@@ -64,6 +66,12 @@ fields:
     type: date
     label: Expires on
     description: When it may no longer be used.
+  responsible:
+    type: person
+    label: Responsible
+    description: >-
+      Who looks after it, such as whoever ordered a bought lot: told, with whoever made
+      it, when it's released or made available, and when it's held or rejected.
   storage:
     type: string
     label: Storage conditions
@@ -92,20 +100,22 @@ fields:
     initial: quarantined
     description: >-
       Whether it may be used: quarantined until QA releases it, as GMP keeps material
-      until it's tested and released (21 CFR 211.84). While it's on hold, rejected or
-      expired, none of it can be drawn, transferred or split off.
+      until it's tested and released (21 CFR 211.84), or, where the lab's procedure has
+      no QA release, until a stock keeper makes it available. While it's on hold,
+      rejected or expired, none of it can be drawn, transferred or split off.
     states:
       quarantined:
         label: Quarantined
         description: >-
-          Made or received, and not yet released. It can be drawn from to be tested.
+          Made or received, and not yet released or made available. It can be drawn from
+          to be tested.
         set_by: [qa]
         reason: required
         guards:
           reopened:
             description: A released lot goes back to quarantine only to correct it, saying why.
-            check: state.from == "released" || state.from == "on_hold"
-            message: A lot goes back to quarantine from Released or On hold.
+            check: state.from in ["released", "on_hold", "available", "retest_due"]
+            message: A lot goes back to quarantine from Released, Available, Due for retest or On hold.
       released:
         label: Released
         description: QA released it for use. Its values can't change while it's released.
@@ -119,9 +129,11 @@ fields:
               its specification.
         guards:
           from_quarantine:
-            description: A lot is released from quarantine, or once a hold is lifted.
-            check: state.from == "quarantined" || state.from == "on_hold"
-            message: A lot is released from Quarantined or On hold.
+            description: >-
+              A lot is released from quarantine, once a hold is lifted, or once it's been
+              retested.
+            check: state.from in ["quarantined", "on_hold", "retest_due"]
+            message: A lot is released from Quarantined, On hold or Due for retest.
           has_a_certificate:
             description: QA releases a lot on its certificate of analysis.
             check: size(record.certificates) > 0
@@ -148,17 +160,53 @@ fields:
             message: You recorded this lot, so someone else in QA releases it.
           not_who_edited_it:
             when: record.source == "made"
-            check: edits.disposition.quarantined.all(e, e.by != actor.person)
+            check: >-
+              edits.disposition.quarantined.all(e, e.by != actor.person) &&
+              edits.disposition.retest_due.all(e, e.by != actor.person)
             message: You edited this lot's record, so someone else in QA releases it.
           a_person:
             check: actor.agent == null
             message: Release it yourself, in Iki, not through an app or agent.
+      available:
+        label: Available
+        description: >-
+          In use under the lab's own procedure, without a QA release or certificate:
+          research material and consumables. It isn't Released, and its values stay
+          editable.
+        set_by: [stock_keeper]
+        reason: optional
+        guards:
+          not_held_by_qa:
+            description: >-
+              A stock keeper makes a lot available once it's received, or again after a
+              hold put on it while it was available. A hold on a released or retested lot
+              is lifted by QA.
+            check: >-
+              state.from == "quarantined" ||
+              (state.from == "on_hold" && last.disposition.on_hold.from == "available")
+            message: >-
+              A lot is made available from Quarantined, or from On hold when it was
+              available before. QA lifts its own holds.
+      retest_due:
+        label: Due for retest
+        description: >-
+          Past its retest date, and not expired: only QA sampling, until QA releases it
+          again on its retest or it expires.
+        set_by: [qa]
+        reason: optional
+        guards:
+          past_its_retest_date:
+            check: record.retest_on != null && record.retest_on <= today
+            message: Its retest date hasn't come.
+          in_use:
+            check: state.from == "released" || state.from == "available"
+            message: A released or available lot comes due for retest.
       on_hold:
         label: On hold
         description: >-
           Kept from use while something is looked into, such as a deviation or a
           result out of its specification.
-        set_by: [qa]
+        set_by: [qa, stock_keeper]
         reason: required
         holds_amount: true
         guards:
@@ -178,8 +226,10 @@ fields:
             statement: I reject this lot; it isn't to be used.
       expired:
         label: Expired
-        description: Past its expiry or retest date. It's kept, but not used.
-        set_by: [qa]
+        description: >-
+          Past its expiry date, or past its retest date where the lab's procedure expires
+          it then rather than marking it Due for retest. It's kept, but not used.
+        set_by: [qa, stock_keeper]
         locks: true
         reason: optional
         holds_amount: true
@@ -219,19 +269,30 @@ rules:
 notifications:
   released:
     label: Released
-    description: Whoever made a lot hears when QA releases it.
+    description: Whoever made a lot, and whoever's responsible for it, hear when QA releases it.
     when: { field: disposition, to: released }
-    tell: { fields: [made_by], watchers: true }
+    tell: { fields: [made_by, responsible], watchers: true }
     message:
       title: "{{ hrid }} was released"
       body: "QA released lot {{ lot_number or hrid }} for use."
+  available:
+    label: Made available
+    description: >-
+      Whoever made a lot, and whoever's responsible for it, hear when a stock keeper makes
+      it available without a QA release.
+    when: { field: disposition, to: available }
+    tell: { fields: [made_by, responsible], watchers: true }
+    message:
+      title: "{{ hrid }} is available"
+      body: "Lot {{ lot_number or hrid }} is available for use under the lab's procedure, not QA released."
   held:
     label: On hold or rejected
     description: >-
-      Whoever made a lot hears when QA puts it on hold or rejects it. It's required:
-      material that can't be used needs following up.
+      Whoever made a lot, whoever's responsible for it, and the project's stock keepers
+      hear when it's put on hold or rejected. It's required: material that can't be used
+      needs following up.
     when: { field: disposition, to: [on_hold, rejected] }
-    tell: { fields: [made_by], watchers: true }
+    tell: { fields: [made_by, responsible], roles: [stock_keeper], watchers: true }
     required: true
     message:
       title: "{{ hrid }} is {{ disposition }}"

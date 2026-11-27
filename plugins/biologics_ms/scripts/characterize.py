@@ -29,6 +29,8 @@ GLYCANS = {
     "neugc": {"C": 11, "H": 17, "N": 1, "O": 9},
 }
 MAX_ROWS = 1000
+#: The versioned interchange tables each analysis reads (see the plugin README).
+PROFILES = {"mass": "iki_mass_table_1", "peptide_map": "iki_peptide_map_1"}
 MODIFICATION = re.compile(r"(0|[1-9][0-9]*):UNIMOD:([0-9]+)")
 
 
@@ -270,6 +272,8 @@ def result(run: dict[str, Any]) -> dict[str, Any]:
     report = run["files"][report_id]
     path = Path(report["path"])
     analysis = params["analysis"]
+    if analysis == "mass" and params.get("tolerance_ppm") is None:
+        raise ValueError("Enter the lab's mass tolerance in ppm for a mass comparison.")
     comparison = (
         mass_rows(
             path,
@@ -295,6 +299,7 @@ def result(run: dict[str, Any]) -> dict[str, Any]:
                     "adc": identity(adc) if adc else None,
                     "lot": lot["id"] if lot else None,
                     "analysis": analysis,
+                    "report_format": PROFILES[analysis],
                     "report": report_id,
                     "report_sha256": report["sha256"],
                     "comparison": comparison,

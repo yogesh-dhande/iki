@@ -20,12 +20,26 @@ PREVIEW_ROWS = 12
 MZTAB_LEVELS = {"PRT": "protein_group", "PEP": "peptide", "PSM": "spectrum_match"}
 MZTAB_HEADERS = {"PRH": "PRT", "PEH": "PEP", "PSH": "PSM"}
 MZTAB_DECOY_COLUMN = re.compile(r"opt_(?:global_)?cv_(?:MS:1002217|PRIDE:0000303)(?:_|$)", re.I)
+#: The supported reports: each format names one tool's export and the table form it is read in.
+FORMATS = {
+    "mztab_1_0": "HUPO-PSI mzTab 1.0 proteomics (1.0.0, or the PRIDE 1.0 rc5 export)",
+    "maxquant_txt": "MaxQuant txt table: proteinGroups.txt, peptides.txt or evidence.txt",
+    "diann_tsv": "DIA-NN main report as tab-separated text",
+    "fragpipe_tsv": "FragPipe protein or peptide TSV, single or combined",
+}
+PARQUET = b"PAR1"
 
 
 @contextmanager
 def lines_at(path: Path) -> Iterator[Iterable[str]]:
     with path.open("rb") as source:
-        compressed = source.peek(2)[:2] == b"\x1f\x8b"
+        start = source.peek(4)[:4]
+    if start == PARQUET:
+        raise ValueError(
+            "This is a Parquet file. Import the report as tab-separated text: convert a "
+            "Parquet main report to TSV with its column names unchanged."
+        )
+    compressed = start[:2] == b"\x1f\x8b"
     with (
         gzip.open(path, "rt", encoding="utf-8-sig", newline="")
         if compressed
@@ -121,7 +135,7 @@ def mztab_decoy(row: dict[str, str]) -> bool | None:
     return bool(flags & {"1", "true"})
 
 
-def mztab_rows(lines: Iterable[str]) -> Iterator[dict[str, Any]]:
+def mztab_rows(lines: Iterable[str], about: dict[str, str]) -> Iterator[dict[str, Any]]:
     # Proteomics mzTab 1.0, https://github.com/HUPO-PSI/mzTab.
     version = ""
     headers = {}
@@ -142,6 +156,7 @@ def mztab_rows(lines: Iterable[str]) -> Iterator[dict[str, Any]]:
             raise ValueError(
                 "The importer expects proteomics mzTab 1.0.0 or the PRIDE 1.0 rc5 export."
             )
+        about["table"] = f"mzTab {version}"
         header = headers.get(tag)
         if not header or len(header) != len(cells) - 1:
             raise ValueError(f"mzTab row {number} does not match its section header.")
@@ -167,13 +182,20 @@ def mztab_rows(lines: Iterable[str]) -> Iterator[dict[str, Any]]:
         )
 
 
-def maxquant_rows(header: list[str], rows: Iterable[dict[str, str]]) -> Iterator[dict[str, Any]]:
+def maxquant_rows(
+    header: list[str], rows: Iterable[dict[str, str]], about: dict[str, str]
+) -> Iterator[dict[str, Any]]:
     # Released MaxQuant tables documentation accompanies this public dataset:
     # MassIVE MSV000088694, quant/Maxquant/BulkSet/txt/tables.pdf.
     protein = "Protein IDs" in header and "Sequence" not in header
     accession = "Protein IDs" if protein else "Proteins"
     if accession not in header or (not protein and "Sequence" not in header):
         raise ValueError("Choose MaxQuant proteinGroups.txt, peptides.txt or evidence.txt.")
+    about["table"] = (
+        "proteinGroups.txt"
+        if protein
+        else ("evidence.txt" if "Raw file" in header else "peptides.txt")
+    )
     quantities = [
         key
         for key in header
@@ -205,12 +227,15 @@ def maxquant_rows(header: list[str], rows: Iterable[dict[str, str]]) -> Iterator
         yield identification
 
 
-def diann_rows(header: list[str], rows: Iterable[dict[str, str]]) -> Iterator[dict[str, Any]]:
+def diann_rows(
+    header: list[str], rows: Iterable[dict[str, str]], about: dict[str, str]
+) -> Iterator[dict[str, Any]]:
     # DIA-NN report field definitions: https://github.com/vdemichev/DiaNN.
     if not {"Run", "Protein.Group", "Stripped.Sequence", "Precursor.Id"} <= set(header):
         raise ValueError(
             "Choose a DIA-NN main TSV report with Run, Protein.Group and precursor columns."
         )
+    about["table"] = "main report"
     quantities = ("PG.MaxLFQ", "PG.Normalised", "PG.Quantity")
     groups: dict[tuple[str, str, str], dict[str, float | str | None]] = {}
     for row in rows:
@@ -256,7 +281,9 @@ def diann_rows(header: list[str], rows: Iterable[dict[str, str]]) -> Iterator[di
         yield group
 
 
-def fragpipe_rows(header: list[str], rows: Iterable[dict[str, str]]) -> Iterator[dict[str, Any]]:
+def fragpipe_rows(
+    header: list[str], rows: Iterable[dict[str, str]], about: dict[str, str]
+) -> Iterator[dict[str, Any]]:
     # Column definitions: https://fragpipe.nesvilab.org/docs/tutorial_fragpipe_outputs.html
     if "Spectrum" in header or {"Charge", "M/Z"} <= set(header):
         raise ValueError(
@@ -265,6 +292,7 @@ def fragpipe_rows(header: list[str], rows: Iterable[dict[str, str]]) -> Iterator
     if "Protein ID" not in header:
         raise ValueError("Choose a FragPipe protein or peptide TSV with the Protein ID column.")
     sequence = next((key for key in ("Peptide Sequence", "Peptide") if key in header), None)
+    about["table"] = "peptide" if sequence else "protein"
     quantities = [
         key
         for key in header
@@ -287,15 +315,23 @@ def fragpipe_rows(header: list[str], rows: Iterable[dict[str, str]]) -> Iterator
         )
 
 
-def parsed(format_: str, source: Iterable[str]) -> Iterator[dict[str, Any]]:
-    if format_ == "mztab":
-        yield from mztab_rows(source)
+def parsed(
+    format_: str, source: Iterable[str], about: dict[str, str] | None = None
+) -> Iterator[dict[str, Any]]:
+    """The report's identifications. ``about`` gets the table the report turned out to be."""
+    if format_ not in FORMATS:
+        raise ValueError(f"Choose one of the supported formats: {', '.join(FORMATS)}.")
+    about = {} if about is None else about
+    if format_ == "mztab_1_0":
+        yield from mztab_rows(source, about)
     else:
         header, rows = table(source)
-        adapter = {"maxquant": maxquant_rows, "diann": diann_rows, "fragpipe": fragpipe_rows}[
-            format_
-        ]
-        yield from adapter(header, rows)
+        adapter = {
+            "maxquant_txt": maxquant_rows,
+            "diann_tsv": diann_rows,
+            "fragpipe_tsv": fragpipe_rows,
+        }[format_]
+        yield from adapter(header, rows, about)
 
 
 def exclusion_of(row: dict[str, Any]) -> str:
@@ -355,9 +391,10 @@ def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
             counts: Counter[str] = Counter()
             excluded: defaultdict[str, Counter[str]] = defaultdict(Counter)
             seen: dict[tuple[str, ...], dict[str, Any] | None] = {}
-            with lines_at(Path(file["path"])) as source:
-                try:
-                    for row in parsed(format_, source):
+            about: dict[str, str] = {}
+            try:
+                with lines_at(Path(file["path"])) as source:
+                    for row in parsed(format_, source, about):
                         exclusion = exclusion_of(row)
                         parents = [
                             by_accession[accession]
@@ -371,7 +408,9 @@ def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
                         row["report"] = report_id
                         # The artifact retains each source row, including evidence per accession.
                         output.write(json.dumps(row, allow_nan=False) + "\n")
-                        key = mztab_identification(row, exclusion) if format_ == "mztab" else None
+                        key = (
+                            mztab_identification(row, exclusion) if format_ == "mztab_1_0" else None
+                        )
                         if key is not None and key in seen:
                             earlier = seen[key]
                             if earlier is not None:
@@ -387,8 +426,8 @@ def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
                             preview.append(preview_row)
                         if key is not None:
                             seen[key] = preview_row
-                except (ValueError, csv.Error) as exc:
-                    raise ValueError(f"{file['name']}: {exc}") from None
+            except (ValueError, csv.Error) as exc:
+                raise ValueError(f"{file['name']}: {exc}") from None
             if not counts and not excluded:
                 raise ValueError(f"{file['name']} contains no recognized identification rows.")
             totals.update(counts)
@@ -399,6 +438,7 @@ def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
                     "file": report_id,
                     "name": file["name"],
                     "sha256": file["sha256"],
+                    "table": about.get("table"),
                     "counts": counts,
                     "excluded_counts": excluded,
                 }

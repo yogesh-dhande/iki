@@ -76,7 +76,7 @@ inputs:
         source: Synthetic method fixture
         criteria:
           - { attribute: synthetic check, method: synthetic method, unit: arbitrary, lower: 0 }
-expect: { error: future date }
+expect: { error: after its predecessor }
 ---
 apiVersion: iki/v1
 kind: ActionTest
@@ -123,6 +123,10 @@ inputs:
                   }
 expect:
   output:
+    updates:
+      schedule:
+        - require_unchanged: true
+          values: { tested_through: 2024-12-31 }
     creates:
       - type: iki/qc_release.ReleaseCase
         values:

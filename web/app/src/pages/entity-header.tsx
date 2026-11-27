@@ -19,6 +19,7 @@ import {
 } from "react-aria-components";
 
 import { iki, problemOf, useApiMutation } from "../api";
+import { useFoundTabs } from "../component-entities";
 import { componentsQuery, entityTabs } from "../components";
 import {
   apiRef,
@@ -125,9 +126,11 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
     // What its Lineage tab counts.
     graph: useQuery(neighboursQuery(entity)),
   };
-  const settled = Object.values(read).every((q) => !q.isLoading);
   const types = read.types.data ?? [];
-  const plugins = entityTabs(entity.type, types, read.components.data ?? []);
+  // A tab on every record shows only where its search finds something for this one.
+  const found = useFoundTabs(entity.id, entityTabs(entity.type, types, read.components.data ?? []));
+  const plugins = found.tabs;
+  const settled = Object.values(read).every((q) => !q.isLoading) && found.settled;
   const apps = read.apps.data;
   const graph = read.graph.data;
   const related = graph ? neighboursOf(graph, entity, types).length : undefined;

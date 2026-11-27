@@ -153,6 +153,7 @@ def _components(plugin: Plugin, source: Path | None, package: Path) -> None:
         return
     if source is None:
         raise ValueError(f"{plugin.name}'s components need its directory to be built")
+    # The built module alone: a first-party plugin's web/ source is no runtime file (ADR 0219).
     out = package / "components"
     out.mkdir()
     for name, component in sorted(plugin.components.items()):

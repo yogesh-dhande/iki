@@ -960,7 +960,8 @@ class Work(_Part):
         ``due``. ``state`` keeps those whose state fields are in these states, by field::
 
             client = iki.client()
-            for item in client.work.mine(type="iki/samples.Sample", state={"status": "in_review"}):
+            in_review = {"status": "in_review"}
+            for item in client.work.mine(type="iki/samples.ReviewedSample", state=in_review):
                 print(item["entity"]["hrid"], item["due"])
         """
         return self._list("/me/work", project, type, state, sort, page_size)
@@ -1050,9 +1051,9 @@ class Notifications(_Part):
         ``None`` follows your choice everywhere again::
 
             client = iki.client()
-            client.notifications.choose({"iki/samples.Sample.in_review": "in_app"})
+            client.notifications.choose({"iki/samples.ReviewedSample.in_review": "in_app"})
             client.notifications.choose(
-                {"iki/samples.Sample.in_review": "off"}, project="stability"
+                {"iki/samples.ReviewedSample.in_review": "off"}, project="stability"
             )
         """
         client = self._client

@@ -1764,7 +1764,7 @@ def lims(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(f"{sent['hrid']} wrote {first['hrid']} to external record {LIMS_RECORDS[0]}")
 
 
-#: examples/liquid_handling's Tecan worklist (ADR 0230) for one transfer: an aspirate from
+#: acme/liquid_handling's Tecan worklist (ADR 0230) for one transfer: an aspirate from
 #: well B3 of a 384-well source plate (column 3, row B: (3 - 1) x 16 + 2 = 34), a dispense
 #: to A1 of a 96-well plate (position 1), then a wash, as Freedom EVOware reads it.
 TECAN_WORKLIST = (
@@ -1776,9 +1776,9 @@ TECAN_WORKLIST = (
 
 def plugin_export(alice: requests.Session, project: dict[str, Any]) -> None:
     """Download a plugin's format: a liquid handler's worklist for a plate-to-plate
-    transfer, written by examples/liquid_handling's Wasm writer in the export sandbox,
+    transfer, written by acme/liquid_handling's Wasm writer in the export sandbox,
     and audited with the module that wrote it."""
-    kind = "examples/liquid_handling."
+    kind = "acme/liquid_handling."
     source = created(
         alice,
         project,
@@ -1852,12 +1852,12 @@ def plugin_export(alice: requests.Session, project: dict[str, Any]) -> None:
         not audited
         or audited.get("format") != format_name
         or audited.get("sha256") != digest
-        or writer.get("plugin") != "examples/liquid_handling"
+        or writer.get("plugin") != "acme/liquid_handling"
         or not re.fullmatch(r"[0-9a-f]{64}", str(writer.get("module_sha256", "")))
     ):
         fail(f"exporting {transfer['hrid']} was audited as {audited}")
     ok(
-        f"{transfer['hrid']} downloads as a Tecan worklist that examples/liquid_handling's writer "
+        f"{transfer['hrid']} downloads as a Tecan worklist that acme/liquid_handling's writer "
         f"wrote in the export sandbox (SHA-256 {digest[:12]}…), audited with module "
         f"{writer['module_sha256'][:12]}…"
     )
@@ -2095,17 +2095,17 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
         if kept != ["alignments.paf.gz", "consensus.fasta", "coverage.tsv", "differences.tsv"]:
             fail(f"{checked['hrid']} kept {kept}")
     values = result["values"]
-    if values["verdict"] != values["agreement"]:
-        fail(f"{result['hrid']} has conflicting alignment and result verdicts")
+    if values["consensus_caller"] != "iki_majority_1" or values["polishing_rounds"] is None:
+        fail(f"{result['hrid']} doesn't name the caller that called its consensus")
     named = [d["hgvs"] for d in values["differences"]]
     if (
-        values["agreement"],
+        values["verdict"],
         named,
         values["reads_aligned"],
         values["reference"],
     ) != ("differs", WHOLE_PLASMID_DIFFERENCES, 37, plasmid["values"]["sequence"]):
         fail(
-            f"{result['hrid']} recorded {values['agreement']} {named} "
+            f"{result['hrid']} recorded {values['verdict']} {named} "
             f"from {values['reads_aligned']} reads"
         )
     # Each read counts once, however many times it passes a base.
@@ -2155,12 +2155,17 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
             project,
             prefix + "verify_plasmid_consensus",
             {"plasmid": plasmid["id"]},
-            {"consensus": values["consensus"], "provider": "Iki, from SRR17915342"},
+            {
+                "consensus": values["consensus"],
+                "provider": "Iki majority consensus 1, from SRR17915342",
+            },
         )
         effect = next(e for e in run_["effects"] if e["type"] == prefix + "WholePlasmidAlignment")
         compared = record(alice, effect["entity"])
     if [d["hgvs"] for d in compared["values"]["differences"]] != WHOLE_PLASMID_DIFFERENCES:
         fail(f"{compared['hrid']} found {compared['values']['differences']}")
+    if compared["values"]["consensus_caller"] != "supplied":
+        fail(f"{compared['hrid']} doesn't say its consensus was supplied")
     ok(
         f"{verifications[0]['hrid']} links {result['hrid']} as {prep['hrid']}'s evidence, and "
         f"its consensus compared alone ({compared['hrid']}) names the same differences"
@@ -2197,7 +2202,7 @@ def proteomics(alice: requests.Session, project: dict[str, Any]) -> None:
             project,
             prefix + "import_search",
             {"dataset": dataset["id"]},
-            {"format": "mztab", "version": "PRIDE 1.0 rc5", "reports": [report]},
+            {"format": "mztab_1_0", "version": "PRIDE 1.0 rc5", "reports": [report]},
         )
         artifact = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts")
         if [item["path"] for item in artifact.json()] != ["identifications.jsonl"]:
@@ -2207,6 +2212,9 @@ def proteomics(alice: requests.Session, project: dict[str, Any]) -> None:
     counts = result["values"]["summary"]["counts"]
     if counts != {"protein_group": 2, "spectrum_match": 2}:
         fail(f"{result['hrid']} recorded unexpected mzTab counts {counts}")
+    tables = [source["table"] for source in result["values"]["summary"]["sources"]]
+    if tables != ["mzTab 1.0 rc5"]:
+        fail(f"{result['hrid']} read its report as {tables}, not the PRIDE mzTab 1.0 rc5 export")
     ok(f"{result['hrid']}: imported the PRIDE 16649 proteomics excerpt")
 
 
@@ -2514,6 +2522,36 @@ def cell_bank_history(alice: requests.Session, project: dict[str, Any]) -> None:
         if signed["status"] != "signed" or not signed["set"]:
             fail(f"Research sign-off for {check['hrid']} returned {signed}")
         checks[kind] = check["id"]
+    # A record-only check: the testing laboratory's report is the evidence, with no signature.
+    give_lab_roles(alice, project, plugin + "recorder")
+    report = upload(
+        alice, project, "synthetic_sterility.csv", b"test,result\nsterility,negative\n", "text/csv"
+    )
+    sterility = created(
+        alice,
+        project,
+        plugin + "CellCheck",
+        {
+            "bank": bank["id"],
+            "kind": "sterility",
+            "method": "Synthetic outside report",
+            "result": "negative",
+            "checked_on": "2026-01-07",
+            "report": report,
+        },
+    )
+    path = f"/entities/{sterility['id']}"
+    accepted = api_call(
+        alice,
+        "POST",
+        f"{path}/states/review",
+        {"state": "accepted", "reason": ""},
+        {"If-Match": api_call(alice, "GET", path).headers["ETag"]},
+    )
+    if accepted.status_code != 200 or record(alice, sterility["id"])["values"]["review"] != (
+        "accepted"
+    ):
+        fail(f"accepting {sterility['hrid']} gave {accepted.status_code}: {accepted.text[:200]}")
     thaw = created(
         alice,
         project,
@@ -2584,7 +2622,10 @@ def cell_bank_history(alice: requests.Session, project: dict[str, Any]) -> None:
             "signed_off",
         ):
             fail(f"{thaw['hrid']}'s {field} link led to unexpected QC details {values}")
-    ok(f"{sample['hrid']} traces through P10 and {vial['hrid']}'s thaw to both signed checks")
+    ok(
+        f"{sample['hrid']} traces through P10 and {vial['hrid']}'s thaw to both signed checks; "
+        f"{sterility['hrid']} is accepted with its report"
+    )
 
 
 def certify_dev_signatures(admin: requests.Session) -> None:
@@ -2643,7 +2684,7 @@ def signatures(alice: requests.Session, project: dict[str, Any]) -> None:
     )
     work = created(alice, project, "iki/requests.PlainRequest", {"title": "Training measurement"})
     sample = created(
-        alice, project, "iki/samples.Sample", {"source": tube["id"], "purpose": work["id"]}
+        alice, project, "iki/samples.ReviewedSample", {"source": tube["id"], "purpose": work["id"]}
     )
     draw = api_call(
         alice,
@@ -5401,11 +5442,16 @@ def mouse_stocks(alice: requests.Session, project: dict[str, Any]) -> None:
         project,
         plugin + "register_mgi_strain",
         {},
-        {"file": report, "mgi_id": "MGI:3028467", "jax_stock": "000664"},
+        {"file": report, "mgi_id": "MGI:3028467"},
     )
     [effect] = imported["effects"]
     reference = record(alice, effect["entity"])["values"]
-    if (reference["nomenclature"], reference["jax_stock"]) != ("C57BL/6J", "000664"):
+    # The MGI report has no repository stocks: a JAX stock comes from the JAX catalogue.
+    if (reference["catalogue"], reference["nomenclature"], reference.get("jax_stock")) != (
+        "mgi",
+        "C57BL/6J",
+        None,
+    ):
         fail(f"{imported['hrid']} registered an unexpected catalogue strain {reference}")
     # https://www.jax.org/strain/000058 and https://www.informatics.jax.org/allele/MGI:1855985
     allele = created(
@@ -5437,14 +5483,26 @@ def mouse_stocks(alice: requests.Session, project: dict[str, Any]) -> None:
         alice,
         project,
         plugin + "MouseCryostock",
-        {**banked, "kind": "sperm", "genotype": donor["id"], "barcode": f"SYNTHETIC-S-{tag}"},
+        {
+            **banked,
+            "kind": "sperm",
+            "carrier": "straw",
+            "genotype": donor["id"],
+            "barcode": f"SYNTHETIC-S-{tag}",
+        },
     )
     embryo_code = f"SYNTHETIC-E-{tag}"
     embryos = created(
         alice,
         project,
         plugin + "MouseCryostock",
-        {**banked, "kind": "embryos", "embryos_at_banking": 4, "barcode": embryo_code},
+        {
+            **banked,
+            "kind": "embryos",
+            "carrier": "cryovial",
+            "embryos_at_banking": 4,
+            "barcode": embryo_code,
+        },
         {"value": 100, "unit": "uL"},
     )
     box = created(alice, project, plugin + "MouseCryobox", {"name": "Synthetic mouse cryobox"})
@@ -5832,6 +5890,7 @@ NUMBERING_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-antibody-numbering-tools"
     "@sha256:c314f625ee3c381add9a9cfcba3596cd7e0b61529764dc906c4fb09902007384"
 )
+#: The ab_predict plugin's ImmuneBuilder image (its environments/structure-tools.yaml).
 IMMUNEBUILDER_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-antibody-structure-tools"
     "@sha256:eb6f0596205fa9fac71d5909b25e992668854599fb8e53e60ab5e88604b81e85"
@@ -6075,6 +6134,7 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
         if (
             (got.get("chain_type"), got.get(cdr), got.get(gene), got.get("species"))
             != (kind, cdr3, v_gene, "human")
+            or got.get("germline_set") != "ANARCI 2026.2.13.2, IMGT germlines"
             or got.get("numbering_scheme") != "imgt"
             or not isinstance(identity, (int, float))
             or not 80 < identity < 90
@@ -6163,6 +6223,8 @@ def biologics_ms(alice: requests.Session, project: dict[str, Any], antibody_id: 
     )
     if heavy["covered"] != 9:
         fail(f"{comparison['hrid']} contains {heavy}, expected nine covered heavy chain residues")
+    if comparison["values"]["report_format"] != "iki_peptide_map_1":
+        fail(f"{comparison['hrid']} did not record the peptide map 1 interchange profile")
     ok(f"{comparison['hrid']}: mapped the published trastuzumab peptide onto {antibody['hrid']}")
 
 
@@ -6288,9 +6350,15 @@ def screened(
             (f["kind"], f["motif"], f["position"], f["number"], f["region"], f["severity"])
             for f in got.get("liabilities") or []
         ]
+        screen = {
+            "rule_set": "developability_v1",
+            "numbering_scheme": "imgt",
+            "cdr_definition": "imgt",
+        }
         counts = Counter(kind for kind, *_ in wanted)
         if (
             found != wanted
+            or got.get("liability_screen") != screen
             or got.get("liability_count") != len(wanted)
             or got.get("liability_counts") != dict(sorted(counts.items()))
         ):
@@ -6311,8 +6379,9 @@ def predicted(
     heavy: dict[str, Any],
     light: dict[str, Any],
 ) -> None:
-    """iki/antibody.predict_structure_with_immunebuilder: trastuzumab's structure from its chains,
-    which its input includes (ADR 0105), in a pod of its own with the plugin's image."""
+    """iki/ab_predict.predict_structure_with_immunebuilder, the optional structure provider:
+    trastuzumab's structure from its chains, which its input includes (ADR 0105), in a pod of
+    its own with that plugin's image. Registration, numbering and the screen ran without it."""
     # Numbering changed the chains: the run reads them as they are now.
     revisions = {
         c["id"]: api_call(alice, "GET", f"/entities/{c['id']}").json()["revision"]
@@ -6322,13 +6391,13 @@ def predicted(
     run = launch(
         alice,
         project,
-        "iki/antibody.predict_structure_with_immunebuilder",
+        "iki/ab_predict.predict_structure_with_immunebuilder",
         {"antibody": antibody},
         within=1800,
     )
     (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
     if attempt["environment_build"] != IMMUNEBUILDER_TOOLS.rpartition("@")[2]:
-        fail(f"{run['hrid']} didn't run in the antibody structure-tools image: {attempt}")
+        fail(f"{run['hrid']} didn't run in the ImmuneBuilder structure-tools image: {attempt}")
     if attempt["template"] != "container-antibody-structures":
         fail(f"{run['hrid']} didn't run on the antibody structures template: {attempt}")
     read = {(i["field"], i["entity"], i["revision"]) for i in run.get("included") or []}
@@ -6345,6 +6414,8 @@ def predicted(
     error = structure.get("predicted_error")
     if (
         structure.get("method") != "predicted"
+        or (structure.get("immunebuilder_model"), structure.get("immunebuilder_version"))
+        != ("abodybuilder2", "1.2")
         or structure.get("chains") != [entry_of(heavy), entry_of(light)]
         or structure.get("chain_ids") != ["H", "L"]
         or not isinstance(error, (int, float))
@@ -6353,7 +6424,7 @@ def predicted(
     ):
         fail(f"{run['hrid']} made {made[0]['hrid']} as {structure}")
     ok(
-        "iki/antibody.predict_structure_with_immunebuilder ran in a pod of its own "
+        "iki/ab_predict.predict_structure_with_immunebuilder ran in a pod of its own "
         f"({run['hrid']}): "
         f"{made[0]['hrid']}, from {heavy['hrid']} and {light['hrid']} as numbered, "
         f"estimated error {error} Å (CDR-H3 {structure.get('cdr_h3_predicted_error')} Å)"
