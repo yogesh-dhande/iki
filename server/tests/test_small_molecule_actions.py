@@ -2348,6 +2348,102 @@ def test_compounds_with_a_substructure_are_a_collection(tmp_path: Path) -> None:
     assert output["metrics"] == {"hits": 2, "searched": 5}
 
 
+def _streamed() -> Any:
+    sys.path.insert(0, str(SCRIPTS))
+    try:
+        return importlib.import_module("streamed")
+    finally:
+        sys.path.remove(str(SCRIPTS))
+
+
+@pytest.mark.parametrize("chunk", [1, 7, 4096])
+def test_the_run_input_reads_as_json_does_a_compound_at_a_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, chunk: int
+) -> None:
+    """Read in chunks of any size, the run input is what json.loads reads, but the
+    compounds, which are handed on one at a time."""
+    streamed = _streamed()
+    monkeypatch.setattr(streamed, "CHUNK", chunk)
+    run: dict[str, Any] = {
+        "apiVersion": "iki/v1",
+        "kind": "RunInput",
+        "run": {"id": "r", "attempt": 1, "seed": 123456789},
+        "inputs": {
+            "query": [LIBRARY[0]],
+            "compounds": [
+                {**e, "values": {**e["values"], "note": '\u00e9 \\ " ]}'}} for e in LIBRARY
+            ],
+            "after": [],
+        },
+        "params": {"threshold": 0.35, "chirality": False, "name": None},
+        "files": {},
+    }
+    path = tmp_path / "input.json"
+    path.write_text(json.dumps(run, indent=1))
+    rest, records = streamed.run_input(path, "compounds")
+    assert rest == {**run, "inputs": {**run["inputs"], "compounds": []}}
+    assert list(records) == run["inputs"]["compounds"]
+    path.write_text(json.dumps({"inputs": {"compounds": []}, "params": {}}))
+    rest, records = streamed.run_input(path, "compounds")
+    assert (rest, list(records)) == ({"inputs": {"compounds": []}, "params": {}}, [])
+
+
+def test_a_search_of_many_compounds_holds_one_at_a_time(tmp_path: Path) -> None:
+    """The most compounds a search takes is 100,000, each with its Molfile, InChI and
+    descriptors: read whole, with each one's structure kept, they took 2.2 GB of memory,
+    over the action's 1 GiB. 30,000 of those five compounds, with their RDKit Molfiles
+    and InChIs, are searched in what a lone process takes, not five times the file."""
+    from rdkit import Chem
+    from rdkit.Chem import rdMolDescriptors
+
+    shapes = []
+    for each in LIBRARY:
+        mol = Chem.MolFromSmiles(each["values"]["smiles"])
+        shapes.append(
+            {
+                **each["values"],
+                "molfile": Chem.MolToMolBlock(Chem.AddHs(mol)),
+                "inchi": Chem.MolToInchi(mol),  # type: ignore[no-untyped-call]
+                "molecular_formula": rdMolDescriptors.CalcMolFormula(mol),
+            }
+        )
+    compounds = [entity(i, **shapes[i % len(shapes)]) for i in range(30_000)]
+    path = tmp_path / "input.json"
+    path.write_text(
+        json.dumps(
+            {"params": {"smiles": ASPIRIN, "threshold": 0.3}, "inputs": {"compounds": compounds}}
+        )
+    )
+    del compounds
+    assert path.stat().st_size > 50_000_000
+    measure = (
+        "import os, resource, runpy, sys; sys.argv = ['search.py', 'similar']\n"
+        "try: runpy.run_path('search.py', run_name='__main__')\n"
+        "finally:\n"
+        "    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss\n"
+        "    print(peak // (1 if sys.platform == 'darwin' else 1 / 1024) // 2**20)\n"
+    )
+    (tmp_path / "out").mkdir()
+    result = subprocess.run(  # noqa: S603 - our own script
+        [sys.executable, "-c", measure],
+        cwd=SCRIPTS,
+        env={
+            "IKI_INPUT": str(path),
+            "IKI_OUTPUT": str(tmp_path / "out.json"),
+            "IKI_OUT_DIR": str(tmp_path / "out"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
+    output = json.loads((tmp_path / "out.json").read_text())
+    assert output["metrics"] == {"hits": 10_000, "searched": 30_000, "best": 1.0}
+    peak_mib = float(result.stdout.splitlines()[-1])
+    assert peak_mib < 300, f"{peak_mib} MiB"
+
+
 def test_smarts_that_cant_be_read_fails_the_search_saying_why(tmp_path: Path) -> None:
     result, _ = script(
         tmp_path,
