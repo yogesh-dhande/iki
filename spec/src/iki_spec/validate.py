@@ -47,6 +47,11 @@ from iki_spec.model import (
     GRID_COLUMNS,
     GRID_POSITIONS,
     GRID_ROWS,
+    LIST_CODE,
+    LIST_FIELDS,
+    LIST_LABEL,
+    LIST_LABEL_PATTERN,
+    LIST_POSITION,
     Action,
     Amount,
     AnyExport,
@@ -62,6 +67,7 @@ from iki_spec.model import (
     Grid,
     Guard,
     LabRole,
+    ListSpec,
     Plugin,
     PluginExport,
     ProteinExport,
@@ -79,6 +85,7 @@ from iki_spec.model import (
     Workflow,
     WorkItemSpec,
     lab_role_name,
+    list_fields,
     matches_format,
     names_people,
     qualify,
@@ -787,6 +794,28 @@ def _schema_ok(document: Document, checker: _Checker) -> bool:
 def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> EntityType:
     hrid = body.get("hrid") or {}
     name = body["name"]
+    fields = _fields(body.get("fields", {}), plugin)
+    listed = body.get("list")
+    list_spec: ListSpec | None = None
+    identity = tuple(body.get("identity", ()))
+    title = (body.get("display") or {}).get("title")
+    if listed is True or isinstance(listed, dict):
+        # A lab list (ADR 0270): its options' code is their identity, and their label,
+        # description and place in the list are facts, as are the type's other fields.
+        options = listed.get("options") if isinstance(listed, dict) else None
+        list_spec = ListSpec(
+            options=tuple(o for o in options if isinstance(o, dict))
+            if isinstance(options, list)
+            else ()
+        )
+        own = {
+            n: f if f.registry is not None else dataclasses.replace(f, registry="fact")
+            for n, f in fields.items()
+            if n not in LIST_FIELDS
+        }
+        fields = {**list_fields(), **own}
+        identity = identity or (LIST_CODE,)
+        title = title or "{{ label }}"
     return EntityType(
         plugin=plugin,
         name=name,
@@ -800,9 +829,9 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         sample=bool(body.get("sample", False)),
         hrid_prefix=hrid.get("prefix"),
         hrid_digits=hrid.get("digits", 6),
-        identity=tuple(body.get("identity", ())),
-        fields=_fields(body.get("fields", {}), plugin),
-        display_title=(body.get("display") or {}).get("title"),
+        identity=identity,
+        fields=fields,
+        display_title=title,
         viewers=tuple(_viewer(v) for v in (body.get("display") or {}).get("viewers") or ()),
         exports=tuple(_export(x, plugin) for x in body.get("exports") or ()),
         file=document.file,
@@ -856,6 +885,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
             if isinstance(body_refines, dict)
             and isinstance(to := body_refines.get("to"), str | list)
         },
+        list_spec=list_spec,
     )
 
 
@@ -1429,6 +1459,15 @@ class _Semantics:
     def entity_type(self, entity_type: EntityType, source: Document) -> None:
         if entity_type.extends:
             parent = self.reference(entity_type.extends, source, ("extends",))
+            if parent is not None and parent.is_list:
+                self.add(
+                    "extends-list",
+                    f"`{parent.qualified_name}` is a lab list (ADR 0270), which no type extends: "
+                    "its options are its own.",
+                    source,
+                    ("extends",),
+                    hint="Give the type a field referring to the list instead.",
+                )
             if parent is not None:
                 chain = [entity_type.qualified_name]
                 current: EntityType | None = parent
@@ -1512,6 +1551,222 @@ class _Semantics:
             self.draw_target(entity_type.draw_target, source, names)
         if entity_type.storage is not None:
             self.storage(entity_type, source, every)
+        if entity_type.is_list:
+            self.list_type(entity_type, source)
+
+    # Lab lists (ADR 0270) --------------------------------------------------------------------
+
+    #: What a list's type can't declare: its options are registry entries its curators keep,
+    #: never records a project works on, so nothing about records applies to them.
+    _NOT_FOR_LISTS = (
+        "identity",
+        "extends",
+        "abstract",
+        "sample",
+        "rules",
+        "notifications",
+        "request",
+        "result",
+        "work_item",
+        "amount",
+        "draws_received",
+        "draw_guards",
+        "draw_purposes",
+        "draw_target",
+        "storage",
+        "stock_catalogue",
+        "due",
+        "exports",
+        "refines",
+    )
+
+    def list_type(self, entity_type: EntityType, source: Document) -> None:
+        """A lab list's type: its options' fields, and its starting options."""
+        body = source.data if isinstance(source.data, dict) else {}
+        for key in self._NOT_FOR_LISTS:
+            if key in body:
+                self.add(
+                    "list-key",
+                    f"`{key}` isn't for a lab list: its options are registry entries its "
+                    "curators keep, not records a project works on.",
+                    source,
+                    (key,),
+                    key=True,
+                    hint="Leave it off, or make a type of records that refers to the list."
+                    if key != "identity"
+                    else "A list's options are told apart by their `code`: leave `identity` off.",
+                )
+        if (body.get("display") or {}).get("viewers"):
+            self.add(
+                "list-key",
+                "A lab list's options have no viewers: they're shown as a dropdown's choices.",
+                source,
+                ("display", "viewers"),
+                key=True,
+            )
+        raw = body.get("fields")
+        declared: dict[str, Any] = raw if isinstance(raw, dict) else {}
+        for name in declared:
+            if name in LIST_FIELDS:
+                self.add(
+                    "list-field-reserved",
+                    f"`{name}` is every list option's own field already (ADR 0270).",
+                    source,
+                    ("fields", name),
+                    key=True,
+                    hint="List types have `code`, `label`, `description` and `position`: give "
+                    "this field another name.",
+                )
+        for name, f in entity_type.fields.items():
+            if name in LIST_FIELDS:
+                continue
+            at: Path = ("fields", name)
+            if f.registry == "derived" or f.computed:
+                self.add(
+                    "list-computed",
+                    f"`{name}` would be computed, but nothing computes a list's options: its "
+                    "curators give their values.",
+                    source,
+                    (*at, "registry" if f.registry == "derived" else "computed"),
+                    key=True,
+                    hint="Leave `registry` and `computed` off: a list's fields are its options' "
+                    "facts.",
+                )
+            if f.type == "state" or (f.items is not None and f.items.type == "state"):
+                self.add(
+                    "list-state",
+                    f"`{name}` is a state field, but a list's options have no states: an "
+                    "option is offered, or archived.",
+                    source,
+                    at,
+                )
+            for target in self._list_targets(f):
+                found = self.types.get(target)
+                if found is not None and not found.is_list:
+                    self.add(
+                        "list-refers-to-entry",
+                        f"`{name}` refers to `{target}`, which isn't a lab list: every project "
+                        "in a registry reads its lists, so their options refer only to other "
+                        "lists' options.",
+                        source,
+                        at,
+                        hint="Make the field a reference to another list, such as a category's.",
+                    )
+        if entity_type.list_spec is not None:
+            self.list_options(entity_type, source)
+
+    @staticmethod
+    def _list_targets(f: Field) -> list[str]:
+        targets = list(f.to) if f.type == "ref" else []
+        if f.type == "list" and f.items is not None:
+            targets += list(f.items.to) if f.items.type == "ref" else []
+            targets += [t for c in f.items.fields.values() if c.type == "ref" for t in c.to]
+        return targets
+
+    def list_options(self, entity_type: EntityType, source: Document) -> None:
+        """A list's starting options: each code and label once, and values its fields take."""
+        assert entity_type.list_spec is not None  # noqa: S101 - only lists have options
+        codes: dict[str, int] = {}
+        labels: dict[str, int] = {}
+        fields = entity_type.fields
+        for index, option in enumerate(entity_type.list_spec.options):
+            at: Path = ("list", "options", index)
+            code = option.get(LIST_CODE)
+            if isinstance(code, str):
+                if code in codes:
+                    self.add(
+                        "list-option-twice",
+                        f"`{code}` is option {codes[code] + 1}'s code already: a code names one "
+                        "option.",
+                        source,
+                        (*at, LIST_CODE),
+                    )
+                else:
+                    codes[code] = index
+            label = option.get(LIST_LABEL)
+            if isinstance(label, str):
+                key = label.casefold()
+                if key in labels:
+                    self.add(
+                        "list-label-twice",
+                        f"“{label}” is option {labels[key] + 1}'s label already: people pick an "
+                        "option by its label, so each is the list's once.",
+                        source,
+                        (*at, LIST_LABEL),
+                    )
+                else:
+                    labels[key] = index
+            for name, value in option.items():
+                f = fields.get(name)
+                if name == LIST_POSITION or f is None or f.removed:
+                    self.add(
+                        "unknown-field",
+                        f"`{name}` isn't a field of `{entity_type.name}`'s options."
+                        if name != LIST_POSITION
+                        else "An option's place is where the manifest lists it.",
+                        source,
+                        (*at, name),
+                        key=True,
+                        hint=schemas._did_you_mean(name, [n for n in fields if n != LIST_POSITION])
+                        if name != LIST_POSITION
+                        else "Leave `position` off, and list the options in their order.",
+                    )
+                    continue
+                self.list_option_value(f, value, source, (*at, name))
+            for name, f in fields.items():
+                if f.required and not f.removed and option.get(name) is None:
+                    if name == LIST_POSITION:
+                        continue
+                    self.add(
+                        "list-option-incomplete",
+                        f"Option {index + 1} needs `{name}`, which is required.",
+                        source,
+                        at,
+                    )
+
+    def list_option_value(self, f: Field, value: Any, source: Document, at: Path) -> None:  # noqa: ANN401 - manifest data is JSON-shaped
+        """A starting option's value for one of its type's fields. A reference to another
+        list's option names it by its code, which that list must start with."""
+        if f.type == "ref" or (f.type == "list" and f.items is not None and f.items.type == "ref"):
+            item = f if f.type == "ref" else f.items
+            assert item is not None  # noqa: S101 - lists have items
+            values = value if f.type == "list" and isinstance(value, list) else [value]
+            if f.type == "list" and not isinstance(value, list):
+                self.add("list-option-value", "must be a list of codes.", source, at)
+                return
+            target = self.types.get(item.to[0]) if item.to else None
+            for code in values:
+                if not isinstance(code, str):
+                    self.add(
+                        "list-option-value",
+                        "must name the option it refers to by its code.",
+                        source,
+                        at,
+                    )
+                    continue
+                if target is None or target.list_spec is None:
+                    continue  # Its target's problem is reported where it's named.
+                if not any(o.get(LIST_CODE) == code for o in target.list_spec.options):
+                    self.add(
+                        "list-option-unknown",
+                        f"`{code}` isn't one of `{target.qualified_name}`'s starting options: "
+                        "every registry starts with what a starting option refers to.",
+                        source,
+                        at,
+                        hint=schemas._did_you_mean(
+                            code, [str(o.get(LIST_CODE)) for o in target.list_spec.options]
+                        ),
+                    )
+            return
+        problems = value_problems(f, value)
+        if (
+            f.name == LIST_LABEL
+            and isinstance(value, str)
+            and not re.fullmatch(LIST_LABEL_PATTERN, value)
+        ):
+            problems = ["must be one line, with no spaces at its start or end."]
+        for problem in problems:
+            self.add("list-option-value", f"`{f.name}` {problem}", source, at)
 
     def stock_catalogue(self, entity_type: EntityType, source: Document) -> None:
         # Validate a lot in its own plugin too. A later plugin can introduce new
@@ -2920,7 +3175,15 @@ class _Semantics:
                 )
                 continue
             if name in entry or f.registry is not None:
-                self.registry_field(f, source, ("fields", name), identity=name in entry)
+                self.registry_field(
+                    f,
+                    source,
+                    ("fields", name),
+                    identity=name in entry,
+                    # A list's label and description are its curators', given when an option
+                    # is added (ADR 0270): its label is required, its description free text.
+                    curated=entity_type.is_list and name in LIST_FIELDS,
+                )
 
     def identity_owner(self, entity_type: EntityType, source: Document) -> None:
         """A type that declares an identity can't be under another identity, or under a
@@ -2953,7 +3216,13 @@ class _Semantics:
             )
 
     def registry_field(
-        self, f: Field, source: Document, path: Path, *, identity: bool = False
+        self,
+        f: Field,
+        source: Document,
+        path: Path,
+        *,
+        identity: bool = False,
+        curated: bool = False,
     ) -> None:
         """What a field of a registry entry (an identity, derived or fact field) must be."""
         cells = list(f.items.fields.values()) if f.is_rows and f.items is not None else []
@@ -2991,7 +3260,7 @@ class _Semantics:
                     hint="An entry is every holding project's, so it can refer only to other "
                     "entries: types with an identity. Make the field the record's.",
                 )
-        if identity or f.registry != "fact":
+        if identity or f.registry != "fact" or curated:
             return
         item = f.items if f.type == "list" and f.items is not None else f
         if item.type in ("text", "json", "file"):
@@ -3447,6 +3716,29 @@ class _Semantics:
             self.field(f, source, field_path, siblings=names)
             if f.assignment_field is not None:
                 self.assignments({name: f}, target, source)
+            if target.is_list and f.registry != "fact":
+                self.add(
+                    "list-extension-record-field",
+                    f"`{extension.extends_type}` is a lab list (ADR 0270), whose options are "
+                    f"registry entries with no records: `{name}` must be its options' own.",
+                    source,
+                    field_path,
+                    key=True,
+                    hint="Mark it `registry: fact`: its curators give each option's value.",
+                )
+                continue
+            if target.is_list:
+                for list_target in self._list_targets(f):
+                    found = self.types.get(list_target)
+                    if found is not None and not found.is_list:
+                        self.add(
+                            "list-refers-to-entry",
+                            f"`{name}` refers to `{list_target}`, which isn't a lab list: every "
+                            "project in a registry reads its lists, so their options refer only "
+                            "to other lists' options.",
+                            source,
+                            field_path,
+                        )
             if f.registry is None:
                 continue
             if not any(t.identity for t in [target, *self.ancestors(target)]):
@@ -3952,6 +4244,16 @@ class _Semantics:
                 found[target] = named
         if not several:
             return
+        for target, named in found.items():
+            if named.is_list:
+                self.add(
+                    "list-among-types",
+                    f"`{target}` is a lab list (ADR 0270): a reference to its options names "
+                    "that list alone, as a dropdown offers one list's options.",
+                    source,
+                    (*path, f.to.index(target)),
+                    hint=f"Write `to: {target}`, or give the other types a field of their own.",
+                )
         if naming.ENTITY in f.to:
             self.add(
                 "reference-to-any-and-more",

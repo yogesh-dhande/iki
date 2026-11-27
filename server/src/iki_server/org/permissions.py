@@ -21,6 +21,9 @@ Views, the API, MCP tools and the event stream ask :func:`can` or
   one's registrars. A registrar curates their registry: sees its entries
   (never projects' records of them), changes their facts, and supersedes
   mistaken ones. Being an Org Admin doesn't make someone a registrar.
+- **Lab lists** (ADR 0270): a registry's registrars curate its lists, and so
+  does each list's curators, whom Org Admins appoint a list at a time. Every
+  project in the registry picks from them.
 - **Lab roles** (ADR 0116), such as QA, are declared by plugins and given by a
   project's Admins with a membership, beside its project role: someone holds
   the lab roles of their own membership and their teams'. A lab role grants
@@ -49,6 +52,7 @@ from django.db.models import Exists, Max, OuterRef, Q, QuerySet, Subquery
 
 from iki_server.org.models import (
     LabRoleGrant,
+    ListCurator,
     OrgRole,
     OrgRoleAssignment,
     Project,
@@ -83,6 +87,9 @@ class Action(StrEnum):
     # A registry
     REGISTRY_CURATE = "registry.curate"
     """See every entry in the registry, change their facts, and supersede them (ADR 0115)."""
+    LISTS_CURATE = "lists.curate"
+    """Curate some of the registry's lab lists (ADR 0270): its registrars curate them all,
+    and each list's curators that one. :func:`can_curate_list` says which."""
 
     # A team
     TEAM_VIEW = "team.view"
@@ -139,7 +146,7 @@ ORG_ACTIONS = frozenset(
     }
 )
 TEAM_ACTIONS = frozenset({Action.TEAM_VIEW, Action.TEAM_MANAGE, Action.PROJECT_CREATE})
-REGISTRY_ACTIONS = frozenset({Action.REGISTRY_CURATE})
+REGISTRY_ACTIONS = frozenset({Action.REGISTRY_CURATE, Action.LISTS_CURATE})
 PROJECT_ACTIONS = frozenset(Action) - ORG_ACTIONS - TEAM_ACTIONS - REGISTRY_ACTIONS
 
 #: The OAuth scope each action needs, when the request carries a token.
@@ -177,6 +184,8 @@ ACTION_SCOPES: dict[Action, str] = {
     Action.REGISTRIES_MANAGE: "admin",
     # A registrar's changes are every holder's: tokens need the admin scope.
     Action.REGISTRY_CURATE: "admin",
+    # ...as a list curator's are every project's in the registry (ADR 0270).
+    Action.LISTS_CURATE: "admin",
     # Approving is web-only (ADR 0130); a token with the admin scope may revoke.
     Action.OUTSIDE_APIS_MANAGE: "admin",
 }
@@ -357,6 +366,32 @@ def is_registrar(user: Any, registry: Registry) -> bool:  # noqa: ANN401
     return cache[registry.pk]
 
 
+def curated_lists(user: Any, registry: Registry) -> frozenset[str] | None:  # noqa: ANN401
+    """The lab lists of the registry an active user curates (ADR 0270), by type, or None
+    for all of them: a registrar's."""
+    if not _active(user):
+        return frozenset()
+    if is_registrar(user, registry):
+        return None
+    cache: dict[Any, frozenset[str]] = user.__dict__.setdefault("_iki_list_curators", {})
+    if registry.pk not in cache:
+        cache[registry.pk] = frozenset(
+            ListCurator.objects.filter(registry=registry, user=user).values_list(
+                "list_type", flat=True
+            )
+        )
+    return cache[registry.pk]
+
+
+def can_curate_list(user: Any, registry: Registry, list_type: str) -> bool:  # noqa: ANN401
+    """Whether the user may curate this lab list of the registry (ADR 0270): add, relabel,
+    reorder, archive and supersede its options."""
+    if not can(user, Action.LISTS_CURATE, registry):
+        return False
+    curated = curated_lists(user, registry)
+    return curated is None or list_type in curated
+
+
 def lab_roles(user: Any, project: Project) -> frozenset[str]:  # noqa: ANN401
     """The lab roles this request can use in the project (ADRs 0116 and 0210)."""
     limits = token_limits(user)
@@ -452,6 +487,7 @@ def forget(user: Any) -> None:  # noqa: ANN401
         "_iki_project_roles",
         "_iki_team_memberships",
         "_iki_registrars",
+        "_iki_list_curators",
         "_iki_lab_roles",
     ):
         user.__dict__.pop(attr, None)
@@ -485,6 +521,8 @@ def _roles_allow(user: Any, action: Action, target: Team | Project | Registry | 
     if action in REGISTRY_ACTIONS:
         if not isinstance(target, Registry):
             raise TypeError(f"{action} needs a Registry")
+        if action is Action.LISTS_CURATE:
+            return curated_lists(user, target) != frozenset()
         return is_registrar(user, target)
 
     if action in TEAM_ACTIONS:

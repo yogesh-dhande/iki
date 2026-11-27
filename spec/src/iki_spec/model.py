@@ -20,6 +20,7 @@ __all__ = [
     "CONDITION_OPERATORS",
     "FIELD_TYPES",
     "FORMATS",
+    "LIST_FIELDS",
     "NUMERIC_OPERATORS",
     "SIGNATURE_MEANINGS",
     "TIERS",
@@ -36,6 +37,7 @@ __all__ = [
     "Guard",
     "Input",
     "LabRole",
+    "ListSpec",
     "Meaning",
     "Metric",
     "Plugin",
@@ -923,6 +925,82 @@ class DrawTarget:
     unit: str | None = None
 
 
+#: The fields every lab list's options have (ADR 0270), which the list marker gives its type:
+#: its code, which is its identity, and its label, description and place in the list, which
+#: are registry facts its curators change.
+LIST_CODE = "code"
+LIST_LABEL = "label"
+LIST_DESCRIPTION = "description"
+LIST_POSITION = "position"
+LIST_FIELDS = (LIST_CODE, LIST_LABEL, LIST_DESCRIPTION, LIST_POSITION)
+#: An option's code: as an enum's value is, so an enum can become a list keeping its values.
+LIST_CODE_PATTERN = "^[A-Za-z0-9][A-Za-z0-9_.+-]*$"
+#: An option's label: one line, without spaces at its ends.
+LIST_LABEL_PATTERN = r"^\S(?:.*\S)?$"
+#: The most options a list may have, as a dropdown or its search can offer them.
+LIST_MAX_OPTIONS = 10000
+
+
+def list_fields() -> dict[str, Field]:
+    """The fields the list marker gives a type (ADR 0270), before the type's own."""
+    return {
+        LIST_CODE: Field(
+            name=LIST_CODE,
+            type="string",
+            label="Code",
+            description="Its identity in the list, which never changes: what exports and "
+            "the API give for it. A wrong one is superseded by the right one.",
+            required=True,
+            immutable=True,
+            indexed=True,
+            max_length=64,
+            pattern=LIST_CODE_PATTERN,
+            pattern_help="Use letters and digits, and _ . + or - after the first",
+        ),
+        LIST_LABEL: Field(
+            name=LIST_LABEL,
+            type="string",
+            label="Label",
+            description="What people see and pick. Its curators can change it, with a reason: "
+            "records keep naming the option, so they show the new label.",
+            required=True,
+            registry="fact",
+            indexed=True,
+            unique=True,
+            max_length=200,
+            pattern=LIST_LABEL_PATTERN,
+            pattern_help="Use one line, with no spaces at its start or end",
+        ),
+        LIST_DESCRIPTION: Field(
+            name=LIST_DESCRIPTION,
+            type="text",
+            label="Description",
+            description="What it means, or when to choose it.",
+            registry="fact",
+            max_length=2000,
+        ),
+        LIST_POSITION: Field(
+            name=LIST_POSITION,
+            type="int",
+            label="Position",
+            description="Its place in the list's order, from 1: dropdowns offer options in it.",
+            registry="fact",
+            min=1,
+            max=LIST_MAX_OPTIONS,
+        ),
+    }
+
+
+@dataclass(frozen=True)
+class ListSpec:
+    """A type whose entities are the options of a list a lab curates (ADR 0270)."""
+
+    #: The options each registry starts with, in order: each one's code, label and
+    #: description, and its values for the type's other fields, by name, as the manifest
+    #: gives them (a reference to another list's option by its code).
+    options: tuple[dict[str, Any], ...] = ()
+
+
 @dataclass(frozen=True)
 class EntityType:
     plugin: str
@@ -982,6 +1060,14 @@ class EntityType:
     #: (ADR 0235): types among its ancestor's, each with its subtypes. Its subtypes have
     #: these unless they name their own.
     refines_to: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: Its entities are a lab list's options (ADR 0270): registry entries every project in
+    #: their registry may pick, curated by its registrars and list curators.
+    list_spec: ListSpec | None = None
+
+    @property
+    def is_list(self) -> bool:
+        """Whether its entities are a lab list's options (ADR 0270)."""
+        return self.list_spec is not None
 
     @property
     def qualified_name(self) -> str:
@@ -1867,6 +1953,7 @@ _DATACLASSES = (
     RequestSpec,
     ResultSpec,
     WorkItemSpec,
+    ListSpec,
     EntityType,
     Export,
     ProteinExport,
@@ -1945,6 +2032,9 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
             )
             and not (
                 isinstance(value, EntityType) and f.name == "refines_to" and not value.refines_to
+            )
+            and not (
+                isinstance(value, EntityType) and f.name == "list_spec" and value.list_spec is None
             )
             and not (
                 f.name == "customer_image_required"
@@ -2031,6 +2121,12 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "refines_to": {
                             n: tuple(to) for n, to in (v.get("refines_to") or {}).items()
                         },
+                        # ...or lists (ADR 0270).
+                        "list_spec": ListSpec(
+                            options=tuple(dict(o) for o in v["list_spec"]["options"])
+                        )
+                        if v.get("list_spec")
+                        else None,
                     }
                 )
                 for k, v in data["types"].items()

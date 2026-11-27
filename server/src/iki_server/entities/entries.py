@@ -43,6 +43,7 @@ from iki_server.org import permissions
 from iki_server.org.models import Project, ProjectMembership, ProjectRole, Registry
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
+from iki_spec.model import LIST_LABEL, LIST_POSITION
 
 __all__ = [
     "Supersession",
@@ -111,8 +112,11 @@ def curate(
     expected_revision: int,
 ) -> Revision | None:
     """A registrar's change to an entry's facts: set, changed or cleared, with why. Their
-    identity and derived values are the identity's, and never change."""
+    identity and derived values are the identity's, and never change. A lab list's option
+    (ADR 0270) is its list's curators' too: its required values can't be cleared, and its
+    place changes by reordering the list (:mod:`.lists`)."""
     _registrar(user, entry)
+    listed = _is_list(entry.type)
     if not reason.strip():
         raise Invalid({"reason": ["Say why: a fact's change is every holder's."]})
     with transaction.atomic(), services._unique_values():
@@ -150,15 +154,27 @@ def curate(
             if f.immutable:
                 errors[name] = [services.fixed(locked)]
                 continue
+            if listed and name == LIST_POSITION:
+                errors[name] = ["is its place in the list: reorder the list to move it."]
+                continue
             try:
                 converted = to_db(f, value, refs)
             except ValueError as error:
                 errors.update(problems_of(name, error))
                 continue
+            if listed and f.required and converted is None:
+                errors[name] = ["is required."]
+                continue
             if converted != rows.get(name):
                 new[name] = converted
         if not errors and new:
             errors = _taken_in_registry(form, locked, new)
+        if not errors and listed and isinstance(new.get(LIST_LABEL), str):
+            from iki_server.entities import lists
+
+            taken = lists.label_taken(form, locked.registry_id, new[LIST_LABEL], besides=locked.pk)
+            if taken is not None:
+                errors = {LIST_LABEL: [f"is `{taken}`'s label already: the list has each once."]}
         if errors:
             raise Invalid(errors)
         if not new:
@@ -169,11 +185,12 @@ def curate(
         services._write_history(touched, rows, revision.number)
         services._use_files(fields, locked.pk, new, revision.number)
         log.record(
-            "registry.facts_changed",
+            "list.option_changed" if listed else "registry.facts_changed",
             actor=user,
             target=locked,
             data={
                 "registry": str(locked.registry_id),
+                **({"list": locked.type} if listed else {}),
                 "reason": reason.strip(),
                 "changes": {
                     n: {"before": before[n], "after": to_json(fields[n], v)} for n, v in new.items()
@@ -184,12 +201,26 @@ def curate(
 
 
 def _registrar(user: User, entry: Entity) -> Registry:
+    """The entry's registry, if the user curates the entry: one of its registrars, or for a
+    lab list's option, one of the list's curators (ADR 0270)."""
     if entry.registry_id is None:
         raise Refused(f"{entry.hrid} is a project's record, not a registry entry.")
     found = Registry.objects.get(pk=entry.registry_id)
+    if _is_list(entry.type):
+        if not permissions.can_curate_list(user, found, entry.type):
+            label = registry.types()[entry.type].label_plural
+            raise PermissionDenied(
+                f"Only {found.name}'s registrars, and the curators of {label}, curate its options."
+            )
+        return found
     if not permissions.can(user, Action.REGISTRY_CURATE, found):
         raise PermissionDenied(f"Only {found.name}'s registrars curate its entries.")
     return found
+
+
+def _is_list(type_name: str) -> bool:
+    found = registry.types().get(type_name)
+    return found is not None and found.is_list
 
 
 def _registry_refs(entry: Entity) -> Any:  # noqa: ANN401 - Refs
@@ -265,7 +296,10 @@ def supersede(user: User, entry: Entity, replacement: Entity, *, reason: str) ->
                 "reason": reason.strip(),
             },
         )
-        _tell_holders(user, locked, other, reason.strip())
+        if _is_list(locked.type):
+            _tell_referrers(user, locked, other, reason.strip())
+        else:
+            _tell_holders(user, locked, other, reason.strip())
     return revision
 
 
@@ -294,6 +328,28 @@ def _tell_holders(user: User, entry: Entity, replacement: Entity, reason: str) -
             project=project,
             actor=user,
             about=[record],
+        )
+
+
+def _tell_referrers(user: User, option: Entity, replacement: Entity, reason: str) -> None:
+    """For a lab list's option (ADR 0270): the Admins of each project whose records name it,
+    who move them to the replacement (:func:`lists.repoint`)."""
+    from iki_server.entities import lists
+    from iki_server.notifications import kinds
+    from iki_server.notifications.services import notify
+
+    label = registry.types()[option.type].label
+    for project in lists.referrers(option).select_related("team"):
+        notify(
+            permissions.members_with(project, ProjectRole.ADMIN),
+            kinds.ENTRY_SUPERSEDED,
+            title=f"{label} {option.hrid} was superseded by {replacement.hrid}",
+            body=f"{reason}\n\nMove {project.name}'s records that name it to "
+            f"{replacement.hrid}, so they name the right option.",
+            path=f"/entries/{option.pk}",
+            project=project,
+            actor=user,
+            about=[],
         )
 
 

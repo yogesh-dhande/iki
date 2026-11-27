@@ -768,6 +768,8 @@ def prepare(
     entity_type = form.entity_type
     if entity_type.abstract:
         raise Invalid({"type": [f"{type_name} is abstract: create one of its subtypes."]})
+    if entity_type.is_list:
+        raise Invalid({"type": [not_a_record(entity_type)]})
     why = frozen(form)
     if why:
         raise Invalid({"type": [why]})
@@ -830,6 +832,14 @@ def prepare(
     ]
     holding = checking.raise_broken(found, hold_reason=hold_reason)
     return form, given, holding
+
+
+def not_a_record(entity_type: EntityType) -> str:
+    """Why nobody creates a record of a lab list (ADR 0270)."""
+    return (
+        f"{entity_type.label_plural} are a lab list: its options are its registry's, which its "
+        "curators add to, and projects pick from."
+    )
 
 
 def _wrong(errors: Mapping[str, list[str]], name: str) -> bool:
@@ -995,7 +1005,11 @@ def update(
             try:
                 # Whoever it names already may stay named, though they couldn't be named
                 # anew (ADR 0122): an edit of something else keeps them.
-                with using.namer.keeping(_named_in(f, current)):
+                # ...and an archived option it names may stay named (ADR 0270).
+                with (
+                    using.namer.keeping(_named_in(f, current)),
+                    using.keeping(_referred_in(f, current)),
+                ):
                     converted = _observation_ids(
                         form, f, form.field_value(f, value, using), current
                     )
@@ -1129,6 +1143,22 @@ def update(
                         reason=revision.reason,
                     )
     return updated if by_run else saved
+
+
+def _referred_in(f: Field, current: Any) -> set[Any]:  # noqa: ANN401 - a model value
+    """What a reference, a list of them or a list of rows' references names now: an
+    option archived since may stay named (ADR 0270)."""
+    if current is None or current == []:
+        return set()
+    if f.is_rows:
+        assert f.items is not None  # noqa: S101 - lists have items
+        cells = [n for n, cell in f.items.fields.items() if cell.type == "ref"]
+        return {row[n] for row in current for n in cells if row.get(n) is not None}
+    if f.type == "ref":
+        return {current}
+    if f.type == "list" and f.items is not None and f.items.type == "ref":
+        return set(current)
+    return set()
 
 
 def _named_in(f: Field, current: Any) -> set[Any]:  # noqa: ANN401 - a model value

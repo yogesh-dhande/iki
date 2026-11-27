@@ -937,6 +937,36 @@ def entry(suffix: str = "", body: Any = None, *, if_match: bool = False) -> Buil
     return build
 
 
+#: A lab list of the fixture plugin (ADR 0270), and one of its starting options.
+LAB_LIST = "acme/protein.PurificationMethod"
+
+
+def lab_list(suffix: str = "", body: Any = None, *, at: str = "project") -> Build:
+    """A lab list's path, for the project's members (``at="project"``) or its registry's
+    curators (``at="registry"``)."""
+
+    def build(w: World) -> tuple[Any, ...]:
+        from iki_server.org.models import Registry
+
+        scope = (
+            f"project={w.project.pk}" if at == "project" else f"registry={Registry.default().pk}"
+        )
+        headers = {"If-Match": '"1"'} if body is not None and suffix.endswith("/sec") else None
+        given = body(w) if callable(body) else body
+        return f"/lists/{LAB_LIST}{suffix}?{scope}", given, headers
+
+    return build
+
+
+def list_curator(w: World) -> tuple[Any, ...]:
+    from iki_server.org.models import Registry
+
+    return (
+        f"/registries/{Registry.default().pk}/list-curators/{LAB_LIST}/{w.users['viewer'].pk}",
+        None,
+    )
+
+
 def readers_of_entries(status: int, **overrides: int) -> dict[str, int]:
     """Who reads the entry: those who read a record of it; the rest get 404."""
     return readers(status, **overrides)
@@ -2080,6 +2110,74 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "DELETE",
         "/registries/{registry_id}/registrars/{user_id}",
         lambda w: (registry(f"/registrars/{w.users['viewer'].pk}")(w)[0], None),
+        row(403, org_admin=204),
+    ),
+    # --- Lab lists (ADR 0270): members read them; nobody here curates one ---
+    ("GET", "/lists", lambda w: (f"/lists?project={w.project.pk}", None), readers(200)),
+    ("GET", "/lists/{name}", lab_list(), readers(200)),
+    ("GET", "/lists/{name}/options", lab_list("/options"), readers(200)),
+    ("GET", "/lists/{name}/options/{code}", lab_list("/options/sec"), readers(200)),
+    (
+        "POST",
+        "/lists/{name}/options",
+        lab_list("/options", {"code": "hplc", "label": "HPLC"}, at="registry"),
+        row(403),
+    ),
+    (
+        "PATCH",
+        "/lists/{name}/options/{code}",
+        lab_list("/options/sec", {"label": "SEC", "reason": "Shorter"}, at="registry"),
+        row(403),
+    ),
+    (
+        "POST",
+        "/lists/{name}/options/{code}/archive",
+        lab_list("/options/sec/archive", {"reason": "Unused"}, at="registry"),
+        row(403),
+    ),
+    (
+        "POST",
+        "/lists/{name}/options/{code}/restore",
+        lab_list("/options/sec/restore", {"reason": "Used again"}, at="registry"),
+        row(403),
+    ),
+    (
+        "PUT",
+        "/lists/{name}/order",
+        lab_list(
+            "/order", {"codes": ["sec", "protein_a", "dialysis"], "reason": "x"}, at="registry"
+        ),
+        row(403),
+    ),
+    (
+        "POST",
+        "/lists/{name}/options/{code}/supersede",
+        lab_list(
+            "/options/sec/supersede", {"replacement": "dialysis", "reason": "x"}, at="registry"
+        ),
+        row(403),
+    ),
+    (
+        "POST",
+        "/lists/{name}/options/{code}/move",
+        lambda w: (
+            f"/lists/{LAB_LIST}/options/sec/move",
+            {"project": str(w.project.pk), "reason": "Superseded"},
+        ),
+        # It wasn't superseded, so there's nowhere to move its records.
+        editors(409),
+    ),
+    ("GET", "/registries/{registry_id}/list-curators", registry("/list-curators"), row(200)),
+    (
+        "PUT",
+        "/registries/{registry_id}/list-curators/{name}/{user_id}",
+        list_curator,
+        row(403, org_admin=201),
+    ),
+    (
+        "DELETE",
+        "/registries/{registry_id}/list-curators/{name}/{user_id}",
+        list_curator,
         row(403, org_admin=204),
     ),
     # Only its registrars list a registry's entries, and nobody here is one.

@@ -483,6 +483,11 @@ def test_the_first_admin_from_before_org_roles_becomes_an_org_admin() -> None:
     # the migrations back drop.
     with connection.cursor() as cursor:
         sync.drop_views(cursor)
+    # Before registries every entity was a project's: migrating back takes away the
+    # registry's entries, the lab lists' options the sync seeded (ADR 0270), and what refers
+    # to them. The test's transaction puts them back.
+    with connection.cursor() as cursor:
+        cursor.execute("TRUNCATE iki_entity CASCADE")
     executor = MigrationExecutor(connection)
     try:
         executor.migrate([("iki_accounts", "0001_initial"), ("iki_org", None)])

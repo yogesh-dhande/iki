@@ -15,6 +15,7 @@ import datetime as dt
 import math
 import uuid
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cache
 from typing import Any, cast
@@ -310,6 +311,41 @@ class Refs:
         #: Already looked up: what to store, why it can't be referred to, or None for
         #: nothing the caller can read.
         self._found: dict[uuid.UUID, Target | str | None] = {}
+        #: Lab lists' options no dropdown offers (ADR 0270), archived or superseded: by
+        #: their ID, their list's type and the option that replaced one.
+        self._retired: dict[uuid.UUID, tuple[str, uuid.UUID | None]] = {}
+        #: What the values being changed name already, which they may keep naming.
+        self._kept: set[uuid.UUID] = set()
+
+    @contextmanager
+    def keeping(self, kept: Iterable[Any]) -> Iterator[None]:
+        """Inside, the options ``kept`` names may be referred to, though they couldn't be
+        anew (ADR 0270): those a field names already, archived since."""
+        before = self._kept
+        self._kept = {uuid.UUID(str(k)) for k in kept if k is not None}
+        try:
+            yield
+        finally:
+            self._kept = before
+
+    def retired(self, entity_id: uuid.UUID) -> str | None:
+        """Why a value can't newly refer to a lab list's option: it's archived, or was
+        superseded. None if it can, or if the value names it already."""
+        found = self._retired.get(entity_id)
+        if found is None or entity_id in self._kept:
+            return None
+        type_name, replacement = found
+        listed = registry.types()[type_name]
+        if replacement is not None:
+            hrid = Entity.objects.filter(pk=replacement).values_list("hrid", flat=True).first()
+            return (
+                f"refers to an option of {listed.label_plural} that was superseded by "
+                f"{hrid}: choose that one."
+            )
+        return (
+            f"refers to an archived option of {listed.label_plural}: choose another, or ask "
+            "the list's curators to restore it."
+        )
 
     def expect(self, stand_in: uuid.UUID, type_name: str) -> None:
         """Takes ``stand_in`` as an entity of ``type_name`` not written yet: a create a bulk
@@ -336,7 +372,14 @@ class Refs:
         held: dict[uuid.UUID, str] = {}
         known: dict[uuid.UUID, str] = {}
         if entry_ids and self.entries is not None:
-            held = dict(self.entries.filter(pk__in=entry_ids).values_list("pk", "type"))
+            for pk, type_name, archived_at, superseded_by in self.entries.filter(
+                pk__in=entry_ids
+            ).values_list("pk", "type", "archived_at", "superseded_by"):
+                held[pk] = type_name
+                if archived_at is not None or superseded_by is not None:
+                    found_type = registry.types().get(type_name)
+                    if found_type is not None and found_type.is_list:
+                        self._retired[pk] = (type_name, superseded_by)
         if entry_ids - held.keys() and self.readable_entries is not None:
             known = dict(
                 self.readable_entries.filter(pk__in=entry_ids - held.keys()).values_list(
@@ -624,6 +667,9 @@ def _ref(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
         raise ValueError(refs.why_held(target) or "refers to no entity you can read.")
     if found.type not in referable(f):
         raise ValueError(f"must refer to {_one_of(f.to)}, not a {found.type}.")
+    retired = refs.retired(found.id)
+    if retired is not None:
+        raise ValueError(retired)
     return found.id
 
 

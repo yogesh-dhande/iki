@@ -41,6 +41,9 @@ idempotent, and works from the manifests the build installed
   state locks, whatever writes it. Tables that no longer need one lose it.
 - **Plugins' states** (ADR 0091): each plugin the lockfile installs, updates,
   detaches or reattaches is audited, by the deploy that does it.
+- **Lab lists' starting options** (ADR 0270): each registry gets those of its
+  plugins' lists it hasn't got, by code, at the end of each list. What its
+  curators did to the options it has is never undone.
 - **An analyst role**, if ``IKI_DB_ANALYST_ROLE`` names one. It gets
   read-only access to the views and the tables behind them, current values
   and history, and nothing else.
@@ -64,6 +67,7 @@ from iki_server.entities import (
     constraints,
     holds,
     hrids,
+    lists,
     registry,
     requests,
     states,
@@ -107,6 +111,8 @@ class Report:
     rules: list[str] = field(default_factory=list)
     #: Each type whose records were checked again.
     checked: list[breaches.Checked] = field(default_factory=list)
+    #: The lab lists that got starting options, and where (ADR 0270).
+    lists: list[str] = field(default_factory=list)
     analyst: str | None = None
 
 
@@ -149,6 +155,7 @@ def sync(analyst_role: str | None = None) -> Report:
         report.guards += requests.install_guards(cursor, requests.guarded_tables())
         report.views = _views(cursor)
         report.plugins = _states()
+        report.lists = lists.seed()
         report.checked = breaches.recheck()
         if analyst_role:
             for statement in _analyst_grants(analyst_role):
@@ -185,6 +192,7 @@ def describe(report: Report) -> list[str]:
         )
     lines += [f"  references' types in {table}" for table in report.targets]
     lines += [f"  plugin {change}" for change in report.plugins]
+    lines += [f"  starting options of {added}" for added in report.lists]
     lines += [f"  view {name}" for name in report.views]
     if report.analyst:
         lines.append(f"  {report.analyst} can read the views")

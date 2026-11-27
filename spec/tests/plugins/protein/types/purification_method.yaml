@@ -1,0 +1,22 @@
+apiVersion: iki/v1
+kind: EntityType
+name: PurificationMethod
+label: Purification method
+schema_version: 1
+description: How a prep was purified. A lab list (ADR 0270) the lab curates itself.
+hrid: { prefix: PUM }
+list:
+  options:
+    - code: protein_a
+      label: Protein A affinity
+      description: Captured on a Protein A column and eluted at low pH.
+      category: chromatography
+    - { code: sec, label: Size exclusion, category: chromatography }
+    - { code: dialysis, label: Dialysis }
+fields:
+  category: { type: ref, to: MethodCategory }
+  sop:
+    type: string
+    format: uri
+    label: SOP
+    description: The SOP the method follows.

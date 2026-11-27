@@ -165,7 +165,10 @@ def text(f: Mapping[str, Any], value: Any, row: Row) -> str:  # noqa: ANN401 - J
         return _number(_shown(f, value))
     if kind == "ref":
         found = row["refs"].get(str(value))
-        return str(found["hrid"]) if found else "An entity you can’t read"
+        if not found:
+            return "An entity you can’t read"
+        # A lab list's option by its code (ADR 0270), which a relabel doesn't change.
+        return str(found.get("code") or found["hrid"])
     if kind == "file":
         found = row["files"].get(str(value))
         return str(found["name"]) if found else "A file you can’t read"

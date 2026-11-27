@@ -147,6 +147,8 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "my_work",
         "list_projects",
         "list_lab_roles",
+        "list_lab_lists",
+        "list_lab_list_options",
         "find_files",
         "get_file",
         "get_file_download_link",

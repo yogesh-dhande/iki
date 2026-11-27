@@ -16,13 +16,15 @@ from django.db.models import Q, QuerySet
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
-from iki_server.org.models import Project, Registrar, Registry, Team, registry_of
+from iki_server.org.models import ListCurator, Project, Registrar, Registry, Team, registry_of
 from iki_server.org.services import Refused
 
 __all__ = [
     "appoint",
+    "appoint_curator",
     "create_registry",
     "dismiss",
+    "dismiss_curator",
     "for_team",
     "set_project_registry",
     "update_registry",
@@ -151,6 +153,52 @@ def dismiss(registry: Registry, user: User, *, by: User) -> bool:
                 actor=by,
                 target=registry,
                 data={"user": str(user.pk), "email": user.email},
+            )
+    return bool(removed)
+
+
+def appoint_curator(registry: Registry, list_type: str, user: User, *, by: User) -> bool:
+    """Makes someone a curator of one of the registry's lab lists (ADR 0270). True if they
+    weren't."""
+    from iki_server.entities import lists
+
+    entity_type = lists.list_type(list_type)
+    if not user.is_active:
+        raise Refused(f"{user.email} is deactivated.")
+    if user.is_service_account:
+        # A curator's change is a person's, with their reason, as a registrar's is.
+        raise Refused("A list's curator is a person: a service account can't be one.")
+    with transaction.atomic():
+        _, created = ListCurator.objects.get_or_create(
+            registry=registry, list_type=list_type, user=user, defaults={"appointed_by": by}
+        )
+        if created:
+            audit.record(
+                "registry.list_curator_appointed",
+                actor=by,
+                target=registry,
+                data={
+                    "list": entity_type.qualified_name,
+                    "user": str(user.pk),
+                    "email": user.email,
+                },
+            )
+    return created
+
+
+def dismiss_curator(registry: Registry, list_type: str, user: User, *, by: User) -> bool:
+    """Takes someone's curation of one of the registry's lab lists away. True if they had
+    it."""
+    with transaction.atomic():
+        removed, _ = ListCurator.objects.filter(
+            registry=registry, list_type=list_type, user=user
+        ).delete()
+        if removed:
+            audit.record(
+                "registry.list_curator_removed",
+                actor=by,
+                target=registry,
+                data={"list": list_type, "user": str(user.pk), "email": user.email},
             )
     return bool(removed)
 
