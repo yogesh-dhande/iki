@@ -5,7 +5,7 @@ name: OligoLot
 label: Oligonucleotide lot
 label_plural: Oligonucleotide lots
 extends: Lot
-schema_version: 2
+schema_version: 3
 description: >-
   A synthesis lot of an oligonucleotide: its scale and purification, its yield in OD
   and in nmol, its purity, and its mass by ESI-MS checked against the one its HELM
