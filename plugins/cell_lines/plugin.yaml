@@ -2,10 +2,11 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/cell_lines
-version: 0.3.0
+version: 0.4.0
 title: Cell lines
 description: >-
-  Registers parental lines and engineered derivatives. Tracks each bank, its vials,
+  Registers parental lines, catalogued or the lab's own, and engineered
+  derivatives. Tracks each bank, its vials,
   the cultures thawed and passaged from them, the bank's quality checks and the
   samples collected for analysis.
 license: Apache-2.0

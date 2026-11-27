@@ -1,5 +1,6 @@
 """Cell banking through the installed plugin and the same services as the API."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -105,7 +106,7 @@ def exercise_history() -> None:
         "passage_number": 5,
     }
     working = make("CellBank", name="Example working", **working_values)
-    with pytest.raises(Invalid, match="master bank of this cell line"):
+    with pytest.raises(Invalid, match="bank of this cell line"):
         make("CellBank", **{**working_values, "name": "Wrong line", "line": str(line.pk)})
 
     vial = make("CellVial", name="Example vial", bank=str(working.pk), contents=str(working.pk))
@@ -237,3 +238,193 @@ def exercise_history() -> None:
             editor, queries.Query(line.pk, "downstream", types=(PREFIX + "CellSample",))
         )
         assert [hrid for _, _, hrid in downstream.page(None, 100)] == [sample.hrid]
+    local_history(make, line, source, master, working, accepted)
+
+
+def local_history(
+    make: Callable[..., Entity],
+    line: Entity,
+    source: Entity,
+    master: Entity,
+    working: Entity,
+    accepted: Entity,
+) -> None:
+    """A lab's own line, a one-tier stock and cultures whose history began outside Iki.
+    Every local record and identifier here is synthetic."""
+    primary = make(
+        "ParentalLine", name="Donor 7 fibroblasts", catalogue="local", local_id="PRI-0007"
+    )
+    assert (
+        make("ParentalLine", name="Again", catalogue="local", local_id="PRI-0007").pk == primary.pk
+    )
+    for wrong in (
+        {"catalogue": "local"},
+        {"catalogue": "local", "local_id": "PRI-0008", "cellosaurus_id": "CVCL_0579"},
+        {"local_id": "PRI-0009"},
+    ):
+        with pytest.raises(Invalid, match="local line"):
+            make("ParentalLine", name="Wrong", **wrong)
+    adapted = make(
+        "EngineeredLine",
+        name="Donor 7 serum-free",
+        parent=str(primary.pk),
+        changes=[{"kind": "adaptation", "description": "Weaned to a serum-free medium"}],
+    )
+
+    # A single-tier stock of the catalogued line from its supplier, and one of a local
+    # line received with no passage history.
+    stock = make(
+        "CellBank",
+        name="WI-38 lab stock",
+        kind="stock",
+        line=str(line.pk),
+        catalogue_source=str(source.pk),
+        banked_on="2026-02-01",
+        passage_number=12,
+    )
+    received = make(
+        "CellBank",
+        name="Donor 7 serum-free stock",
+        kind="stock",
+        line=str(adapted.pk),
+        banked_on="2026-02-03",
+        passage_unknown=True,
+    )
+    with pytest.raises(Invalid, match="mark it unknown"):
+        make("CellBank", name="No passage", kind="stock", line=str(line.pk), banked_on="2026-02-01")
+    with pytest.raises(Invalid, match="mark it unknown"):
+        make(
+            "CellBank",
+            name="Both",
+            kind="stock",
+            line=str(line.pk),
+            banked_on="2026-02-01",
+            passage_number=4,
+            passage_unknown=True,
+        )
+    # A stock made from another of the line's banks follows it; a two-tier bank keeps its rules.
+    restock = {
+        "name": "WI-38 restock",
+        "kind": "stock",
+        "line": str(line.pk),
+        "source_bank": str(stock.pk),
+        "banked_on": "2026-02-10",
+        "passage_number": 14,
+    }
+    make("CellBank", **restock)
+    with pytest.raises(Invalid, match="known passage"):
+        make("CellBank", **{**restock, "passage_number": 11})
+    with pytest.raises(Invalid, match="bank of this cell line"):
+        make("CellBank", **{**restock, "line": str(primary.pk)})
+    with pytest.raises(Invalid, match="working bank's source is a master bank"):
+        make(
+            "CellBank",
+            name="Working from stock",
+            kind="working",
+            line=str(line.pk),
+            source_bank=str(stock.pk),
+            banked_on="2026-02-10",
+            passage_number=14,
+        )
+    with pytest.raises(Invalid, match="working bank needs its master"):
+        make(
+            "CellBank",
+            name="Orphan",
+            kind="working",
+            line=str(line.pk),
+            banked_on="2026-02-10",
+            passage_number=14,
+        )
+    with pytest.raises(Invalid, match="master bank has no source"):
+        make(
+            "CellBank",
+            name="Sourced master",
+            kind="master",
+            line=str(line.pk),
+            source_bank=str(master.pk),
+            banked_on="2026-02-10",
+            passage_number=14,
+        )
+    with pytest.raises(Invalid, match="master bank or stock"):
+        make(
+            "CellBank",
+            name="Catalogue working",
+            kind="working",
+            line=str(line.pk),
+            source_bank=str(master.pk),
+            catalogue_source=str(source.pk),
+            banked_on="2026-02-10",
+            passage_number=14,
+        )
+
+    # A vial of the received stock thaws at an unknown passage, and stays unknown.
+    vial = make("CellVial", name="Donor 7 vial", bank=str(received.pk), contents=str(received.pk))
+    thaw = {
+        "event": "thaw",
+        "bank": str(received.pk),
+        "vial": str(vial.pk),
+        "event_on": "2026-02-04",
+    }
+    with pytest.raises(Invalid, match="frozen passage"):
+        make("CellCulture", **thaw, passage_number=3)
+    thawed = make("CellCulture", **thaw, passage_unknown=True)
+    after = {
+        "event": "passage",
+        "bank": str(received.pk),
+        "parent_culture": str(thawed.pk),
+        "event_on": "2026-02-06",
+    }
+    with pytest.raises(Invalid, match="increments passage"):
+        make("CellCulture", **after, passage_number=1)
+    make("CellCulture", **after, passage_unknown=True)
+
+    # A culture received growing names its line and starts the history without a parent.
+    start = {
+        "event": "start",
+        "line": str(primary.pk),
+        "event_on": "2026-02-05",
+        "passage_number": 4,
+    }
+    started = make("CellCulture", **start)
+    for wrong in (
+        {"vial": str(vial.pk)},
+        {"parent_culture": str(thawed.pk)},
+    ):
+        with pytest.raises(Invalid, match="started outside Iki has neither"):
+            make("CellCulture", **start, **wrong)
+    with pytest.raises(Invalid, match="names its line instead"):
+        make("CellCulture", **{**start, "bank": str(stock.pk)})
+    with pytest.raises(Invalid, match="names its line instead"):
+        make("CellCulture", event="start", event_on="2026-02-05", passage_number=4)
+    # A passage keeps its parent's bank or line: one from a banked thaw can't name a line.
+    with pytest.raises(Invalid, match="parent's line"):
+        make(
+            "CellCulture",
+            **{
+                **after,
+                "bank": None,
+                "line": str(primary.pk),
+                "parent_culture": str(thawed.pk),
+                "passage_number": 5,
+            },
+        )
+    # Its check cites a bank, which it has none of.
+    with pytest.raises(Invalid, match="final STR check"):
+        make("CellCulture", **start, str_check=str(accepted.pk))
+    grown = {
+        "event": "passage",
+        "line": str(primary.pk),
+        "parent_culture": str(started.pk),
+        "event_on": "2026-02-07",
+        "passage_number": 5,
+    }
+    make("CellCulture", **grown)
+    with pytest.raises(Invalid, match="parent's line"):
+        make("CellCulture", **{**grown, "line": str(adapted.pk)})
+    with pytest.raises(Invalid, match="parent's line"):
+        make("CellCulture", **{**grown, "passage_number": 7})
+    # A culture started from a bank before Iki keeps its bank and banking date.
+    from_bank = {"event": "start", "bank": str(working.pk), "passage_number": 9}
+    make("CellCulture", **from_bank, event_on="2026-01-20")
+    with pytest.raises(Invalid, match="on or after its banking date"):
+        make("CellCulture", **from_bank, event_on="2026-01-01")

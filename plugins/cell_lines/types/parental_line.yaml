@@ -2,20 +2,48 @@ apiVersion: iki/v1
 kind: EntityType
 name: ParentalLine
 label: Parental cell line
-schema_version: 1
-description: A catalogue line registered by its primary Cellosaurus accession.
+schema_version: 2
+description: >-
+  A cell line registered by its primary Cellosaurus accession, or by the lab's own
+  accession for a line Cellosaurus doesn't list, such as a primary line established
+  in the lab.
 hrid: { prefix: PCL }
-identity: [cellosaurus_id]
+identity: [catalogue, cellosaurus_id, local_id]
 fields:
   name: { type: string, required: true, indexed: true, max_length: 255 }
+  catalogue:
+    type: enum
+    label: Registered in
+    values: [cellosaurus, local]
+    required: true
+    immutable: true
+    default: cellosaurus
+    indexed: true
+    description: Cellosaurus for a catalogued line, local for one the lab identifies itself.
   cellosaurus_id:
     type: string
     label: Cellosaurus accession
-    required: true
     immutable: true
     indexed: true
     max_length: 9
     pattern: "^CVCL_[A-Z0-9]{4}$"
     link: "https://www.cellosaurus.org/{value}"
+  local_id:
+    type: string
+    label: Local accession
+    immutable: true
+    indexed: true
+    max_length: 64
+    pattern: "^[^\\s]+$"
+    pattern_help: the lab's identifier for the line, without spaces, such as PRI-0042
+rules:
+  accession_for_catalogue:
+    label: Accession matches where it's registered
+    check: >-
+      record.catalogue == "cellosaurus" ?
+      record.cellosaurus_id != null && record.local_id == null :
+      record.local_id != null && record.cellosaurus_id == null
+    message: A Cellosaurus line has its accession. A local line has the lab's accession and no Cellosaurus ID.
+    fields: [cellosaurus_id, local_id]
 display:
   title: "{{ name }}"

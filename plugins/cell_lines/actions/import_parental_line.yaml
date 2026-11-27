@@ -3,12 +3,16 @@ kind: Action
 name: import_parental_line
 label: Register a parental line from Cellosaurus
 description: >-
-  Reads one Cellosaurus text record and checks that the supplier and catalogue
-  number on the project's material appear together among its cross-references.
+  Reads one Cellosaurus text record. With a supplier and catalogue number, checks
+  that they appear together among its cross-references and registers that source
+  too. Without them, registers the line alone.
 params:
   file: { type: file, required: true, media_types: [text/plain], max_size: 2MiB }
-  supplier: { type: string, required: true, max_length: 128 }
-  catalogue_id: { type: string, required: true, max_length: 128 }
+  supplier:
+    type: string
+    max_length: 128
+    description: The supplier of the project's material, such as ATCC, with its catalogue number.
+  catalogue_id: { type: string, max_length: 128, label: Catalogue number }
 effects:
   creates: [{ type: ParentalLine }, { type: CellLineSource }]
 runs_on: { tier: backend, environment: cell-line-tools }

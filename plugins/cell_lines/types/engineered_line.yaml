@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: EngineeredLine
 label: Engineered cell line
-schema_version: 1
+schema_version: 2
 description: A local derivative with its parent and the changes documented for this clone.
 hrid: { prefix: ECL }
 fields:
@@ -28,7 +28,24 @@ fields:
     items:
       type: row
       fields:
-        kind: { type: enum, values: [knock_out, knock_in, stable_transfection], required: true }
+        kind:
+          type: enum
+          values:
+            [
+              knock_out,
+              knock_in,
+              stable_transfection,
+              transduction,
+              immortalization,
+              adaptation,
+              selection,
+              other,
+            ]
+          required: true
+          description: >-
+            The kind of change. Adaptation is to new culture conditions, such as suspension
+            or serum-free growth; selection is for a trait, such as drug resistance. Choose
+            Other for a change the lab documents in its own terms.
         description: { type: string, max_length: 500, required: true }
 rules:
   source_matches_parent:
