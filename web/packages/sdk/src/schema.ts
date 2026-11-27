@@ -11270,6 +11270,11 @@ export interface components {
              * @description What keeps it from being applied.
              */
             problems: string[];
+            /**
+             * Signing Keys
+             * @description The signing keys it brings that this deployment doesn't trust yet: importing trusts each for the signatures it brings, and records it in the audit log. None can sign for this deployment.
+             */
+            signing_keys: components["schemas"]["ImportSigningKey"][];
             /** Types */
             types: components["schemas"]["ImportType"][];
         };
@@ -11288,6 +11293,24 @@ export interface components {
             progress: number | null;
             /** Status */
             status: string;
+        };
+        /** ImportSigningKey */
+        ImportSigningKey: {
+            /**
+             * Deployment
+             * @description The deployment it signs for, as the bundle says.
+             */
+            deployment: string;
+            /**
+             * Key
+             * @description The Ed25519 public key, as signatures name it.
+             */
+            key: string;
+            /**
+             * Source
+             * @description Whether that's the deployment the bundle is from; otherwise one it vouches for.
+             */
+            source: boolean;
         };
         /** ImportSource */
         ImportSource: {
