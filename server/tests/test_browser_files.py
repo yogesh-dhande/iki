@@ -5,7 +5,9 @@ file's page with what it states and its read groups; Used by links to the record
 revisions that held a file; uploading files with when their data was acquired; the file
 picker in an entity form. Each passes axe in both themes and fits a phone's width."""
 
+import datetime as dt
 import re
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -13,6 +15,7 @@ from org_world import World
 from playwright.sync_api import Page, expect
 from test_browser import (  # noqa: F401 - fixtures
     _orm_beside_playwright,
+    _stored_file,
     assert_clean,
     browser,
     browser_name,
@@ -32,6 +35,7 @@ from iki_server.files.models import File
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app]
 
+ABIF = Path(__file__).parent / "data" / "abif"
 NO_SIDEWAYS_SCROLL = "document.documentElement.scrollWidth - window.innerWidth <= 1"
 STRUCTURE = "acme/protein.ProteinStructure"
 
@@ -238,7 +242,6 @@ def test_finding_a_projects_files_by_name_format_and_acquisition(
     # Acquired from March on: the instrument's date, not when it was added.
     page.get_by_role("button", name="Filters").click()
     filters = page.get_by_role("group", name="Filters")
-    # Found by role and text, not label: Firefox crashes on labels after axe.
     filters.locator("label", has_text="Acquired from").locator("input").fill("2026-03-01")
     page.wait_for_url(re.compile(r"acquired_from=2026-03-01"))
     expect(table.locator("tbody tr")).to_have_count(1)
@@ -349,9 +352,15 @@ def test_finding_files_by_the_instrument_and_operator_they_state(
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
 def test_used_by_links_to_the_records_and_revisions_that_held_a_file(
-    open_as: Any, world: World, color_scheme: str
+    open_as: Any, world: World, color_scheme: str, _s3_endpoint: str, _s3_bucket: str
 ) -> None:
     files = a_plate(world)
+    # A trace as an upload leaves it, its bytes in the store: its page reads them to draw it.
+    trace = _stored_file(world, _s3_endpoint, _s3_bucket, ABIF / "3730.ab1", "application/x-abi")
+    trace.acquired_on = dt.date(2009, 12, 12)
+    trace.acquired_at = "2009-12-12T09:56:53"
+    trace.acquired_from = "abif"
+    trace.save()
     record = held(world, files["pdb"])
     page = open_as("admin", "/projects/kinase-atlas/files/", color_scheme)
     page.get_by_role("link", name="1 record").click()
@@ -374,14 +383,16 @@ def test_used_by_links_to_the_records_and_revisions_that_held_a_file(
     page.go_back()
     records.locator("a.list-name").click()
     page.wait_for_url(re.compile(rf"/entities/{record.pk}/$"))
+    page.get_by_role("heading", level=1, name=record.hrid).wait_for()
 
     # A trace whose format records it says when, and how that's known.
-    page.goto(f"/files/{files['a01'].pk}/")
-    page.get_by_role("heading", level=1, name="A01_clone-17-F.ab1").wait_for()
+    page.goto(f"/files/{trace.pk}/")
+    page.get_by_role("heading", level=1, name="3730.ab1").wait_for()
     expect(page.locator(".file-facts")).to_contain_text(
-        "2026-03-14 09:21:07 from the ABIF trace’s run start (RUND and RUNT)"
+        "2009-12-12 09:56:53 from the ABIF trace’s run start (RUND and RUNT)"
     )
     page.get_by_text("No record you can read holds it.").wait_for()
+    expect(page.get_by_text("Q20 or better")).to_be_visible()
     assert_clean(page)
 
     # Search everything finds files by part of their name, and opens one.
@@ -413,7 +424,6 @@ def test_uploading_files_to_a_project_saying_when_their_data_was_acquired(
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
     page.set_viewport_size({"width": 1440, "height": 900})
-    # Found by its type, not its label: Firefox crashes on labels after axe.
     dialog.locator("input[type=date]").fill("2026-03-14")
     dialog.get_by_role("button", name="Upload it").click()
     page.get_by_text("Added plate-7.csv.").wait_for()

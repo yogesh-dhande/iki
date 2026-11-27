@@ -76,9 +76,8 @@ def batch(world: World) -> dict[str, Entity]:
 
 
 def checked(page: Page) -> None:
-    """axe, as on every page; Playwright's Firefox crashes in axe on pages with
-    `aria-labelledby` (see assert_clean), and the DOM is the same in every browser."""
-    assert_clean(page, axe_in_firefox=False)
+    """axe and the page's errors, as on every page."""
+    assert_clean(page)
 
 
 def fits_a_phone(page: Page) -> None:
@@ -264,7 +263,6 @@ def test_new_tubes_are_put_away_with_their_volumes_and_a_changed_record_is_broug
     page.get_by_role("button", name="Edit as sheet").click()
     grid = page.get_by_role("grid", name="Editing tubes as a sheet")
     grid.wait_for()
-    # By CSS: Playwright's Firefox crashes working out roles inside a named grid.
     headings = page.locator('[role="columnheader"]').all_inner_texts()
     location, volume = headings.index("Location"), headings.index("Volume (uL)")
     barcode = headings.index("Barcode")
