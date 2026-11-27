@@ -7,6 +7,11 @@
  * the active option, which the box names with `aria-activedescendant`. ↵ opens it, ⌘↵
  * (Ctrl+↵) opens it in a new tab, and Esc closes the palette, putting focus back where
  * it was. The dialog keeps focus inside it while it's open.
+ *
+ * While the answer shown is for other text (or another kind) than what's in the box, as
+ * it is while typing pauses and the next answer is on its way, nothing in it is active:
+ * ↵ waits for the answer to what was typed and opens its first result, and ⌘↵, which a
+ * browser only lets open a tab straight away, does nothing.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -30,7 +35,6 @@ import {
   KIND_LABELS,
   MIN_TEXT,
   RESULT_LABELS,
-  resultHref,
   SEARCH_EVENT,
   searchQuery,
   shownTotal,
@@ -131,12 +135,18 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
     in: null,
     index: 0,
   });
-  const q = useDebounced(text.trim().replace(/\s+/g, " "), DEBOUNCE_MS);
+  // ↵ pressed before the answer to what was typed came: it opens that answer's first.
+  const waiting = useRef(false);
+  const typed = text.trim().replace(/\s+/g, " ");
+  const q = useDebounced(typed, DEBOUNCE_MS);
   const answer = useQuery(searchQuery(q, kind));
   // The kinds' counts come from searching all of them: a kind chosen keeps them.
   const everyKind = useQuery({ ...searchQuery(q, null), enabled: kind !== null && q !== "" });
   const data: SearchAnswer | undefined = answer.data;
   const current = data?.q === q;
+  // Whether what's shown answers what's in the box, for the kind chosen: only then does
+  // anything in it open from the keyboard.
+  const settled = current && typed === q && !answer.isPlaceholderData;
 
   // It opens to type into; ⌘K again, while it's open, starts over from what's typed.
   useEffect(() => {
@@ -161,7 +171,7 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
     },
     [rows],
   );
-  const activeRow = rows[active];
+  const activeRow = settled ? rows[active] : undefined;
   useEffect(() => {
     if (!activeRow) return;
     document.getElementById(activeRow.id)?.scrollIntoView({ block: "nearest" });
@@ -179,15 +189,25 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
     [onOpen],
   );
 
+  useEffect(() => {
+    if (!waiting.current) return;
+    if (answer.isError) waiting.current = false;
+    if (!settled || answer.isFetching) return;
+    waiting.current = false;
+    go(rows[0], false);
+  }, [settled, answer.isFetching, answer.isError, rows, go]);
+
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      if (!rows.length) return;
+      if (!settled || !rows.length) return;
       const step = event.key === "ArrowDown" ? 1 : -1;
       setActive((active + step + rows.length) % rows.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      go(activeRow, event.metaKey || event.ctrlKey);
+      const newTab = event.metaKey || event.ctrlKey;
+      if (settled) go(activeRow, newTab);
+      else if (!newTab) waiting.current = true;
     }
   }
 
@@ -231,6 +251,7 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
           placeholder="Search records, requests, runs, projects, people"
           onChange={(event) => {
             setText(event.target.value);
+            waiting.current = false;
           }}
           onKeyDown={onKeyDown}
         />
@@ -254,6 +275,7 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
                 aria-pressed={kind === p.kind}
                 onClick={() => {
                   setKind(p.kind);
+                  waiting.current = false;
                   input.current?.focus();
                 }}
               >
@@ -271,6 +293,7 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
         role="listbox"
         id={listbox}
         aria-label={q ? `Results for ${q}` : "Recent"}
+        aria-busy={!settled}
       >
         {recent.length ? (
           <ResultGroup
@@ -338,12 +361,12 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
 function rowsOf(id: string, groups: SearchGroup[], recent: SearchResult[]): Row[] {
   const rows: Row[] = recent.map((r) => ({
     id: `${id}-recent-${r.kind}-${r.id}`,
-    href: resultHref(r),
+    href: r.href,
     result: r,
   }));
   for (const g of groups) {
     for (const r of g.items) {
-      rows.push({ id: `${id}-${g.kind}-${r.id}`, href: resultHref(r), result: r });
+      rows.push({ id: `${id}-${g.kind}-${r.id}`, href: r.href, result: r });
     }
     const shown = g.items.length;
     if (g.href && g.total !== null && (g.total > shown || g.more_than_total)) {

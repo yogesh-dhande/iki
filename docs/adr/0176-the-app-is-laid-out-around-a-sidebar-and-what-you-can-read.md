@@ -369,3 +369,17 @@ No page loads fonts or scripts from outside the deployment.
   lists only the people whose revisions the reader is told about. On an
   entry's revisions, a person filter matches only those revisions, except
   for registrars, who see every revision.
+
+## Amendment (2026-11-27). A found saved view opens from its own address, and ↵ opens what was typed
+
+- **Search everything opens a saved view where the sidebar does,** from
+  `/saved-searches/<id>/`: its project's grid, or All entities, searching as
+  it was saved, and one the grid can't show on the page that says so. A
+  result's `href` is that address; its `query` is still the search, for API
+  callers. It used to open such a search on the bare grid, which showed every
+  record without its conditions.
+- **The palette acts only on the answer to what's in its box.** While the
+  results shown are for earlier text, or another kind, none is active: ↵
+  waits for the answer to what was typed and opens its first result, and
+  ⌘↵ (Ctrl+↵), which a browser lets open a tab only at once, does nothing.
+  Changing the text or the kind forgets a ↵ that was waiting.

@@ -9,7 +9,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { Schemas } from "@ikisci/sdk";
 
@@ -255,6 +255,32 @@ describe("what it lists", () => {
     expect(router.state.location.search).toEqual({ q: "ampicillin", show: "all" });
   });
 
+  it("keeps a search the grid can't show on its own page, saying so", async () => {
+    signedIn();
+    const atlas = project();
+    answer("GET /api/v1/projects", page([atlas]));
+    answer(`GET /api/v1/projects/${atlas.id}`, atlas);
+    answer(
+      "GET /api/v1/saved-searches/00000000-0000-7000-8000-0000000000s1",
+      saved({ query: { type: "acme/protein.Protein", exact_type: true } }),
+    );
+    const { router } = await renderApp("/saved-searches/00000000-0000-7000-8000-0000000000s1/");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Ampicillin plasmids" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/conditions the grid can’t show, so it can’t open there/),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "in Kinase Atlas" })).toHaveAttribute(
+      "href",
+      "/projects/kinase-atlas/entities/",
+    );
+    expect(router.state.location.pathname).toBe(
+      "/saved-searches/00000000-0000-7000-8000-0000000000s1/",
+    );
+    expect(calls("POST", "/api/v1/entities/search")).toEqual([]);
+  });
+
   it("opens a search of every project on All entities", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([project()]));
@@ -368,6 +394,11 @@ describe("the drawer", () => {
 });
 
 describe("search everything", () => {
+  beforeAll(() => {
+    // jsdom lays nothing out, so it has nothing to scroll the palette's results into view.
+    Element.prototype.scrollIntoView = () => undefined;
+  });
+
   it("opens the palette from its button, as ⌘K and Ctrl+K do: once each", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([]));
@@ -399,5 +430,52 @@ describe("search everything", () => {
     } finally {
       window.removeEventListener("iki:search", asked);
     }
+  });
+
+  it("opens a saved view found where the sidebar does, in the app", async () => {
+    signedIn();
+    const atlas = project();
+    const view = saved({ query: { type: "acme/protein.Protein", exact_type: true } });
+    const href = `/saved-searches/${view.id}/`;
+    answer("GET /api/v1/projects", page([atlas]));
+    answer(`GET /api/v1/projects/${atlas.id}`, atlas);
+    answer(`GET /api/v1/saved-searches/${view.id}`, view);
+    answer("GET /api/v1/search", (sent: { query: URLSearchParams }) => ({
+      q: sent.query.get("q") ?? "",
+      groups: [
+        {
+          kind: "saved_views",
+          label: "Saved views",
+          total: 1,
+          more_than_total: false,
+          href: null,
+          items: [
+            {
+              kind: "saved_view",
+              id: view.id,
+              hrid: null,
+              title: view.name,
+              detail: "Yours",
+              type: null,
+              projects: [{ id: atlas.id, name: atlas.name, slug: atlas.slug }],
+              href,
+              query: view.query,
+            },
+          ],
+        },
+      ],
+      searched_records: true,
+      recent: [],
+      projects_readable: 1,
+    }));
+    const { router, user } = await renderApp("/projects/");
+    await user.click(screen.getByRole("button", { name: "Search everything" }));
+    await user.type(await screen.findByRole("combobox"), "ampicillin");
+    await user.click(await screen.findByRole("option", { name: /Ampicillin plasmids/ }));
+    expect(
+      await screen.findByText(/conditions the grid can’t show, so it can’t open there/),
+    ).toBeVisible();
+    // In the app, not a page load: the router went there.
+    expect(router.state.location.pathname).toBe(href);
   });
 });

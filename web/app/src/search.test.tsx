@@ -15,7 +15,6 @@ import {
   bindSearchShortcut,
   isSearchShortcut,
   openSearch,
-  resultHref,
   SEARCH_EVENT,
   type SearchAnswer,
   type SearchGroup,
@@ -91,7 +90,7 @@ const SAVED = result({
   title: "Lysozyme work",
   detail: "Shared with the project",
   type: null,
-  href: "/projects/kinase-atlas/entities/",
+  href: "/saved-searches/00000000-0000-7000-8000-00000000e004/",
   query: { type: "acme/protein.Protein", q: "lysozyme" },
 });
 
@@ -115,12 +114,18 @@ const RECENT = found("", [], {
   ],
 });
 
-function answerSearch() {
-  answer("GET /api/v1/search", (sent: { query: URLSearchParams }) => {
+/** Answers the palette's searches. An answer `held` for some text (or `kind=…`) waits until
+ * the test lets it go, as a slow server's would. */
+function answerSearch(held = new Map<string, Promise<void>>()) {
+  answer("GET /api/v1/search", async (sent: { query: URLSearchParams }) => {
     const q = sent.query.get("q") ?? "";
+    await (held.get(q) ?? held.get(`kind=${sent.query.get("kind") ?? ""}`));
     if (q === "") return RECENT;
     if (sent.query.get("kind") === "requests") {
       return found(q, [group("requests", [REQUEST], { href: "/requests/?q=lys" })]);
+    }
+    if (q === "lysozyme b") {
+      return found(q, [group("entities", [LYSOZYME_B], { href: "/entities/?q=lysozyme+b" })]);
     }
     if (q === "ly") {
       return found("ly", [group("projects", []), group("saved_views", [SAVED])], {
@@ -270,6 +275,101 @@ describe("search everything", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
+  it("opens nothing of the last text's answer when ↵ comes straight after new text", async () => {
+    answerSearch();
+    const opening = vi.spyOn(window, "open").mockReturnValue(null);
+    const { user, navigate } = renderPalette();
+    act(openSearch);
+    const box = await opened();
+    await user.type(box, "lys");
+    await screen.findByRole("group", { name: "Entities" });
+    await user.clear(box);
+    await user.paste("nothing");
+    // Lysozyme B is still shown, from the answer to "lys", but isn't what was typed.
+    expect(screen.getByRole("option", { name: /PRT-000014/ })).toBeInTheDocument();
+    expect(box).not.toHaveAttribute("aria-activedescendant");
+    expect(screen.getByRole("listbox")).toHaveAttribute("aria-busy", "true");
+    await user.keyboard("{Enter}{Meta>}{Enter}{/Meta}{ArrowDown}");
+    expect(await screen.findByText("Nothing you can read matches “nothing”.")).toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(opening).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("opens the first of what was typed when ↵ comes before its answer", async () => {
+    let release: () => void = () => undefined;
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    answerSearch(new Map([["lysozyme b", slow]]));
+    const { user, navigate } = renderPalette();
+    act(openSearch);
+    const box = await opened();
+    await user.type(box, "lys");
+    await screen.findByRole("group", { name: "Entities" });
+    await user.clear(box);
+    await user.paste("lysozyme b");
+    await user.keyboard("{Enter}");
+    await waitFor(() => {
+      expect(calls("GET", "/api/v1/search").at(-1)?.query.get("q")).toBe("lysozyme b");
+    });
+    // Asked, but not answered: the last answer's first, Lysozyme B, waits too.
+    expect(screen.getByRole("listbox")).toHaveAttribute("aria-busy", "true");
+    expect(navigate).not.toHaveBeenCalled();
+    act(release);
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith("/entities/PRT-000014/?project=enzymes");
+    });
+    expect(navigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the kind chosen's first when ↵ comes before its answer", async () => {
+    let release: () => void = () => undefined;
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    answerSearch(new Map([["kind=requests", slow]]));
+    const { user, navigate } = renderPalette();
+    act(openSearch);
+    const box = await opened();
+    await user.type(box, "lys");
+    await screen.findByRole("group", { name: "Entities" });
+    await user.click(screen.getByRole("button", { name: "Requests1" }));
+    await user.keyboard("{Enter}");
+    // The entities still shown are the answer for every kind, not for requests.
+    expect(screen.getByRole("group", { name: "Entities" })).toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+    act(release);
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith("/entities/ARQ-000004/");
+    });
+    expect(navigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("forgets a waiting ↵ once the text changes again", async () => {
+    let release: () => void = () => undefined;
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    answerSearch(new Map([["lysozyme b", slow]]));
+    const { user, navigate } = renderPalette();
+    act(openSearch);
+    const box = await opened();
+    await user.type(box, "lysozyme b");
+    await user.keyboard("{Enter}");
+    await waitFor(() => {
+      expect(calls("GET", "/api/v1/search").at(-1)?.query.get("q")).toBe("lysozyme b");
+    });
+    await user.type(box, "x");
+    act(release);
+    const listbox = await screen.findByRole("listbox", { name: "Results for lysozyme bx" });
+    await waitFor(() => {
+      expect(listbox).toHaveAttribute("aria-busy", "false");
+    });
+    expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it("narrows to one kind with its pill, asking for that kind alone", async () => {
     answerSearch();
     const { user } = renderPalette();
@@ -367,14 +467,47 @@ describe("the shortcut", () => {
 });
 
 describe("where results open", () => {
-  it("opens a saved view in its project's grid as it was saved", () => {
-    expect(resultHref(SAVED)).toBe(
-      "/projects/kinase-atlas/entities/?type=acme%2Fprotein.Protein&show=all&q=lysozyme",
-    );
-    // One the grid can't show opens the grid.
+  it("opens a saved view from its own address, as the sidebar does", async () => {
+    // Exact type alone, and either of two conditions: searches the grid can't show. Its
+    // address says so, rather than opening the grid without them.
+    const unshown = result({
+      ...SAVED,
+      id: "00000000-0000-7000-8000-00000000e005",
+      title: "Lysozymes, this type only",
+      href: "/saved-searches/00000000-0000-7000-8000-00000000e005/",
+      query: { exact_type: true, type: "acme/protein.Protein" },
+    });
+    const either = result({
+      ...SAVED,
+      id: "00000000-0000-7000-8000-00000000e006",
+      title: "Lysozymes, either assay",
+      href: "/saved-searches/00000000-0000-7000-8000-00000000e006/",
+      query: {
+        where: {
+          any: [
+            { field: "assay", op: "eq", value: "purity" },
+            { field: "assay", op: "eq", value: "activity" },
+          ],
+        },
+      },
+    });
+    answer("GET /api/v1/search", (sent: { query: URLSearchParams }) => {
+      const q = sent.query.get("q") ?? "";
+      return q ? found(q, [group("saved_views", [SAVED, unshown, either])]) : RECENT;
+    });
+    const { user, navigate } = renderPalette();
+    act(openSearch);
+    await user.type(await opened(), "lysozyme");
+    const views = await screen.findByRole("group", { name: "Saved views" });
+    await waitFor(() => {
+      expect(screen.getByRole("listbox")).toHaveAttribute("aria-busy", "false");
+    });
     expect(
-      resultHref({ ...SAVED, query: { exact_type: true, type: "acme/protein.Protein" } }),
-    ).toBe("/projects/kinase-atlas/entities/");
-    expect(resultHref(LYSOZYME)).toBe(LYSOZYME.href);
+      within(views)
+        .getAllByRole("option")
+        .map((o) => o.getAttribute("href")),
+    ).toEqual([SAVED.href, unshown.href, either.href]);
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(navigate).toHaveBeenCalledWith("/saved-searches/00000000-0000-7000-8000-00000000e005/");
   });
 });

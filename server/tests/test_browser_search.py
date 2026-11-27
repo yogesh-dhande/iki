@@ -107,6 +107,47 @@ def test_the_palette_finds_what_you_read_across_projects_and_opens_it(
     assert_clean(page)
 
 
+def test_enter_straight_after_new_text_opens_what_was_typed(open_as: Any, world: World) -> None:
+    """↵ pressed while the last text's answer is still shown waits for the answer to what was
+    typed, and opens its first: the record named, not the last answer's first."""
+    made = lysozymes(world)
+    page = open_as("admin", "/projects/")
+    dialog = search_for(page, "lysozyme")
+    found = dialog.get_by_role("group", name="Entities").get_by_role("option")
+    expect(found.first).to_contain_text(made["b"].hrid)
+    box = dialog.get_by_role("combobox")
+    box.fill(made["c"].hrid)
+    page.keyboard.press("Enter")
+    page.get_by_role("heading", level=1, name="Lysozyme C").wait_for()
+    assert made["c"].hrid in page.url
+    # Text that finds nothing opens nothing, however quickly ↵ follows it.
+    dialog = search_for(page, "lysozyme")
+    dialog.get_by_role("combobox").fill("nothing like it")
+    page.keyboard.press("Enter")
+    expect(dialog).to_contain_text("Nothing you can read matches “nothing like it”.")
+    expect(dialog).to_be_visible()
+    assert made["c"].hrid in page.url
+
+
+def test_a_saved_view_the_grid_cant_show_opens_on_its_own_page(open_as: Any, world: World) -> None:
+    SavedSearch.objects.create(
+        project=world.project,
+        name="Proteins of this type only",
+        query={"type": "acme/protein.Protein", "exact_type": True},
+        created_by=world.users["admin"],
+    )
+    page = open_as("admin", "/projects/")
+    dialog = open_palette(page)
+    dialog.get_by_role("combobox").fill("this type only")
+    view = dialog.get_by_role("group", name="Saved views").get_by_role("option")
+    expect(view).to_contain_text("Proteins of this type only")
+    page.keyboard.press("Enter")
+    page.get_by_role("heading", level=1, name="Proteins of this type only").wait_for()
+    explained = page.get_by_text("conditions the grid can’t show, so it can’t open there")
+    expect(explained).to_be_visible()
+    assert "/saved-searches/" in page.url
+
+
 @pytest.mark.parametrize("focus_link", [False, True], ids=["disclosure", "child-link"])
 def test_open_sidebar_section_keeps_focus_when_saved_views_arrive(
     open_as: Any, world: World, focus_link: bool
