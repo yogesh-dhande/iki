@@ -18,8 +18,11 @@ expect:
         key: line
         values: { name: WI-38, catalogue: cellosaurus, cellosaurus_id: CVCL_0579 }
         origin: { source: Cellosaurus, id: CVCL_0579 }
+      - type: iki/inventory.Supplier
+        key: supplier
+        values: { name: ATCC }
       - type: iki/cell_lines.CellLineSource
-        values: { supplier: ATCC, catalogue_id: CCL-75, line: { $create: line } }
+        values: { supplier: { $create: supplier }, catalogue_id: CCL-75, line: { $create: line } }
 ---
 apiVersion: iki/v1
 kind: ActionTest
@@ -37,8 +40,12 @@ expect:
       - type: iki/cell_lines.ParentalLine
         key: line
         values: { name: WI-38, catalogue: cellosaurus, cellosaurus_id: CVCL_0579 }
+      - type: iki/inventory.Supplier
+        key: supplier
+        values: { name: Coriell }
       - type: iki/cell_lines.CellLineSource
-        values: { supplier: Coriell, catalogue_id: AG06814-J, line: { $create: line } }
+        values:
+          { supplier: { $create: supplier }, catalogue_id: AG06814-J, line: { $create: line } }
 ---
 apiVersion: iki/v1
 kind: ActionTest

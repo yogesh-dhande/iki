@@ -1,13 +1,17 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# One list for every kind of lot, so a search for lots whose purity is by SEC-HPLC, or by
+# RP-HPLC, finds each kind that has one. How a lot is purified is a list of its own, such
+# as an oligonucleotide lot's purification: this one is how its purity was measured.
 apiVersion: iki/v1
 kind: EntityType
 name: PurityMethod
 label: Purity method
 schema_version: 1
 description: >-
-  How a protein, complex or conjugate lot's purity is measured: the separation whose
-  main species' share of the area it is. A lab list (ADR 0270).
-hrid: { prefix: BPM }
+  How a lot's purity is measured: the separation or measurement whose main species'
+  share it is. One list for every kind of lot. A lab list (ADR 0270).
+hrid: { prefix: LPM }
 list:
   options:
     - code: sec
@@ -21,7 +25,25 @@ list:
       description: Capillary electrophoresis in SDS after reduction, its chains' peaks together.
     - code: rp_hplc
       label: RP-HPLC
-      description: Reversed-phase HPLC's main peak.
+      description: Reversed-phase HPLC's main peak, by its UV absorbance.
     - code: sds_page
       label: SDS-PAGE densitometry
       description: Its main band's share of a stained gel lane's.
+    - code: ip_rp_hplc
+      label: IP-RP-HPLC
+      description: Ion-pair reversed-phase HPLC, as for an oligonucleotide's full-length product.
+    - code: aex_hplc
+      label: AEX-HPLC
+      description: Anion-exchange HPLC, as for an oligonucleotide's full-length product.
+    - code: ce
+      label: Capillary electrophoresis
+      description: Capillary gel or zone electrophoresis, as for a nucleic acid.
+    - code: lc_ms
+      label: LC-MS
+      description: Liquid chromatography with mass spectrometry, its main species' share.
+    - code: gc_fid
+      label: GC-FID
+      description: Gas chromatography with flame ionisation detection, for a volatile compound.
+    - code: qnmr
+      label: Quantitative NMR
+      description: Its mass fraction by NMR, against an internal standard of known purity.

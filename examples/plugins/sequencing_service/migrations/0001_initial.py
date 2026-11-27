@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('iki__requests', '0002_bounded_word_search'),
+        ('iki__requests', '0001_initial'),
         ('iki_entities', '0002_history_append_only'),
         ('iki_files', '0011_file_scan_results'),
     ]

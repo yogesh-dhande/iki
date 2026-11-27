@@ -1,6 +1,7 @@
 # 0128. Guards say when a state may be set: allowed moves, four eyes and more
 
 - Status: Accepted
+- Clarified 2026-11-27: the empty-value defaults of rules and guards side by side ([0127](0127-plugins-rules-are-checked-at-every-save.md#clarification-of-2026-11-27-a-rule-and-a-guard-on-the-same-expression))
 - Amended by [0301](0301-a-review-procedure-is-declared-once-and-a-type-says-what-it-needs.md): declared independence (`independent_of`, `maker`) compiles into guards
 - Date: 2026-11-18
 - Refines: [0125](0125-a-state-is-a-field-each-state-says-who-sets-it.md),
@@ -111,3 +112,10 @@ reason by each state it won't set, and the MCP tool and SDKs carry it.
   and guards cover it and others.
 - **Guards fail open on empty values, as save rules do.** A missing history
   would then let anyone approve. Policy that can't be decided refuses.
+
+## Clarification of 2026-11-27: empty values
+
+A guard that can't be worked out refuses, whatever is empty, and a rule passes. The
+two defaults are documented side by side and the validator warns when a type has the
+same check as a rule and as a guard; see
+[ADR 0127's clarification](0127-plugins-rules-are-checked-at-every-save.md#clarification-of-2026-11-27-a-rule-and-a-guard-on-the-same-expression).

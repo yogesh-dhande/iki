@@ -2,12 +2,17 @@ apiVersion: iki/v1
 kind: EntityType
 name: CellLineSource
 label: Cell line catalogue source
-schema_version: 1
+schema_version: 2
 description: A supplier catalogue entry for a parental line.
 hrid: { prefix: CLS }
 identity: [supplier, catalogue_id]
 fields:
-  supplier: { type: string, required: true, immutable: true, max_length: 128, indexed: true }
+  supplier:
+    type: ref
+    to: iki/inventory.Supplier
+    required: true
+    immutable: true
+    description: The culture collection or company whose catalogue it is, such as ATCC.
   catalogue_id: { type: string, required: true, immutable: true, max_length: 128, indexed: true }
   line:
     type: ref
@@ -17,4 +22,4 @@ fields:
     immutable: true
     description: The Cellosaurus entry identified by this supplier's catalogue number.
 display:
-  title: "{{ supplier }} {{ catalogue_id }}"
+  title: "{{ catalogue_id }}"

@@ -366,8 +366,8 @@ fields:
         set_by: [qa]
         guards:
           by_grade:
-            check: record.grade == null || !record.grade.sterile || record.filtered == true
-            message: Filter a sterile grade's lot before releasing it.
+            check: record.grade != null && (!record.grade.sterile || record.filtered == true)
+            message: Give the lot its grade, and filter a sterile grade's, before releasing it.
 rules:
   sterile_is_filtered:
     check: record.grade == null || !record.grade.sterile || record.filtered == true

@@ -122,7 +122,8 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "GenericVolumeLot": ["iki/core.Entity"],
         "GenericCountLot": ["iki/core.Entity"],
         "OligoLot": ["iki/oligo.Oligonucleotide"],
-        "PlasmidPrep": ["iki/plasmid.Plasmid"],
+        # A prep names the registered strain it was grown in, too.
+        "PlasmidPrep": ["iki/plasmid.Plasmid", "iki/strains.BaseStrain"],
         "PolymerLot": ["iki/polymer.Polymer"],
         # A protein, or a complex of them: an antibody, an Fc fusion, a multispecific.
         "ProteinLot": ["iki/protein.Protein", "iki/core.Complex"],
@@ -162,6 +163,21 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
     assert not states["available"].locks and not states["available"].signatures
 
 
+#: How every kind of lot's purity is measured: one list, so a search by method finds each kind.
+PURITY_METHODS = [
+    "sec",
+    "ce_sds_non_reduced",
+    "ce_sds_reduced",
+    "rp_hplc",
+    "sds_page",
+    "ip_rp_hplc",
+    "aex_hplc",
+    "ce",
+    "lc_ms",
+    "gc_fid",
+    "qnmr",
+]
+
 #: Each lot type's methods, from the lab's lists (ADR 0270), and the codes each list starts
 #: with: the methods its menu had before it was the lab's, so data maps by code.
 LISTED_METHODS = {
@@ -171,10 +187,7 @@ LISTED_METHODS = {
             "ProteinConcentrationMethod",
             ["a280", "bca", "bradford", "amino_acid_analysis"],
         ),
-        "purity_method": (
-            "PurityMethod",
-            ["sec", "ce_sds_non_reduced", "ce_sds_reduced", "rp_hplc", "sds_page"],
-        ),
+        "purity_method": ("PurityMethod", PURITY_METHODS),
         "aggregates_method": ("AggregatesMethod", ["sec", "sec_mals", "auc_sv"]),
     },
     "iki/lots.PlasmidPrep": {
@@ -209,8 +222,11 @@ LISTED_METHODS = {
             ["desalted", "cartridge", "rp_hplc", "ie_hplc", "page"],
         ),
         "counterion": ("OligoCounterion", ["sodium", "ammonium", "triethylammonium"]),
-        "purity_method": ("OligoPurityMethod", ["ip_rp_hplc", "ae_hplc", "ce", "lc_ms"]),
+        "purity_method": ("PurityMethod", PURITY_METHODS),
     },
+    "iki/lots.GenericLot": {"purity_method": ("PurityMethod", PURITY_METHODS)},
+    "iki/lots.GenericVolumeLot": {"purity_method": ("PurityMethod", PURITY_METHODS)},
+    "iki/lots.GenericCountLot": {"purity_method": ("PurityMethod", PURITY_METHODS)},
 }
 
 
@@ -1335,7 +1351,9 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
         unsaid = oligo_lot(alice)
         nobody = oligo_lot(alice, source="made")
         by_eve = oligo_lot(alice, source="made", made_by=str(eve.pk))
-        bought = oligo_lot(alice, source="bought", supplier="IDT")
+        idt = services.create(alice, "iki/inventory.Supplier", project,
+                              {{"name": "Integrated DNA Technologies"}}).entity
+        bought = oligo_lot(alice, source="bought", supplier=str(idt.pk))
         who = {{
             "unsaid": why_not(alice, unsaid),
             "nobody": why_not(alice, nobody),
@@ -1663,10 +1681,13 @@ def test_a_stock_keeper_makes_research_material_available_without_qa(
             {"name": "Sodium chloride", "smiles": "[Na+].[Cl-]",
              "inchikey": "FAPWRFPIFSIZLT-UHFFFAOYSA-M"},
         ).entity
+        supplier = str(services.create(
+            eve, "iki/inventory.Supplier", project, {"name": "Synthetic Reagents Inc."}
+        ).entity.pk)
         lot = services.create(
             eve, "iki/lots.GenericLot", project,
             {"of": str(salt.entry_id), "lot_number": "NACL-2291", "source": "bought",
-             "supplier": "Synthetic Reagents Inc.", "responsible": str(sam.pk)},
+             "supplier": supplier, "responsible": str(sam.pk)},
             amount={"value": 100, "unit": "mg"},
         ).entity
         out = {"quarantined_routine": refused(lambda: amounts.draw(eve, lot, one))}
@@ -1692,13 +1713,13 @@ def test_a_stock_keeper_makes_research_material_available_without_qa(
         solvent = services.create(
             eve, "iki/lots.GenericVolumeLot", project,
             {"of": str(dmso.entry_id), "lot_number": "DMSO-0007", "source": "bought",
-             "supplier": "Synthetic Reagents Inc."},
+             "supplier": supplier},
             amount={"value": 1, "unit": "L"},
         ).entity
         vials = services.create(
             eve, "iki/lots.GenericCountLot", project,
             {"of": str(salt.entry_id), "lot_number": "NACL-STD-3", "source": "bought",
-             "supplier": "Synthetic Reagents Inc.", "item": "1 g ampoule"},
+             "supplier": supplier, "item": "1 g ampoule"},
             amount={"value": 12, "unit": "1"},
         ).entity
         move(sam, solvent, "available")

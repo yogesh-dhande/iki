@@ -1,6 +1,7 @@
 # 0270. A lab curates its own lists
 
 - Status: Accepted
+- Amended 2026-11-27: every kind of lot names its purity method from one list
 - Date: 2026-11-26
 - Refines: [0115](0115-registries-keep-identities-projects-keep-records.md),
   [0143](0143-a-registry-fact-can-be-fixed.md)
@@ -150,3 +151,13 @@ A spreadsheet import takes an option's code or its label, in any case.
 - **Webhooks for list changes.** The audit trail and each option's history
   are the record of them; a webhook can follow when an integration needs
   one.
+
+## Amendment of 2026-11-27: one purity method list
+
+Every kind of lot that records a purity names how it was measured from one list,
+`iki/lots.PurityMethod`: the biologic, oligonucleotide and generic lots alike, where the
+generic lots had free text and oligonucleotide lots a list of their own. A search for
+lots whose purity is by RP-HPLC finds each kind. The list starts with the separations
+each kind had (SEC-HPLC, CE-SDS, RP-HPLC, SDS-PAGE densitometry, IP-RP-HPLC, AEX-HPLC,
+capillary electrophoresis, LC-MS) and the two the generic lots' examples named (GC-FID,
+quantitative NMR). How a lot was purified stays a list of its own.

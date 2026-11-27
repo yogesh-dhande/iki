@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('iki__conjugate', '0001_initial'),
-        ('iki__small_molecule', '0002_compoundbatch_name'),
+        ('iki__small_molecule', '0001_initial'),
     ]
 
     operations = [
