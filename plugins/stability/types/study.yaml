@@ -65,7 +65,7 @@ fields:
     description: >-
       The pulls the protocol plans: a condition, a time point and a replicate, each with
       its storage tube and planned amount. Every condition and time point, or only some,
-      as a reduced design plans them (ICH Q1D), saying why in its design justification.
+      as a reduced schedule plans them, saying why in its design justification.
     items:
       type: row
       identity: [condition, time_point, replicate]
@@ -88,8 +88,10 @@ fields:
     immutable: true
     max_items: 2000
     description: >-
-      Which tests each condition and time point gets, when not every test is run at
-      every pull, as a matrixed design plans them. Left empty, each pull gets every test.
+      Which tests each condition and time point gets, when the protocol doesn't run every
+      test at every pull, such as a sterility test at the first and last time points only.
+      That's a reduced testing schedule, not ICH Q1D matrixing, which isn't performed
+      across test attributes (Q1D §2.4). Left empty, each pull gets every test.
     items:
       type: row
       identity: [condition, time_point, test]
@@ -102,9 +104,10 @@ fields:
     max_length: 4000
     immutable: true
     description: >-
-      Why the study pulls or tests fewer than every condition and time point, such as
-      bracketing or matrixing under ICH Q1D, and where the protocol justifies it.
-      Scheduling a reduced design needs it.
+      Why the study pulls or tests fewer than every condition and time point, and where
+      the protocol justifies it: a test run only at chosen time points, or this lot's
+      place in a design bracketed or matrixed across lots, strengths or container sizes
+      (ICH Q1D). Scheduling a reduced schedule needs it.
   tests:
     type: list
     required: true

@@ -46,8 +46,11 @@ fields:
       not_required:
         label: Not required
         description: >-
-          Outside the calibration program, such as a centrifuge or a balance checked only
-          before use. It's still booked and serviced; say why it needs no calibration.
+          Outside the calibration program: no method relies on its measurements, such as
+          a vortex mixer, or a centrifuge whose speed and temperature no method sets. A
+          balance, pipette or thermometer a result relies on is calibrated at its
+          interval, as well as checked before use (21 CFR 211.160(b)(4), USP <1251>).
+          It's still booked and serviced; say why it needs no calibration.
         set_by: [iki/lab_roles.engineer, iki/lab_roles.qa]
         reason: required
 display:
