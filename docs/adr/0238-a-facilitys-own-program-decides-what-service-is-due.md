@@ -58,3 +58,13 @@ the procedure it was scheduled under. That stays.
 - `record_instrument_use` checks the one calibration selected. Telling the person about a
   later failure whose window covers the measurement would need the action to read the
   instrument's later service records.
+
+## Amendment. A balance a result relies on stays in the calibration program
+
+The Context above gave a balance that's checked before each use as an instrument
+outside the calibration program, and the instrument type's Not required state said the
+same. That's wrong for a balance any result relies on. 21 CFR 211.160(b)(4) calibrates
+instruments at suitable intervals under a written program, and USP <1251> keeps periodic
+calibration as well as the checks before use. Not required is for an instrument no
+method relies on the measurements of, such as a vortex mixer, or a centrifuge whose
+speed and temperature no method sets. The type's state now says so.

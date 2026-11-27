@@ -105,9 +105,9 @@ expect:
 ---
 apiVersion: iki/v1
 kind: ActionTest
-name: schedule_a_matrixed_design_in_weeks_and_months
+name: schedule_a_reduced_schedule_in_weeks_and_months
 description: >-
-  A reduced design (ICH Q1D) with the ICH Q1A(R2) §2.1.7.1 long-term and accelerated
+  A reduced schedule with the ICH Q1A(R2) §2.1.7.1 long-term and accelerated
   conditions: long term at 0 and 3 months, in duplicate at 3; accelerated only at 2
   weeks, by mass at the tube's concentration; appearance only at the start. It says why
   in its design justification. Dates, tubes, amounts and tests are synthetic.
@@ -116,7 +116,7 @@ settings: { review_flow: research }
 inputs:
   study:
     - values:
-        name: Synthetic matrixed study
+        name: Synthetic reduced-schedule study
         material: 00000000-0000-7000-8003-000000000011
         starts_on: "2028-01-31"
         owner: 00000000-0000-7000-8003-000000000013
@@ -141,7 +141,7 @@ inputs:
           - { condition: long_term, time_point: M3, test: Assay }
           - { condition: accelerated, time_point: W2, test: Assay }
         design_justification: >-
-          Synthetic: matrixing per protocol section 4.2; appearance is stable from T0.
+          Synthetic: reduced testing per protocol section 4.2; appearance is stable from T0.
       included:
         lot:
           - type: iki/lots.GenericLot
@@ -215,7 +215,7 @@ inputs:
 expect:
   error: >-
     This design doesn't pull or test every condition at every time point: say why in its
-    design justification, as its protocol does (ICH Q1D).
+    design justification, as its protocol does.
 ---
 apiVersion: iki/v1
 kind: ActionTest

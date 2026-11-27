@@ -286,8 +286,8 @@ def test_an_extension_of_a_list_adds_its_options_facts(tmp_path: Path) -> None:
         # A superseded code gives new records the replacement's: this stops applying.
         ('check: record.method.code != "hplc" || record.name != ""', True),
         ('when: record.method.code == "hplc"\n    check: record.name != ""', True),
-        # An option's other facts, and a string that only looks like a read, are fine.
-        ('check: record.method.sop != "" || record.name != ""', False),
+        # Whether there's an option, and a string that only looks like a read, are fine.
+        ('check: record.method != null || record.name != ""', False),
         ('check: record.name != "record.method.code"', False),
     ],
 )
@@ -327,3 +327,114 @@ def test_a_state_guard_reading_a_list_options_code_is_warned_of(tmp_path: Path) 
     )
     # (No role sets `closed` here, which the validator says too.)
     assert codes(result).count("list-code-in-expression") == 1, problems(result)
+
+
+# --- What a plugin reads of an option is fixed (ADR 0270, ADR 0143) ---------------------------
+
+GRADE = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Grade
+schema_version: 1
+hrid: { prefix: GRD }
+list:
+  options:
+    - { code: gmp, label: GMP, sterile: true }
+fields:
+  sterile: { type: bool, label: Sterile, IMMUTABLE }
+  max_endotoxin: { type: float, label: Endotoxin limit (EU/mL), min: 0 }
+  sop: { type: string, format: uri }
+"""
+
+LOT = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Lot
+schema_version: 1
+hrid: { prefix: LOT }
+fields:
+  name: { type: string, max_length: 100, required: true }
+  grade: { type: ref, to: Grade }
+  filtered: { type: bool }
+  status:
+    type: state
+    initial: made
+    states:
+      made: { label: Made, set_by: [qa] }
+      released:
+        label: Released
+        set_by: [qa]
+        guards:
+          by_grade:
+            check: record.grade == null || !record.grade.sterile || record.filtered == true
+            message: Filter a sterile grade's lot before releasing it.
+rules:
+  sterile_is_filtered:
+    check: record.grade == null || !record.grade.sterile || record.filtered == true
+    message: "A {{ record.grade.label }} lot is filtered: its SOP is {{ record.grade.sop }}."
+"""
+
+ROLES = PLUGIN + "roles:\n  qa: { label: QA }\n"
+
+
+def graded(tmp_path: Path, fixed: bool, **more: str) -> Result:
+    grade = GRADE.replace("IMMUTABLE", "immutable: true" if fixed else "registry: fact")
+    return make(
+        tmp_path,
+        {"types/grade.yaml": grade, "types/lot.yaml": LOT, "plugin.yaml": ROLES, **more},
+    )
+
+
+def test_a_rule_or_guard_reads_only_an_options_fixed_facts(tmp_path: Path) -> None:
+    result = graded(tmp_path, fixed=False)
+    found = [p for p in result.problems if p.code == "reads-curated-fact"]
+    # The rule's check and the guard's: its message may show what a curator changes.
+    assert len(found) == 2, problems(result)
+    assert all("`Grade.sterile`" in p.message for p in found), problems(result)
+    assert graded(tmp_path / "fixed", fixed=True).problems == []
+
+
+def test_a_run_reads_only_an_included_options_fixed_facts(tmp_path: Path) -> None:
+    action = """\
+    apiVersion: iki/v1
+    kind: Action
+    name: label_lot
+    inputs:
+      lot: { type: Lot, include: [grade] }
+    effects:
+      updates: [{ input: lot, fields: [filtered] }]
+    runs_on: { tier: backend, environment: tools }
+    command: [python, ./run.py]
+    """
+    environment = """\
+    apiVersion: iki/v1
+    kind: Environment
+    name: tools
+    tiers: [backend]
+    python: { version: "3.12", requirements: requirements.txt }
+    """
+    files = {"actions/label.yaml": action, "environments/tools.yaml": environment}
+    for root in (tmp_path / "curated", tmp_path / "fixed"):
+        (root / "acme" / "actions").mkdir(parents=True)
+        (root / "acme" / "environments").mkdir()
+        (root / "acme" / "requirements.txt").write_text(
+            "numpy==2.1.0 --hash=sha256:" + "a" * 64 + "\n"
+        )
+        (root / "acme" / "run.py").write_text("")
+    result = graded(tmp_path / "curated", fixed=True, **files)
+    # Its endotoxin limit is a number the run may work from; its SOP is the curators' text.
+    (problem,) = [p for p in result.problems if p.code == "include-curated-fact"]
+    assert "Grade's `max_endotoxin`" in problem.message, problems(result)
+    assert "`sop`" not in problem.message
+    limit = "  max_endotoxin: { type: float, label: Endotoxin limit (EU/mL), min: 0 }\n"
+    fixed = graded(
+        tmp_path / "fixed",
+        fixed=True,
+        **files,
+        **{
+            "types/grade.yaml": GRADE.replace("IMMUTABLE", "immutable: true").replace(
+                limit, limit.replace("min: 0 }", "min: 0, immutable: true }")
+            )
+        },
+    )
+    assert fixed.problems == [], problems(fixed)

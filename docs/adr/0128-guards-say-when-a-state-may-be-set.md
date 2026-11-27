@@ -28,7 +28,8 @@ for anyone to set the field to that state, with a `message` saying why not, an
 optional `when`, and a `description`. `set_by` still says who may. Guards say
 when. Every guard of the state must hold. A guard reads:
 
-- `actor`: the person setting it (their ID, empty for a service account), the
+- `actor`: the person setting it (their ID; a service account's own ID for a
+  service account, as `history` names its changes, so four eyes holds for it too), the
   agent acting for them (`{name, client_id}`, null without one, ADR 0072),
   their lab roles in the record's project (`roles`, by qualified name and by
   the plugin's own short names), and `service_account`;
