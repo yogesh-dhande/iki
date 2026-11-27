@@ -8,9 +8,7 @@ import type { Schemas } from "@ikisci/sdk";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { queryClient } from "./api";
 import { entity, field, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
-import { ENTITIES } from "./entities";
 import { leave } from "./pages/entity-signatures";
 import { answer, calls, ME, problem } from "./test-server";
 
@@ -351,33 +349,24 @@ describe("a record's signatures", () => {
       provider: "Acme SSO",
       locked: false,
     });
-    answer(
-      `POST /api/v1/entities/${LOT_ID}/signatures`,
-      problem(412, "stale", "It changed: revision 3 is the latest."),
-    );
+    const route = `/api/v1/entities/${LOT_ID}/signatures`;
+    // Another editor saved a valid replacement: Iki refuses revision 2, and the page reads 3.
+    answer(`POST ${route}`, () => {
+      answer(
+        "GET /api/v1/entities/LOT-000001",
+        lot({ revision: 3, values: { name: "Lot B", status: "in_review" } }),
+      );
+      return problem(412, "stale", "It changed: revision 3 is the latest.");
+    });
     const { user } = await renderApp("/entities/LOT-000001/");
     const section = await screen.findByRole("region", { name: "Signatures" });
     await user.click(within(section).getByRole("button", { name: "Sign: QA approval" }));
     const dialog = await screen.findByRole("alertdialog");
     await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "Specs met");
     await user.click(within(dialog).getByRole("button", { name: "Sign in again to sign" }));
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
-      "It changed while this was open",
-    );
-    expect(left).not.toHaveBeenCalled();
-    expect(within(dialog).getByRole("textbox", { name: "Reason" })).toHaveValue("");
-    const route = `/api/v1/entities/${LOT_ID}/signatures`;
-    expect(calls("POST", route).map((call) => call.headers.get("If-Match"))).toEqual(['"2"']);
-
-    // The next read reflects a valid replacement saved by another editor.
-    answer(
-      "GET /api/v1/entities/LOT-000001",
-      lot({ revision: 3, values: { name: "Lot B", status: "in_review" } }),
-    );
-    await act(async () => {
-      await queryClient.invalidateQueries({ queryKey: ENTITIES });
-    });
     expect(await screen.findByText(/You sign revision 3/)).toBeInTheDocument();
+    expect(left).not.toHaveBeenCalled();
+    expect(calls("POST", route).map((call) => call.headers.get("If-Match"))).toEqual(['"2"']);
     const refreshed = screen.getByRole("alertdialog");
     expect(within(refreshed).getByRole("status")).toHaveTextContent("enter your reason again");
     const reason = within(refreshed).getByRole("textbox", { name: "Reason" });

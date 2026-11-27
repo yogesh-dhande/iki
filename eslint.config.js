@@ -26,6 +26,15 @@ const POST_READ = {
   message: "A query's read that sends JSON selects fetchPageRead, so it stops with the page.",
 };
 
+// A change is made from the revision the person read (ADR 0035), through useRevisioned, which
+// keeps it as it was when the dialog or form opened, or the SDK's ifMatch for a request that
+// isn't one. A hand-built header is how a dialog came to send whatever a refetch brought in.
+const RAW_IF_MATCH = {
+  selector: "Literal[value=/^If-(None-)?Match$/i]",
+  message:
+    "Make the change from the revision read: useRevisioned in a dialog or form, else ifMatch.",
+};
+
 export default tseslint.config(
   {
     ignores: [
@@ -104,6 +113,11 @@ export default tseslint.config(
   {
     files: ["web/app/**/*.{ts,tsx}"],
     ignores: ["**/*.test.{ts,tsx}"],
+    rules: { "no-restricted-syntax": ["error", RAW_HTML, QUERY_SIGNAL, POST_READ, RAW_IF_MATCH] },
+  },
+  {
+    // The one place the header is spelled out.
+    files: ["web/app/src/revisioned.ts"],
     rules: { "no-restricted-syntax": ["error", RAW_HTML, QUERY_SIGNAL, POST_READ] },
   },
   {

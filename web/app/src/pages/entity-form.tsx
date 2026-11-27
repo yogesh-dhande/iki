@@ -20,7 +20,7 @@
  *   first; the save goes to the record without asking.
  */
 
-import { ApiError, unwrap } from "@ikisci/sdk";
+import { ApiError, unwrap, isStale } from "@ikisci/sdk";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useState, type ReactNode, type SubmitEvent } from "react";
@@ -64,6 +64,7 @@ import {
 import { APP_TYPE } from "../apps";
 import { createdMessage } from "../registries";
 import { fieldLabels, isServiceField, listed, writableFields } from "../requests";
+import { useRevisioned, type IfMatch } from "../revisioned";
 
 import { breakErrors, useRuleBreaks, type RuleBreak } from "../rules";
 
@@ -560,7 +561,12 @@ export function EditEntity() {
   const types = useSuspenseQuery(typesQuery).data;
   const type = types.find((t) => t.name === entity.type);
   usePageTitle(`Edit ${entity.title} (${entity.hrid})`);
-  if (!type || !(entity.can.edit || entity.can.correct) || entity.archived) {
+  // Whether it can be edited is as it was when the form opened: if it's locked or archived
+  // while open, the form says so and keeps what was typed, rather than going.
+  const [opened, setOpened] = useState(entity);
+  if (opened.id !== entity.id) setOpened(entity);
+  const shown = opened.id === entity.id ? opened : entity;
+  if (!type || !(shown.can.edit || shown.can.correct) || shown.archived) {
     return (
       <section className="card form-card">
         <PageHeader crumbs={editCrumbs(entity, type)} title={`Edit ${entity.title}`} />
@@ -579,7 +585,7 @@ export function EditEntity() {
       </section>
     );
   }
-  return <EditEntityForm entity={entity} type={type} types={types} />;
+  return <EditEntityForm key={entity.id} entity={entity} type={type} types={types} />;
 }
 
 interface Conflict {
@@ -602,11 +608,52 @@ function EditEntityForm({
   const client = useQueryClient();
   const { say } = useMessages();
   // What the form started from: the entity as read, and its fields as drafts.
-  const [base, setBase] = useState(() => ({ entity: opened, drafts: draftsOf(type, opened) }));
-  const [drafts, setDrafts] = useState<Drafts>(base.drafts);
+  const [baseDrafts, setBaseDrafts] = useState(() => draftsOf(type, opened));
+  const [drafts, setDrafts] = useState<Drafts>(baseDrafts);
   const [reason, setReason] = useState("");
+  const [holdReason, setHoldReason] = useState("");
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [unchanged, setUnchanged] = useState(false);
+  const save = useApiMutation(
+    async ({ values, header }: { values: Record<string, unknown>; header: IfMatch }) =>
+      unwrap(
+        await iki.PATCH("/api/v1/entities/{ref}", {
+          params: { path: { ref: opened.id }, header },
+          body: {
+            values,
+            reason: reason.trim(),
+            ...(hold ? { hold_reason: holdReason.trim() } : {}),
+          },
+        }),
+      ),
+    [ENTITIES],
+  );
+  // Saved from the revision it opened at. If someone saved since, their values come in
+  // where this person hadn't typed, the form says what changed, and nothing is saved
+  // until they save again.
+  const rev = useRevisioned(opened, {
+    error: save.error,
+    refresh: ENTITIES,
+    onCatchUp: (latest) => {
+      const theirs = draftsOf(type, latest);
+      const updated: string[] = [];
+      const both: string[] = [];
+      const next: Drafts = { ...drafts };
+      for (const f of writableFields(type, latest)) {
+        if (same(theirs[f.name], baseDrafts[f.name])) continue;
+        if (same(drafts[f.name], baseDrafts[f.name])) {
+          next[f.name] = theirs[f.name] ?? null;
+          updated.push(f.label);
+        } else if (!same(drafts[f.name], theirs[f.name])) {
+          both.push(f.label);
+        }
+      }
+      setBaseDrafts(theirs);
+      setDrafts(next);
+      setConflict({ updated, both });
+    },
+  });
+  const base = { entity: rev.read, drafts: baseDrafts };
   // For a request between projects (ADR 0132), only the reader's side's fields.
   const fields = writableFields(type, opened);
   // Set once, or a registry entry's value: only its registrars change a fact (ADR 0115).
@@ -628,7 +675,6 @@ function EditEntityForm({
   });
   const canSave = !base.entity.archived && (base.entity.can.edit || base.entity.can.correct);
   const returns = changed.length && canSave ? editReturns(base.entity, type) : [];
-  const [holdReason, setHoldReason] = useState("");
   // Only rules reading what it changes, as the server checks an edit.
   const proposed = { ...base.entity.values, ...typedValues(type, drafts) };
   const clearing = changed.some(
@@ -646,47 +692,8 @@ function EditEntityForm({
   // Leaving with changes unsaved asks first; the save's own navigation doesn't.
   const leave = useLeaveGuard(changed.length > 0);
 
-  const save = useApiMutation(
-    async (values: Record<string, unknown>) =>
-      unwrap(
-        await iki.PATCH("/api/v1/entities/{ref}", {
-          params: {
-            path: { ref: base.entity.id },
-            header: { "If-Match": `"${String(base.entity.revision)}"` },
-          },
-          body: {
-            values,
-            reason: reason.trim(),
-            ...(hold ? { hold_reason: holdReason.trim() } : {}),
-          },
-        }),
-      ),
-    [ENTITIES],
-  );
   const hold = needsHold(found, save.error);
-  const stale = save.error instanceof ApiError && save.error.problem.code === "stale";
-  const form = useForm(stale ? null : save.error, save.isPending);
-
-  /** Someone saved first: bring their values in where this person hadn't typed. */
-  async function catchUp() {
-    const latest = await client.query({ ...entityQuery(base.entity.id), staleTime: 0 });
-    const theirs = draftsOf(type, latest);
-    const updated: string[] = [];
-    const both: string[] = [];
-    const next: Drafts = { ...drafts };
-    for (const f of fields) {
-      if (same(theirs[f.name], base.drafts[f.name])) continue;
-      if (same(drafts[f.name], base.drafts[f.name])) {
-        next[f.name] = theirs[f.name] ?? null;
-        updated.push(f.label);
-      } else if (!same(drafts[f.name], theirs[f.name])) {
-        both.push(f.label);
-      }
-    }
-    setBase({ entity: latest, drafts: theirs });
-    setDrafts(next);
-    setConflict({ updated, both });
-  }
+  const form = useForm(isStale(save.error) ? null : save.error, save.isPending);
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -703,23 +710,25 @@ function EditEntityForm({
       setUnchanged(true);
       return;
     }
-    setConflict(null);
-    save.mutate(values, {
-      onSuccess: (saved) => {
-        const search = recordSearch(saved);
-        client.setQueryData(entityQuery(saved.hrid, search.project).queryKey, saved);
-        void navigate({
-          to: "/entities/$ref/",
-          params: { ref: saved.hrid },
-          search,
-          ignoreBlocker: true,
-        }).then(() => {
-          say(`Saved revision ${String(saved.revision)} of ${saved.hrid}.`);
-        });
-      },
-      onError: (error) => {
-        if (error.problem.code === "stale") void catchUp();
-      },
+    rev.submit((header) => {
+      setConflict(null);
+      save.mutate(
+        { values, header },
+        {
+          onSuccess: (saved) => {
+            const search = recordSearch(saved);
+            client.setQueryData(entityQuery(saved.hrid, search.project).queryKey, saved);
+            void navigate({
+              to: "/entities/$ref/",
+              params: { ref: saved.hrid },
+              search,
+              ignoreBlocker: true,
+            }).then(() => {
+              say(`Saved revision ${String(saved.revision)} of ${saved.hrid}.`);
+            });
+          },
+        },
+      );
     });
   }
 

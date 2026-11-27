@@ -170,6 +170,54 @@ def test_a_lists_registrar_curates_its_options_on_its_page(
     fits_a_phone(page)
 
 
+def test_a_colleagues_change_comes_into_an_open_edit_and_nothing_is_lost(
+    open_as: Any, world: World
+) -> None:
+    """Two registrars at once (ADR 0300): one relabels an option while the other has it
+    open to describe it. Saving refuses the old revision, brings the new label in, keeps
+    what was typed and the reason, and saving again makes both changes."""
+    registrar(world)
+    colleague = world.users["org_admin"]
+    registries.appoint(Registry.default(), colleague, by=colleague)
+    page = open_as("auditor", LIST_PAGE)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    expect(options_table(page)).to_be_visible()
+
+    page.get_by_role("button", name="Change Size exclusion").click()
+    page.get_by_role("menuitem", name="Edit…").click()
+    dialog = page.get_by_role("dialog", name="Edit Size exclusion")
+    described = "Superdex 200 Increase 10/300 GL, in PBS at 0.5 mL/min."
+    dialog.get_by_role("textbox", name=re.compile("^Description")).fill(described)
+    reason(dialog).fill("Which column the core runs")
+    with _orm_beside_playwright():
+        read = option("sec").entry
+        lists.change(
+            colleague,
+            read,
+            {"label": "Gel filtration"},
+            reason="What the core calls it",
+            expected_revision=Entity.objects.get(pk=read.pk).revision,
+        )
+    dialog.get_by_role("button", name="Save").click()
+
+    alert = dialog.get_by_role("alert")
+    expect(alert).to_contain_text("Someone changed Size exclusion while you were editing")
+    expect(alert).to_contain_text("Label now has its new value.")
+    expect(dialog.get_by_role("textbox", name="Label")).to_have_value("Gel filtration")
+    expect(dialog.get_by_role("textbox", name=re.compile("^Description"))).to_have_value(described)
+    expect(reason(dialog)).to_have_value("Which column the core runs")
+    with _orm_beside_playwright():
+        assert option("sec").description != described
+    checked(page)
+
+    dialog.get_by_role("button", name="Save").click()
+    expect(dialog).to_be_hidden()
+    expect(options_table(page).get_by_role("link", name="Gel filtration")).to_be_visible()
+    with _orm_beside_playwright():
+        saved = option("sec")
+    assert (saved.label, saved.description) == ("Gel filtration", described)
+
+
 def test_a_lists_members_read_it_and_cant_change_it(open_as: Any, world: World) -> None:
     page = open_as("editor", LIST_PAGE)
     expect(options_table(page)).to_be_visible()

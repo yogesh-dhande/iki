@@ -4503,6 +4503,59 @@ def test_a_record_s_state_fields_are_set_by_their_lab_roles(open_as: Any, world:
     page.context.close()
 
 
+def test_a_state_is_set_from_the_revision_the_reviewer_saw(open_as: Any, world: World) -> None:
+    """A colleague relabels a sample while its Set Status dialog is open (ADR 0300): Iki
+    refuses the old revision, the dialog says it changed and the page shows their change,
+    the reason stays, and confirming again sets it from the revision now shown. Cards and
+    dialogs by role, never by label (Firefox; see above)."""
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+    from iki_server.org import permissions
+    from iki_server.org.models import LabRoleGrant
+
+    editor = world.users["editor"]
+    grant = world.project.memberships.get(user=editor)
+    LabRoleGrant.objects.create(
+        membership=grant, role="acme/protein.analyst", granted_by=world.users["admin"]
+    )
+    permissions.forget(editor)
+    made = entities.create(editor, "acme/protein.Sample", world.project, {"label": "Lot 7"})
+    record = Entity.objects.get(pk=made.entity.pk)
+
+    page: Page = open_as("editor", f"/entities/{record.hrid}/")
+    heading = page.get_by_role("heading", name="States")
+    heading.wait_for()
+    card = page.locator("section", has=heading)
+    card.get_by_role("button", name="Set Status").click()
+    dialog = page.get_by_role("alertdialog", name=f"Set Status of {record.hrid}")
+    dialog.get_by_role("textbox", name=re.compile("^Reason")).fill("Bench 4")
+    with _orm_beside_playwright():
+        entities.update(
+            world.users["admin"],
+            record,
+            {"label": "Lot 7 (relabelled)"},
+            expected_revision=Entity.objects.get(pk=record.pk).revision,
+        )
+    dialog.get_by_role("button", name="Set Status").click()
+    dialog.get_by_text("Someone changed it while this was open.").wait_for()
+    page.get_by_text("Lot 7 (relabelled)").first.wait_for()
+    expect(dialog.get_by_role("textbox", name=re.compile("^Reason"))).to_have_value("Bench 4")
+    with _orm_beside_playwright():
+        assert (
+            entities.current_values(entities.specific(Entity.objects.get(pk=record.pk)))["status"]
+            == "received"
+        )
+    assert_clean(page, axe_in_firefox=False)
+
+    dialog.get_by_role("button", name="Set Status").click()
+    page.get_by_text(f"{record.hrid}’s Status is In testing now.").wait_for()
+    with _orm_beside_playwright():
+        now = Entity.objects.get(pk=record.pk)
+        values = entities.current_values(entities.specific(now))
+    assert (values["label"], values["status"]) == ("Lot 7 (relabelled)", "in_testing")
+    page.context.close()
+
+
 def test_request_page_indicates_a_sample_the_service_cannot_read(
     open_as: Any, world: World
 ) -> None:

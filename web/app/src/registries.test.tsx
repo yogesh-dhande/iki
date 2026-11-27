@@ -842,24 +842,53 @@ describe("an entry's page", () => {
     expect(sent?.headers.get("If-Match")).toBe('"3"');
   });
 
-  it("says when someone else changed it first, and saves nothing", async () => {
-    onEntry(entryOut({ can: { curate: true } }));
-    answer(
-      `PATCH /api/v1/entries/${ENTRY_ID}`,
-      problem(412, "stale", "It changed since you read it."),
-    );
+  it("says when someone else changed it first, brings their facts in, and saves from them", async () => {
+    onEntry(entryOut({ holders: 2, can: { curate: true } }));
+    const pdb = field({ name: "pdb", label: "PDB ID", type: "string", registry: "fact" });
+    answer("GET /api/v1/entity-types", [{ ...PROTEIN_R, fields: [...PROTEIN_R.fields, pdb] }]);
+    const theirs = entryOut({
+      revision: 4,
+      holders: 2,
+      values: { ...entryOut().values, pdb: "2HYY" },
+      can: { curate: true },
+    });
+    answer(`PATCH /api/v1/entries/${ENTRY_ID}`, (call: { headers: Headers }) => {
+      if (call.headers.get("If-Match") === '"3"') {
+        answer("GET /api/v1/entries/PRT-000001", theirs);
+        return problem(412, "stale", "It changed since you read it.");
+      }
+      return entryOut({ ...theirs, revision: 5 });
+    });
     const { user } = await renderApp("/entries/PRT-000001/");
     await user.click(screen.getByRole("button", { name: "Change facts" }));
     const form = screen.getByRole("form", { name: "Change facts" });
-    await user.type(within(form).getByRole("textbox", { name: /^UniProt ID/ }), "0");
-    await user.type(within(form).getByRole("textbox", { name: /^Reason/ }), "Typo");
+    const fact = within(form).getByRole("textbox", { name: /^UniProt ID/ });
+    await user.clear(fact);
+    await user.type(fact, "P00520");
+    await user.type(within(form).getByRole("textbox", { name: /^Reason/ }), "UniProt merged it.");
     await user.click(within(form).getByRole("button", { name: "Save facts" }));
-    expect(await within(form).findByRole("alert")).toHaveTextContent(
-      "Someone changed PRT-000001 while you were editing, so nothing was saved.",
+    const alert = await within(form).findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Someone changed PRT-000001 while you were editing (it’s at revision 4 now), so nothing was saved yet.",
     );
+    expect(alert).toHaveTextContent("PDB ID now has its new value.");
+    // Theirs is in, what this registrar typed is kept, and so is the reason.
+    expect(within(form).getByRole("textbox", { name: /^PDB ID/ })).toHaveValue("2HYY");
+    expect(fact).toHaveValue("P00520");
+    expect(within(form).getByRole("textbox", { name: /^Reason/ })).toHaveValue(
+      "UniProt merged it.",
+    );
+    await user.click(within(form).getByRole("button", { name: "Save facts" }));
+    expect(await screen.findByText("Saved revision 5 of PRT-000001.")).toBeVisible();
+    const sent = calls("PATCH", `/api/v1/entries/${ENTRY_ID}`);
+    expect(sent.map((c) => c.headers.get("If-Match"))).toEqual(['"3"', '"4"']);
+    expect(sent.at(-1)?.body).toEqual({
+      values: { uniprot: "P00520" },
+      reason: "UniProt merged it.",
+    });
   });
 
-  it("saves from the revision it opened at, not one fetched while it was open", async () => {
+  it("sends nothing from a revision a refetch replaced while it was open, and says so", async () => {
     onEntry(entryOut({ holders: 2, can: { curate: true } }));
     const { user } = await renderApp("/entries/PRT-000001/");
     await user.click(screen.getByRole("button", { name: "Change facts" }));
@@ -876,19 +905,21 @@ describe("an entry's page", () => {
     );
     await queryClient.refetchQueries();
     await screen.findByText("Q99999");
-    answer(
-      `PATCH /api/v1/entries/${ENTRY_ID}`,
-      problem(412, "stale", "It changed since you read it."),
-    );
     const fact = within(form).getByRole("textbox", { name: /^UniProt ID/ });
     await user.clear(fact);
     await user.type(fact, "P00520");
     await user.type(within(form).getByRole("textbox", { name: /^Reason/ }), "UniProt merged it.");
     await user.click(within(form).getByRole("button", { name: "Save facts" }));
-    expect(await within(form).findByRole("alert")).toHaveTextContent(
-      "Someone changed PRT-000001 while you were editing, so nothing was saved.",
-    );
-    expect(calls("PATCH").map((c) => c.headers.get("If-Match"))).toEqual(['"3"']);
+    // Nothing is sent from revision 3, which the registrar no longer sees on the page.
+    const alert = await within(form).findByRole("alert");
+    expect(alert).toHaveTextContent("it’s at revision 4 now");
+    expect(alert).toHaveTextContent("You both changed UniProt ID: yours is kept.");
+    expect(calls("PATCH")).toEqual([]);
+    answer(`PATCH /api/v1/entries/${ENTRY_ID}`, entryOut({ revision: 5, can: { curate: true } }));
+    await user.click(within(form).getByRole("button", { name: "Save facts" }));
+    await waitFor(() => {
+      expect(calls("PATCH").map((c) => c.headers.get("If-Match"))).toEqual(['"4"']);
+    });
   });
 
   it("lets its registrars supersede it, for good, after saying what that does", async () => {

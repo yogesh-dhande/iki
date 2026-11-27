@@ -663,12 +663,12 @@ describe("editing an entity", () => {
       revision: 3,
       values: { ...sample().values, count: 9, name: "Plasma (theirs)" },
     });
-    answer("GET /api/v1/entities/" + SAMPLE_ID, theirs);
-    answer("PATCH /api/v1/entities/" + SAMPLE_ID, (call: { headers: Headers }) =>
-      call.headers.get("If-Match") === '"2"'
-        ? problem(412, "stale", "Someone changed it since you read it.")
-        : sample({ revision: 4 }),
-    );
+    // Someone else saved first: Iki refuses the old revision, and the page reads theirs.
+    answer("PATCH /api/v1/entities/" + SAMPLE_ID, (call: { headers: Headers }) => {
+      if (call.headers.get("If-Match") !== '"2"') return sample({ revision: 4 });
+      answer("GET /api/v1/entities/SMP-000001", theirs);
+      return problem(412, "stale", "Someone changed it since you read it.");
+    });
     const { user } = await renderApp("/entities/SMP-000001/edit/");
     const name = screen.getByRole("textbox", { name: "Name" });
     await user.clear(name);
@@ -719,16 +719,16 @@ describe("editing an entity", () => {
 
   it("keeps a draft visible if someone releases the record before the save", async () => {
     onSample();
-    answer(
-      "GET /api/v1/entities/" + SAMPLE_ID,
-      sample({
-        revision: 4,
-        locked: true,
-        locked_by: ["review"],
-        can: { ...sample().can, edit: false, correct: false },
-      }),
-    );
-    answer("PATCH /api/v1/entities/" + SAMPLE_ID, problem(412, "stale", "Someone changed it."));
+    const released = sample({
+      revision: 4,
+      locked: true,
+      locked_by: ["review"],
+      can: { ...sample().can, edit: false, correct: false },
+    });
+    answer("PATCH /api/v1/entities/" + SAMPLE_ID, () => {
+      answer("GET /api/v1/entities/SMP-000001", released);
+      return problem(412, "stale", "Someone changed it.");
+    });
     const { user } = await renderApp("/entities/SMP-000001/edit/");
     await user.type(screen.getByRole("textbox", { name: "Name" }), "B");
     await user.click(screen.getByRole("button", { name: "Save changes" }));

@@ -38,6 +38,13 @@ console.
   per kind of field, built from each type's fields and its JSON Schema. The
   browser checks what it can (required, numbers, ranges, lengths, patterns)
   and sends JSON as the API takes it; the API checks everything again.
+- `src/revisioned.ts`: a change is made from the revision the person read
+  (ADR 0300). `useRevisioned` keeps what a dialog or form changes as it was
+  when it opened and sends that revision; if it moved on meanwhile, or the
+  server refuses the change as stale, it catches up, says so, and waits for
+  the person to confirm again. ESLint refuses a hand-built `If-Match`.
+  `src/pages/facts-form.tsx` is the one form for a registry entry's facts,
+  on its page and on a lab list's.
 - `src/uploads.ts`: uploading a file as the files API takes it (ADR 0036):
   its SHA-256 a slice at a time on the page (the CSP allows no worker
   scripts), then its parts straight to storage, retried and re-signed as

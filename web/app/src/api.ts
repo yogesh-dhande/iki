@@ -6,8 +6,6 @@
 import {
   ApiError,
   createIkiClient,
-  ifMatch,
-  isStale,
   unwrap,
   type IkiClient,
   type Problem,
@@ -24,7 +22,7 @@ import {
   type QueryExecuteOptions,
   type QueryKey,
 } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 
 import { BACKGROUND_HEADER, isIdle } from "./activity";
 import { fetchPageRead, runPageQuery } from "./page-reads";
@@ -578,27 +576,6 @@ export function problemOf(error: unknown): Problem {
     code: "network_error",
   };
 }
-
-/** The revision a dialog or form was opened at, which its change is made from (If-Match,
- * ADR 0035): what the person reviewed. A refetch while it's open doesn't move it, so a
- * change someone made meanwhile is refused as `stale` (412), which the dialog says, rather
- * than saved on a revision nobody reviewed. Once it has said so (`error` is that refusal),
- * the revision the page now shows is the one a retry is made from. `open`, for a dialog
- * that stays mounted while closed: it's pinned each time it opens. */
-export function useOpenedRevision(
-  revision: number,
-  { open = true, error }: { open?: boolean; error?: unknown } = {},
-) {
-  const [opened, setOpened] = useState<number | null>(open ? revision : null);
-  // Adjusted while rendering, as React keeps state that follows a prop.
-  if (open && (opened === null || (isStale(error) && opened !== revision))) setOpened(revision);
-  if (!open && opened !== null) setOpened(null);
-  const at = opened ?? revision;
-  return { revision: at, ifMatch: ifMatch(at) };
-}
-
-/** Whether a change was refused because what it named changed since it was read (412). */
-export { isStale };
 
 /** Field errors from a `validation_failed` problem, by body field name. */
 export function fieldErrors(problem: Problem | undefined): Record<string, string> {

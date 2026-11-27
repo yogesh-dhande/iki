@@ -9,7 +9,7 @@
  *   holders add it to another of their projects.
  */
 
-import { unwrap } from "@ikisci/sdk";
+import { isStale, unwrap } from "@ikisci/sdk";
 import {
   useInfiniteQuery,
   useQuery,
@@ -19,10 +19,10 @@ import {
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useState, type SubmitEvent } from "react";
 
-import { iki, isStale, problemOf, projectsQuery, useApiMutation, useOpenedRevision } from "../api";
+import { iki, problemOf, projectsQuery, useApiMutation } from "../api";
+import { changedProblem, useRevisioned, type IfMatch } from "../revisioned";
 import { ENTITIES, typeLabel, typesQuery, type EntityType } from "../entities";
-import { FieldInput } from "../entity-inputs";
-import { encode, isBlank, same, toDraft, type Draft } from "../entity-values";
+import { toDraft } from "../entity-values";
 import { required, useForm } from "../forms";
 import { optionsQuery } from "../lab-lists";
 import { usePageTitle } from "../layout";
@@ -49,6 +49,7 @@ import {
 } from "../ui";
 import { registryNote, Value } from "./entity";
 import { EntryRevisionRow } from "./entity-audit";
+import { FactsForm } from "./facts-form";
 
 // --- A registry's entries ------------------------------------------------------------------
 
@@ -408,42 +409,12 @@ function Curate({ entry, type, types }: { entry: Entry; type: EntityType; types:
   const client = useQueryClient();
   const { say } = useMessages();
   const [open, setOpen] = useState(false);
-  const start = () =>
-    Object.fromEntries(facts.map((f) => [f.name, toDraft(f, entry.values[f.name], entry)]));
-  const [base, setBase] = useState<Record<string, Draft>>(start);
-  const [drafts, setDrafts] = useState<Record<string, Draft>>(start);
-  const [reason, setReason] = useState("");
-  const [unchanged, setUnchanged] = useState(false);
-  const save = useApiMutation(
-    async ({
-      values,
-      header,
-    }: {
-      values: Record<string, unknown>;
-      header: { "If-Match": string };
-    }) =>
-      unwrap(
-        await iki.PATCH("/api/v1/entries/{ref}", {
-          params: { path: { ref: entry.id }, header },
-          body: { values, reason: reason.trim() },
-        }),
-      ),
-    [ENTITIES],
-  );
-  // The facts the form starts from are the revision it opened at, which it saves from: a
-  // change someone made meanwhile is refused, and the form says to start again from it.
-  const opened = useOpenedRevision(entry.revision, { open });
-  const stale = isStale(save.error);
-  const form = useForm(stale ? null : save.error, save.isPending);
   if (!facts.length) return null;
   if (!open) {
     return (
       <div className="actions">
         <Button
           onClick={() => {
-            const fresh = start();
-            setBase(fresh);
-            setDrafts(fresh);
             setOpen(true);
           }}
         >
@@ -452,50 +423,39 @@ function Curate({ entry, type, types }: { entry: Entry; type: EntityType; types:
       </div>
     );
   }
-  const close = () => {
-    setOpen(false);
-    setReason("");
-    setUnchanged(false);
-    save.reset();
-  };
   return (
-    <form
-      {...form.props}
-      aria-labelledby="curate-title"
-      onSubmit={(event: SubmitEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        setUnchanged(false);
-        const values: Record<string, unknown> = {};
-        const checks: Record<string, string | false> = {
-          reason: required(reason, "Say why: every project with it sees it in the history."),
-        };
-        for (const f of facts) {
-          const draft = drafts[f.name] ?? null;
-          if (same(draft, base[f.name])) continue;
-          if (isBlank(f, draft)) {
-            values[f.name] = null;
-            continue;
-          }
-          const encoded = encode(f, draft, type);
-          if (encoded.ok) values[f.name] = encoded.value;
-          else checks[`values/${f.name}`] = encoded.error;
-        }
-        if (!form.validate(checks)) return;
-        if (!Object.keys(values).length) {
-          setUnchanged(true);
-          return;
-        }
-        save.mutate(
-          { values, header: opened.ifMatch },
-          {
-            onSuccess: (saved) => {
-              client.setQueryData(entryQuery(saved.hrid).queryKey, saved);
-              close();
-              say(`Saved revision ${String(saved.revision)} of ${saved.hrid}.`);
-            },
-          },
-        );
+    <FactsForm
+      item={entry}
+      name={entry.hrid}
+      fields={facts}
+      type={type}
+      types={types}
+      registryId={entry.registry.id}
+      draftsOf={(e) =>
+        Object.fromEntries(facts.map((f) => [f.name, e ? toDraft(f, e.values[f.name], e) : null]))
+      }
+      save={async ({ values, reason, header }) =>
+        unwrap(
+          await iki.PATCH("/api/v1/entries/{ref}", {
+            params: { path: { ref: entry.id }, ...(header ? { header } : {}) },
+            body: { values, reason },
+          }),
+        )
+      }
+      invalidate={[ENTITIES]}
+      refresh={entryQuery(entry.hrid).queryKey}
+      reasonHelp="Why, for the record. Every project with it sees it in the history."
+      reasonMissing="Say why: every project with it sees it in the history."
+      submitLabel="Save facts"
+      onSaved={(saved) => {
+        client.setQueryData(entryQuery(saved.hrid).queryKey, saved);
+        setOpen(false);
+        say(`Saved revision ${String(saved.revision)} of ${saved.hrid}.`);
       }}
+      onCancel={() => {
+        setOpen(false);
+      }}
+      labelledBy="curate-title"
     >
       <h3 className="section-title" id="curate-title">
         Change facts
@@ -503,59 +463,7 @@ function Curate({ entry, type, types }: { entry: Entry; type: EntityType; types:
       <p className="muted">
         Every project with {entry.hrid} sees the change, with who made it, when and why.
       </p>
-      {stale ? (
-        <div className="alert alert-warning" role="alert">
-          <p>
-            Someone changed {entry.hrid} while you were editing, so nothing was saved. Close this,
-            check the new values, and make your change again.
-          </p>
-        </div>
-      ) : unchanged ? (
-        <div className="alert alert-warning" role="alert">
-          <p>Nothing to save: you haven’t changed anything.</p>
-        </div>
-      ) : (
-        form.alert
-      )}
-      {facts.map((f) => (
-        <FieldInput
-          key={f.name}
-          field={f}
-          type={type}
-          types={types}
-          draft={drafts[f.name] ?? null}
-          onChange={(draft) => {
-            setDrafts((current) => ({ ...current, [f.name]: draft }));
-          }}
-          error={form.errors[`values/${f.name}`]}
-          projectId=""
-          registryId={entry.registry.id}
-        />
-      ))}
-      <TextField
-        label="Reason"
-        value={reason}
-        onChange={setReason}
-        error={form.errors["reason"]}
-        maxLength={2000}
-        multiline
-        help="Why, for the record. Every project with it sees it in the history."
-      />
-      <div className="actions">
-        <Button type="submit" variant="primary" busy={save.isPending} busyText="Saving…">
-          Save facts
-        </Button>
-        <Button
-          variant="quiet"
-          onClick={() => {
-            if (stale) void client.invalidateQueries({ queryKey: entryQuery(entry.hrid).queryKey });
-            close();
-          }}
-        >
-          {stale ? "Close" : "Cancel"}
-        </Button>
-      </div>
-    </form>
+    </FactsForm>
   );
 }
 
@@ -567,7 +475,7 @@ function Supersede({ entry }: { entry: Entry }) {
   const { say } = useMessages();
   const client = useQueryClient();
   const supersede = useApiMutation(
-    async (header: { "If-Match": string }) =>
+    async (header: IfMatch) =>
       unwrap(
         await iki.POST("/api/v1/entries/{ref}/supersede", {
           params: { path: { ref: entry.id }, header },
@@ -576,8 +484,12 @@ function Supersede({ entry }: { entry: Entry }) {
       ),
     [ENTITIES],
   );
-  // The entry as the registrar confirmed it: one changed meanwhile is refused (412).
-  const opened = useOpenedRevision(entry.revision, { open: confirming, error: supersede.error });
+  // The entry as the registrar asked to confirm it, which it's superseded from (ADR 0300).
+  const rev = useRevisioned(entry, {
+    open: confirming,
+    error: supersede.error,
+    refresh: entryQuery(entry.hrid).queryKey,
+  });
   const form = useForm(confirming ? null : supersede.error, supersede.isPending);
   return (
     <section className="card" aria-labelledby="supersede-title">
@@ -634,18 +546,28 @@ function Supersede({ entry }: { entry: Entry }) {
         isOpen={confirming}
         title={`Supersede ${entry.hrid} with ${replacement.trim().toUpperCase()}?`}
         confirmLabel={`Supersede ${entry.hrid}`}
-        busy={supersede.isPending}
-        problem={supersede.error ? problemOf(supersede.error) : undefined}
+        busy={supersede.isPending || rev.rereading}
+        problem={
+          rev.changed
+            ? changedProblem(
+                `Someone changed ${entry.hrid} while this was open. The page now shows their change: check it, then supersede it again.`,
+              )
+            : supersede.error && !isStale(supersede.error)
+              ? problemOf(supersede.error)
+              : undefined
+        }
         onCancel={() => {
           setConfirming(false);
         }}
         onConfirm={() => {
-          supersede.mutate(opened.ifMatch, {
-            onSuccess: (saved) => {
-              client.setQueryData(entryQuery(saved.hrid).queryKey, saved);
-              setConfirming(false);
-              say(`Superseded ${saved.hrid}. Every project with it has been told.`);
-            },
+          rev.submit((header) => {
+            supersede.mutate(header, {
+              onSuccess: (saved) => {
+                client.setQueryData(entryQuery(saved.hrid).queryKey, saved);
+                setConfirming(false);
+                say(`Superseded ${saved.hrid}. Every project with it has been told.`);
+              },
+            });
           });
         }}
       >

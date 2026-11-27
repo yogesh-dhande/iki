@@ -5,13 +5,14 @@
  * save that keeps the rule.
  */
 
-import { unwrap, type Schemas } from "@ikisci/sdk";
+import { unwrap, type Schemas, isStale } from "@ikisci/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 
 import { fieldErrors, iki, labRolesQuery, problemOf, useApiMutation, type LabRole } from "../api";
 import { ENTITIES, entityQuery, personName, type Entity } from "../entities";
 import { WORK } from "../people";
+import { changedProblem, useRevisioned, type IfMatch } from "../revisioned";
 import { Button, ConfirmDialog, RelativeTime, TextField, useMessages } from "../ui";
 
 type Hold = Schemas["HoldOut"];
@@ -62,7 +63,7 @@ function Observations({ hold }: { hold: Hold }) {
 }
 
 export function EntityHolds({ entity }: { entity: Entity }) {
-  const [reviewing, setReviewing] = useState<{ entity: Entity; hold: Hold } | null>(null);
+  const [reviewing, setReviewing] = useState<Hold | null>(null);
   const id = useId();
   const holds = entity.holds ?? [];
   const breaches = entity.breaches ?? [];
@@ -99,7 +100,7 @@ export function EntityHolds({ entity }: { entity: Entity }) {
                     disabled={!h.can_review}
                     describedBy={h.can_review ? undefined : `${id}-${h.id}-why`}
                     onClick={() => {
-                      setReviewing({ entity, hold: h });
+                      setReviewing(h);
                     }}
                   >
                     Review
@@ -136,8 +137,8 @@ export function EntityHolds({ entity }: { entity: Entity }) {
       ) : null}
       {reviewing ? (
         <ReviewDialog
-          entity={reviewing.entity}
-          hold={reviewing.hold}
+          entity={entity}
+          hold={reviewing}
           declared={declared}
           onClose={() => {
             setReviewing(null);
@@ -148,9 +149,14 @@ export function EntityHolds({ entity }: { entity: Entity }) {
   );
 }
 
+/** The hold on a record, by its ID, as the record was read. */
+function holdIn(entity: Entity, id: string): Hold | undefined {
+  return entity.holds?.find((h) => h.id === id);
+}
+
 function ReviewDialog({
   entity,
-  hold,
+  hold: opened,
   declared,
   onClose,
 }: {
@@ -164,20 +170,27 @@ function ReviewDialog({
   const { say } = useMessages();
   const client = useQueryClient();
   const review = useApiMutation(
-    async () =>
+    async ({ header, version }: { header: IfMatch; version: string }) =>
       unwrap(
         await iki.POST("/api/v1/entities/{ref}/holds/{hold_id}/review", {
-          params: {
-            path: { ref: entity.id, hold_id: hold.id },
-            header: { "If-Match": `"${String(entity.revision)}"` },
-          },
-          body: { reason: reason.trim(), review_version: hold.review_version },
+          params: { path: { ref: entity.id, hold_id: opened.id }, header },
+          body: { reason: reason.trim(), review_version: version },
         }),
       ),
     [ENTITIES, WORK],
   );
-  const problem = review.error ? problemOf(review.error) : undefined;
-  const changed = problem?.status === 412;
+  // The record and the hold as they were read, which the reviewer reviews: if either
+  // changes, the reason they gave is for what they saw, so they give it again.
+  const rev = useRevisioned(entity, {
+    error: review.error,
+    refresh: ENTITIES,
+    version: (e) => `${String(e.revision)}:${holdIn(e, opened.id)?.review_version ?? ""}`,
+    onCatchUp: () => {
+      setReason("");
+    },
+  });
+  const hold = holdIn(rev.read, opened.id);
+  const problem = review.error && !isStale(review.error) ? problemOf(review.error) : undefined;
   const errors = fieldErrors(problem);
   const reasonError = errors["reason"] ?? (missing ? "Say why it may stand as it is." : undefined);
   return (
@@ -186,37 +199,50 @@ function ReviewDialog({
       title={`Review the hold on ${entity.hrid}`}
       confirmLabel="Clear the hold"
       confirmVariant="primary"
-      confirmDisabled={changed}
-      busy={review.isPending}
-      problem={problem && !errors["reason"] ? problem : undefined}
+      confirmDisabled={!hold}
+      busy={review.isPending || rev.rereading}
+      problem={
+        rev.changed
+          ? changedProblem(
+              hold
+                ? "Someone changed the record or its hold while this was open. Check what it says now, then give your reason again."
+                : "Someone changed the record while this was open, and it’s no longer held by this rule.",
+            )
+          : problem && !errors["reason"]
+            ? problem
+            : undefined
+      }
       onCancel={onClose}
       onConfirm={() => {
-        if (changed) return;
+        if (!hold) return;
         if (!reason.trim()) {
           setMissing(true);
           return;
         }
-        review.mutate(undefined, {
-          onError: (error) => {
-            if (error.status === 412) {
-              setReason("");
-              void client.invalidateQueries({ queryKey: ENTITIES });
-            }
-          },
-          onSuccess: (saved) => {
-            client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
-            onClose();
-            say(`The hold on ${saved.hrid} (“${hold.label}”) is reviewed.`);
-          },
+        rev.submit((header) => {
+          review.mutate(
+            { header, version: hold.review_version },
+            {
+              onSuccess: (saved) => {
+                client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
+                onClose();
+                say(`The hold on ${saved.hrid} (“${hold.label}”) is reviewed.`);
+              },
+            },
+          );
         });
       }}
     >
-      <p>You’re reviewing record revision {entity.revision}.</p>
-      <Observations hold={hold} />
-      <p>
-        As one of its {roles(hold.reviewed_by, declared)} reviewers, you say why it may stand as it
-        is. Your name and reason are kept in its history, and the hold is cleared.
-      </p>
+      <p>You’re reviewing record revision {rev.read.revision}.</p>
+      {hold ? (
+        <>
+          <Observations hold={hold} />
+          <p>
+            As one of its {roles(hold.reviewed_by, declared)} reviewers, you say why it may stand as
+            it is. Your name and reason are kept in its history, and the hold is cleared.
+          </p>
+        </>
+      ) : null}
       <TextField
         label="Why it may stand"
         value={reason}

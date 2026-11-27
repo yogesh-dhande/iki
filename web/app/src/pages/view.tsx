@@ -6,7 +6,7 @@
  * a revision of the view: what the viewers show now, on the revisions they show.
  */
 
-import { unwrap } from "@ikisci/sdk";
+import { unwrap, ifMatch } from "@ikisci/sdk";
 import { useQueries } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
@@ -162,7 +162,7 @@ export function SavedViewPanel({ view, types }: { view: Entity; types: EntityTyp
       await iki.PATCH("/api/v1/entities/{ref}", {
         params: {
           path: { ref: view.id },
-          header: { "If-Match": `"${String(view.revision)}"` },
+          header: ifMatch(view.revision),
         },
         body: { values: { state: saved, target_revisions: revisions }, reason: "" },
       }),
