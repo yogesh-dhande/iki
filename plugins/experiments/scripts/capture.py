@@ -19,6 +19,15 @@ def capture(run: dict[str, Any]) -> dict[str, Any]:
     flow = run["settings"]["review_flow"]
     if flow not in {"author_signed", "research", "regulated_qc"}:
         raise ValueError("Choose a supported experiment review flow in the plugin settings.")
+    if values.get("review_flow") == "regulated_qc" and flow != "regulated_qc":
+        # A record captured for Regulated QC finishes that review (ADR 0240, ADR 0247): it
+        # may carry a signed submission already, which no laxer flow may close.
+        print(
+            "It was captured for Regulated QC, so it stays in that review: the project's "
+            f"{flow.replace('_', ' ')} flow is for records not captured for it yet.",
+            flush=True,
+        )
+        flow = "regulated_qc"
     pins = []
     for result in results:
         record_id = result["id"]
