@@ -79,6 +79,7 @@ from iki_server.entities.values import shape
 from iki_server.graph import edges
 from iki_server.plugins import baseline
 from iki_server.plugins.models import PluginState
+from iki_server.reviews import sync as reviews
 from iki_spec import naming
 from iki_spec.model import EntityType, Extension, Field, split_entry
 
@@ -108,6 +109,9 @@ class Report:
     graph: list[str] = field(default_factory=list)
     targets: list[str] = field(default_factory=list)
     guards: list[str] = field(default_factory=list)
+    #: Review procedure versions installed by this deploy, and the reviewed tables.
+    procedures: list[str] = field(default_factory=list)
+    reviewed: list[str] = field(default_factory=list)
     #: The rules the database holds, as ``table:rule``.
     rules: list[str] = field(default_factory=list)
     #: What subtypes narrow in fields they inherit, as ``table.column:type:part`` (ADR 0283).
@@ -149,6 +153,8 @@ def sync(analyst_role: str | None = None) -> Report:
         report.graph = edges.install(
             cursor, edges.tables((plugin, model, fields) for plugin, model, fields, _ in _tables())
         )
+        report.procedures = reviews.install_procedures()
+        report.reviewed = reviews.install(cursor, reviews.tables())
         report.rules = constraints.install(cursor, constraints.wanted())
         report.narrowed = narrowings.install(cursor, narrowings.wanted())
         report.targets = targets.install(
@@ -186,6 +192,8 @@ def describe(report: Report) -> list[str]:
     lines = [f"  HRID sequence {name}" for name in report.sequences]
     lines += [f"  unique {key}" for key in report.unique]
     lines += [f"  references of {table}" for table in report.graph]
+    lines += [f"  review procedure {name}" for name in report.procedures]
+    lines += [f"  review pins of {table}" for table in report.reviewed]
     lines += [f"  rule {key}" for key in report.rules]
     lines += [f"  narrowed {key}" for key in report.narrowed]
     for checked in report.checked:

@@ -78,6 +78,7 @@ from iki_server.entities.values import (
 from iki_server.files import scan_state, storage
 from iki_server.files.models import File
 from iki_server.org.models import registry_of
+from iki_server.reviews import pins
 from iki_server.runs import live, makings, results
 from iki_server.runs.models import (
     ActionRun,
@@ -645,6 +646,9 @@ def _stage_rows(
             results.invalid(check, create.pointer, error)
             errors.extend(check.errors)
             continue
+        except pins.ProcedureNotChosen as error:
+            # Refused whole, as any output whose record can't be made (ADR 0302).
+            raise results.Rejected("conflict", str(error)) from None
         prepared.append((line, create, form, given))
     refused = {
         index: [b for b in broken if not b.held]

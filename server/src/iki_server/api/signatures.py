@@ -521,7 +521,7 @@ def _signing_out(signing: Signing) -> dict[str, Any]:
     from iki_server.entities import states
 
     entity = Entity.objects.get(pk=signing.entity_id)
-    f = states.state_fields(entity.type).get(signing.field)
+    f = states.state_fields_of(entity).get(signing.field)
     target = f.states.get(signing.state) if f is not None else None
     made = (
         signing.signature_id is not None

@@ -80,7 +80,7 @@ def find(entity: Entity, field: str, to: str) -> Change:
     :class:`Refused`, saying why."""
     if entity.registry_id is not None:
         raise Refused(f"{entity.hrid} is a registry entry: its projects' records have states.")
-    f = states.state_fields(entity.type).get(field)
+    f = states.state_fields_of(entity).get(field)
     if f is None:
         type_label = registry.types()[entity.type].label if entity.type in registry.types() else ""
         raise Refused(f"{type_label or entity.type} records have no state field `{field}`.")

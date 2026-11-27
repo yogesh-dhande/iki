@@ -1,0 +1,30 @@
+# A lab's SOP, applied to a type it didn't write: its analyst submits and signs, and a
+# second person, who didn't make, edit or submit it, signs the release.
+apiVersion: iki/v1
+kind: ReviewProcedure
+name: two_person
+version: 1
+label: Two-person release (SOP-QC-007)
+slots:
+  analyst: { label: Analyst }
+  checker: { label: Second person }
+states:
+  recorded: { label: In progress, by: [analyst, checker], reason: required }
+  submitted:
+    label: Submitted
+    by: analyst
+    locks: true
+    signature: { meaning: authorship }
+    maker: true
+  released:
+    label: Released
+    by: checker
+    locks: true
+    signature: { meaning: approval }
+    independent_of: [creator, editors, signers: [submitted]]
+flows:
+  two_person:
+    label: Two-person
+    summary: The analyst submits and signs; a second person releases.
+    route: [recorded, submitted, released]
+    moves: { recorded: [submitted] }

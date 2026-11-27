@@ -270,6 +270,8 @@ def test_a_reviewed_type_gets_its_review_field_and_pinned_fields(tmp_path: Path)
     assert "review" not in case.fields and "review_procedure" in case.fields
     assert result_type.review is not None
     assert result_type.review.guards["measured"].on == ("signed",)
+    # What its people exclusions read, so the server loads them for the guard.
+    assert set(result_type.review.reads) == {"analysts", "case"}
     again = plugin_from_dict(plugin_to_dict(result.plugin))
     assert again.types == result.plugin.types
 

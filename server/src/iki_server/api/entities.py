@@ -2158,7 +2158,7 @@ def _can_correct(
 ) -> bool:
     if not entity.locked_by or entity.released_review_revision is not None:
         return False
-    targets = states.on_edit(states.state_fields(entity.type), values)
+    targets = states.on_edit(states.state_fields_of(entity), values)
     if set(entity.locked_by) != targets.keys():
         return False
     for index, (field, target) in enumerate(targets.items()):

@@ -12,6 +12,7 @@ from django.db import transaction
 from iki_server.audit import log as audit
 from iki_server.entities import constraints, narrowings, targets, unique
 from iki_server.plugins import sync
+from iki_server.reviews import sync as reviews
 
 
 class Command(BaseCommand):
@@ -30,7 +31,13 @@ class Command(BaseCommand):
         try:
             with audit.cli(), transaction.atomic():
                 report = sync.sync(analyst)
-        except (unique.Clash, constraints.Clash, narrowings.Unfit, targets.Mismatch) as error:
+        except (
+            unique.Clash,
+            constraints.Clash,
+            narrowings.Unfit,
+            targets.Mismatch,
+            reviews.Changed,
+        ) as error:
             raise CommandError(str(error)) from None
         for line in sync.describe(report):
             self.stdout.write(line)

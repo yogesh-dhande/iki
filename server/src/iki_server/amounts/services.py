@@ -145,7 +145,7 @@ def amounts_of(entities: Sequence[Entity]) -> dict[Any, Amount]:
 def held(entity: Entity, values: Mapping[str, Any] | None = None) -> str | None:
     """The state field holding ``entity``'s amount, if one does: a state with
     ``holds_amount``, such as quarantine."""
-    fields = states.state_fields(entity.type)
+    fields = states.state_fields_of(entity)
     if not fields:
         return None
     if values is None:
@@ -737,8 +737,8 @@ def _what_it_takes(source: Entity, target: Entity) -> bool:
                     ]
                 }
             )
-    held_in = states.state_fields(source.type)
-    for name, f in states.state_fields(target.type).items():
+    held_in = states.state_fields_of(source)
+    for name, f in states.state_fields_of(target).items():
         state = f.states.get(mine.get(name) or "")
         if state is None or not state.locks:
             continue
@@ -829,7 +829,7 @@ def _taking(
         values = services.current_values_of([entity])[entity.pk]
     name = held(entity, values)
     if name is not None:
-        f = states.state_fields(entity.type)[name]
+        f = states.state_fields_of(entity)[name]
         raise Wrong(
             {
                 "amount": [

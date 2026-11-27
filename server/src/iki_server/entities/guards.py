@@ -42,6 +42,7 @@ from iki_spec.model import Field, Guard, State
 
 if TYPE_CHECKING:
     from iki_server.accounts.models import User
+    from iki_server.reviews.pins import Pin
 
 __all__ = ["Refusal", "evaluate", "refusals", "variables_of"]
 
@@ -61,12 +62,16 @@ def _plugin_of(type_name: str, field: str) -> str:
 
 
 @cache
-def variables_of(type_name: str, field: str) -> dict[str, Any]:
-    """What the guards of a state field read, as its plugin's validation checked them."""
+def variables_of(type_name: str, field: str, pin: Pin | None = None) -> dict[str, Any]:
+    """What the guards of a state field read, as its plugin's validation checked them; for
+    a reviewed record, with the states of the flow it's pinned to (ADR 0301)."""
     from iki_server.org import lab_roles
+    from iki_server.reviews import pins
 
     entity_type = registry.types()[type_name]
     fields = shape(type_name).fields()
+    if pin is not None and (found := pins.review_of(type_name)) is not None:
+        fields = {**fields, found[1].field: pins.flow_field(type_name, pin)}
     record = spec_rules.record_schema(entity_type.label, fields, checking.ref_fields)
     states = {n: f for n, f in fields.items() if f.type == "state"}
     roles = spec_rules.role_names(lab_roles.declared(), _plugin_of(type_name, field))
@@ -166,10 +171,15 @@ def refusals(
     guarded = [s for s in states if s.guards]
     if not guarded or entity.owner_project is None:
         return {}
+    from iki_server.entities import states as record_states
+    from iki_server.reviews import pins
+
     type_name = entity.type
     form = shape(type_name)
     fields = form.fields()
-    state_fields = {n: f for n, f in fields.items() if f.type == "state" and not f.removed}
+    # A reviewed record's states are its pinned flow's (ADR 0301).
+    state_fields = record_states.state_fields_of(entity)
+    pin = pins.pin_of(entity)
     reads = sorted(
         {n for s in guarded for g in s.guards.values() for n in g.reads} | set(state_fields)
     )
@@ -230,7 +240,7 @@ def refusals(
     }
     return evaluate(
         type_name,
-        variables_of(type_name, field),
+        variables_of(type_name, field, pin),
         {state.name: tuple(state.guards.values()) for state in guarded},
         contexts,
         missing,

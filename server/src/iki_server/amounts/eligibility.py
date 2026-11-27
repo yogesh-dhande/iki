@@ -137,7 +137,7 @@ def refusals(
         theirs = current_values_of([source])[source.pk]
         holding = held(source, theirs)
         if holding is not None:
-            state = states.state_fields(source.type)[holding]
+            state = states.state_fields_of(source)[holding]
             current = state.states.get(theirs.get(holding) or "")
             said = current.label if current is not None else state.label
             for p in purposes:

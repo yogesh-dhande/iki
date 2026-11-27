@@ -807,6 +807,16 @@ review:
   or `{by: field}`: the procedure of the record a required, immutable
   reference names. `review: {opens: true}` is a type with no review of its
   own that pins one for the records that follow it.
+- The server stamps both when a record is created
+  ([ADR 0302](../docs/adr/0302-a-project-chooses-each-types-review-procedure-and-the-server-pins-it.md)),
+  from its project's choice for the type or its nearest ancestor with one,
+  else the deployment's default an Org Admin set with a reason. With
+  neither, the create is refused, 409 `procedure_not_chosen`, whether it
+  comes from the API, a spreadsheet, an import or an action's run, which is
+  refused whole. No writer sets them, and they never change: a project that
+  changes its choice changes only what new records are pinned to.
+  `GET /api/v1/review-choices/{type}` says what applies and which installed
+  procedures fit.
 - `needs`: `open`, the state its actions write in (`recorded` unless said);
   `final`, the states its readers take as complete; `states`, others it
   names; `locks`, `signed` or `final`; and `slots`, those its fields and

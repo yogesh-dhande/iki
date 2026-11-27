@@ -30,7 +30,7 @@ be set to a state that locks it until its holds are reviewed.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 from uuid import UUID
 
@@ -63,6 +63,7 @@ __all__ = [
     "return_for_edit",
     "set_state",
     "state_fields",
+    "state_fields_of",
     "values_of",
     "why_not",
     "write",
@@ -89,6 +90,30 @@ def state_fields(type_name: str) -> dict[str, Field]:
         for name, f in part.fields.items()
         if f.type == "state" and not f.removed
     }
+
+
+def state_fields_of(entity: Entity) -> dict[str, Field]:
+    """A record's state fields, as :func:`state_fields`, with its review field as its pinned
+    procedure's flow has it (ADR 0301): the states, guards, roles and signatures the
+    record moves through. Use it, not its type's, wherever a record's states are read."""
+    from iki_server.reviews import pins
+
+    fields = state_fields(entity.type)
+    found = pins.review_of(entity.type)
+    if found is None or found[1].opens or found[1].field not in fields:
+        return fields
+    review = pins.field_of(entity)
+    if review is None:
+        # Not pinned: nothing may move it, which fails closed.
+        placeholder = fields[found[1].field]
+        review = replace(
+            placeholder,
+            states={
+                n: replace(st, set_by=(), guards={}, signatures=())
+                for n, st in placeholder.states.items()
+            },
+        )
+    return {**fields, review.name: review}
 
 
 def locking(fields: Mapping[str, Field], values: Mapping[str, Any]) -> list[str]:
@@ -149,7 +174,7 @@ def locked_why(entity: Entity, *, doing: str = "be changed") -> str | None:
         return _final_release(entity)
     if not entity.locked:
         return None
-    fields = state_fields(entity.type)
+    fields = state_fields_of(entity)
     values = values_of(entity)
     # In its type's order, whichever order they came to lock it in.
     by = [name for name in fields if name in entity.locked_by] or list(entity.locked_by)
@@ -234,7 +259,7 @@ def options(
         return {}
     history = entries.for_records([entity]) if history is None else history
     out: dict[str, list[Option]] = {}
-    for name, f in state_fields(entity.type).items():
+    for name, f in state_fields_of(entity).items():
         current = values.get(name)
         candidates = [
             st
@@ -412,7 +437,7 @@ def set_state(
         )
         if locked.registry_id is not None:
             raise Refused(f"{locked.hrid} is a registry entry: its projects' records have states.")
-        fields = state_fields(locked.type)
+        fields = state_fields_of(locked)
         f = fields.get(field)
         if f is None:
             type_label = registry.types()[locked.type].label
@@ -488,7 +513,7 @@ def write(
     revision carries them all (``signatures``, in order)."""
     from iki_server.entities import services
 
-    fields = state_fields(locked.type)
+    fields = state_fields_of(locked)
     values = values_of(locked)
     current = values.get(f.name) or ""
     from iki_server.entities import requests

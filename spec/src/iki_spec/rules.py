@@ -603,6 +603,7 @@ class _Rules:
             review = replace(
                 review,
                 guards={n: replace(g, guard=checked[n]) for n, g in review.guards.items()},
+                reads=checked["independent"].reads if "independent" in checked else (),
             )
         draw = entity_type.draw_guards
         if draw:

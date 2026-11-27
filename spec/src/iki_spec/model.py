@@ -68,6 +68,8 @@ __all__ = [
     "person_role",
     "plugin_from_dict",
     "plugin_to_dict",
+    "procedure_from_dict",
+    "procedure_to_dict",
     "workflow_from_dict",
 ]
 
@@ -712,6 +714,8 @@ class ReviewSpec:
     #: People every independent state also excludes.
     independent_of: tuple[Exclusion, ...] = ()
     guards: dict[str, TypeGuard] = dataclasses.field(default_factory=dict)
+    #: The fields of its records ``independent_of`` reads, as its validation found them.
+    reads: tuple[str, ...] = ()
 
     @classmethod
     def read(cls, data: object) -> ReviewSpec | None:
@@ -2482,6 +2486,17 @@ def _exclusions(data: list[dict[str, Any]] | None) -> tuple[Exclusion, ...]:
     )
 
 
+def procedure_to_dict(procedure: ReviewProcedure) -> dict[str, Any]:
+    """A review procedure as JSON, as a plugin's manifest holds it; :func:`procedure_from_dict`
+    reads it back."""
+    out: dict[str, Any] = _to_json(procedure)
+    return out
+
+
+def procedure_from_dict(data: dict[str, Any]) -> ReviewProcedure:
+    return _procedure(data)
+
+
 def _procedure(data: dict[str, Any]) -> ReviewProcedure:
     return ReviewProcedure(
         **{
@@ -2527,6 +2542,7 @@ def _review(data: dict[str, Any]) -> ReviewSpec:
                 }
             ),
             "independent_of": _exclusions(data.get("independent_of")),
+            "reads": tuple(data.get("reads") or ()),
             "guards": {
                 n: TypeGuard(guard=_guards({n: g["guard"]})[n], on=tuple(g["on"]))
                 for n, g in (data.get("guards") or {}).items()
