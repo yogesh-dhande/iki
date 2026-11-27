@@ -107,6 +107,7 @@ COA: dict[str, Any] = {
     "quality unit.",
     "lot": {"lot_number": "Synthetic lot A", "hrid": "GLOT-000001", "revision": 3},
     "specification": {
+        "context": "Release",
         "version": "USP 2015",
         "hrid": "QSV-000001",
         "revision": 2,
@@ -203,6 +204,7 @@ def test_a_certificate_states_its_final_results_apart_from_its_evidence(
         expect(page.get_by_role("heading", level=2)).to_have_text(COA["title"])
         expect(page.get_by_role("status")).to_have_text("Draft awaiting signed issue")
         expect(page.get_by_text(COA["intended_use"])).to_be_visible()
+        expect(page.get_by_text("Release · USP 2015 · QSV-000001 · revision 2")).to_be_visible()
         results = page.get_by_role("heading", name="Results")
         expect(results).to_be_visible()
         # A certificate of analysis holds no evidence to show.
@@ -229,6 +231,24 @@ def test_a_certificate_states_its_final_results_apart_from_its_evidence(
                 "values": {"version": "USP 2015", "testing_on": "2026-11-22", "sealed": False},
             },
             "Testing open",
+            "iki/qc_release.open_release",
+            "Open release testing",
+        ),
+        (
+            "lot-release",
+            {
+                "hrid": "QRC-000001",
+                "title": "Lot release",
+                "values": {
+                    "version": "USP 2015",
+                    "testing_on": "2026-11-22",
+                    "sealed": True,
+                    "context": "Release",
+                    "cycle": 1,
+                    "superseded": True,
+                },
+            },
+            "Release cycle 1 · Specification USP 2015 · 2026-11-22 · Followed by a later cycle",
             "iki/qc_release.open_release",
             "Open release testing",
         ),
@@ -320,7 +340,9 @@ def test_release_navigation_and_actions_fit_the_lot_workflow(
         )
         expect(page.get_by_text(re.compile(text))).to_be_visible()
         if element == "lot-release":
+            # A lot with a case is tested again in another cycle or context.
             expect(page.get_by_role("button", name="Open release testing")).to_have_count(0)
+            expect(page.get_by_role("button", name="Open another release cycle")).to_be_visible()
         page.get_by_role("button", name=f"Open {row['hrid']}").click()
         assert page.evaluate("window.opened") == [row["hrid"]]
         accessible(page)

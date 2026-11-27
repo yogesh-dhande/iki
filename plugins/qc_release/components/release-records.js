@@ -48,8 +48,15 @@ function summary(item) {
     return [v.attribute, `${seen} · ${out}${role} · ${v.method}`];
   }
   if (v.version) {
-    const state = v.sealed == null ? "" : v.sealed ? " · Certificate prepared" : " · Testing open";
-    return [item.title, `Specification ${v.version} · ${v.testing_on}${state}`];
+    const state = v.superseded
+      ? " · Followed by a later cycle"
+      : v.sealed == null
+        ? ""
+        : v.sealed
+          ? " · Certificate prepared"
+          : " · Testing open";
+    const cycle = v.cycle ? `${v.context ?? "Release"} cycle ${v.cycle} · ` : "";
+    return [item.title, `${cycle}Specification ${v.version} · ${v.testing_on}${state}`];
   }
   const decisions = {
     invalidated: "Invalidated",
@@ -115,8 +122,10 @@ class ReleaseRecords extends HTMLElement {
     }
     if (!this.sealed && !loading && !error) {
       for (const action of this.runs ?? []) {
-        if (action === OPEN && items.length) continue;
-        if (ACTIONS[action]) actions.push(this.button(ACTIONS[action], "iki-run", { action }));
+        // A lot is tested again in a new cycle, or against another specification context.
+        const label =
+          action === OPEN && items.length ? "Open another release cycle" : ACTIONS[action];
+        if (label) actions.push(this.button(label, "iki-run", { action }));
       }
     }
     if (actions.length) {

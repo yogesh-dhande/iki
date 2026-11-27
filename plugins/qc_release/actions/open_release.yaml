@@ -2,19 +2,43 @@ apiVersion: iki/v1
 kind: Action
 name: open_release
 label: Open lot release testing
-description: Select and pin the approved specification in force for the lot on its testing date.
+description: >-
+  Select and pin the approved specification in force for the lot on its testing date. To
+  test the lot again against the same specification, name its latest case and say why.
 inputs:
   lot: { type: iki/lots.Lot }
   schedule: { type: SpecificationSchedule, include: [versions] }
+  previous:
+    type: ReleaseCase
+    optional: true
+    description: >-
+      The lot's latest case against this specification, when this is a retest or testing
+      after rework. It keeps its attempts and decisions and takes no more tests.
+  investigations:
+    type: OOSInvestigation
+    cardinality: many
+    max: 250
+    optional: true
+    include: [test]
+    description: >-
+      If the previous case has no certificate, the signed investigation of each of its
+      out-of-specification results. A lot isn't tested again around an open investigation.
 params:
   testing_on:
     type: date
     required: true
     label: Testing date
     description: The date on which this set of tests was performed.
+  reason:
+    type: text
+    max_length: 2000
+    label: Reason for testing again
+    description: For a later cycle, why the lot is tested again, such as its retest date or a rework.
 effects:
-  updates: [{ input: schedule, fields: [versions, tested_through] }]
-  creates: [{ type: ReleaseCase, derived_from: [lot, schedule] }]
+  updates:
+    - { input: schedule, fields: [versions, tested_through] }
+    - { input: previous, fields: [superseded] }
+  creates: [{ type: ReleaseCase, derived_from: [lot, schedule, previous, investigations] }]
 runs_on: { tier: backend, environment: qc-tools }
 command: [python, ./scripts/qc_release.py, open_release]
 timeout: 1m

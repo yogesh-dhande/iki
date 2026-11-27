@@ -2,15 +2,38 @@ apiVersion: iki/v1
 kind: EntityType
 name: ReleaseCase
 label: Lot release case
-schema_version: 1
+schema_version: 2
 hrid: { prefix: QRC }
-description: A lot's release tests against the specification in force on its testing date.
+description: One cycle of a lot's tests against the specification in force on its testing date, in one specification context.
 fields:
   lot: { type: ref, to: iki/lots.Lot, computed: true, immutable: true }
   lot_revision: { type: int, min: 1, computed: true, immutable: true }
   lot_number: { type: string, max_length: 100, computed: true, immutable: true }
   schedule: { type: ref, to: SpecificationSchedule, computed: true, immutable: true }
   schedule_revision: { type: int, min: 1, computed: true, immutable: true }
+  context: { type: string, max_length: 120, computed: true, immutable: true }
+  cycle:
+    type: int
+    min: 1
+    computed: true
+    immutable: true
+    description: The lot's first testing against this specification is cycle 1. A retest or retesting after rework is the next.
+  previous:
+    type: ref
+    to: ReleaseCase
+    computed: true
+    immutable: true
+    description: The cycle before this one, whose attempts and decisions remain as they were.
+  reason:
+    type: text
+    max_length: 2000
+    computed: true
+    immutable: true
+    label: Reason for testing again
+  superseded:
+    type: bool
+    computed: true
+    description: A later cycle for the lot and specification has been opened. This case takes no more tests.
   specification: { type: ref, to: SpecificationVersion, computed: true, immutable: true }
   specification_revision: { type: int, min: 1, computed: true, immutable: true }
   version: { type: string, max_length: 100, computed: true, immutable: true }
@@ -29,10 +52,18 @@ fields:
     computed: true
     description: The certificate was assembled from all test attempts and their signed exception decisions.
 rules:
-  lot_case:
-    label: Keep all release attempts for the lot in one case
-    unique: [lot]
-    message: Use the existing release case for this lot.
+  lot_cycle:
+    label: Each release cycle of a lot against a specification is one case
+    unique: [lot, schedule, cycle]
+    message: >-
+      This lot already has that cycle for the specification. Choose its latest case as the
+      previous cycle to open the next.
+  cycles:
+    label: A later cycle follows the one before it, for a stated reason
+    check: >-
+      record.cycle == null || (record.cycle == 1 ? record.previous == null :
+      record.previous != null && record.reason != null && size(record.reason) > 0)
+    message: A later release cycle names the cycle before it and why the lot is tested again.
   pinned:
     label: The release case pins the effective specification
     check: >-
@@ -40,6 +71,7 @@ rules:
       record.schedule != null && record.schedule_revision != null &&
       record.specification != null && record.specification_revision != null &&
       record.version != null && record.testing_on != null && record.review_flow != null &&
-      record.attempts != null && record.sealed != null
+      record.attempts != null && record.sealed != null && record.cycle != null &&
+      record.context != null
     message: Open the lot release case with the effective specification action.
-display: { title: "{{ lot_number or hrid }} · {{ testing_on }}" }
+display: { title: "{{ lot_number or hrid }} · {{ context }} cycle {{ cycle }} · {{ testing_on }}" }

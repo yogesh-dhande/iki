@@ -251,6 +251,97 @@ def test_lab_report_must_name_nonempty_run_input(qc_actions: ModuleType) -> None
     assert measurement["values"]["lab_report"] == "report1"
 
 
+def opening(qc_actions: ModuleType, **more: Any) -> dict[str, Any]:
+    """A run of open_release for a GenericLot of material1, under the Release schedule."""
+    version = record(
+        "spec1",
+        2,
+        schedule="schedule1",
+        approval="approved",
+        version="v1",
+        effective_from="2020-01-01",
+        source="Synthetic specification used for testing the software",
+        criteria=inputs()["inputs"]["case"][0]["included"]["specification"][0]["values"][
+            "criteria"
+        ],
+    )
+    schedule = record("schedule1", 3, material="material1", context="Release", versions=["spec1"])
+    schedule["included"] = {"versions": [version]}
+    lot = record("lot1", 8, of="material1", lot_number="Synthetic lot 1")
+    lot["material_field"] = "of"
+    return {
+        "run": {"requested_by": "analyst1"},
+        "settings": {"review_flow": "regulated_qc"},
+        "inputs": {"lot": [lot], "schedule": [schedule]} | more.pop("inputs", {}),
+        "params": {"testing_on": "2021-04-02"} | more,
+    }
+
+
+def test_a_lot_is_matched_to_its_specification_by_its_declared_material(
+    qc_actions: ModuleType,
+) -> None:
+    run = opening(qc_actions)
+    (case,) = qc_actions.open_release(run)["creates"]
+    assert case["values"] | {"cycle": 1, "context": "Release"} == case["values"]
+    # A strain isolate is its own material: its schedule names the isolate.
+    isolate = run["inputs"]["lot"][0] | {"id": "material1", "material_field": "id"}
+    qc_actions.open_release(run | {"inputs": run["inputs"] | {"lot": [isolate]}})
+    # A protein lot reads its protein, not a field of the same name on another lot type.
+    other = run["inputs"]["lot"][0] | {"material_field": "protein"}
+    with pytest.raises(ValueError, match="material registered on this lot"):
+        qc_actions.open_release(run | {"inputs": run["inputs"] | {"lot": [other]}})
+
+
+def test_a_lot_is_tested_again_in_a_new_cycle_that_keeps_the_last(qc_actions: ModuleType) -> None:
+    """A retest or a rework is a new case after the lot's latest one. That case keeps its
+    attempts and decisions and takes no more tests. A case without a certificate is
+    followed only once every OOS result in it has a signed conclusion."""
+    first = qc_actions.open_release(opening(qc_actions))["creates"][0]["values"]
+    with pytest.raises(ValueError, match="first release cycle has no previous case"):
+        qc_actions.open_release(opening(qc_actions, reason="Retest date"))
+
+    run = inputs()
+    case = run["inputs"]["case"][0]
+    case["values"] |= {"cycle": 1, "context": "Release"}
+    output = qc_actions.record_test(run)
+    original = record("test1", 1, **output["creates"][0]["values"])
+    case["values"].update(output["updates"]["case"][0]["values"])
+    previous = {k: case[k] for k in ("id", "hrid", "revision", "values")}
+    assert first["lot"] == previous["values"]["lot"]
+    retest = opening(qc_actions, inputs={"previous": [previous]}, testing_on="2022-04-02")
+
+    with pytest.raises(ValueError, match="Say why"):
+        qc_actions.open_release(retest)
+    retest["params"]["reason"] = "Synthetic: reprocessed by recrystallization under deviation D-1."
+    with pytest.raises(ValueError, match="signed investigation of every"):
+        qc_actions.open_release(retest)
+    investigation = investigation_for(original, "submitted", "confirmed")
+    investigation["included"] = {"test": [original]}
+    retest["inputs"]["investigations"] = [investigation]
+    with pytest.raises(ValueError, match="Finish signing every investigation"):
+        qc_actions.open_release(retest)
+    investigation["values"]["review"] = "released"
+    early = deepcopy(retest)
+    early["params"]["testing_on"] = "2021-04-01"
+    with pytest.raises(ValueError, match="before the cycle it follows"):
+        qc_actions.open_release(early)
+
+    output = qc_actions.open_release(retest)
+    (second,) = output["creates"]
+    assert second["values"]["cycle"] == 2
+    assert second["values"]["previous"] == "case1"
+    assert second["values"]["reason"] == retest["params"]["reason"]
+    assert set(second["derived_from"]) >= {"case1", "inv1"}
+    (closed,) = output["updates"]["previous"]
+    assert closed == {"entity": "case1", "values": {"superseded": True}, "require_unchanged": True}
+
+    case["values"].update(closed["values"])
+    with pytest.raises(ValueError, match="later release cycle follows this case"):
+        qc_actions.record_test(run)
+    with pytest.raises(ValueError, match="already follows that case"):
+        qc_actions.open_release(retest)
+
+
 def test_an_investigation_tests_under_its_plan_and_replaces_nothing(
     qc_actions: ModuleType,
 ) -> None:
@@ -595,6 +686,7 @@ def test_no_policy_moves_a_testing_date_a_case_has_pinned(
 
 def test_opening_a_case_records_the_latest_testing_date(qc_actions: ModuleType) -> None:
     lot = record("lot1", 1, of="material1", lot_number="Synthetic lot")
+    lot["material_field"] = "of"
     for before, tested, latest in (
         (None, LONG_AGO + timedelta(days=5), LONG_AGO + timedelta(days=5)),
         (TODAY.isoformat(), LONG_AGO + timedelta(days=5), TODAY),

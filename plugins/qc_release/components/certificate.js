@@ -146,7 +146,12 @@ class ReleaseCertificate extends HTMLElement {
             ["Retest by", lot.retest_on],
             ["Expires", lot.expires_on],
           ].filter(([, day]) => day),
-          ["Specification", `${specification.version} · ${label(specification)}`],
+          [
+            "Specification",
+            [specification.context, specification.version, label(specification)]
+              .filter(Boolean)
+              .join(" · "),
+          ],
           ["Testing date", coa.testing_on],
         ]),
         node("h3", "Results"),

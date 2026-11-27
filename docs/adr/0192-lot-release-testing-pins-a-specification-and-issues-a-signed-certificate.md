@@ -9,6 +9,7 @@
 - Amended: 2026-11-26 — a certificate states its final results apart from its evidence (see Amendment)
 - Amended: 2026-11-26 — an investigation's own testing, an inconclusive conclusion and
   its investigator (see Amendment)
+- Amended: 2026-11-26 — specification contexts and release cycles (see Amendment)
 
 ## Context
 
@@ -72,7 +73,7 @@ state, following ICH Q7 §11.4:
 
 - the issuer;
 - the lot number with its made, retest and expiry dates;
-- the specification version;
+- the specification version, and its context (release or shelf life);
 - the testing date;
 - for each criterion, its method, limits or requirement, and final reportable result.
 
@@ -143,3 +144,33 @@ submitter, observer and editors.
 A lab whose SOP needs more than this, such as a second analyst's retest under a
 separately approved protocol, records that protocol as the plan. Each retest remains
 an investigational test under it.
+
+## Amendment. Specification contexts and release cycles
+
+One schedule per material and one case per lot meant that a lab couldn't keep release and
+shelf-life acceptance criteria apart (ICH Q6A §2.2), or test a lot again at its retest
+date or after a rework, without losing the case it had.
+
+**A schedule has a context.** `context` names which approved specification the schedule
+holds for the material: `Release` by default, or `Shelf life`, a market or a product
+grade. A project has one schedule per material and context. Effective dates replay within
+each context, and a case pins its schedule's context.
+
+**A case is one cycle.** A lot's first case against a schedule is cycle 1. To test it
+again, `open_release` takes the latest case as `previous` and a written reason, and opens
+the next cycle. The database keeps one case per lot, schedule and cycle. The previous case
+is marked `superseded`, checked against the revision the run read, so two retests can't
+both follow one cycle. A superseded case takes no more tests. Its attempts,
+investigations and any certificate are unchanged. If it has no certificate, the new
+cycle needs the signed conclusion of every out-of-specification result in it. Opening a
+cycle never sidesteps an open investigation. A later cycle is never tested before the
+one it follows. A case's title is its lot number, context and cycle, then its testing
+date, such as `NaCl-24-017 · Release cycle 2 · 2026-11-26`.
+
+**The lot's material is the one its type declares.** `open_release` reads the lot type's
+declared material field, as stability does, instead of a fixed list of field names. Any
+lot type in `iki/lots` can be released, including a strain isolate, which is its own
+material.
+
+The lot's disposition remains Lot QA's (ADR 0211). A retest cycle is evidence for the
+lot's re-release, not the re-release itself.

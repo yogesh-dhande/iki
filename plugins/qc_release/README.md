@@ -25,8 +25,11 @@ Set `certificate_issuer` to the manufacturer's name, address and telephone, as e
 certificate states them (ICH Q7 §11.43). A regulated certificate can't be prepared without
 it.
 
-Register the material and a physical lot with its lot number. Create one **Specification
-schedule** for the material. Create a **Specification version** in that schedule with an
+Register the material and a physical lot with its lot number. Create a **Specification
+schedule** for the material in each **context** the lab specifies it for. The default is
+`Release`; others might be `Shelf life`, a market or a product grade (ICH Q6A §2.2). Each
+context has its own versions and effective dates, and a project has one schedule per
+material and context. Create a **Specification version** in that schedule with an
 effective date, a controlled source, and one criterion per attribute. Every criterion names
 its method and its kind of result (ADR 0244):
 
@@ -57,8 +60,9 @@ tested under. The deployment's `successor_effective_dates` setting says how soon
 ## Test, investigate and issue
 
 1. On the lot's **QC release** tab, open release testing with the material's schedule and
-   the testing date. The action selects the most recent approved, published version
-   effective on that date. The case retains its lot number and the schedule and version
+   the testing date. The schedule must be for the material the lot's type declares, so
+   any lot type works; a strain isolate is its own material. The action selects the most
+   recent approved, published version effective on that date. The case retains its lot number and the schedule and version
    revisions the run read.
 2. Record each criterion's value with its declared method and unit. For a conforming
    criterion, say whether it conforms instead, and describe what was seen. Iki records a
@@ -117,8 +121,22 @@ tested under. The deployment's `successor_effective_dates` setting says how soon
    certificate record names the certificate by its SHA-256 inside Iki only. Lot QA signs
    the lot's disposition through its existing workflow.
 
-One project holds one case per lot in this example. A lab that releases the same lot again
-under a retest or rework SOP needs its own disposition and case-series policy.
+## Test a lot again
+
+Each case is one **cycle** of a lot's testing against one specification context. To test
+the lot again, run **Open lot release testing** with the lot's latest case for that
+schedule as **Previous** and the reason, for example its retest date or a rework under a
+deviation. Iki then:
+
+- opens the next cycle;
+- marks the previous case as followed, so it takes no more tests;
+- keeps the previous case's attempts, investigations and any certificate unchanged.
+
+If the previous case has no certificate, include the signed investigation of each of its
+out-of-specification results. A lot isn't tested again around an open investigation. Two
+retests can't both follow the same cycle. A lot's first cycle against a shelf-life
+schedule is independent of its release cycles. The lot's disposition, including
+re-release after a retest, stays with Lot QA in `iki/lots`.
 
 ## Public teaching example
 
