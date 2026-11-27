@@ -782,7 +782,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   // data, say, isn't readable by the box's project.
   const placeable = useQuery({
     ...placeableQuery(receipt.id, receipt.plan_revision, shownBox?.id ?? "-"),
-    enabled: !!shownBox && putting.length > 0,
+    enabled: receipt.status === "open" && !!shownBox && putting.length > 0,
   });
   const waitingFor = findBox.isPending
     ? "Finding the box and its free positions…"

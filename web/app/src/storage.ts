@@ -344,10 +344,12 @@ export async function previewReceiptPlacement(
 }
 
 /** Why each of a receipt's accepted lines can't go in a box at all, if it can't, before a well
- * is chosen: completing checks the same again. */
+ * is chosen: completing checks the same again. Keyed by the receipt's revision and the box, and
+ * outside STORAGE: a storage write (completing this receipt, say) mustn't ask it again of a
+ * receipt that's no longer open. */
 export function placeableQuery(receipt: string, planRevision: number, box: string) {
   return queryOptions({
-    queryKey: [...STORAGE, "receipts", receipt, "placeable", planRevision, box],
+    queryKey: ["receipt-placeable", receipt, planRevision, box],
     queryFn: async ({ signal }) =>
       unwrap(
         await iki.POST("/api/v1/receipts/{receipt_id}/put-away/placeable", {
