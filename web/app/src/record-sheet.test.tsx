@@ -286,20 +286,20 @@ describe("a sheet's lab list cells (ADR 0270)", () => {
   const SEC = option(2, "sec", "Size exclusion");
   const DIALYSIS = option(3, "dialysis", "Dialysis", true);
 
-  function prep() {
+  function prep(method: ReturnType<typeof option> = DIALYSIS) {
     return entity({
       id: "00000000-0000-7000-8000-00000000b001",
       hrid: "PRP-000001",
       type: PREP.name,
       revision: 2,
-      values: { name: "Anti-HER2 prep 12", method: DIALYSIS.id, polishing: [] },
+      values: { name: "Anti-HER2 prep 12", method: method.id, polishing: [] },
       refs: {
-        [DIALYSIS.id]: {
-          hrid: DIALYSIS.hrid,
-          title: "Dialysis",
+        [method.id]: {
+          hrid: method.hrid,
+          title: method.label,
           type: METHOD,
-          archived: true,
-          code: "dialysis",
+          archived: method.archived,
+          code: method.code,
           superseded: false,
           purged: false,
         },
@@ -307,9 +307,9 @@ describe("a sheet's lab list cells (ADR 0270)", () => {
     });
   }
 
-  function openPreps() {
+  function openPreps(options = [PROTEIN_A, SEC], record = prep()) {
     answer("GET /api/v1/entity-types", [PREP, LIST]);
-    answer(`GET /api/v1/lists/${METHOD}/options`, [PROTEIN_A, SEC]);
+    answer(`GET /api/v1/lists/${METHOD}/options`, options);
     answer(`POST ${PATH}`, (request: { body: { rows: Schemas["SheetEditCheckRowIn"][] } }) => ({
       rows: request.body.rows.map((r) => checked(r, { values: {}, shown: {} })),
     }));
@@ -319,7 +319,7 @@ describe("a sheet's lab list cells (ADR 0270)", () => {
         <RecordSheet
           type={PREP}
           project={KINASE}
-          records={[prep()]}
+          records={[record]}
           more={{ hasNextPage: false, isFetchingNextPage: false, fetchNextPage: () => undefined }}
           onClose={vi.fn()}
         />
@@ -359,6 +359,54 @@ describe("a sheet's lab list cells (ADR 0270)", () => {
         rows: [{ cells: { method: "Size exclusion" } }],
       });
     });
+  });
+
+  it("keeps the highlighted option in view as the arrow keys move it", async () => {
+    const many = Array.from({ length: 30 }, (_, i) =>
+      option(i + 10, `column_${String(i + 1)}`, `Column ${String(i + 1)}`),
+    );
+    const { user, grid } = openPreps(many);
+    const scrolled = vi.spyOn(Element.prototype, "scrollIntoView");
+    await user.click(nth(within(grid).getAllByRole("gridcell"), 2));
+    await user.keyboard("{Alt>}{ArrowDown}{/Alt}");
+    const box = screen.getByRole("combobox", { name: "Method, PRP-000001" });
+    await screen.findAllByRole("option");
+    for (let i = 0; i < 12; i++) await user.keyboard("{ArrowDown}");
+    const active = document.getElementById(box.getAttribute("aria-activedescendant") ?? "");
+    expect(active).toHaveTextContent("Column 12");
+    expect(scrolled.mock.contexts.at(-1)).toBe(active);
+    expect(scrolled).toHaveBeenLastCalledWith({ block: "nearest" });
+    scrolled.mockRestore();
+  });
+
+  it("shows a long list's first matches, and the cell's own option, and how many there are", async () => {
+    const many = Array.from({ length: 5000 }, (_, i) =>
+      option(i + 10, `resin_${String(i + 1)}`, `Resin ${String(i + 1)}`),
+    );
+    const own = nth(many, 2999);
+    const { user, grid } = openPreps(many, prep(own));
+    const method = () => nth(within(grid).getAllByRole("gridcell"), 2);
+    await waitFor(() => {
+      expect(method()).toHaveTextContent("Resin 3000");
+    });
+    await user.click(method());
+    await user.keyboard("{Alt>}{ArrowDown}{/Alt}");
+    const options = await screen.findByRole("listbox", { name: "Purification methods" });
+    await waitFor(() => {
+      expect(within(options).getAllByRole("option")).toHaveLength(50);
+    });
+    // Its own, first and highlighted; then the list's first.
+    const shown = within(options).getAllByRole("option");
+    expect(nth(shown, 0)).toHaveTextContent("Resin 3000");
+    expect(nth(shown, 0)).toHaveAttribute("aria-selected", "true");
+    expect(nth(shown, 1)).toHaveTextContent("Resin 1");
+    expect(screen.getByText("Showing 50 of 5,000. Type to narrow them.")).toBeVisible();
+    const box = screen.getByRole("combobox", { name: "Method, PRP-000001" });
+    await user.clear(box);
+    await user.keyboard("Resin 4999");
+    expect(within(options).getAllByRole("option")).toHaveLength(1);
+    await user.keyboard("{Enter}");
+    expect(method()).toHaveTextContent("Resin 4999");
   });
 
   it("takes several options in a list's cell, apart by semicolons", async () => {

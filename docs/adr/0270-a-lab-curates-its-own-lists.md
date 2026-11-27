@@ -88,7 +88,10 @@ lab's science by their role, as they read no project's data by it
 
 **Forms offer the active options, in order; records keep theirs.** A
 dropdown offers the list's active options in its order, and lets you search
-it once it's long. An archived option, or a superseded one, isn't offered,
+it once it's long. A list may have 10,000 options, so a search shows its
+first fifty matches and says how many there are, and the list's page shows
+its options a hundred at a time, finds one by its label or code, and moves
+one to a position in the order by keyboard. An archived option, or a superseded one, isn't offered,
 and a new value can't name it; a record that names it already keeps it
 through any other edit, and it's still in search, filters, exports and the
 API, marked as such. A superseded option's referring projects' Admins are

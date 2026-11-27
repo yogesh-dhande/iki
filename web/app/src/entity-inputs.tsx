@@ -11,7 +11,7 @@ import "@ikisci/science/quantity-input";
 import "@ikisci/science/sequence-input";
 import type { QuantityInputData } from "@ikisci/science/quantity-input";
 import type { SequenceInputData } from "@ikisci/science/sequence-input";
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import {
   createElement,
   useEffect,
@@ -63,9 +63,11 @@ import {
   listOf,
   LONG_LIST,
   matching,
+  narrowText,
   optionsQuery,
   optionText,
   retiredOf,
+  SHOWN_MATCHES,
   type ListOption,
   type ListScope,
 } from "./lab-lists";
@@ -763,19 +765,32 @@ function OptionsAcross(props: InputProps & { list: EntityType }) {
     queries: (registries.data ?? []).map((r) =>
       optionsQuery(props.list.name, { registry: r.id }, every),
     ),
+    combine: combineOptions,
   });
   const several = (registries.data?.length ?? 0) > 1;
-  const choices = found.flatMap((q, index) =>
-    (q.data ?? [])
-      .filter((o) => every || isActive(o))
-      .map((o) => choiceOf(o, several ? registries.data?.[index]?.name : undefined)),
+  const offered = useMemo(
+    () => ({
+      choices: found.data.flatMap((data, index) =>
+        (data ?? [])
+          .filter((o) => every || isActive(o))
+          .map((o) => choiceOf(o, several ? registries.data?.[index]?.name : undefined)),
+      ),
+      loading: registries.isPending || found.pending,
+      failed: registries.isError || found.failed,
+    }),
+    [found, every, several, registries.data, registries.isPending, registries.isError],
   );
-  const offered = {
-    choices,
-    loading: registries.isPending || found.some((q) => q.isPending),
-    failed: registries.isError || found.some((q) => q.isError),
-  };
   return <OptionChoice {...props} offered={offered} />;
+}
+
+/** The registries' answers, as one: the same object while none of them changes (as
+ * useQueries keeps a `combine`'s result), so what's built from it isn't built again. */
+function combineOptions(answers: UseQueryResult<ListOption[]>[]) {
+  return {
+    data: answers.map((a) => a.data),
+    pending: answers.some((a) => a.isPending),
+    failed: answers.some((a) => a.isError),
+  };
 }
 
 /**
@@ -787,20 +802,30 @@ function OptionsAcross(props: InputProps & { list: EntityType }) {
 function OptionChoice(props: InputProps & { list: EntityType; offered: Offered }) {
   const { list, draft, offered } = props;
   const picked = draft as Picked | null;
-  const current = picked ? offered.choices.find((c) => names(c, picked)) : undefined;
+  const everyOption = props.everyOption ?? false;
+  const current = useMemo(
+    () => (picked ? offered.choices.find((c) => names(c, picked)) : undefined),
+    [picked, offered.choices],
+  );
   // What it names that isn't offered: an option retired since, or, before the options
   // come, what the record says it is.
-  const held: Choice | undefined =
-    picked && !current
-      ? {
-          ...picked,
-          code: picked.code ?? "",
-          ...(picked.retired || offered.loading || offered.failed || props.everyOption
-            ? {}
-            : { retired: "archived" as const }),
-        }
-      : undefined;
-  const choices = held ? [held, ...offered.choices] : offered.choices;
+  const held = useMemo(
+    (): Choice | undefined =>
+      picked && !current
+        ? {
+            ...picked,
+            code: picked.code ?? "",
+            ...(picked.retired || offered.loading || offered.failed || everyOption
+              ? {}
+              : { retired: "archived" as const }),
+          }
+        : undefined,
+    [picked, current, offered.loading, offered.failed, everyOption],
+  );
+  const choices = useMemo(
+    () => (held ? [held, ...offered.choices] : offered.choices),
+    [held, offered.choices],
+  );
   const none = !offered.loading && !offered.failed && offered.choices.length === 0;
   const status = offered.loading
     ? "Loading its options…"
@@ -906,7 +931,8 @@ function choiceOption(item: Picked) {
 
 /** A long list's options (ADR 0270): a combo box that narrows them as people type, by
  * label or code, in the list's order. As a reference's search (RecordRefInput), with its
- * keyboard, Escape and list placement, but every option is here already. */
+ * keyboard, Escape and list placement, but every option is here already. It shows the
+ * first matches (SHOWN_MATCHES), and how many there are, for a list of thousands. */
 function OptionSearch({
   field,
   list,
@@ -925,17 +951,14 @@ function OptionSearch({
   });
   const text = typing.over === chosen?.id ? typing.text : chosen ? choiceText(chosen) : "";
   const typed = chosen && text === choiceText(chosen) ? "" : text;
+  const searched = useMemo(() => choices.map((c) => ({ ...c, label: c.title })), [choices]);
+  const found = useMemo(() => matching(searched, typed), [searched, typed]);
+  // A page of them: the first matches, and the chosen one.
   const items = useMemo(
-    () =>
-      withChosen(
-        matching(
-          choices.map((c) => ({ ...c, label: c.title })),
-          typed,
-        ),
-        chosen,
-      ),
-    [choices, typed, chosen],
+    () => withChosen(found.slice(0, SHOWN_MATCHES), chosen),
+    [found, chosen],
   ) as Choice[];
+  const more = found.length > SHOWN_MATCHES;
   const help = [
     helpText(field, note) ??
       `Type to find one of the ${inSentence(list.label_plural)}, by name or code.`,
@@ -1004,8 +1027,23 @@ function OptionSearch({
         {state.isOpen ? (
           <Popover state={state} triggerRef={inputRef} popoverRef={popoverRef}>
             <ListBox {...listBoxProps} listBoxRef={listBoxRef} state={state} />
-            <p className={items.length ? "visually-hidden" : "listbox-empty"} role="status">
-              {items.length ? "" : typed ? `No option matches “${typed}”.` : "No options yet."}
+            <p
+              className={
+                more
+                  ? "listbox-empty listbox-more"
+                  : items.length
+                    ? "visually-hidden"
+                    : "listbox-empty"
+              }
+              role="status"
+            >
+              {more
+                ? narrowText(Math.min(found.length, SHOWN_MATCHES), found.length)
+                : items.length
+                  ? ""
+                  : typed
+                    ? `No option matches “${typed}”.`
+                    : "No options yet."}
             </p>
           </Popover>
         ) : null}
