@@ -1,10 +1,10 @@
 apiVersion: iki/v1
 kind: EntityType
 name: Experiment
-schema_version: 3
+schema_version: 4
 label: Experiment
 hrid: { prefix: EXP }
-description: A project record for an experiment, its external notebook entry and the evidence the lab signed.
+description: A project record for an experiment, its evidence, any external notebook entry and the signatures the project's review flow asks for.
 draws_received: material_draws
 fields:
   title: { type: string, required: true, max_length: 200 }
@@ -94,8 +94,8 @@ fields:
     type: enum
     label: Review flow
     computed: true
-    values: [research, regulated_qc]
-    description: The deployment setting captured with the evidence.
+    values: [author_signed, research, regulated_qc]
+    description: The review flow captured with the evidence, the project's choice or the deployment's.
   review:
     type: state
     initial: recorded
@@ -108,6 +108,37 @@ fields:
           correctable:
             check: state.from == "submitted" || state.from == "reviewed"
             message: Only a submission awaiting review or release can be returned for correction.
+      signed:
+        label: Signed by author
+        set_by: [author]
+        locks: true
+        signatures:
+          - {
+              meaning: authorship,
+              statement: I recorded this experiment and checked the evidence it cites.,
+            }
+        guards:
+          author_signed:
+            check: state.from == "recorded" && record.review_flow == "author_signed"
+            message: Capture the evidence with the author sign-off flow before signing this record.
+          author:
+            description: The authorship signature is the signer's own record, not a colleague's.
+            check: history.review[0].by == actor.person || edits.review.recorded.exists(e, e.by == actor.person)
+            message: Only the person who created or edited this record signs it as its author.
+          closed:
+            check: >-
+              size(edits.review.recorded) > 0 &&
+              "capture_id" in edits.review.recorded[size(edits.review.recorded) - 1].fields
+            message: The experiment changed since its evidence was captured. Capture it again before signing.
+          cited_exactly:
+            description: A notebook entry or protocol isn't needed, but one that's cited names its revision.
+            check: >-
+              ((record.eln_id == null && record.eln_url == null) || record.eln_revision != null) &&
+              (record.protocol_id == null || record.protocol_revision != null)
+            message: Give the revision of the notebook entry or protocol this record cites.
+          evidence:
+            check: size(record.result_pins) > 0 || size(record.observations) > 0 || size(record.attachments) > 0
+            message: Capture a result, record a dated observation or attach evidence before signing.
       witnessed:
         label: Witnessed
         set_by: [reviewer]

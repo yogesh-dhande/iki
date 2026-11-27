@@ -121,19 +121,12 @@ export function routeOf(
   const kept = new Set(states);
   return {
     ...field,
-    states: field.states.filter((s) => kept.has(s.name)),
+    // A correction that would return a record to another flow's state isn't this route's.
+    states: field.states
+      .filter((s) => kept.has(s.name))
+      .map((s) => (s.on_edit && !kept.has(s.on_edit) ? { ...s, on_edit: null } : s)),
     transitions: field.transitions.filter((t) => kept.has(t.from) && kept.has(t.to)),
   };
-}
-
-/** The lab roles whose holders sign a flow's states: those the result type's states that
- * need a signature are set by. In Regulated QC, the analyst's submission, the reviewer's
- * review and QA's release. */
-export function signingRoles(flow: FlowField | undefined): string[] {
-  const roles = (flow?.states ?? [])
-    .filter((s) => s.signatures.length)
-    .flatMap((s) => s.signatures.flatMap((g) => g.roles));
-  return [...new Set(roles)];
 }
 
 /**
@@ -153,15 +146,4 @@ export function independentEnough(
     if (people.size < group.length) return false;
   }
   return true;
-}
-
-/** What a flow asks of people, in a sentence, for the flows starters offer. */
-export function flowSummary(flow: Pick<StarterFlow, "id" | "label">): string {
-  if (flow.id === "record_only") {
-    return "A result is kept as evidence, as it was recorded, and no one signs it. For work whose review happens elsewhere, or not at all.";
-  }
-  if (flow.id === "research") {
-    return "A result is recorded, then one reviewer signs it off. For discovery work, where one check is enough.";
-  }
-  return "The analyst signs the submission, an independent reviewer signs the review, and QA signs the release: three different people, each signing in again. For GxP and QC work.";
 }

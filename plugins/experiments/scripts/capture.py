@@ -15,8 +15,9 @@ def capture(run: dict[str, Any]) -> dict[str, Any]:
             "Select results, enter a dated observation or attach evidence before capture."
         )
 
+    # The project's experiment-review choice, or the deployment's, pinned when the run began.
     flow = run["settings"]["review_flow"]
-    if flow not in {"research", "regulated_qc"}:
+    if flow not in {"author_signed", "research", "regulated_qc"}:
         raise ValueError("Choose a supported experiment review flow in the plugin settings.")
     pins = []
     for result in results:

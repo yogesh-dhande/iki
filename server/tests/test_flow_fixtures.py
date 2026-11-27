@@ -2,9 +2,9 @@
 (web/app/src/flow-fixtures.json) are what Iki serves for them (ADR 0198).
 
 The diagram's tests draw QC deliverables, samples and requests, lots, plate
-assays' results, a stability measurement's two routes and a proteomics result's
-three, so their states, roles,
-signatures, guards and transitions are the plugins' own, not a hand-copied likeness.
+assays' results, a stability measurement's two routes, an experiment's three and a
+proteomics result's three, so their states, roles, signatures, guards and transitions are
+the plugins' own, not a hand-copied likeness.
 When a plugin changes them, regenerate the file:
 
     uv run python server/tests/test_flow_fixtures.py
@@ -28,6 +28,7 @@ DRAWN = {
     "lots": ("Lot",),
     "plate_assays": ("ResearchAssayResult", "QCAssayResult"),
     "stability": ("Measurement",),
+    "experiments": ("Experiment",),
     "proteomics": ("ProteomicsResult",),
 }
 

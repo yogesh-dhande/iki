@@ -44,3 +44,24 @@ action: capture_results
 inputs:
   experiment: [{ values: { title: Synthetic empty experiment } }]
 expect: { error: Select results }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: author_signed_record_without_a_notebook
+action: capture_results
+description: >-
+  A project that signs its own records captures a synthetic attachment-only record. No ELN
+  entry or protocol is needed for the author's sign-off.
+settings: { review_flow: author_signed }
+inputs:
+  experiment:
+    - values:
+        title: Synthetic gel image
+        observations:
+          - { observed_at: "2025-07-01T09:30:00Z", note: Synthetic band at the expected size. }
+expect:
+  output:
+    updates:
+      experiment:
+        - require_unchanged: true
+          values: { review_flow: author_signed, result_pins: [] }

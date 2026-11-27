@@ -14,6 +14,7 @@ FIRST = str(UUID(int=3))
 SECOND = str(UUID(int=4))
 REVIEWER = "iki/plate_assays.reviewer"
 RESULTS = {
+    "author_signed": "iki/experiments.Experiment",
     "research": "iki/plate_assays.ResearchAssayResult",
     "regulated_qc": "iki/plate_assays.QCAssayResult",
 }
@@ -23,9 +24,16 @@ STARTER = {
     "version": "2.0.0",
     "label": "Dose-response plate assay",
     "description": "Configure an assay review flow and assign its project roles.",
-    "flows": [{"id": "research", "label": "Research", "result_type": RESULTS["research"]}],
+    "flows": [
+        {
+            "id": "research",
+            "label": "Research",
+            "result_type": RESULTS["research"],
+            "summary": "A result is recorded, then one reviewer signs it off.",
+        }
+    ],
     "roles": [{"id": REVIEWER, "label": "Assay reviewer"}],
-    "types": list(RESULTS.values()),
+    "types": [RESULTS["research"], RESULTS["regulated_qc"]],
     "applied": {"version": "2.0.0", "flow": "research"},
 }
 
@@ -51,7 +59,14 @@ def test_list_installed_starters(
     assert main(args) == 0
     output = capsys.readouterr().out
     if project:
-        for item in ("dose-response 2.0.0", "Research", REVIEWER, RESULTS["research"], "Applied"):
+        for item in (
+            "dose-response 2.0.0",
+            "Research",
+            "one reviewer signs it off",
+            REVIEWER,
+            RESULTS["research"],
+            "Applied",
+        ):
             assert item in output
     else:
         assert json.loads(output) == [STARTER]
@@ -59,7 +74,12 @@ def test_list_installed_starters(
 
 @pytest.mark.parametrize(
     ("command", "flow", "changed"),
-    [("preview", "research", True), ("apply", "regulated_qc", True), ("apply", "research", False)],
+    [
+        ("preview", "research", True),
+        ("preview", "author_signed", True),
+        ("apply", "regulated_qc", True),
+        ("apply", "research", False),
+    ],
 )
 def test_preview_and_apply_send_the_selected_version_scope_flow_and_members(
     command: str,

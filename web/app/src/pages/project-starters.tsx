@@ -1,6 +1,6 @@
 /**
- * A project's starters (ADRs 0198 and 0240): the recipes installed to set a service or
- * procedure up, such as an assay or lot release testing. Its Admins choose a review flow,
+ * A project's starters (ADRs 0198, 0240 and 0247): the recipes installed to set a service or
+ * procedure up, such as an assay, lot release testing or experiment sign-off. Its Admins choose a review flow,
  * drawn as the flow its results follow (ADR 0199), and the members who hold each lab role.
  * They preview the changes before applying them. Its other members read what's installed
  * and what's applied.
@@ -21,11 +21,9 @@ import { listed } from "../requests";
 import {
   applyStarter,
   eligible,
-  flowSummary,
   independentEnough,
   planChanges,
   previewStarter,
-  signingRoles,
   STARTERS,
   startersQuery,
   type Member,
@@ -55,8 +53,8 @@ export function ProjectStarters() {
       <section className="card card-wide starter-intro">
         <h2 className="section-title">Starters</h2>
         <p className="muted">
-          A starter chooses the review flow for new work in {project.name}, such as assay results or
-          lot release testing, and assigns the lab roles needed to run it.
+          A starter chooses the review flow for new work in {project.name}, such as assay results,
+          lot release testing or experiments, and assigns the lab roles needed to run it.
         </p>
         <p>
           <Link to="/projects/$slug/settings/" params={{ slug: project.slug }}>
@@ -117,7 +115,7 @@ function StarterCard({ starter, project }: { starter: Starter; project: Project 
       {starter.flows.map((flow) => (
         <div className="starter-flow" key={flow.id}>
           <h3 className="starter-flow-title">{flow.label}</h3>
-          <p>{flowSummary(flow)}</p>
+          <p>{flow.summary}</p>
           <ResultFlow flow={flow} />
         </div>
       ))}
@@ -162,8 +160,6 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
   const members = useQuery(membersQuery(project.id));
   const [flowId, setFlowId] = useState(applied?.flow ?? starter.flows[0]?.id ?? "research");
   const flow = starter.flows.find((f) => f.id === flowId) ?? starter.flows[0];
-  const resultFlow = useQuery(typeFlowQuery(flow?.result_type ?? ""));
-  const route = routeOf(resultFlow.data?.fields[0], flow?.states);
   // Who's chosen for each role: until the Admin chooses, whoever holds it already.
   const [picked, setPicked] = useState<Record<string, string[]> | null>(null);
   const [plan, setPlan] = useState<{ key: string; plan: StarterPlan } | null>(null);
@@ -183,7 +179,8 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
   }, [members.data, starter.roles]);
   const chosen = picked ?? held;
   const required = flow?.required_roles ?? [];
-  const signers = signingRoles(route).filter((r) => required.includes(r));
+  // The roles whose holders sign independently of each other, as the server checks them.
+  const signers = flow?.independent_roles ?? [];
   const independent = independentEnough(signers, chosen);
   const missing = required.filter((r) => !(chosen[r] ?? []).length);
   const setup: StarterSetup = {
@@ -292,12 +289,12 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
           options={starter.flows.map((f) => ({
             value: f.id,
             label: f.id === applied?.flow ? `${f.label} (applied now)` : f.label,
-            description: flowSummary(f),
+            description: f.summary,
           }))}
         />
         {flow ? (
           <div className="starter-flow">
-            <h3 className="starter-flow-title">How a {flow.label} result moves</h3>
+            <h3 className="starter-flow-title">How a {flow.label} record moves</h3>
             <ResultFlow flow={flow} />
           </div>
         ) : null}
