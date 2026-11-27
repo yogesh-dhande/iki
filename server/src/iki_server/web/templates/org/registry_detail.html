@@ -33,7 +33,7 @@
       {% csrf_token %}
       <input type="hidden" name="action" value="appoint">
       {% include "web/_field.html" with field=appoint.person %}
-      <button class="button button-primary" type="submit" data-busy-text="Appointing…">Appoint</button>
+      <button class="button button-primary" type="submit" data-busy-text="Appointing…">Appoint registrar</button>
     </form>
     {% if lab_lists %}
     <section aria-labelledby="list-curators-title">
@@ -68,7 +68,7 @@
       <input type="hidden" name="action" value="appoint_curator">
       {% include "web/_field.html" with field=curate.list_type %}
       {% include "web/_field.html" with field=curate.person %}
-      <button class="button button-primary" type="submit" data-busy-text="Appointing…">Appoint</button>
+      <button class="button button-primary" type="submit" data-busy-text="Appointing…">Appoint curator</button>
     </form>
     </section>
     {% endif %}

@@ -4328,9 +4328,18 @@ def test_an_org_admin_adds_a_registry_and_a_new_project_goes_in_it(
     page.get_by_role("button", name="Add registry").click()
     page.get_by_role("heading", level=1, name="Client A").wait_for()
     assert_clean(page)
-    page.get_by_role("textbox", name="Email address").fill(world.users["team_member"].email)
-    page.get_by_role("button", name="Appoint").click()
+    page.get_by_role("textbox", name="Registrar's email address").fill(
+        world.users["team_member"].email
+    )
+    page.get_by_role("button", name="Appoint registrar").click()
     remove = page.get_by_role("button", name="Remove Team Member as a registrar")
+    remove.wait_for()
+    assert_clean(page)
+    # And a list's curator, a list at a time (ADR 0270).
+    page.get_by_role("combobox", name="List").select_option(label="Purification methods")
+    page.get_by_role("textbox", name="Curator's email address").fill(world.users["editor"].email)
+    page.get_by_role("button", name="Appoint curator").click()
+    remove = page.get_by_role("button", name="Remove Editor as a curator of Purification methods")
     remove.wait_for()
     assert_clean(page)
 
