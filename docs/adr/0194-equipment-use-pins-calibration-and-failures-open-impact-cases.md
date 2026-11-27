@@ -5,6 +5,10 @@
 - Relates to [0116](0116-lab-roles-are-declared-by-plugins-and-given-per-project.md),
   [0126](0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md),
   [0179](0179-a-corrected-result-goes-back-for-review.md)
+- Refined by:
+  [0239](0239-qa-opens-an-impact-case-for-a-result-no-use-was-recorded-for.md),
+  where Equipment QA opens a case for a result no use was recorded for, and a result has
+  one case for each failure
 
 [ADR 0222](0222-facilities-choose-automatic-calibration-tracing.md) moves the
 automatic trigger described below to a facility-owned example. Equipment keeps

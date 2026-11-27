@@ -143,3 +143,131 @@ expect:
       - type: iki/equipment.CalibrationImpact
         values:
           result: 00000000-0000-7000-8003-000000000012
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_result_traces_once_for_each_failure
+action: trace_failed_calibrations
+description: >-
+  Synthetic records. A result read twice in the window gets one case, from its first read; a
+  result QA already opened a case for manually gets none.
+inputs:
+  instrument: [{ values: { name: Demonstration spectrophotometer } }]
+  calibrations:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        kind: calibration
+        outcome: out_of_tolerance
+        review: released
+        review_flow: regulated_qc
+        suspect_since: "2026-01-08T10:00:00Z"
+        performed_at: "2026-01-12T09:00:00Z"
+  uses:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        result: 00000000-0000-7000-8003-000000000010
+        measurement_at: "2026-01-09T14:00:00Z"
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        result: 00000000-0000-7000-8003-000000000010
+        measurement_at: "2026-01-09T11:00:00Z"
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        result: 00000000-0000-7000-8003-000000000011
+        measurement_at: "2026-01-10T09:00:00Z"
+  existing:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        key: manual-case
+        failure: 00000000-0000-7000-8003-000000000002
+        result: 00000000-0000-7000-8003-000000000011
+        opened: manually
+expect:
+  output:
+    creates:
+      - type: iki/equipment.CalibrationImpact
+        derived_from:
+          - 00000000-0000-7000-8003-000000000001
+          - 00000000-0000-7000-8003-000000000002
+          - 00000000-0000-7000-8003-000000000004
+        values:
+          use: 00000000-0000-7000-8003-000000000004
+          result: 00000000-0000-7000-8003-000000000010
+          measurement_at: "2026-01-09T11:00:00Z"
+          review_flow: regulated_qc
+          opened: traced
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: qa_opens_a_case_for_a_result_with_no_use
+action: open_impact_case
+description: >-
+  Synthetic records. A plate read on the failed reader whose use was never recorded: the case
+  keeps the failure's revision and review flow, who opened it and why.
+inputs:
+  failure:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000009
+        kind: calibration
+        outcome: out_of_tolerance
+        review: released
+        review_flow: regulated_qc
+        suspect_since: "2026-01-08T10:00:00Z"
+        performed_at: "2026-01-12T09:00:00Z"
+  result: [{ type: iki/core.Collection, values: { name: "Absorbance at 260 nm, plate 7" } }]
+params:
+  measurement_at: "2026-01-09T06:15:00-05:00"
+  reason: "  The bench logbook shows plate 7 read on this reader; no use was recorded.  "
+expect:
+  output:
+    creates:
+      - type: iki/equipment.CalibrationImpact
+        derived_from:
+          - 00000000-0000-7000-8003-000000000001
+          - 00000000-0000-7000-8003-000000000002
+        values:
+          instrument: 00000000-0000-7000-8003-000000000009
+          failure: 00000000-0000-7000-8003-000000000001
+          failure_revision: 1
+          result: 00000000-0000-7000-8003-000000000002
+          measurement_at: "2026-01-09T11:15:00+00:00"
+          review_flow: regulated_qc
+          opened: manually
+          opened_by: 00000000-0000-7000-8005-000000000001
+          opened_reason: The bench logbook shows plate 7 read on this reader; no use was recorded.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_manual_case_needs_a_signed_failure
+action: open_impact_case
+inputs:
+  failure:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000009
+        kind: calibration
+        outcome: out_of_tolerance
+        review: scheduled
+        review_flow: research
+        suspect_since: "2026-01-08T10:00:00Z"
+  result: [{ type: iki/core.Collection, values: { name: "Absorbance at 260 nm, plate 7" } }]
+params: { measurement_at: "2026-01-09T11:15:00Z", reason: Logbook entry 41. }
+expect:
+  error: Select a signed out-of-tolerance calibration that says when the fault began.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_manual_case_is_measured_after_the_onset
+action: open_impact_case
+inputs:
+  failure:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000009
+        kind: calibration
+        outcome: out_of_tolerance
+        review: signed_off
+        review_flow: research
+        suspect_since: "2026-01-08T10:00:00Z"
+  result: [{ type: iki/core.Collection, values: { name: "Absorbance at 260 nm, plate 7" } }]
+params: { measurement_at: "2026-01-08T09:59:59Z", reason: Logbook entry 41. }
+expect:
+  error: The measurement was before the failed calibration's suspected onset.

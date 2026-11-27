@@ -8,7 +8,19 @@ module: ./components/equipment.js
 element: iki-calibration-impacts
 entities:
   type: CalibrationImpact
-  fields: [failure, failure_revision, use, result, measurement_at, disposition, review]
+  fields:
+    [
+      failure,
+      failure_revision,
+      use,
+      result,
+      measurement_at,
+      opened,
+      opened_by,
+      opened_reason,
+      disposition,
+      review,
+    ]
   limit: 1000
 slots:
   - slot: entity.tab

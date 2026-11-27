@@ -17,7 +17,7 @@ from first_party_dependencies import FIRST_PARTY, PLUGINS, ROOT, build_order
 from org_world import build_world
 from scan_fixtures import clean_blob
 from test_plugin_migrations import database, django, iki, migrate, sync
-from test_signatures import ready, signed, standing
+from test_signatures import offered, ready, signed, standing
 from test_states import roles
 
 from iki_server.amounts import services as amounts
@@ -485,3 +485,188 @@ def test_a_trace_says_what_interval_it_reviewed(capsys: pytest.CaptureFixture[st
     # Without the recovery, the window stays open, and says so.
     assert [c["values"]["use"] for c in run(failed)] == ["u2", "u3"]
     assert "so the window stays open. 2 of the 3 selected uses are in it" in capsys.readouterr().out
+
+
+# --- Cases opened manually (ADR 0239) ---------------------------------------------------------
+
+
+@pytest.mark.parametrize("flow", ["research", "regulated_qc"])
+def test_qa_opens_a_case_for_a_result_no_use_was_recorded_for(
+    tmp_path: Path, database: str, flow: str
+) -> None:
+    build = tmp_path / "build"
+    built = iki("plugin", "build", *build_order(PLUGIN), "--output", build, cwd=ROOT)
+    assert built.returncode == 0, built.stdout + built.stderr
+    migrate(build, database)
+    sync(build, database)
+    checked = django(
+        build,
+        database,
+        "-c",
+        "import django; django.setup(); from test_equipment import exercise_manual_case; "
+        f"exercise_manual_case(flow={flow!r})",
+    )
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+
+
+def exercise_manual_case(*, flow: str) -> None:
+    """A plate read on a reader whose calibration later failed, with no instrument use
+    recorded: Equipment QA opens its case, which then needs the flow's signers as a traced
+    case does, and the trace leaves it the result's only case for that failure."""
+    world = build_world()
+    ready(world)
+    regulated = flow == "regulated_qc"
+    # The runner is Equipment QA and the performing engineer; in regulated QC the editor
+    # reviews and the admin, a second QA, releases.
+    roles(
+        world,
+        runner=("iki/lab_roles.engineer", PREFIX + "qa"),
+        editor=(PREFIX + "reviewer",),
+        admin=(PREFIX + "qa",) if regulated else (),
+    )
+    project, runner = world.project, world.users["runner"]
+    catalog.compute().bindings[PREFIX + "equipment-tools"] = Binding(
+        environment=PREFIX + "equipment-tools", templates=(("backend-small", 0),)
+    )
+
+    def make(type_name: str, *, by_run: bool = False, **values: Any) -> Entity:
+        saved = services.create(runner, type_name, project, values, by_run=by_run)
+        return Entity.objects.get(pk=saved.entity.pk)
+
+    instrument = make(PREFIX + "Instrument", name="Synthetic absorbance reader")
+    plate = make("iki/core.Collection", name="Plate 7, absorbance at 260 nm")
+    report = File.objects.create(
+        blob=clean_blob(sha256="b" * 64, size=12, storage_uri="s3://iki/failed"),
+        name="Synthetic failed calibration.txt",
+        media_type="text/plain",
+        project=project,
+    )
+    failure = make(
+        PREFIX + "EquipmentService",
+        by_run=True,
+        instrument=str(instrument.pk),
+        kind="calibration",
+        due_on="2026-01-12",
+        procedure="Synthetic optical check",
+        review_flow=flow,
+        performed_by=str(runner.pk),
+        performed_at="2026-01-12T09:00:00Z",
+        report=str(report.pk),
+        outcome="out_of_tolerance",
+        suspect_since="2026-01-08T10:00:00Z",
+        notes="Review measurements since the last passing check.",
+    )
+    if regulated:
+        signed(world, "runner", str(failure.pk), "submitted", field="review")
+        signed(world, "editor", str(failure.pk), "reviewed", field="review")
+        signed(world, "admin", str(failure.pk), "released", field="review")
+    else:
+        signed(world, "runner", str(failure.pk), "signed_off", field="review")
+    failure.refresh_from_db()
+    action = catalog.action(PREFIX + "open_impact_case")
+    assert action is not None
+
+    def open_case(who: str, reason: str = "Bench logbook, page 41: plate 7 read here.") -> Any:
+        return runs.launch(
+            world.users[who],
+            action,
+            project,
+            {"failure": [failure.pk], "result": [plate.pk]},
+            {"measurement_at": "2026-01-09T11:15:00Z", "reason": reason},
+            reuse_results=False,
+        )
+
+    if not regulated:
+        # Only Equipment QA opens a case without a recorded use: the admin isn't QA here.
+        with pytest.raises(results.InvalidOutput, match="Equipment QA"):
+            execute(open_case("admin"), PLUGIN)
+    [case] = execute(open_case("runner"), PLUGIN)
+    opened = services.current_values(services.specific(case))
+    assert (opened["opened"], opened["opened_by"], opened["use"]) == ("manually", runner.pk, None)
+    assert opened["opened_reason"] == "Bench logbook, page 41: plate 7 read here."
+    assert (opened["failure"], opened["failure_revision"]) == (failure.pk, failure.revision)
+    assert (opened["result"], opened["review_flow"]) == (plate.pk, flow)
+    # Who opened it, and when, the server records with the record.
+    assert case.created_by_id == runner.pk and case.created_at is not None
+
+    # A second case for the same result and failure is refused, manual or traced.
+    with pytest.raises(results.InvalidOutput, match="already has an impact case"):
+        execute(open_case("runner", "The same plate, again."), PLUGIN)
+    calibration = make(
+        PREFIX + "EquipmentService",
+        by_run=True,
+        instrument=str(instrument.pk),
+        kind="calibration",
+        due_on="2026-01-05",
+        procedure="Synthetic optical check",
+        review_flow=flow,
+        performed_by=str(runner.pk),
+        performed_at="2026-01-05T09:00:00Z",
+        report=str(report.pk),
+        outcome="in_tolerance",
+        valid_until="2026-02-05T09:00:00Z",
+    )
+    if regulated:
+        signed(world, "runner", str(calibration.pk), "submitted", field="review")
+        signed(world, "editor", str(calibration.pk), "reviewed", field="review")
+        signed(world, "admin", str(calibration.pk), "released", field="review")
+    else:
+        signed(world, "runner", str(calibration.pk), "signed_off", field="review")
+    record_use = catalog.action(PREFIX + "record_instrument_use")
+    assert record_use is not None
+    evidence = {"instrument": instrument, "result": plate, "calibration": calibration}
+    [use] = execute(
+        runs.launch(
+            runner,
+            record_use,
+            project,
+            {name: [entity.pk] for name, entity in evidence.items()},
+            {"measurement_at": "2026-01-09T11:15:00Z"},
+            reuse_results=False,
+        ),
+        PLUGIN,
+    )
+    trace = catalog.action(PREFIX + "trace_failed_calibrations")
+    assert trace is not None
+
+    def traced(existing: list[Entity]) -> ActionRun:
+        return runs.launch(
+            runner,
+            trace,
+            project,
+            {
+                "instrument": [instrument.pk],
+                "calibrations": [calibration.pk, failure.pk],
+                "uses": [use.pk],
+                "existing": [record.pk for record in existing],
+            },
+            {},
+            reuse_results=False,
+        )
+
+    assert execute(traced([case]), PLUGIN) == []
+    with pytest.raises(results.InvalidOutput, match="already has an impact case"):
+        execute(traced([]), PLUGIN)
+    assert Entity.objects.filter(type=PREFIX + "CalibrationImpact").count() == 1
+
+    # The disposition, signatures and independence are a traced case's.
+    case.refresh_from_db()
+    services.update(
+        runner,
+        case,
+        {"disposition": "repeat_required", "reasoning": "Repeat the read on a passing reader."},
+        expected_revision=case.revision,
+    )
+    if regulated:
+        signed(world, "runner", str(case.pk), "submitted", field="review")
+        # Its opener can't review it, and neither can they release it.
+        assert "reviewed" not in offered(world, "runner", str(case.pk))
+        signed(world, "editor", str(case.pk), "reviewed", field="review")
+        assert "released" not in offered(world, "runner", str(case.pk))
+        signed(world, "admin", str(case.pk), "released", field="review")
+    else:
+        signed(world, "runner", str(case.pk), "signed_off", field="review")
+    case.refresh_from_db()
+    assert case.locked
+    for signature in standing(world, str(case.pk)):
+        assert signature["verification"]["valid"], signature

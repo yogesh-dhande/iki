@@ -285,13 +285,23 @@ class CalibrationImpacts extends EquipmentRecords {
           ? LABELS[v.disposition]
           : marked(LABELS[v.disposition], tone);
     }
-    return this.row(item, reference(item, "result"), [
+    const entries = [
       ["Measured", date(v.measurement_at)],
       ["Failed calibration", reference(item, "failure", v.failure_revision)],
-      ["Instrument evidence", reference(item, "use")],
-      ["Disposition", disposition],
-      ["Review", LABELS[v.review] ?? "Unrecorded"],
-    ]);
+    ];
+    if (v.opened === "manually") {
+      // No instrument use was recorded: say who opened the case, and why.
+      const by = item.people?.[v.opened_by]?.name ?? "Unavailable";
+      entries.push(
+        ["Instrument evidence", marked("None recorded", "warning")],
+        ["Opened manually by", by],
+        ["Why", v.opened_reason ?? "Unrecorded"],
+      );
+    } else {
+      entries.push(["Instrument evidence", reference(item, "use")]);
+    }
+    entries.push(["Disposition", disposition], ["Review", LABELS[v.review] ?? "Unrecorded"]);
+    return this.row(item, reference(item, "result"), entries);
   }
 }
 
