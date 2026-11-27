@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# The core's request type: a QC request, so an analyst signs each delivery, an
+# independent reviewer reviews it and someone in QA releases it. A research core
+# extends iki/requests.ResearchRequest instead, and its deliverable extends
+# iki/requests.ResearchDeliverable.
+apiVersion: iki/v1
+kind: EntityType
+name: SequencingRequest
+label: Sequencing request
+extends: iki/requests.QCRequest
+schema_version: 1
+hrid: { prefix: SQR }
+description: Tubes sent to the sequencing core, and the method to read them with.
+fields:
+  method:
+    type: enum
+    label: Sequencing method
+    values: [sanger, short_read, long_read]
+    required: true
+    immutable: true
+    description: Sanger, short-read or long-read sequencing.
+rules:
+  tubes_sent:
+    check: record.tubes != null && size(record.tubes) > 0
+    message: Name the tubes the core will receive.
+    fields: [tubes]

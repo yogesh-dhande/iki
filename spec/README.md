@@ -757,6 +757,13 @@ fields:
   the project that asked (ADR 0232); anything else it says of `request` is
   its parent's to say (`request-redeclared`).
 
+A lab's own result type can answer only its own request type: it refines its
+request reference to that type, and its rules read the request type's fields
+(ADR 0235). A request is answered by the result types whose request reference
+refers to the type nearest it, so a refined result type is the only one for its
+requests, and a request type no result type is refined to keeps its parent's.
+A result of another type is refused when it's recorded.
+
 A lab's own request type adds what its service keeps of each request:
 
 ```yaml
@@ -1069,6 +1076,20 @@ refines:
     roles:
       heavy: { label: Heavy chain, min: 1, max: 1, to: { part: iki/protein.Protein } }
       light: { label: Light chain, max: 1, to: { part: iki/protein.Protein } }
+```
+
+**A subtype refines an inherited reference** (ADR 0235): `refines` with `to` names
+a reference an ancestor declares, or a list of references, and gives the types its
+records' may refer to, each with its subtypes. Each is one of the types its parent's
+refers to, or a subtype of one (`refines-wider`; `refines-not-a-reference`). Saving
+checks a record's references by its own type, forms offer only those types, and its
+rules and guards read what they have. The column, its search and its graph edges stay
+the declaring type's.
+
+```yaml
+extends: iki/requests.QCDeliverable
+refines:
+  request: { to: AnalyticalRequest } # so a rule can read record.request.analyses
 ```
 
 **Complexes** are `iki/core.Complex`'s

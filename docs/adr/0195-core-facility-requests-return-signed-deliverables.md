@@ -2,6 +2,10 @@
 
 - Status: Accepted
 - Date: 2026-11-23
+- Updated by: [0235](0235-a-services-own-request-types-carry-its-fields.md). The production
+  and sequencing fields and checks below are now the
+  [`acme/protein_production`](../../examples/plugins/protein_production/README.md) and
+  [`acme/sequencing_service`](../../examples/plugins/sequencing_service/README.md) examples'.
 - Refines: [0132](0132-a-request-is-owned-by-the-project-that-asks-and-served-by-another.md),
   [0149](0149-a-result-leaves-its-service-only-by-release.md),
   [0180](0180-where-material-is-and-how-its-received-moved-and-counted.md)

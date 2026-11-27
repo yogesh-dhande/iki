@@ -47,6 +47,7 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Canonical media type `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
 - Extensions `.xlsx`
 - Viewer `table-xlsx`
+- Actions `iki/equipment.record_instrument_use`, `iki/equipment.trace_failed_calibrations`
 
 ## Excel 97–2003
 
@@ -90,7 +91,7 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Canonical media type `application/gzip`
 - Media type aliases `application/x-gzip`
 - Extensions `.gz`, `.fastq.gz`, `.fq.gz`
-- Actions `iki/plasmid_sequencing.verify_plasmid_consensus`, `iki/plasmid_sequencing.verify_plasmid_reads`, `iki/proteomics.import_search`, `iki/sequencing.summarize_fastq`, `iki/sequencing_analysis.import_result`
+- Actions `iki/plasmid_sequencing.verify_plasmid_consensus`, `iki/plasmid_sequencing.verify_plasmid_reads`, `iki/proteomics.import_search`, `iki/sequencing.summarize_fastq`, `iki/sequencing_analysis.import_airr`, `iki/sequencing_analysis.import_counts`, `iki/sequencing_analysis.import_vcf`
 
 ## HDF5
 
@@ -115,7 +116,7 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Byte signatures `ffd8ff` at byte 0
 - Metadata reader `image`
 - Viewer `image`
-- Actions `iki/biologics_ms.characterize`, `iki/lots.compute_conjugate_lot`, `iki/lots.compute_oligo_lot`, `iki/lots.compute_plasmid_prep`, `iki/lots.compute_polymer_lot`, `iki/lots.compute_protein_lot`, `iki/lots.record_plasmid_verification`, `iki/qc_release.open_release`, `iki/qc_release.prepare_certificate`, `iki/qc_release.record_test`, `iki/reagents.receive_delivery`, `iki/reagents.receive_stock`, `iki/stability.schedule_pulls`
+- Actions `iki/biologics_ms.characterize`, `iki/equipment.record_instrument_use`, `iki/equipment.trace_failed_calibrations`, `iki/lots.compute_conjugate_lot`, `iki/lots.compute_oligo_lot`, `iki/lots.compute_plasmid_prep`, `iki/lots.compute_polymer_lot`, `iki/lots.compute_protein_lot`, `iki/lots.record_plasmid_verification`, `iki/qc_release.open_release`, `iki/qc_release.prepare_certificate`, `iki/qc_release.record_test`, `iki/reagents.receive_delivery`, `iki/reagents.receive_stock`, `iki/stability.schedule_pulls`
 
 ## JSON
 
@@ -196,7 +197,7 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Canonical media type `text/plain`
 - Extensions `.txt`, `.log`, `.aln`, `.a3m`, `.sto`, `.fasta`, `.fa`
 - Viewer `alignment`
-- Actions `iki/biologics_ms.characterize`, `iki/cell_lines.import_parental_line`, `iki/dna.align_reads`, `iki/dna.consensus`, `iki/dna.import_sequences`, `iki/equipment.record_instrument_use`, `iki/equipment.trace_failed_calibrations`, `iki/lots.record_plasmid_verification`, `iki/mouse_strains.register_mgi_strain`, `iki/oligo.import_oligonucleotides`, `iki/plasmid_sequencing.verify_plasmid_consensus`, `iki/plasmid_sequencing.verify_plasmid_reads`, `iki/plate_assays.assign_dilution_series`, `iki/plate_assays.commit_reader`, `iki/plate_assays.preview_reader`, `iki/protein.align_reads`, `iki/protein.consensus`, `iki/protein.import_proteins`, `iki/proteomics.import_search`, `iki/qc_release.prepare_certificate`, `iki/qc_release.record_test`, `iki/sequencing.summarize_fastq`, `iki/sequencing_analysis.import_result`, `iki/small_molecule.import_sdf`, `iki/stability.record_measurement`, `iki/strains.import_base_strains`
+- Actions `iki/biologics_ms.characterize`, `iki/cell_lines.import_parental_line`, `iki/dna.align_reads`, `iki/dna.consensus`, `iki/dna.import_sequences`, `iki/equipment.record_instrument_use`, `iki/equipment.trace_failed_calibrations`, `iki/lots.record_plasmid_verification`, `iki/mouse_strains.register_mgi_strain`, `iki/oligo.import_oligonucleotides`, `iki/plasmid_sequencing.verify_plasmid_consensus`, `iki/plasmid_sequencing.verify_plasmid_reads`, `iki/plate_assays.assign_dilution_series`, `iki/plate_assays.commit_reader`, `iki/plate_assays.preview_reader`, `iki/protein.align_reads`, `iki/protein.consensus`, `iki/protein.import_proteins`, `iki/proteomics.import_search`, `iki/qc_release.prepare_certificate`, `iki/qc_release.record_test`, `iki/sequencing.summarize_fastq`, `iki/sequencing_analysis.import_airr`, `iki/sequencing_analysis.import_counts`, `iki/sequencing_analysis.import_vcf`, `iki/small_molecule.import_sdf`, `iki/stability.record_measurement`, `iki/strains.import_base_strains`
 
 ## PNG
 
@@ -205,7 +206,7 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Extensions `.png`
 - Byte signatures `89504e470d0a1a0a` at byte 0
 - Viewer `image`
-- Actions `iki/biologics_ms.characterize`, `iki/lots.compute_conjugate_lot`, `iki/lots.compute_oligo_lot`, `iki/lots.compute_plasmid_prep`, `iki/lots.compute_polymer_lot`, `iki/lots.compute_protein_lot`, `iki/lots.record_plasmid_verification`, `iki/qc_release.open_release`, `iki/qc_release.prepare_certificate`, `iki/qc_release.record_test`, `iki/reagents.receive_delivery`, `iki/reagents.receive_stock`, `iki/stability.schedule_pulls`
+- Actions `iki/biologics_ms.characterize`, `iki/equipment.record_instrument_use`, `iki/equipment.trace_failed_calibrations`, `iki/lots.compute_conjugate_lot`, `iki/lots.compute_oligo_lot`, `iki/lots.compute_plasmid_prep`, `iki/lots.compute_polymer_lot`, `iki/lots.compute_protein_lot`, `iki/lots.record_plasmid_verification`, `iki/qc_release.open_release`, `iki/qc_release.prepare_certificate`, `iki/qc_release.record_test`, `iki/reagents.receive_delivery`, `iki/reagents.receive_stock`, `iki/stability.schedule_pulls`
 
 ## protein FASTA
 
@@ -251,6 +252,7 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Byte signatures `49492a00` at byte 0, `4d4d002a` at byte 0, `49492b00` at byte 0, `4d4d002b` at byte 0
 - Metadata reader `image`
 - Viewer `image-tiff`
+- Actions `iki/equipment.record_instrument_use`, `iki/equipment.trace_failed_calibrations`
 
 ## TSV
 
@@ -258,14 +260,14 @@ start of a file. Actions appear under each format their declared file inputs acc
 - Canonical media type `text/tab-separated-values`
 - Extensions `.tsv`
 - Viewer `table-tsv`
-- Actions `iki/biologics_ms.characterize`, `iki/mouse_strains.register_mgi_strain`, `iki/proteomics.import_search`, `iki/sequencing_analysis.import_result`
+- Actions `iki/biologics_ms.characterize`, `iki/mouse_strains.register_mgi_strain`, `iki/proteomics.import_search`, `iki/sequencing_analysis.import_airr`, `iki/sequencing_analysis.import_counts`
 
 ## VCF
 
 - Format ID `iki/core.vcf`
 - Canonical media type `text/x-vcf`
 - Extensions `.vcf`
-- Actions `iki/sequencing_analysis.import_result`
+- Actions `iki/sequencing_analysis.import_vcf`
 
 ## XYZ
 

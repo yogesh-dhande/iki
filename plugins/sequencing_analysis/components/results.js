@@ -14,6 +14,7 @@ const style = `
 `;
 
 const number = new Intl.NumberFormat();
+const FORMATS = { vcf: "VCF", counts: "RNA-seq counts", airr: "AIRR rearrangements" };
 
 function node(tag, ...contents) {
   const element = document.createElement(tag);
@@ -38,21 +39,31 @@ class SequencingResults extends HTMLElement {
   }
 
   set entity(entity) {
-    const { summary, pipeline_context: context } = entity.values;
+    const { summary, pipeline_context: context, format } = entity.values;
+    const shown = summary?.preview.length ?? 0;
+    const kept = summary?.rows ?? shown;
     this.shadowRoot.replaceChildren(
       node("style", style),
       ...(summary && context
         ? [
             facts({
+              ...(format ? { Format: FORMATS[format] ?? format } : {}),
               Pipeline: context.pipeline,
               Version: context.version,
               ...(context.reference ? { Reference: context.reference } : {}),
               ...(summary.selector ? { Selection: summary.selector } : {}),
               ...summary.metrics,
             }),
-            ...(summary.preview.length
+            ...(summary.projection ? [node("p", summary.projection)] : []),
+            ...(shown
               ? [
                   node("h2", "Selected rows"),
+                  node(
+                    "p",
+                    shown < kept
+                      ? `The first ${number.format(shown)} of ${number.format(kept)}. The import run keeps every selected row as selected.tsv.`
+                      : "The import run also keeps these rows as selected.tsv.",
+                  ),
                   node("ol", ...summary.preview.map((row) => node("li", facts(row)))),
                 ]
               : []),

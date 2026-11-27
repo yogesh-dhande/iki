@@ -28,8 +28,7 @@ from iki_spec.model import (
     EntityType,
     Field,
     Plugin,
-    refined,
-    refinement,
+    as_refined,
     split_entry,
 )
 
@@ -74,10 +73,7 @@ def layout(
     names = {t.qualified_name for t in chain}
     parts = []
     for t in reversed(chain):
-        fields = {
-            n: refined(f, roles) if (roles := refinement(chain, n)) is not None else f
-            for n, f in t.current_fields.items()
-        }
+        fields = {n: as_refined(chain, n, f) for n, f in t.current_fields.items()}
         parts.append((t.table, t.qualified_name, t.plugin, False, split_entry(fields, t.identity)))
     parts.extend(
         (ext.table, ext.extends_type, ext.plugin, True, split_entry(ext.current_fields))

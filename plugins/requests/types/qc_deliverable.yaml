@@ -4,7 +4,7 @@ kind: EntityType
 name: QCDeliverable
 label: QC deliverable
 extends: Deliverable
-schema_version: 2
+schema_version: 3
 hrid: { prefix: QCD }
 result:
   of: request
@@ -17,38 +17,6 @@ fields:
     required: true
     immutable: true
     description: The request for this deliverable.
-  analysis:
-    type: enum
-    values: [sec_purity, intact_mass, peptide_map, endotoxin]
-    description: What was measured.
-  purity:
-    type: float
-    label: Purity (%)
-    min: 0
-    max: 100
-    description: The share of the main species, for a purity analysis.
-  measured_mass:
-    type: quantity
-    unit: u
-    display_unit: ku
-    min: 0
-    description: The intact mass, for a mass analysis.
-  peptide_coverage:
-    type: quantity
-    label: Peptide map sequence coverage
-    unit: "%"
-    min: 0
-    max: 100
-    description: The percentage of the protein sequence covered by identified peptides.
-  endotoxin:
-    type: quantity
-    unit: "{EU}/mg"
-    min: 0
-    description: Endotoxin units per milligram of protein.
-  result:
-    type: enum
-    values: [pass, fail]
-    description: Whether it meets its specification.
   notes:
     type: text
     description: What the analyst saw, and anything the project should know.
@@ -75,46 +43,12 @@ fields:
           recorded:
             check: state.from == "recorded"
             message: Submit the deliverable from Recorded.
-          has_sample:
-            when: record.analysis != null
-            check: record.material != null
-            message: Name the sample that was measured.
-          has_result:
-            when: record.analysis != null
-            check: record.result != null
-            message: Record whether the sample passed or failed.
-          has_purity:
-            when: record.analysis == "sec_purity"
-            check: record.purity != null
-            message: Record the SEC purity as a percentage.
-          has_mass:
-            when: record.analysis == "intact_mass"
-            check: record.measured_mass != null
-            message: Record the measured intact mass.
-          has_coverage:
-            when: record.analysis == "peptide_map"
-            check: record.peptide_coverage != null
-            message: Record the percentage of the protein sequence covered by the peptide map.
-          has_endotoxin:
-            when: record.analysis == "endotoxin"
-            check: record.endotoxin != null
-            message: Record the endotoxin units per milligram of protein.
           active_request:
             check: record.request.standing == "open" && record.request.status == "in_progress"
             message: Sign the deliverable while the request is open and in progress at the service.
-          measured_scope:
-            when: record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)
-            check: >-
-              record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses &&
-              size(covered_subjects) > 0
-            message: The measurement must still answer this request for the material it sent.
-          scope_still_matches:
-            check: >-
-              record.request.facility_service == "protein_production" ?
-              (record.protein != null && record.protein.id in record.request.records) :
-              (record.request.facility_service != "sequencing" ||
-               covered_subjects.exists(id, id in record.request.tubes))
-            message: The protein or tube must still be on the request.
+          still_requested:
+            check: record.material == null || size(covered_subjects) > 0
+            message: The material must still be on the request, or be an aliquot or sample of it.
       reviewed:
         label: Reviewed
         set_by: [iki/lab_roles.reviewer]
@@ -134,19 +68,9 @@ fields:
           active_request:
             check: record.request.standing == "open" && record.request.status == "in_progress"
             message: Sign the deliverable while the request is open and in progress at the service.
-          measured_scope:
-            when: record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)
-            check: >-
-              record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses &&
-              size(covered_subjects) > 0
-            message: The measurement must still answer this request for the material it sent.
-          scope_still_matches:
-            check: >-
-              record.request.facility_service == "protein_production" ?
-              (record.protein != null && record.protein.id in record.request.records) :
-              (record.request.facility_service != "sequencing" ||
-               covered_subjects.exists(id, id in record.request.tubes))
-            message: The protein or tube must still be on the request.
+          still_requested:
+            check: record.material == null || size(covered_subjects) > 0
+            message: The material must still be on the request, or be an aliquot or sample of it.
       released:
         label: Released
         set_by: [iki/lab_roles.qa]
@@ -168,37 +92,6 @@ fields:
           active_request:
             check: record.request.standing == "open" && record.request.status == "in_progress"
             message: Sign the deliverable while the request is open and in progress at the service.
-          measured_scope:
-            when: record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)
-            check: >-
-              record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses &&
-              size(covered_subjects) > 0
-            message: The measurement must still answer this request for the material it sent.
-          scope_still_matches:
-            check: >-
-              record.request.facility_service == "protein_production" ?
-              (record.protein != null && record.protein.id in record.request.records) :
-              (record.request.facility_service != "sequencing" ||
-               covered_subjects.exists(id, id in record.request.tubes))
-            message: The protein or tube must still be on the request.
-rules:
-  production_evidence:
-    when: record.request.facility_service == "protein_production"
-    check: >-
-      record.protein != null && record.protein.id in record.request.records &&
-      record.material == null && record.run_accession == null &&
-      (record.data_files == null || size(record.data_files) == 0) &&
-      (record.outcome == "unsuccessful" ||
-        (record.lot_number != null && record.lot_number != "" &&
-         record.delivered_mass != null && record.delivered_mass > 0))
-    message: Name the requested protein and give a lot number and positive mass for a successful delivery.
-    fields: [protein, lot_number, delivered_mass, material, run_accession, data_files, outcome]
-  sequencing_evidence:
-    when: record.request.facility_service == "sequencing"
-    check: >-
-      record.material != null &&
-      record.protein == null && record.lot_number == null && record.delivered_mass == null &&
-      (record.outcome == "unsuccessful" || record.run_accession != null ||
-        (record.data_files != null && size(record.data_files) > 0))
-    message: Name a tube on the request and attach files or a public run accession for a successful delivery.
-    fields: [material, data_files, run_accession, protein, lot_number, delivered_mass, outcome]
+          still_requested:
+            check: record.material == null || size(covered_subjects) > 0
+            message: The material must still be on the request, or be an aliquot or sample of it.
