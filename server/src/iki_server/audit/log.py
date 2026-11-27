@@ -79,6 +79,7 @@ ACTIONS: dict[str, str] = {
     "plugin.updated": "Updated a plugin",
     "plugin.preflight": "Checked a proposed plugin against existing records",
     "plugin.rules_checked": "Checked records against a plugin's changed rules",
+    "plugin.computed_worked_out": "Worked out records' computed values by changed expressions",
     "plugin.detached": "Detached a plugin",
     "plugin.reattached": "Reattached a plugin",
     "plugin.purge_requested": "Asked for a plugin’s data to be purged",

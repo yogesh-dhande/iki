@@ -7418,8 +7418,28 @@
             "title": "Assignment States",
             "type": "array"
           },
+          "cel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A computed field's CEL expression, which Iki works its value out by at every save, over `record` (ADR 0297). Null for a field people or runs set.",
+            "title": "Cel"
+          },
+          "cel_reads": {
+            "description": "The record's fields `cel` reads: changing one changes this field.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Cel Reads",
+            "type": "array"
+          },
           "computed": {
-            "description": "Set only by actions.",
+            "description": "Set by Iki, never by a person: by actions' runs, or worked out from the record's own values at every save, by `cel` (ADR 0297).",
             "title": "Computed",
             "type": "boolean"
           },
@@ -16488,8 +16508,28 @@
             "title": "Assignment States",
             "type": "array"
           },
+          "cel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A computed field's CEL expression, which Iki works its value out by at every save, over `record` (ADR 0297). Null for a field people or runs set.",
+            "title": "Cel"
+          },
+          "cel_reads": {
+            "description": "The record's fields `cel` reads: changing one changes this field.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Cel Reads",
+            "type": "array"
+          },
           "computed": {
-            "description": "Set only by actions.",
+            "description": "Set by Iki, never by a person: by actions' runs, or worked out from the record's own values at every save, by `cel` (ADR 0297).",
             "title": "Computed",
             "type": "boolean"
           },

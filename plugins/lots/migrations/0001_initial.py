@@ -1826,10 +1826,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='polymerlot',
-            constraint=models.CheckConstraint(condition=models.Q(('dispersity__gte', 1)), name='iki__lots_polymerlot__dispersity__min'),
-        ),
-        migrations.AddConstraint(
-            model_name='polymerlot',
             constraint=models.CheckConstraint(condition=django.db.models.lookups.GreaterThanOrEqual(django.db.models.functions.text.Length('eluent'), 1), name='iki__lots_polymerlot__eluent__not_empty'),
         ),
         migrations.AddConstraint(

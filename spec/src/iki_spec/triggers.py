@@ -208,7 +208,7 @@ class _Rules:
                 or trigger.recheck not in outputs
                 or any(
                     n not in fields
-                    or not fields[n][0].computed
+                    or not fields[n][0].set_by_runs
                     or fields[n][0].required
                     or fields[n][0].immutable
                     or fields[n][0].registry

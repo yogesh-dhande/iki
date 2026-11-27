@@ -86,6 +86,7 @@ fn checked_with(schemas: &Value, source: &str, kind: Kind) -> RuleChecked {
         expressions: vec![Expression {
             source: source.to_owned(),
             kind,
+            result: None,
         }],
     })
     .remove(0)
@@ -135,6 +136,7 @@ fn evaluated_with(
             .map(|(source, kind)| Expression {
                 source: (*source).to_owned(),
                 kind: *kind,
+                result: None,
             })
             .collect(),
         contexts: contexts
@@ -1313,4 +1315,194 @@ fn a_schema_must_be_one() {
             "{schema}"
         );
     }
+}
+
+// --- Computed fields' values (ADR 0297) ---------------------------------------------------
+
+/// A computed field's expression, checked or evaluated against the sample's schema, for a
+/// field holding `result`.
+fn value_expression(source: &str, result: &Value) -> Expression {
+    Expression {
+        source: source.to_owned(),
+        kind: Kind::Value,
+        result: Some(serde_json::from_value(result.clone()).unwrap()),
+    }
+}
+
+fn value_checked(source: &str, result: &Value) -> RuleChecked {
+    check(&CheckRequest {
+        variables: variables(&lims()),
+        expressions: vec![value_expression(source, result)],
+    })
+    .remove(0)
+}
+
+fn value_of(source: &str, result: &Value, context: &Value) -> RuleEvaluated {
+    evaluate(&EvaluateRequest {
+        variables: variables(&lims()),
+        expressions: vec![value_expression(source, result)],
+        contexts: vec![context.as_object().cloned().unwrap()],
+    })
+    .remove(0)
+    .remove(0)
+}
+
+fn status() -> Value {
+    json!({"type": "string", "label": "Status", "values": ["received", "approved", "rejected"]})
+}
+
+#[test]
+fn a_value_checks_against_the_kind_its_field_holds() {
+    let double = json!({"type": "double"});
+    let int = json!({"type": "int"});
+    let time = json!({"type": "timestamp"});
+    assert!(matches!(
+        value_checked("record.purity / 100.0", &double),
+        RuleChecked::Valid { .. }
+    ));
+    // A whole number is a number too.
+    assert!(matches!(
+        value_checked("record.count * 2", &double),
+        RuleChecked::Valid { .. }
+    ));
+    assert!(matches!(
+        value_checked("record.received_at + duration('720h')", &time),
+        RuleChecked::Valid { .. }
+    ));
+    let RuleChecked::Valid { reads } = value_checked("record.count + size(record.tags)", &int)
+    else {
+        unreachable!()
+    };
+    assert_eq!(reads["record"], vec!["count", "tags"]);
+
+    let RuleChecked::Invalid { error, hint, .. } = value_checked("record.purity * 2.0", &int)
+    else {
+        unreachable!()
+    };
+    assert_eq!(
+        error,
+        "It works out to a number (double), but the field holds a whole number (int)."
+    );
+    assert!(hint.unwrap_or_default().contains("int(…)"));
+    let RuleChecked::Invalid { error, .. } = value_checked("record.purity >= 95.0", &double) else {
+        unreachable!()
+    };
+    assert!(
+        error.starts_with("It works out to yes or no (bool)"),
+        "{error}"
+    );
+}
+
+#[test]
+fn an_enums_value_is_one_of_its_values() {
+    assert!(matches!(
+        value_checked("record.purity >= 95.0 ? 'approved' : 'rejected'", &status()),
+        RuleChecked::Valid { .. }
+    ));
+    let RuleChecked::Invalid {
+        error,
+        hint,
+        column,
+        ..
+    } = value_checked("record.purity >= 95.0 ? 'approved' : 'rejekted'", &status())
+    else {
+        unreachable!()
+    };
+    assert_eq!(error, "`rejekted` isn't one of Status's values.");
+    assert!(
+        hint.unwrap_or_default()
+            .starts_with("Did you mean `rejected`?")
+    );
+    assert_eq!(column, Some(38));
+    // Another enum's values must be among its.
+    let RuleChecked::Invalid { error, .. } = value_checked("record.status", &status()) else {
+        unreachable!()
+    };
+    assert_eq!(
+        error,
+        "It can be `registered`, one of Status's values, which isn't one of Status's."
+    );
+    // Text worked out otherwise is checked when it's evaluated.
+    assert_eq!(
+        value_of("record.hrid", &status(), &sample()),
+        RuleEvaluated::Error {
+            error: "`SAM-000001` isn't one of Status's values.".to_owned(),
+            empty: false,
+        }
+    );
+}
+
+#[test]
+fn a_value_is_the_json_its_field_reads() {
+    assert_eq!(
+        value_of(
+            "record.purity / 100.0",
+            &json!({"type": "double"}),
+            &sample()
+        ),
+        RuleEvaluated::Computed {
+            result: json!(0.925)
+        }
+    );
+    assert_eq!(
+        value_of("record.count * 2", &json!({"type": "double"}), &sample()),
+        RuleEvaluated::Computed { result: json!(6.0) }
+    );
+    assert_eq!(
+        value_of("record.count * 2", &json!({"type": "int"}), &sample()),
+        RuleEvaluated::Computed { result: json!(6) }
+    );
+    assert_eq!(
+        value_of(
+            "record.received_at + duration('720h')",
+            &json!({"type": "timestamp"}),
+            &sample()
+        ),
+        RuleEvaluated::Computed {
+            result: json!("2026-12-18T10:00:00Z")
+        }
+    );
+    assert_eq!(
+        value_of("record.hrid + '/A'", &json!({"type": "string"}), &sample()),
+        RuleEvaluated::Computed {
+            result: json!("SAM-000001/A")
+        }
+    );
+    assert_eq!(
+        value_of("null", &json!({"type": "double"}), &sample()),
+        RuleEvaluated::Computed {
+            result: Value::Null
+        }
+    );
+}
+
+#[test]
+fn a_value_that_cant_be_worked_out_says_why_and_whether_it_read_an_empty_one() {
+    let double = json!({"type": "double"});
+    let mut empty = sample();
+    empty["record"]["purity"] = Value::Null;
+    let RuleEvaluated::Error { empty, .. } = value_of("record.purity / 100.0", &double, &empty)
+    else {
+        unreachable!()
+    };
+    assert!(empty);
+    let mut zero = sample();
+    zero["record"]["count"] = json!(0);
+    assert_eq!(
+        value_of("record.purity / double(record.count)", &double, &zero),
+        RuleEvaluated::Error {
+            error: "It isn't a finite number: a division by zero gives none.".to_owned(),
+            empty: false,
+        }
+    );
+    // A value needs its kind.
+    let found = check(&CheckRequest {
+        variables: variables(&lims()),
+        expressions: vec![Expression {
+            source: "1".to_owned(),
+            kind: Kind::Value,
+            result: None,
+        }],
+    });
+    assert!(matches!(found[0], RuleChecked::Invalid { .. }));
 }

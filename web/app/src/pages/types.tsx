@@ -296,6 +296,11 @@ export function TypeDetail() {
                         {f.computed ? <Badge muted>Computed</Badge> : null}
                         {f.unique ? <Badge muted>Unique</Badge> : null}
                       </span>
+                      {f.cel ? (
+                        <span className="cell-meta">
+                          Worked out at every save as <code>{f.cel}</code>
+                        </span>
+                      ) : null}
                     </td>
                     {kept ? (
                       <td>

@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/lots
-version: 0.12.3
+version: 0.13.0
 title: Lots
 description: >-
   Lots of any registered entity: what was made or bought at one time, how much of it is
