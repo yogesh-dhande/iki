@@ -250,10 +250,17 @@ def publish_version(run: dict[str, Any]) -> dict[str, Any]:
     return output("schedule", schedule, {"versions": [*ids, version["id"]]})
 
 
-def named(material: dict[str, Any] | None, expected: object) -> str:
-    """The material's name, which its certificate of analysis states (ICH Q7 §11.41)."""
-    if material is None or material["id"] != expected:
+def pinned_material(holder: dict[str, Any], expected: object) -> dict[str, Any]:
+    """The material `holder` names, as the run pinned it. A material in a registry is
+    pinned as its record in the project, under its entry's id."""
+    given = included(holder, "material")
+    if len(given) != 1 or (given[0].get("entry_id") or given[0]["id"]) != expected:
         raise ValueError("The specification's material is missing from the pinned inputs.")
+    return given[0]
+
+
+def named(material: dict[str, Any]) -> str:
+    """The material's name, which its certificate of analysis states (ICH Q7 §11.41)."""
     name = str(material["values"].get("name") or "").strip()
     if not name:
         raise ValueError(
@@ -344,7 +351,7 @@ def open_release(run: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(
             "The specification schedule must be for the material registered on this lot."
         )
-    named(next(iter(included(schedule, "material")), None), material)
+    named(pinned_material(schedule, material))
     lot_number = lot["values"].get("lot_number")
     if not str(lot_number or "").strip():
         raise ValueError("Record the physical lot number before opening release testing.")
@@ -683,6 +690,12 @@ def pin_fields(record: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any
     }
 
 
+def material_pin(material: dict[str, Any]) -> dict[str, Any]:
+    """The material's pin in the evidence: its record, and its registry entry's where it has one."""
+    entry = {key: material[key] for key in ("entry_id", "entry_revision") if key in material}
+    return pin_fields(material, ("name",)) | entry
+
+
 def review_attempts(
     case: dict[str, Any],
     specification: dict[str, Any],
@@ -783,6 +796,7 @@ def statement(
         if test["values"].get("purpose") != "investigational":
             final[test["values"]["attribute"]] = test
     lot_values = lot["values"]
+    material = pinned_material(case, values["material"])
     return {
         "format": "iki/coa/v2",
         "title": flow["title"],
@@ -790,8 +804,8 @@ def statement(
         **({"issuer": issuer} if issuer else {}),
         "material": {
             # Read when the certificate was prepared, from the material's current revision.
-            "name": named(pinned(case, "material"), values["material"]),
-            "hrid": pinned(case, "material")["hrid"],
+            "name": named(material),
+            "hrid": material["hrid"],
             **({"grade": values["grade"]} if values.get("grade") else {}),
         },
         "lot": {
@@ -885,7 +899,7 @@ def prepare_certificate(run: dict[str, Any]) -> dict[str, Any]:
             "revision": values["lot_revision"],
             "lot_number": values["lot_number"],
         },
-        "material": pin_fields(pinned(case, "material"), ("name",)),
+        "material": material_pin(pinned_material(case, values["material"])),
         "schedule": {"id": values["schedule"], "revision": values["schedule_revision"]},
         "specification": pin_fields(
             specification, ("version", "effective_from", "source", "criteria")

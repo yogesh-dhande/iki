@@ -851,6 +851,14 @@ def test_a_case_pins_its_material_and_grade_and_needs_its_name(qc_actions: Modul
     schedule["values"]["grade"] = "USP"
     (case,) = qc_actions.open_release(run)["creates"]
     assert (case["values"]["material"], case["values"]["grade"]) == ("material1", "USP")
+    # A registered material is pinned as its record in the project, under its entry.
+    entry = schedule["included"]["material"][0]
+    schedule["included"]["material"] = [entry | {"id": "record1", "entry_id": "material1"}]
+    assert qc_actions.open_release(run)["creates"][0]["values"]["material"] == "material1"
+    schedule["included"]["material"] = [entry | {"id": "record1", "entry_id": "material2"}]
+    with pytest.raises(ValueError, match="material is missing"):
+        qc_actions.open_release(run)
+    schedule["included"]["material"] = [entry]
     schedule["included"]["material"][0]["values"]["name"] = " "
     with pytest.raises(ValueError, match="Name MATERIAL1 on its record first"):
         qc_actions.open_release(run)
@@ -874,6 +882,14 @@ def test_a_certificate_names_the_material_as_it_is_when_prepared(qc_actions: Mod
         "hrid": "MATERIAL1",
         "grade": "Reagent grade",
     }
+    material = case["included"]["material"][0]
+    case["included"]["material"] = [material | {"id": "record1", "entry_id": "material1"}]
+    (certificate,) = qc_actions.prepare_certificate(prepare)["creates"]
+    assert certificate["values"]["coa"]["material"]["name"] == "Synthetic assay standard"
+    case["included"]["material"] = []
+    with pytest.raises(ValueError, match="material is missing"):
+        qc_actions.prepare_certificate(prepare)
+    case["included"]["material"] = [material]
     case["included"]["material"][0]["values"]["name"] = None
     with pytest.raises(ValueError, match="names the material"):
         qc_actions.prepare_certificate(prepare)
