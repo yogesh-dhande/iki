@@ -2407,14 +2407,14 @@ def test_a_search_of_many_compounds_holds_one_at_a_time(tmp_path: Path) -> None:
                 "molecular_formula": rdMolDescriptors.CalcMolFormula(mol),
             }
         )
-    compounds = [entity(i, **shapes[i % len(shapes)]) for i in range(30_000)]
+    # Written a compound at a time, so this test's own process never holds the 30,000.
     path = tmp_path / "input.json"
-    path.write_text(
-        json.dumps(
-            {"params": {"smiles": ASPIRIN, "threshold": 0.3}, "inputs": {"compounds": compounds}}
-        )
-    )
-    del compounds
+    with path.open("w") as written:
+        params = json.dumps({"smiles": ASPIRIN, "threshold": 0.3})
+        written.write(f'{{"params": {params}, "inputs": {{"compounds": [')
+        for i in range(30_000):
+            written.write(("," if i else "") + json.dumps(entity(i, **shapes[i % len(shapes)])))
+        written.write("]}}")
     assert path.stat().st_size > 50_000_000
     measure = (
         "import os, resource, runpy, sys; sys.argv = ['search.py', 'similar']\n"
