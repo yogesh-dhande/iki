@@ -29,10 +29,12 @@ from iki_server.entities.values import Invalid
 from iki_server.files import scan_state, storage
 from iki_server.files.models import UploadState
 from iki_server.org import permissions
+from iki_server.org.models import Project
 from iki_server.runs import (
     approvals,
     catalog,
     costs,
+    included,
     input_files,
     launches,
     output_refs,
@@ -963,13 +965,24 @@ def pin_out(entity: Entity, revision: int, readable: set[UUID]) -> dict[str, Any
 def pin_access(
     me: User, ids: set[UUID], projects: set[UUID]
 ) -> tuple[set[UUID], set[tuple[UUID, UUID]]]:
-    """Readable pins (including tombstones), and the live ones available in each project."""
+    """Readable pins (including tombstones), and the live ones available in each project:
+    a lab list's option (ADR 0270) in every project of its registry."""
     readable = set(access.traced(me).filter(pk__in=ids).values_list("pk", flat=True))
     available = set(
         ProjectLink.objects.filter(
             entity_id__in=readable, entity__purged_at__isnull=True, project_id__in=projects
         ).values_list("entity_id", "project_id")
     )
+    options = included.options_by_registry(ids - readable)
+    if options:
+        readable |= set(access.readable(me).filter(pk__in=options).values_list("pk", flat=True))
+        registries = Project.objects.filter(pk__in=projects).values_list("pk", "registry_id")
+        available |= {
+            (pk, project)
+            for project, at in registries
+            for pk, of in options.items()
+            if of == at and pk in readable
+        }
     return readable, available
 
 

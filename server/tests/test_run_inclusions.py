@@ -435,3 +435,60 @@ def test_a_workflow_reads_what_its_steps_include_in_its_project(world: World) ->
 
     assert started.status_code == 201, started.content
     assert {str(i.entity_id) for i in RunInclusion.objects.all()} <= {ours["id"]}
+
+
+def test_a_run_reads_the_lab_list_option_its_record_names(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lab list's option (ADR 0270) is its registry's, with no record in any project: a
+    run reads it as the option, at its revision, without adding it to the run's project;
+    a curator's later relabel isn't what the run reads; and the run shows it, is reused
+    and is reproduced in its project as any other."""
+    monkeypatch.setattr(services, "plugin_sha", lambda plugin: SHA)
+    editor = api_as(world, "editor")
+    project = str(world.project.pk)
+    methods = editor.get("/lists/acme/protein.PurificationMethod/options", project=project)
+    assert methods.status_code == 200, methods.content
+    protein_a = next(o for o in methods.json() if o["code"] == "protein_a")
+    made = editor.post(
+        "/entities",
+        {
+            "type": "acme/protein.Prep",
+            "project": project,
+            "values": {"name": "Anti-HER2 prep 12", "method": protein_a["id"]},
+        },
+    )
+    assert made.status_code == 201, made.content
+
+    run = launch(editor, world.project, {"prep": made.json()["id"]}, "acme/protein.weigh_prep")
+
+    assert run.status_code == 201, run.content
+    assert [(i["field"], i["revision"]) for i in run.json()["included"]] == [("method", 1)]
+    assert not ProjectLink.objects.filter(entity_id=protein_a["id"]).exists()
+    curator = registrar(world)
+    relabelled = curator.patch(
+        "/lists/acme/protein.PurificationMethod/options/protein_a",
+        {"label": "MabSelect SuRe", "reason": "The resin we use"},
+        headers={"If-Match": f'"{protein_a["revision"]}"'},
+        registry=str(world.project.registry_id),
+    )
+    assert relabelled.status_code == 200, relabelled.content
+    pod = built_pod(world)
+    job = pod.lease().json()
+    assert not list(schemas.check("run-input", job))
+    (given,) = job["inputs"]["prep"]
+    (method,) = given["included"]["method"]
+    assert method["id"] == protein_a["id"] == given["values"]["method"]
+    assert method["type"] == "acme/protein.PurificationMethod"
+    assert (method["revision"], method["values"]["code"]) == (1, "protein_a")
+    assert method["values"]["label"] == "Protein A affinity"
+    named = {"entity": given["id"], "values": {"name": "Anti-HER2 prep 12 (weighed)"}}
+    assert done(pod, job, output(updates={"prep": [named]}))["run_status"] == "succeeded"
+    shown = editor.get(f"/runs/{run.json()['id']}").json()
+    assert [(i["hrid"], i["revision"]) for i in shown["included"]] == [(protein_a["hrid"], 1)]
+    reproduced = editor.post(f"/runs/{run.json()['id']}/reproduce", {})
+    assert reproduced.status_code == 201, reproduced.content
+    again = pod.lease().json()
+    assert again["inputs"]["prep"][0]["included"]["method"][0]["values"]["label"] == (
+        "Protein A affinity"
+    )

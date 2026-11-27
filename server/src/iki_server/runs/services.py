@@ -773,10 +773,17 @@ def reproduce(
             f"{'their tombstones are' if len(purged) > 1 else 'its tombstone is'} left."
         )
     readable = set(access.visible(user).filter(pk__in=read).values_list("pk", flat=True))
-    if Entity.objects.filter(pk__in=read).exclude(pk__in=readable).exists():
+    # A lab list's option is its registry's (ADR 0270): whoever launches in the project
+    # reads it, and it's in no project.
+    options = included.options_of(
+        original.project,
+        RunInclusion.objects.filter(run=original).values_list("entity_id", flat=True),
+    )
+    if Entity.objects.filter(pk__in=read).exclude(pk__in=readable | options).exists():
         raise PermissionDenied
     gone = list(
         Entity.objects.filter(pk__in=read)
+        .exclude(pk__in=options)
         .exclude(pk__in=access.in_project(original.project).values("pk"))
         .order_by("hrid")
         .values_list("hrid", flat=True)
