@@ -2371,6 +2371,7 @@ When a worker leases a job, it gets the run input and writes it to
         "id": "…",
         "hrid": "PRT-000042",
         "type": "iki/protein.Protein",
+        "types": ["iki/protein.Protein", "iki/core.Sequence", "iki/core.Entity"],
         "schema_version": 1,
         "revision": 3,
         "values": { "sequence": "MKV…" }
@@ -2407,6 +2408,14 @@ registered records, `entry_id` identifies the registry entry held at that
 record revision and `entry_revision` gives the registry revision pinned at
 launch. Included records use the same fields. An action that seals evidence
 should keep both pairs, since registry facts can change independently.
+
+An input record's `type` is its own type, and `types` is that type and each
+type it extends, nearest first, ending with `iki/core.Entity`. An input that
+takes a type also offers the lab's subtypes of it, so a command that asks
+what a record is, such as whether a complex's part is a protein, looks in
+`types`: `"iki/protein.Protein" in part["types"]` holds for a lab's
+`acme/enzymes.Enzyme` that extends it, where `part["type"] ==
+"iki/protein.Protein"` doesn't.
 
 Each input is a list, even when the input takes one entity. Values are the
 ones at the revision the run was launched on, as the REST API shows them,

@@ -83,6 +83,7 @@ mod tests {
             "params": {"seed": 1},
             "inputs": {"protein": [{
                 "id": "e", "hrid": "PRO-1", "type": "iki/protein.Protein",
+                "types": ["iki/protein.Protein", "iki/core.Sequence", "iki/core.Entity"],
                 "schema_version": 1, "revision": 2, "values": {"name": "abl"},
             }]},
         }))
