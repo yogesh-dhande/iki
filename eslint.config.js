@@ -116,8 +116,8 @@ export default tseslint.config(
     rules: { "no-restricted-syntax": ["error", RAW_HTML, QUERY_SIGNAL, POST_READ, RAW_IF_MATCH] },
   },
   {
-    // The one place the header is spelled out.
-    files: ["web/app/src/revisioned.ts"],
+    // The tests' fake API reads the header a change was sent with; it never sends one.
+    files: ["web/app/src/test-server.ts"],
     rules: { "no-restricted-syntax": ["error", RAW_HTML, QUERY_SIGNAL, POST_READ] },
   },
   {

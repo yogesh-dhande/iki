@@ -4294,7 +4294,7 @@ def test_a_count_made_while_someone_draws_is_recounted_not_recorded(
     """A stock count is checked against the balance its counter saw (its revision, as
     If-Match).
     When someone draws meanwhile, nothing is recorded: the dialog says who drew what, keeps
-    the count, and records it only once it's recounted against the new balance."""
+    the count, selected, and records it against the new balance only when confirmed again."""
     from decimal import Decimal
 
     from iki_server.amounts import services as amounts
@@ -4340,8 +4340,10 @@ def test_a_count_made_while_someone_draws_is_recounted_not_recorded(
     expect(since.get_by_role("listitem")).to_contain_text(
         re.compile(r"^Drawn: \u221220 uL, by Editor, .+ \(“Western blot”\)\.$")
     )
+    # The count is now against the balance shown, kept and selected, to keep or recount.
+    expect(dialog).to_contain_text("It had 80 uL when this count began.")
+    expect(count).to_be_focused()
     expect(count).to_have_value("95")
-    expect(dialog.get_by_role("button", name="Adjust")).to_have_attribute("aria-disabled", "true")
     # Chromium and WebKit log the refusal's 412 as a failed load: that, and nothing else.
     PAGE_ERRORS[page][:] = [e for e in PAGE_ERRORS[page] if "status of 412" not in e]
     assert_clean(page)
@@ -4351,11 +4353,6 @@ def test_a_count_made_while_someone_draws_is_recounted_not_recorded(
     page.set_viewport_size({"width": 1440, "height": 900})
     assert Amount.objects.get(entity=sample).value == Decimal(80)
 
-    stale.get_by_role("button", name="Recount").click()
-    expect(stale).to_be_hidden()
-    expect(dialog).to_contain_text("It had 80 uL when this count began.")
-    expect(count).to_be_focused()
-    expect(count).to_have_value("95")
     count.fill("78")
     with page.expect_response(lambda r: r.url.endswith("/amount/adjust")) as recorded:
         dialog.get_by_role("button", name="Adjust").click()

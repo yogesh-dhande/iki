@@ -11,14 +11,18 @@
  * (`onCatchUp`), and the next confirm is made from the revision they now see.
  */
 
-import { ifMatch, isStale, type Problem } from "@ikisci/sdk";
+import { ifMatch, ifNoneMatchAny, isStale, type Problem } from "@ikisci/sdk";
 import { useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 /** The header a change is made from a revision with (the SDK's `ifMatch`). */
 export type IfMatch = ReturnType<typeof ifMatch>;
 
-export interface Revisioned<T> {
+/** The header a change is made with when nothing was recorded yet, `If-None-Match: *` (ADR
+ * 0289), or else from the revision read. */
+export type Precondition = IfMatch | ReturnType<typeof ifNoneMatchAny>;
+
+export interface Revisioned<T, H = IfMatch> {
   /** As it was read when it opened (or caught up to since): what the person reviewed. */
   read: T;
   /** The page's copy moved on since it was read: someone changed it meanwhile. */
@@ -29,27 +33,32 @@ export interface Revisioned<T> {
   /** A change was refused as stale, and the page is reading it again. */
   rereading: boolean;
   /** Makes the change from the revision read, unless it moved on: then it catches up,
-   * sends nothing, and waits for the person to confirm again. */
-  submit: (send: (header: IfMatch) => void) => void;
+   * sends nothing, and waits for the person to confirm again. `send` is given the header
+   * and what was read, which the change is built from. */
+  submit: (send: (header: H, read: T) => void) => void;
 }
 
 export interface RevisionedOptions<T> {
   /** For a dialog that stays mounted while closed: read again each time it opens. */
   open?: boolean;
-  /** The change's error, if it failed: a stale one starts catching up. */
+  /** The change's error, if it failed: a stale one starts catching up. One from before it
+   * opened isn't this change's. */
   error?: unknown;
   /** What to read again when a change is refused as stale: the queries `live` comes from. */
   refresh: QueryKey;
-  /** What, beside its own revision, the change is made from, such as its registry entry's
-   * revision: a change to any of it is a change. */
-  version?: (item: T) => string | number;
+  /** What the change is made from, when that's more than its revision, such as a
+   * signature's record and registry entry revisions: a change to any of it is a change. It
+   * changes whenever what the change sends does. */
+  version?: (item: NonNullable<T>) => string | number;
   /** It's caught up to `latest` from `was`: a form brings the new values in. Called while
    * rendering, so it may only set its own component's state. */
   onCatchUp?: (latest: T, was: T) => void;
 }
 
 interface State<T> {
-  read: T | null;
+  /** Open, and read: `read` is what the person reviews. */
+  opened: boolean;
+  read: T;
   told: boolean;
   /** Refused as stale, and not caught up since: it catches up when the page's copy moves. */
   refused: boolean;
@@ -59,18 +68,29 @@ interface State<T> {
   seen: unknown;
 }
 
-function revisionOf(item: { revision: number }): number {
-  return item.revision;
-}
-
-/** `live`: the page's copy, as its query has it now. */
+/**
+ * `live`: the page's copy, as its query has it now. `null` is nothing recorded yet, such as
+ * an amount never counted: a change from it is sent with `If-None-Match: *`, so one
+ * recorded meanwhile refuses it as stale, as a new revision would.
+ */
 export function useRevisioned<T extends { revision: number }>(
   live: T,
-  { open = true, error, refresh, version = revisionOf, onCatchUp }: RevisionedOptions<T>,
-): Revisioned<T> {
+  options: RevisionedOptions<T>,
+): Revisioned<T>;
+export function useRevisioned<T extends { revision: number }>(
+  live: T | null,
+  options: RevisionedOptions<T | null>,
+): Revisioned<T | null, Precondition>;
+export function useRevisioned<T extends { revision: number }>(
+  live: T | null,
+  { open = true, error, refresh, version, onCatchUp }: RevisionedOptions<T | null>,
+): Revisioned<T | null, Precondition> {
   const client = useQueryClient();
-  const [state, setState] = useState<State<T>>(() => ({
-    read: open ? live : null,
+  const versionOf = (item: T | null): string | number =>
+    item === null ? "none" : version ? version(item) : item.revision;
+  const [state, setState] = useState<State<T | null>>(() => ({
+    opened: open,
+    read: live,
     told: false,
     refused: false,
     awaiting: false,
@@ -79,11 +99,12 @@ export function useRevisioned<T extends { revision: number }>(
   // Adjusted while rendering, as React keeps state that follows a prop.
   let next = state;
   if (!open) {
-    if (state.read !== null || state.told || state.refused || state.awaiting) {
-      next = { read: null, told: false, refused: false, awaiting: false, seen: error };
+    if (state.opened || state.told || state.refused || state.awaiting) {
+      next = { ...state, opened: false, told: false, refused: false, awaiting: false };
     }
   } else {
-    if (next.read === null) next = { ...next, read: live, told: false };
+    // Opened: read now, and an earlier error, from before it opened, isn't this change's.
+    if (!next.opened) next = { ...next, opened: true, read: live, told: false, seen: error };
     if (error !== next.seen) {
       const stale = isStale(error);
       next = {
@@ -93,7 +114,8 @@ export function useRevisioned<T extends { revision: number }>(
       };
     }
     const was = next.read;
-    if (next.refused && was && version(live) !== version(was)) {
+    // Refused: caught up once the page reads it again.
+    if (next.refused && versionOf(live) !== versionOf(was)) {
       onCatchUp?.(live, was);
       next = { ...next, read: live, refused: false, awaiting: false };
     }
@@ -117,8 +139,8 @@ export function useRevisioned<T extends { revision: number }>(
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per refusal
   }, [awaiting]);
 
-  const read = next.read ?? live;
-  const changedSince = version(live) !== version(read);
+  const read = next.opened ? next.read : live;
+  const changedSince = versionOf(live) !== versionOf(read);
   return {
     read,
     changedSince,
@@ -132,7 +154,7 @@ export function useRevisioned<T extends { revision: number }>(
         return;
       }
       if (next.told || next.refused) setState((s) => ({ ...s, told: false, refused: false }));
-      send(ifMatch(read.revision));
+      send(read === null ? ifNoneMatchAny() : ifMatch(read.revision), read);
     },
   };
 }

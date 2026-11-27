@@ -211,6 +211,74 @@ it("can’t change a saved decision without a reason", async () => {
   expect(row.getByRole("button", { name: "Resolve" })).toHaveFocus();
 });
 
+it("sends nothing from a decision a refetch changed while its reason was asked, and says so", async () => {
+  const moved = tube(1, {
+    finding: "wrong_slot",
+    expected: "A4",
+    found: "A2",
+    resolution: "moved",
+    resolved_by: ME,
+  });
+  const { user } = await openInventory(moved);
+  const row = decision("TUB-000001");
+  await user.selectOptions(row.getByRole("combobox"), "kept");
+  await user.type(row.getByRole("textbox", { name: /Note/ }), "Rack is full");
+  await user.click(row.getByRole("button", { name: "Resolve" }));
+  const dialog = within(
+    await screen.findByRole("dialog", { name: "Change the decision on TUB-000001?" }),
+  );
+  await user.type(
+    dialog.getByRole("textbox", { name: "Why are you changing this?" }),
+    "Leave it at A4 for now",
+  );
+  // Ada noted the decision meanwhile, and the page read the count in the background.
+  const theirs = { ...moved, note: "Box A4 is full", revision: 2, resolved_by: ADA };
+  answer(`GET ${api}`, inventory(2, theirs));
+  answer(
+    `GET ${api}/history`,
+    page([
+      event({
+        kind: "resolution",
+        line_id: moved.id,
+        before: { resolution: "moved", note: "" },
+        after: { resolution: "moved", note: "Box A4 is full" },
+        reason: "Noted why",
+      }),
+    ]),
+  );
+  await act(async () => {
+    await queryClient.refetchQueries();
+  });
+  // Still as it was asked about: nothing is sent from what the dialog didn't show.
+  expect(dialog.queryByText(/Box A4 is full/)).toBeNull();
+  await user.click(dialog.getByRole("button", { name: "Save the decision" }));
+  const alert = await dialog.findByText(/^TUB-000001 changed while you were looking at it/);
+  // Who changed it, and why, from its history.
+  await waitFor(() => {
+    expect(alert.closest("[role=alert]")).toHaveTextContent(/by Ada Lovelace, .+ \(“Noted why”\)/);
+  });
+  // What it changes from is theirs now.
+  expect(dialog.getByText("Move it to where it was found: “Box A4 is full”")).toBeVisible();
+  expect(calls("PATCH")).toEqual([]);
+  expect(dialog.getByRole("textbox", { name: "Why are you changing this?" })).toHaveValue(
+    "Leave it at A4 for now",
+  );
+  answer(
+    `PATCH ${api}/lines/${moved.id}`,
+    inventory(3, { ...theirs, resolution: "kept", revision: 3 }),
+  );
+  await user.click(dialog.getByRole("button", { name: "Save the decision" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(calls("PATCH").map(made)).toEqual([
+    {
+      "If-Match": '"2"',
+      resolution: "kept",
+      note: "Rack is full",
+      reason: "Leave it at A4 for now",
+    },
+  ]);
+});
+
 it("requires review after a newer count arrives and an older resolution response lands last", async () => {
   const moved = tube(1, {
     finding: "wrong_slot",
@@ -283,7 +351,7 @@ it("reviews a refused completion's count only once the latest one is shown", asy
   );
   // A colleague found it in A4 meanwhile, and moved it there. The refusal comes back before
   // the count as it is now does.
-  answer(`POST ${api}/complete`, problem(409, "conflict", "The count changed."));
+  answer(`POST ${api}/complete`, problem(412, "stale", "The count changed."));
   const latest = inventory(2, { ...moved, found: "A4", revision: 2 });
   const showLatest = holdResponse(`GET ${api}`, latest);
   answer(
@@ -332,7 +400,7 @@ it("shows what changed, and who changed it, when a first decision is refused as 
   const endpoint = `${api}/lines/${moved.id}`;
   answer(
     `PATCH ${endpoint}`,
-    problem(409, "count_lines_changed", "The count evidence changed.", undefined, {
+    problem(412, "stale", "The count evidence changed.", undefined, {
       affected_lines: [{ line_id: moved.id, revision: 2 }],
     }),
   );
@@ -502,7 +570,7 @@ it("asks why a scan replaces an empty position, and keeps the reason when it’s
   const { user } = await openInventory(empty);
   answer(
     `POST ${api}/scans`,
-    problem(409, "count_lines_changed", "The count evidence changed.", undefined, {
+    problem(412, "stale", "The count evidence changed.", undefined, {
       affected_lines: [{ line_id: empty.id, revision: 2 }],
     }),
   );
@@ -1002,7 +1070,7 @@ it("shows who changed the tube chosen as moved, and asks again", async () => {
   // Meanwhile, Ada reads A2 again.
   answer(
     `POST ${api}/scans`,
-    problem(409, "count_lines_changed", "The count evidence changed.", undefined, {
+    problem(412, "stale", "The count evidence changed.", undefined, {
       affected_lines: [{ line_id: a2.id, revision: 2 }],
     }),
   );

@@ -795,7 +795,7 @@ function Superseded({ entity }: { entity: Entity }) {
             setMissing(true);
             return;
           }
-          rev.submit((header) =>
+          rev.submit((header) => {
             move.mutate(header, {
               onSuccess: (moved) => {
                 close();
@@ -809,8 +809,8 @@ function Superseded({ entity }: { entity: Entity }) {
                   }),
                 }).then(() => client.invalidateQueries({ queryKey: ENTITIES }));
               },
-            }),
-          );
+            });
+          });
         }}
       >
         <p>

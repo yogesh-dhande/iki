@@ -39,13 +39,12 @@ opened, and sends that revision (`ifMatch`). A refetch while it's open never
 moves it. It returns:
 
 - `read`: the thing as read, which the dialog shows and builds the change from;
-- `ifMatch`: the header for that revision;
 - `changedSince`: whether the page's copy moved on since;
 - `changed` and `rereading`: whether it has said, or is about to say, that it
   changed;
-- `submit(send)`: sends the change from `read`, unless the page's copy moved
-  on. Then it sends nothing, takes the new revision as read, and says it
-  changed; the person confirms again.
+- `submit(send)`: sends the change from `read`, with its `If-Match` header,
+  unless the page's copy moved on. Then it sends nothing, takes the new
+  revision as read, and says it changed; the person confirms again.
 
 A refusal as stale (412) is handled the same way, once the page has read it
 again. A form passes `onCatchUp`, which brings the new values in where the
@@ -56,6 +55,22 @@ its registry entry's revision, and a hold's review the hold's `review_version`.
 A change of either is a change. A signature or a hold's review asks for its
 reason again after it catches up, because the reason was given for what the
 person saw.
+
+The same holds where the revision isn't a record's:
+
+- **A recount of an amount** is made from the balance shown when the count
+  began. When none was recorded, the hook is given nothing (`null`) and sends
+  `If-None-Match: *` (ADR 0289), so a balance recorded meanwhile refuses it
+  too. Caught up, it says what the balance is now, what changed it since and
+  by whom, and keeps the count entered, selected, to keep or recount.
+- **A correction in a receipt or a count** (a line's outcome or note,
+  removing or restoring a line, a replacing scan, a changed decision, the
+  handover, cancelling) is made from the line, or the receipt or count, as
+  the reason dialog showed it. Its `version` is the revisions of the lines it
+  replaces, so another person's scan elsewhere in the box doesn't interrupt
+  it, but one on those lines does. Caught up, it says what changed and who
+  changed it, and keeps the reason, since what it's changed from is shown
+  again beside it.
 
 A form whose record can't be changed by them any more while it's open
 (locked by a state, archived, or their access changed) says so as soon as the
