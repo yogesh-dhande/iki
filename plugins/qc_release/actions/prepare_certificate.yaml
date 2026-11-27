@@ -4,7 +4,7 @@ name: prepare_certificate
 label: Prepare a certificate of analysis
 description: Assemble a complete, passing set of tests and signed investigation decisions for review.
 inputs:
-  case: { type: ReleaseCase, include: [lot, specification] }
+  case: { type: ReleaseCase, include: [lot, specification, material] }
   tests:
     type: ReleaseTest
     cardinality: many

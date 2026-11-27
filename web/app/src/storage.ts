@@ -7,6 +7,7 @@ import { unwrap, type Problem, type Schemas } from "@ikisci/sdk";
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
+import { fetchPageRead } from "./page-reads";
 
 export type Shape = Schemas["ShapeOut"];
 export type Container = Schemas["ContainerOut"];
@@ -101,11 +102,19 @@ export function checkedOutQuery(custodian?: string) {
   });
 }
 
-/** What was received into someone's custody without a location, and isn't put away yet. */
-export const awaitingPutAwayQuery = queryOptions({
+/** What was received into someone's custody without a location, and isn't put away yet:
+ * longest held first, a page at a time ("Show more"), so a long backlog stays quick to open. */
+export const awaitingPutAwayQuery = infiniteQueryOptions({
   queryKey: [...STORAGE, "awaiting-put-away"],
-  queryFn: async ({ signal }) =>
-    unwrap(await iki.GET("/api/v1/storage/awaiting-put-away", { signal })),
+  initialPageParam: undefined as string | undefined,
+  queryFn: async ({ pageParam, signal }) =>
+    unwrap(
+      await iki.GET("/api/v1/storage/awaiting-put-away", {
+        params: { query: pageParam ? { cursor: pageParam } : {} },
+        signal,
+      }),
+    ),
+  getNextPageParam: (last) => last.next_cursor ?? undefined,
 });
 
 export const labelSizesQuery = queryOptions({
@@ -316,6 +325,26 @@ export async function previewReceiptPlacement(
       body: choice,
     }),
   );
+}
+
+/** Why each of a receipt's accepted lines can't go in a box at all, if it can't, before a well
+ * is chosen: completing checks the same again. Keyed by the receipt's revision and the box, and
+ * outside STORAGE: a storage write (completing this receipt, say) mustn't ask it again of a
+ * receipt that's no longer open. */
+export function placeableQuery(receipt: string, planRevision: number, box: string) {
+  return queryOptions({
+    queryKey: ["receipt-placeable", receipt, planRevision, box],
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.POST("/api/v1/receipts/{receipt_id}/put-away/placeable", {
+          params: { path: { receipt_id: receipt } },
+          body: { plan_revision: planRevision, box },
+          fetch: fetchPageRead,
+          signal,
+        }),
+      ),
+    staleTime: 0,
+  });
 }
 
 export async function completeReceipt(

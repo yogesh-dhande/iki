@@ -39,6 +39,8 @@ __all__ = [
     "MAX_COLUMNS",
     "MAX_ROWS",
     "MAX_SIZE",
+    "SAMPLE_COLUMNS",
+    "SAMPLE_ROWS",
     "Sheet",
     "Unreadable",
     "Workbook",
@@ -66,6 +68,10 @@ MAX_COLUMNS = 1_000
 MAX_CELL = 32_767
 #: The most sheets a workbook may have.
 MAX_SHEETS = 1_000
+#: How much of each sheet's start Iki keeps to show: its first rows, and their first
+#: columns. What it imports, its header row among it, is read from the workbook.
+SAMPLE_ROWS = 30
+SAMPLE_COLUMNS = 60
 
 _ZIP = b"PK\x03\x04"
 _OLE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
@@ -244,7 +250,9 @@ class Workbook:
 
     # --- Both ---------------------------------------------------------------------------------
 
-    def describe(self, sample_rows: int = 30, sample_columns: int = 60) -> list[Sheet]:
+    def describe(
+        self, sample_rows: int = SAMPLE_ROWS, sample_columns: int = SAMPLE_COLUMNS
+    ) -> list[Sheet]:
         """Each sheet, read through: how many rows and columns, and its first rows."""
         out = []
         for name in self.sheet_names:
@@ -262,6 +270,16 @@ class Workbook:
             del sheet.cells[sheet.rows :]
             out.append(sheet)
         return out
+
+    def row_text(self, sheet: str, number: int) -> list[str]:
+        """A row's text, every column of it, as a sample keeps a cell's: its header row's,
+        say. Empty for a row past the sheet's last, or for row 0."""
+        if number < 1:
+            return []
+        for at, row in enumerate(self.rows(sheet), start=1):
+            if at == number:
+                return [text_of(c)[:200] for c in row[: _width(row)]]
+        return []
 
     def close(self) -> None:
         if self._book is not None:

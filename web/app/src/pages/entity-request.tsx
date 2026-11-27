@@ -5,12 +5,20 @@
  * released.
  */
 
-import { ApiError, unwrap } from "@ikisci/sdk";
+import { unwrap } from "@ikisci/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 
-import { iki, problemOf, projectQuery, seesProjectQuery, useApiMutation } from "../api";
+import {
+  iki,
+  isStale,
+  problemOf,
+  projectQuery,
+  seesProjectQuery,
+  useApiMutation,
+  useOpenedRevision,
+} from "../api";
 import {
   ENTITIES,
   entityQuery,
@@ -339,13 +347,10 @@ function SendDialog({
   const [reason, setReason] = useState("");
   const [missing, setMissing] = useState(false);
   const send = useApiMutation(
-    async (service: string) =>
+    async ({ service, header }: { service: string; header: { "If-Match": string } }) =>
       unwrap(
         await iki.POST("/api/v1/entities/{ref}/submit", {
-          params: {
-            path: { ref: entity.id },
-            header: { "If-Match": `"${String(entity.revision)}"` },
-          },
+          params: { path: { ref: entity.id }, header },
           body: { service, reason: reason.trim() },
         }),
       ),
@@ -353,7 +358,9 @@ function SendDialog({
     [ENTITIES, sentToQuery(sides.asking_project?.id ?? "").queryKey],
   );
   const service = services.find((s) => s.project.id === chosen);
-  const stale = send.error instanceof ApiError && send.error.problem.code === "stale";
+  // What it sends is the revision the person opened this at, which they reviewed.
+  const opened = useOpenedRevision(entity.revision, { error: send.error });
+  const stale = isStale(send.error);
   return (
     <ConfirmDialog
       isOpen
@@ -378,19 +385,22 @@ function SendDialog({
           setMissing(true);
           return;
         }
-        send.mutate(service.project.id, {
-          onSuccess: (saved) => {
-            client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
-            onClose();
-            say(`Sent ${saved.hrid} to ${service.project.name}.`);
+        send.mutate(
+          { service: service.project.id, header: opened.ifMatch },
+          {
+            onSuccess: (saved) => {
+              client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
+              onClose();
+              say(`Sent ${saved.hrid} to ${service.project.name}.`);
+            },
+            onError: (error) => {
+              // Read it again, so sending again sends the revision it's at now.
+              if (error.problem.code === "stale") {
+                void client.invalidateQueries({ queryKey: ENTITIES });
+              }
+            },
           },
-          onError: (error) => {
-            // Read it again, so sending again sends the revision it's at now.
-            if (error.problem.code === "stale") {
-              void client.invalidateQueries({ queryKey: ENTITIES });
-            }
-          },
-        });
+        );
       }}
     >
       <RadioField

@@ -7,11 +7,9 @@
  */
 
 import { unwrap, type Schemas } from "@ikisci/sdk";
-import { defaultStringifySearch } from "@tanstack/react-router";
 import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
-import { toAddress } from "./search-address";
 
 export type SearchAnswer = Schemas["SearchEverythingOut"];
 export type SearchGroup = Schemas["SearchGroupOut"];
@@ -98,20 +96,19 @@ export function searchQuery(q: string, kind: SearchKind | null) {
 }
 
 /**
- * Where a result opens. A saved view opens in its project's grid as its saved searches
- * do, searching as it was saved; one the grid can't show (made with the API) opens the
- * grid itself.
+ * The paths the web app draws itself: opening one there needs no page load. A saved view
+ * opens from its own address, `/saved-searches/<id>/`, as the sidebar's do: that puts it
+ * in its grid as it was saved, or says why the grid can't show it.
  */
-export function resultHref(result: SearchResult): string {
-  if (result.kind !== "saved_view" || !result.query) return result.href;
-  const address = toAddress(result.query);
-  if (!address) return result.href;
-  const search = defaultStringifySearch(address);
-  return `${result.href}${search}`;
-}
-
-/** The paths the web app draws itself: opening one there needs no page load. */
-const APP_PATHS = ["/entities/", "/requests/", "/runs/", "/projects/", "/work/", "/types/"];
+const APP_PATHS = [
+  "/entities/",
+  "/requests/",
+  "/runs/",
+  "/projects/",
+  "/work/",
+  "/types/",
+  "/saved-searches/",
+];
 
 export function isAppPath(href: string): boolean {
   return APP_PATHS.some((p) => href.startsWith(p));

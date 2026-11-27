@@ -11,8 +11,9 @@ from typing import Any
 import pytest
 from api_client import Api
 from django.db import transaction
+from django.test import override_settings
 from org_world import World
-from test_bundle_imports import PUBLIC, applied, bundle_of, entities_of, protein, upload
+from test_bundle_imports import PUBLIC, SOURCE, applied, bundle_of, entities_of, protein, upload
 from test_bundle_imports import world as world  # a fixture
 from test_requests import Lab
 from test_requests import lab as lab
@@ -22,6 +23,7 @@ from test_states import ANALYST, QA, REVIEWER, roles
 
 from iki_cli import bundle as cli
 from iki_server.accounts.models import User
+from iki_server.audit.models import AuditEvent
 from iki_server.bundles import export, reading
 from iki_server.bundles import keys as keys_module
 from iki_server.entities import services
@@ -33,7 +35,7 @@ from iki_server.signatures.models import ForeignSigningKey, Signature, SigningKe
 
 pytestmark = pytest.mark.django_db
 
-TRUSTED = {"test": (PUBLIC,)}
+TRUSTED = {"test": (PUBLIC,), SOURCE: (PUBLIC,)}
 
 
 def signed_lot(world: World, **values: Any) -> list[Any]:
@@ -296,13 +298,18 @@ def test_the_bundle_command_reports_json(world: World, tmp_path: Path) -> None:
 def test_an_import_honors_an_existing_signing_key_binding(world: World, tmp_path: Path) -> None:
     from iki_server.signatures import signing_keys
 
-    path = bundle_of(world, tmp_path, lambda: signed_lot(world))
+    path = bundle_of(world, tmp_path, lambda: signed_lot(world), source=SOURCE)
     bundle = reading.read(path, TRUSTED, limit=1024**3)
     key = bundle.manifest["signing_keys"][0]["key"]
     signing_keys.trust(key, "Previously trusted lab")
     api = Api(world.browser("admin"))
-    done = applied(api, upload(api, world.project, path))
-    assert done["state"] == "failed"
+    planned = upload(api, world.project, path)
+    assert planned["plan"]["applicable"] is False
+    assert any("Previously trusted lab" in p for p in planned["plan"]["problems"])
+    refused = api.post(
+        f"/imports/{planned['id']}/apply", {"reason": "r", "planned_at": planned["planned_at"]}
+    )
+    assert refused.status_code == 409, refused.content
     assert not Signature.objects.exists()
     assert signing_keys.trusted()[key] == "Previously trusted lab"
 
@@ -316,7 +323,7 @@ def test_a_signature_row_must_name_its_signed_deployment(
         return {**original(signature), "deployment": "Different lab"}
 
     monkeypatch.setattr(export, "_signature", relabeled)
-    path = bundle_of(world, tmp_path, lambda: signed_lot(world))
+    path = bundle_of(world, tmp_path, lambda: signed_lot(world), source=SOURCE)
     api = Api(world.browser("admin"))
     done = applied(api, upload(api, world.project, path))
     assert done["state"] == "failed"
@@ -324,10 +331,14 @@ def test_a_signature_row_must_name_its_signed_deployment(
 
 
 def test_an_import_brings_signatures_that_still_verify(world: World, tmp_path: Path) -> None:
-    path = bundle_of(world, tmp_path, lambda: signed_lot(world))
+    path = bundle_of(world, tmp_path, lambda: signed_lot(world), source=SOURCE)
     assert not Signature.objects.exists() and not SigningKey.objects.exists()
     api = Api(world.browser("admin"))
-    done = applied(api, upload(api, world.project, path))
+    planned = upload(api, world.project, path)
+    # The key it brings is shown before it's trusted: its source's own.
+    [brought] = planned["plan"]["signing_keys"]
+    assert (brought["deployment"], brought["source"]) == (SOURCE, True)
+    done = applied(api, planned)
     assert done["state"] == "applied", done
     (row,) = entities_of(api, done)
     entity = Entity.objects.get(hrid=row["hrid_here"])
@@ -336,11 +347,96 @@ def test_an_import_brings_signatures_that_still_verify(world: World, tmp_path: P
     assert {str(s.bundle_import_id) for s in found} == {done["id"]}
     assert Revision.objects.get(entity=entity, number=2).signatures == [found[0].pk]
     key = ForeignSigningKey.objects.get()
-    assert (key.public, key.deployment) == (found[0].key, "test")
+    assert (key.public, key.deployment) == (found[0].key, SOURCE) == (brought["key"], SOURCE)
+    trusted = AuditEvent.objects.get(action="bundle.signing_key_trusted")
+    assert trusted.actor == world.users["admin"]
+    assert trusted.data == {
+        "import": done["id"],
+        "key": key.public,
+        "deployment": SOURCE,
+        "source": SOURCE,
+        "for_source": True,
+    }
     shown = standing(world, str(entity.pk), "admin")
     assert [s["status"] for s in shown] == ["pending", "carried"]
     assert all(s["verification"]["valid"] for s in shown), shown
     assert shown[1]["signer"]["name"] == "Editor"
+
+
+def test_no_bundle_brings_a_key_that_signs_as_this_deployment(
+    world: World, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A trusted deployment's bundle can't name a key as this deployment's (ADR 0126): only
+    this deployment's own keys sign as it, so no signature that came in a bundle reads as
+    made here, by its people."""
+    from django.conf import settings
+
+    from iki_server.signatures import signing_keys
+
+    real = export._signing_keys
+
+    here = settings.IKI_ENVIRONMENT
+
+    def as_here(lines: list[dict[str, Any]]) -> list[dict[str, str]]:
+        return [{**k, "deployment": here} for k in real(lines)]
+
+    def made() -> list[Any]:
+        # Signed with a key that isn't this deployment's, its documents naming this
+        # deployment, and exported from Lab A, which names the key as this deployment's.
+        with override_settings(IKI_ENVIRONMENT=here):
+            return signed_lot(world)
+
+    monkeypatch.setattr(export, "_signing_keys", as_here)
+    path = bundle_of(world, tmp_path, made, source=SOURCE)
+    assert not SigningKey.objects.exists()
+    api = Api(world.browser("admin"))
+    planned = upload(api, world.project, path)
+    assert planned["trusted_as"] == SOURCE
+    assert planned["plan"]["applicable"] is False
+    assert planned["plan"]["signing_keys"] == []
+    [said] = [p for p in planned["plan"]["problems"] if "signing key" in p]
+    assert "as this deployment's (test)" in said
+    refused = api.post(
+        f"/imports/{planned['id']}/apply", {"reason": "r", "planned_at": planned["planned_at"]}
+    )
+    assert refused.status_code == 409, refused.content
+    assert not ForeignSigningKey.objects.exists() and not Signature.objects.exists()
+    # Nor does anything else bind a key that isn't this deployment's to its name.
+    other, _ = keys_module.generate()
+    public = keys_module.public_text(keys_module.private_key(other))
+    assert signing_keys.trust(public, settings.IKI_ENVIRONMENT) is False
+    assert public not in signing_keys.trusted()
+
+
+def test_a_key_its_source_vouches_for_is_shown_and_recorded(
+    world: World, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A trusted deployment may bring a third deployment's key it trusts, for signatures
+    made there (ADR 0148): shown in the plan as vouched for, and in the audit log once
+    trusted."""
+    real = export._signing_keys
+
+    def vouched(lines: list[dict[str, Any]]) -> list[dict[str, str]]:
+        return [{**k, "deployment": "Lab B"} for k in real(lines)]
+
+    monkeypatch.setattr(export, "_signing_keys", vouched)
+
+    def made() -> list[Any]:
+        # Signed at Lab B, and exported from Lab A, which trusts Lab B's key.
+        with override_settings(IKI_ENVIRONMENT="Lab B"):
+            return signed_lot(world)
+
+    path = bundle_of(world, tmp_path, made, source=SOURCE)
+    api = Api(world.browser("admin"))
+    planned = upload(api, world.project, path)
+    [brought] = planned["plan"]["signing_keys"]
+    assert (brought["deployment"], brought["source"]) == ("Lab B", False)
+    done = applied(api, planned)
+    assert done["state"] == "applied", done
+    assert ForeignSigningKey.objects.get().deployment == "Lab B"
+    trusted = AuditEvent.objects.get(action="bundle.signing_key_trusted")
+    assert (trusted.data["deployment"], trusted.data["source"]) == ("Lab B", SOURCE)
+    assert trusted.data["for_source"] is False
 
 
 @pytest.mark.parametrize("problem", ["", "missing review", "changed release"])
@@ -358,7 +454,7 @@ def test_a_bundle_preserves_the_review_signed_for_at_release(
     OrgRoleAssignment.objects.create(user=admin, role=OrgRole.ORG_ADMIN)
     _, ref = signed_result
     path = tmp_path / "result.tar.gz"
-    with transaction.atomic():
+    with override_settings(IKI_ENVIRONMENT=SOURCE), transaction.atomic():
         review = signed(lab.world, "admin", ref, "reviewed", field="review").signature
         release = signed(lab.world, "core_qa", ref, "released", field="review").signature
         assert review and release
@@ -423,7 +519,7 @@ def test_an_imported_signature_verifies_naming_people_and_entries_as_they_are_he
         inputs = [{"protein": str(albumin.pk), "amount_mg": 2.5, "by": str(helper.pk)}]
         return signed_lot(world, made_by=str(maker.pk), protein=str(albumin.pk), inputs=inputs)
 
-    path = bundle_of(world, tmp_path, made)
+    path = bundle_of(world, tmp_path, made, source=SOURCE)
     # Here, Ada has an account of her own, Rosalind none, and the peptide is registered
     # already, by another project.
     ada = User.objects.create_user("ada@lab-a.example", "Ada Lovelace")

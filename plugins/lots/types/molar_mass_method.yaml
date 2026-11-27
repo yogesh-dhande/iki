@@ -52,9 +52,11 @@ fields:
   averages:
     type: list
     label: Gives
+    immutable: true
     items: { type: enum, values: [mn, mw] }
     max_items: 2
     description: >-
       Which averages it gives: mn, the number average, by counting molecules; mw, the
       weight average, by weighing them. A lot's Mn and Mw are each by a method that gives
-      them; left empty, a method may be named for either.
+      them; left empty, a method may be named for either. Fixed once the option is
+      added, as a lot's rules read it: a wrong one is superseded.

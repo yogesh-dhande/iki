@@ -37,11 +37,11 @@ from opentelemetry import metrics
 
 from iki_server.runs import catalog
 from iki_server.runs.models import (
+    HELD,
     ActionRun,
     CostKind,
     CostRecord,
     Job,
-    JobState,
     Launch,
     LaunchState,
     RunStatus,
@@ -79,13 +79,6 @@ __all__ = [
 PRICED_TIERS = ("container", "vm")
 #: Past runs an estimate looks at, newest first.
 _ESTIMATE_FROM = 50
-_HELD = (
-    JobState.LEASED,
-    JobState.STAGING,
-    JobState.PENDING,
-    JobState.RUNNING,
-    JobState.UPLOADING,
-)
 
 
 @dataclass(frozen=True)
@@ -239,7 +232,7 @@ def slurm_so_far(jobs: QuerySet[Job], now: datetime) -> list[tuple[Job, Decimal,
     nodes so far, and its price."""
     found = []
     for job in jobs.filter(
-        state__in=_HELD,
+        state__in=HELD,
         packed_into__isnull=True,
         slurm__started_at__isnull=False,
         slurm__ended_at__isnull=True,
@@ -287,7 +280,7 @@ def _going(job: Job, now: datetime) -> tuple[Launch, datetime] | None:
         return None
     if launch.once:
         return launch, launch.created_at
-    if job.state in _HELD:
+    if job.state in HELD:
         return launch, job.started_at
     return None
 

@@ -1,6 +1,7 @@
 # 0128. Guards say when a state may be set: allowed moves, four eyes and more
 
 - Status: Accepted
+- Amended by [0301](0301-a-review-procedure-is-declared-once-and-a-type-says-what-it-needs.md): declared independence (`independent_of`, `maker`) compiles into guards
 - Date: 2026-11-18
 - Refines: [0125](0125-a-state-is-a-field-each-state-says-who-sets-it.md),
   [0127](0127-plugins-rules-are-checked-at-every-save.md),
@@ -28,7 +29,8 @@ for anyone to set the field to that state, with a `message` saying why not, an
 optional `when`, and a `description`. `set_by` still says who may. Guards say
 when. Every guard of the state must hold. A guard reads:
 
-- `actor`: the person setting it (their ID, empty for a service account), the
+- `actor`: the person setting it (their ID; a service account's own ID for a
+  service account, as `history` names its changes, so four eyes holds for it too), the
   agent acting for them (`{name, client_id}`, null without one, ADR 0072),
   their lab roles in the record's project (`roles`, by qualified name and by
   the plugin's own short names), and `service_account`;

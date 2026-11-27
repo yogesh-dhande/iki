@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/antibody_3d
-version: 0.1.0
+version: 0.1.1
 title: Antibody structure prediction
 description: Predict antibodies' variable-domain structures with ImmuneBuilder's ABodyBuilder2 and NanoBodyBuilder2, and how far each model's ensemble disagrees.
 license: Apache-2.0

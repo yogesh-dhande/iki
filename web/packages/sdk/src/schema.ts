@@ -1492,6 +1492,11 @@ export interface paths {
          * @description An Editor of its project. It keeps its data, history and runs; the project's own
          *     records that refer to the superseded entry are changed to refer to the new one, each a
          *     revision with the reason. Refused if the project has a record of the new one already.
+         *
+         *     A record can't change its type, so to a replacement of another type (ADR 0165) it's the
+         *     project's new record of the replacement that's returned: with this one's values for the
+         *     fields the two types share and ``values``, while this one is archived, keeping its
+         *     history, signatures and runs.
          */
         post: operations["iki_server_api_registries_move_entity"];
         delete?: never;
@@ -1897,9 +1902,11 @@ export interface paths {
          *     those picked, in order, or every one a search finds, up to 10,000. Each is written at
          *     the revision it has now, read in one snapshot, so editing one afterwards doesn't change
          *     the file. Up to 100 are written at once (201, ready to download); more in the
-         *     background (202): read the export until it's ready. A record the format can't be
-         *     written for fails it, naming each such record, so no file holds fewer than asked for.
-         *     Asking and each download are in the audit log.
+         *     background (202): read the export until it's ready. You may have three waiting in
+         *     the background at once, and a project's records ten: past that, it's refused (429)
+         *     until one is written. A record the format can't be written for fails it, naming each
+         *     such record, so no file holds fewer than asked for. Asking and each download are in
+         *     the audit log.
          */
         post: operations["iki_server_api_record_exports_start_record_export"];
         delete?: never;
@@ -2152,9 +2159,10 @@ export interface paths {
         put?: never;
         /**
          * Supersede a registry entry
-         * @description Its registry's registrars replace a mistaken entry with another of its type in the
-         *     registry, for good. Each holding project's Admins, and whoever added its record, are
-         *     told, to move their records to the replacement.
+         * @description Its registry's registrars replace a mistaken entry with another in the registry, for
+         *     good: one of its type, or of another type under its identity; or with a new entry of its
+         *     identity as another type (``type``, ADR 0165). Each holding project's Admins, and
+         *     whoever added its record, are told, to move their records to the replacement.
          */
         post: operations["iki_server_api_registries_supersede_entry"];
         delete?: never;
@@ -3471,11 +3479,13 @@ export interface paths {
         /**
          * Save a sheet's changes, all or none
          * @description Makes the changes reviewed (ADR 0228, 0207): each record's, from the revision read,
-         *     as a revision with the reason; each new record, with its starting amount and place.
-         *     All of them are made, or none. If a record changed since its revision, nothing is
-         *     (412, ``stale``, its rows in ``rows``); if any row has a problem, nothing is (422,
-         *     each problem at ``#/rows/<n>/values/<field>``, ``…/location``, ``…/amount`` or the row).
-         *     The audit trail records them as one change, ``records.sheet_saved``.
+         *     as a revision with the reason; each new record, with its starting amount, at the
+         *     exact position its check found. All of them are made, or none. If a record changed
+         *     since its revision, or another placement took one of those positions since the check,
+         *     nothing is (412, ``stale``: the records in ``rows``, the positions in ``places``);
+         *     if any row has a problem, nothing is (422, each problem at
+         *     ``#/rows/<n>/values/<field>``, ``…/location``, ``…/amount`` or the row). The audit
+         *     trail records them as one change, ``records.sheet_saved``.
          */
         post: operations["iki_server_api_sheets_save_sheet"];
         delete?: never;
@@ -3884,6 +3894,28 @@ export interface paths {
         put?: never;
         /** Restore a removed extra on an open receipt */
         post: operations["iki_server_api_storage_restore_line"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/receipts/{receipt_id}/put-away/placeable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Which of a receipt's accepted lines can go in a box
+         * @description Each matched or damaged line, and why it can't be put in the box if it can't, whatever
+         *     the well: archived, a type the box doesn't hold, or a project the box's readers don't
+         *     read. Completing checks the same again.
+         */
+        post: operations["iki_server_api_storage_receipt_placeable"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5011,7 +5043,8 @@ export interface paths {
         };
         /**
          * Received material awaiting a storage location
-         * @description Matched and damaged records you can read that are still in custody without a location.
+         * @description Matched and damaged records you can read that are still in custody without a location,
+         *     longest held first, a page at a time.
          */
         get: operations["iki_server_api_storage_list_awaiting_put_away"];
         put?: never;
@@ -5533,8 +5566,9 @@ export interface paths {
         put?: never;
         /**
          * Unlock signing
-         * @description Unlocks someone's signing after failed attempts to sign as them locked it. Org
-         *     Admins only.
+         * @description Unlocks someone's signing after failed attempts to sign as them locked it, saying
+         *     why; the audit log keeps it. Another Org Admin unlocks theirs, signed in to Iki's web
+         *     app: no token, app or AI agent can.
          */
         post: operations["iki_server_api_signatures_unlock_signing"];
         delete?: never;
@@ -9027,6 +9061,11 @@ export interface components {
              * @description Change its facts and supersede it: its registrars.
              */
             curate: boolean;
+            /**
+             * Supersede As
+             * @description For its registrars: the other types its identity can be registered as (ADR 0165), as POST /entries/{ref}/supersede with `type` does, by a new entry of one that it hands its identity to. Types under one identity share entries: a protein complex's chains registered as an antibody are that antibody.
+             */
+            supersede_as?: components["schemas"]["SupersedeAsOut"][];
         };
         /** EntryOut */
         EntryOut: {
@@ -9436,7 +9475,7 @@ export interface components {
         };
         /**
          * ExportSearchIn
-         * @description The records a table shows, as ``POST /entities/search`` finds them.
+         * @description The records a table shows, as ``POST /entities/search`` finds them, in its order.
          */
         ExportSearchIn: {
             /** Archived */
@@ -9459,6 +9498,11 @@ export interface components {
             /** Run */
             run?: string | null;
             sort?: components["schemas"]["SortIn"] | null;
+            /**
+             * Then
+             * @description Further sorts, in order, for what `sort` ties, as the table sorts them.
+             */
+            then?: components["schemas"]["SortIn"][];
             /**
              * Type
              * @description This type and its subtypes.
@@ -11270,6 +11314,11 @@ export interface components {
              * @description What keeps it from being applied.
              */
             problems: string[];
+            /**
+             * Signing Keys
+             * @description The signing keys it brings that this deployment doesn't trust yet: importing trusts each for the signatures it brings, and records it in the audit log. None can sign for this deployment.
+             */
+            signing_keys: components["schemas"]["ImportSigningKey"][];
             /** Types */
             types: components["schemas"]["ImportType"][];
         };
@@ -11288,6 +11337,24 @@ export interface components {
             progress: number | null;
             /** Status */
             status: string;
+        };
+        /** ImportSigningKey */
+        ImportSigningKey: {
+            /**
+             * Deployment
+             * @description The deployment it signs for, as the bundle says.
+             */
+            deployment: string;
+            /**
+             * Key
+             * @description The Ed25519 public key, as signatures name it.
+             */
+            key: string;
+            /**
+             * Source
+             * @description Whether that's the deployment the bundle is from; otherwise one it vouches for.
+             */
+            source: boolean;
         };
         /** ImportSource */
         ImportSource: {
@@ -12170,6 +12237,13 @@ export interface components {
              * @description Why the holder is moving it.
              */
             reason: string;
+            /**
+             * Values
+             * @description For a replacement of another type (ADR 0165): the new record's own values, beside those it carries from this one (`entry.superseded.carries`).
+             */
+            values?: {
+                [key: string]: unknown;
+            };
         };
         /** MoveItemIn */
         MoveItemIn: {
@@ -13163,6 +13237,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[AwaitingPutAwayOut] */
+        Page_AwaitingPutAwayOut_: {
+            /** Items */
+            items: components["schemas"]["AwaitingPutAwayOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[BatchOut] */
         Page_BatchOut_: {
             /** Items */
@@ -13916,6 +14000,19 @@ export interface components {
              */
             type: string;
             where?: components["schemas"]["Condition"] | null;
+        };
+        /** PlaceableLineOut */
+        PlaceableLineOut: {
+            /**
+             * Line
+             * Format: uuid
+             */
+            line: string;
+            /**
+             * Problem
+             * @description Why its record can't be put in the box at all; null if it can.
+             */
+            problem: string | null;
         };
         /** PlannedOut */
         PlannedOut: {
@@ -14951,6 +15048,22 @@ export interface components {
              * @description Why: deactivated, no longer in the project, or the role.
              */
             why: string;
+        };
+        /** ReceiptBoxIn */
+        ReceiptBoxIn: {
+            /**
+             * Box
+             * @description The box's ID, HRID or label.
+             */
+            box: string;
+            /** Box Choice */
+            box_choice?: string | null;
+            box_mode?: components["schemas"]["ScanMode"];
+            /**
+             * Plan Revision
+             * @description The receipt revision you reviewed.
+             */
+            plan_revision: number;
         };
         /** ReceiptIn */
         ReceiptIn: {
@@ -18212,9 +18325,9 @@ export interface components {
             container: string;
             /**
              * Position
-             * @description Its position, such as A1; none for the next free one.
+             * @description Its position, such as A1, as the check found it: a save takes this one, never another. Null only for a container without positions.
              */
-            position?: string | null;
+            position: string | null;
         };
         /** SheetEditPlaceOut */
         SheetEditPlaceOut: {
@@ -19864,6 +19977,16 @@ export interface components {
             /** Unread */
             unread: number;
         };
+        /** SupersedeAsOut */
+        SupersedeAsOut: {
+            /**
+             * Fields
+             * @description The registry fields a registrar gives its new entry, as `values`: those this entry's values don't fill as they are, outside what the two types share or refined by the new type (its parts' roles). The rest come from this entry.
+             */
+            fields: string[];
+            /** Type */
+            type: string;
+        };
         /** SupersedeIn */
         SupersedeIn: {
             /**
@@ -19873,9 +19996,21 @@ export interface components {
             reason: string;
             /**
              * Replacement
-             * @description The entry that replaces it, by ID or HRID.
+             * @description The entry that replaces it, by ID or HRID: one of its type, or of another type under its identity (ADR 0165). Give this or `type`.
              */
-            replacement: string;
+            replacement?: string | null;
+            /**
+             * Type
+             * @description Register its identity as this type instead (ADR 0165), one of `can.supersede_as`: a new entry, which it's superseded by and hands its identity to. Give this or `replacement`.
+             */
+            type?: string | null;
+            /**
+             * Values
+             * @description With `type`: the new entry's values, in place of the superseded entry's, which it has for the fields the two types share: the new type's facts, say, or its parts' roles as the new type names them. Its identity stays the same.
+             */
+            values?: {
+                [key: string]: unknown;
+            };
         };
         /** SupersededOut */
         SupersededOut: {
@@ -19891,6 +20026,17 @@ export interface components {
              * Format: uuid
              */
             by_id: string;
+            /**
+             * Carries
+             * @description For a replacement of another type (ADR 0165), which a record can't become: the fields whose values a move gives the project's new record of it, those the two types' records share. The rest stay with this record, which the move archives. None for one of its own type, which the record moves to whole.
+             */
+            carries?: string[] | null;
+            /**
+             * Held
+             * @description The record's project has a record of the replacement, which a move can't go onto: the one a move to an entry of another type made, say.
+             * @default false
+             */
+            held: boolean;
             /** Reason */
             reason: string;
         };
@@ -20391,6 +20537,14 @@ export interface components {
              * @description As people write it.
              */
             symbol: string;
+        };
+        /** UnlockIn */
+        UnlockIn: {
+            /**
+             * Reason
+             * @description Why it's safe to unlock: who made the failed attempts.
+             */
+            reason: string;
         };
         /** UnusedImageBindingOut */
         UnusedImageBindingOut: {
@@ -27095,6 +27249,32 @@ export interface operations {
             };
         };
     };
+    iki_server_api_storage_receipt_placeable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReceiptBoxIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaceableLineOut"][];
+                };
+            };
+        };
+    };
     iki_server_api_storage_preview_receipt_placement: {
         parameters: {
             query?: never;
@@ -28708,7 +28888,12 @@ export interface operations {
     };
     iki_server_api_storage_list_awaiting_put_away: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -28721,7 +28906,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AwaitingPutAwayOut"][];
+                    "application/json": components["schemas"]["Page_AwaitingPutAwayOut_"];
                 };
             };
         };
@@ -29516,7 +29701,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnlockIn"];
+            };
+        };
         responses: {
             /** @description No Content */
             204: {

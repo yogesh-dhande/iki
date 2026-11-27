@@ -263,3 +263,16 @@ that wasn't, to save on it or let go.
 - **Mappings saved per person, or for the whole organization.** A person's
   are lost when they leave; the organization's mix every project's
   instruments.
+
+## Amendment of 2026-11-27 — the header row is read whole, and expiry checks again under the lock
+
+- **A header row is read from the workbook, at its full width.** The first 30
+  rows and their first 60 columns are what Iki shows of a sheet. The header
+  row is read whole when Iki first reads the workbook and whenever another
+  sheet or header row is chosen: a plate reader's header on row 33, or a
+  heading in column 65, maps its field, and the saved mapping and the run
+  name it as the sheet does. An import keeps that row's text with it.
+- **Maintenance discards only what is still abandoned.** It lists the imports
+  nobody has touched for a fortnight, then takes each one's lock and checks
+  again, with the same cutoff, that it's uncommitted and untouched. An import
+  someone changed, previewed or committed in the meantime is theirs to finish.

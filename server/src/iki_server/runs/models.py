@@ -118,6 +118,16 @@ class JobState(models.TextChoices):
     PARKED = "parked", "Parked"
 
 
+#: The states in which a worker holds a job, in the order it may report them.
+HELD = (
+    JobState.LEASED,
+    JobState.STAGING,
+    JobState.PENDING,
+    JobState.RUNNING,
+    JobState.UPLOADING,
+)
+
+
 class ApprovalState(models.TextChoices):
     PENDING = "pending", "Waiting for a decision"
     APPROVED = "approved", "Approved"
@@ -743,6 +753,8 @@ class TriggerFiring(models.Model):
     )
     #: Why it failed or was skipped: ``code`` and ``message``.
     error = models.JSONField(null=True, blank=True)
+    #: Tries at launching its run that failed unexpectedly; past a few, it fails.
+    failures = models.PositiveSmallIntegerField(default=0)
     #: For a trigger that gives inputs related entities (ADR 0123): how many each got.
     related = models.JSONField(
         null=True,
@@ -1364,10 +1376,7 @@ class Job(models.Model):
             models.Index(
                 fields=["project"],
                 name="iki_job_held",
-                condition=Q(
-                    state__in=["leased", "staging", "pending", "running", "uploading"],
-                    packed_into__isnull=True,
-                ),
+                condition=Q(state__in=list(HELD), packed_into__isnull=True),
             ),
             models.Index(
                 fields=["packed_into"],

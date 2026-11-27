@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A test of a bank beyond the six the plugin's rules know: a lab list (ADR 0270), so a
+# lab names each of its own tests once, and every project records it by the same name.
+# Each says which results it can have, which a check's rule holds.
+apiVersion: iki/v1
+kind: EntityType
+name: CellCheckTest
+label: Cell bank test
+schema_version: 1
+description: >-
+  A test the lab does on its cell banks besides STR authentication, species identity,
+  mycoplasma, sterility, viral testing and karyotype, such as endotoxin or post-thaw
+  viability, with the kind of result it gives.
+hrid: { prefix: CBT }
+list:
+  options:
+    - code: endotoxin
+      label: Endotoxin
+      description: >-
+        Bacterial endotoxins, such as by LAL (USP <85>, Ph. Eur. 2.6.14), against the
+        lab's limit.
+      result_family: conformance
+    - code: post_thaw_viability
+      label: Post-thaw viability
+      description: >-
+        Viable cells after a vial is thawed, against the lab's acceptance criterion, as
+        ICH Q5D asks of a bank.
+      result_family: conformance
+    - code: tumorigenicity
+      label: Tumorigenicity
+      description: >-
+        Whether the cells form tumours in an animal model, as WHO TRS 978 Annex 3
+        describes for a cell substrate, against the lab's criterion.
+      result_family: conformance
+fields:
+  result_family:
+    type: enum
+    label: Its results
+    values: [identity, contamination, conformance]
+    required: true
+    immutable: true
+    description: >-
+      Which results the test gives: match or mismatch against a reference (identity),
+      positive or negative (contamination), or conforms or does not conform to the lab's
+      criterion (conformance). Any test can also be inconclusive. Fixed once the test is
+      added, because checks already recorded keep the results it allowed: a wrong one is
+      superseded.

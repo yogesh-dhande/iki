@@ -18,7 +18,13 @@ Run **Summarize FASTQ quality** on the read set. It streams plain or gzip
 FASTQ, checks record structure and paired identifiers in file order, and records
 the read and base counts, shortest and longest reads, mean Phred score and
 percentage of bases at Q30 or above. The action expects synchronized separate
-files for paired-end data and modern Sanger/Illumina Phred+33. Read quality
+files for paired-end data and modern Sanger/Illumina Phred+33. Where a read's
+title says which mate it is, the action checks it against the file it came in
+and refuses a pair given the wrong way round, so one mate's quality is never
+reported as the other's. It reads the mate from a `/1` or `/2` ending a token of
+the title (older Illumina titles, and ENA's, which keep the instrument's title
+after the run's read name), from CASAVA 1.8's `1:N:0:…` comment, and from SRA
+`fastq-dump --readids` names such as `SRR001666.1.2`. Read quality
 displays each mate separately. The report retains the source file IDs, names,
 checksums and the revisions of the read set and library that the run read. Iki
 keeps the action run and its input provenance.

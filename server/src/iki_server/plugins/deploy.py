@@ -58,6 +58,7 @@ from django.core.management.base import OutputWrapper
 from django.core.management.commands import migrate as django_migrate
 from django.core.management.sql import emit_pre_migrate_signal
 from django.db import DatabaseError, connection, migrations, transaction
+from django.db.migrations.exceptions import NodeNotFoundError
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.migration import Migration
@@ -158,7 +159,7 @@ def migrate_deployment(
     privileges (none if it's None). ``analyst_role`` is ``sync_plugins``'s."""
     report = Report()
     _check_iki()
-    executor = MigrationExecutor(connection)
+    executor = _executor()
     applied = set(executor.recorder.applied_migrations())
     code = executor.loader.disk_migrations
     installed = set(plugin_apps())
@@ -913,6 +914,27 @@ def _check_iki() -> None:
             f"This is Iki {this}, and {'; '.join(unfit)}. Deploy a release of Iki they work "
             "with, or releases of them made for this one: nothing was migrated."
         )
+
+
+def _executor() -> MigrationExecutor:
+    """The build's migrations, before anything changes. A plugin migration that needs one of
+    Iki's this Iki hasn't was made with a newer Iki, whatever its ``iki:`` range says:
+    refused, naming both, rather than as Django's missing node."""
+    try:
+        return MigrationExecutor(connection)
+    except NodeNotFoundError as missing:
+        app, name = missing.node
+        origin = missing.origin
+        if not isinstance(origin, Migration) or not _could_be_plugin(origin.app_label):
+            raise
+        if _could_be_plugin(app):
+            raise
+        needing = (origin.app_label, origin.name)
+        raise DeployError(
+            f"{_names([needing])} needs Iki's migration {app} {name}, which this Iki "
+            f"({_version()}) doesn't have: the plugin was made with a newer Iki. Deploy an Iki "
+            "that has it, or a release of the plugin made for this one: nothing was migrated."
+        ) from None
 
 
 def _version() -> str:

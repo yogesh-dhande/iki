@@ -282,12 +282,47 @@ On a Slurm cluster's login node (registered with a token for the cluster):
   IKI_SLURM_BIN            The directory of sbatch, squeue, sacct and scancel (on PATH)
   IKI_APPTAINER, IKI_COSIGN  Apptainer and cosign (on PATH)";
 
+/// Starts the worker again without `IKI_REGISTRATION_TOKEN` in its environment, handing
+/// it over on stdin (ADR 0062): the token registers any number of workers, and no job
+/// should run while the worker's own environment holds it. Returns only if it can't, and
+/// the worker then carries on as it was started.
+fn keep_the_token_out_of_the_environment() {
+    let Some(token) = std::env::var("IKI_REGISTRATION_TOKEN")
+        .ok()
+        .filter(|t| !t.trim().is_empty())
+    else {
+        return;
+    };
+    let error = match std::env::current_exe() {
+        Ok(exe) => between::restart(&exe, Some(token.trim())),
+        Err(error) => error,
+    };
+    say::warn(
+        "Couldn't start again without the registration token in the environment; it stays there.",
+        &[("detail", &error)],
+    );
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse(&args) {
         Command::Start { once } => {
-            let started = config::Config::from_env(&|name| std::env::var(name).ok())
-                .and_then(|config| worker::start(&config, once));
+            let handed = match between::handed_token() {
+                Ok(handed) => handed,
+                Err(message) => {
+                    say::error(&message, &[]);
+                    return ExitCode::FAILURE;
+                }
+            };
+            if handed.is_none() {
+                keep_the_token_out_of_the_environment();
+            }
+            let var = |name: &str| match (name, &handed) {
+                ("IKI_REGISTRATION_TOKEN", Some(token)) => Some(token.clone()),
+                _ => std::env::var(name).ok(),
+            };
+            let started =
+                config::Config::from_env(&var).and_then(|config| worker::start(&config, once));
             match started {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(message) => {

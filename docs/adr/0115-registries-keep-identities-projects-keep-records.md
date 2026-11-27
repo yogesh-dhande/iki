@@ -11,6 +11,8 @@
   [0080](0080-triggers-run-actions-when-entities-change.md),
   [0082](0082-unique-fields-link-records-in-other-systems.md),
   [0096](0096-bundles-carry-entities-between-deployments-with-their-history.md)
+- Amended: 2026-11-27 by [0165](0165-a-subtype-of-a-registered-type-has-registry-fields-of-its-own.md)
+  — a replacement may be of another type under the same identity owner
 
 ## Context
 
@@ -209,7 +211,10 @@ CPD-000456, with a reason: two registrations that normalisation should
 have made one, or a structure registered wrongly. The superseded entry
 keeps its ID and values, is marked with what replaced it, and can't be
 registered again. The replacement must be a live entry of the same type
-in the same registry. A supersession can't be undone.
+in the same registry. A supersession can't be undone. (Amended 2026-11-27,
+ADR 0165: or of another type under the same identity owner, which a
+registrar may register for it, and a record moved to one of another type
+is a new record, the old one archived.)
 
 **Holders are told, and move their records themselves.** Each holding
 project's Admins, and whoever added its record, get a notification, and
@@ -224,8 +229,11 @@ holds the replacement, and the project's own records that refer to the old
 entry refer to the new one, each as a revision giving the reason. That's a
 correction, so it changes immutable references too: a batch registered
 against the mistaken compound is a batch of the corrected one, as moving a
-lot to its corrected parent is in a registration system. Archived records,
-and those of detached plugins, keep their references. A project that holds
+lot to its corrected parent is in a registration system. Each referring
+record is otherwise saved as any edit is: its rules are checked, a rule that
+holds it holds it with the move's reason, one that refuses refuses the whole
+move, and a check that read the old reference is cleared and runs again.
+Archived records, and those of detached plugins, keep their references. A project that holds
 the replacement already can't move the old record onto it; it archives one
 of the two. Each move is audited as `entity.moved`.
 
