@@ -1677,24 +1677,35 @@ class _Semantics:
 
         return kind
 
+    def review_owner(self, entity_type: EntityType) -> EntityType | None:
+        """The type in its lineage whose ``review`` its records follow: its own, or the
+        nearest ancestor's. The one place a type's effective review is resolved, so the
+        shared effective-declaration resolver replaces only this."""
+        for t in [entity_type, *self.ancestors(entity_type)]:
+            if t.review is not None:
+                return t
+        return None
+
     def review(self, entity_type: EntityType, source: Document) -> None:
         """A reviewed type (ADR 0301): what it needs of a procedure, where its procedure is
         pinned from (ADR 0302), and its own guards and exclusions."""
         review = entity_type.review
         if review is None:
             return
-        for ancestor in self.ancestors(entity_type):
-            if ancestor.review is not None:
-                self.add(
-                    "review-inherited",
-                    f"`{entity_type.name}` is reviewed as `{ancestor.qualified_name}` is, "
-                    "which it extends: a type is reviewed once in its lineage.",
-                    source,
-                    ("review",),
-                    key=True,
-                    hint="Remove `review` here: its records follow its parent's review.",
-                )
-                return
+        parents = self.ancestors(entity_type)
+        parent = parents[0] if parents else None
+        ancestor = self.review_owner(parent) if parent is not None else None
+        if ancestor is not None:
+            self.add(
+                "review-inherited",
+                f"`{entity_type.name}` is reviewed as `{ancestor.qualified_name}` is, "
+                "which it extends: a type is reviewed once in its lineage.",
+                source,
+                ("review",),
+                key=True,
+                hint="Remove `review` here: its records follow its parent's review.",
+            )
+            return
         body = self.loaded.raw.get(id(source)) or {}
         declared = body.get("fields") or {}
         added = [*([] if review.opens else [review.field]), "review_procedure", "review_flow"]
@@ -1792,7 +1803,7 @@ class _Semantics:
             t = self.types.get(target)
             if t is None:
                 continue
-            if not any(x.review is not None for x in [t, *self.ancestors(t)]):
+            if self.review_owner(t) is None:
                 self.add(
                     "review-pinned-by",
                     f"`{t.qualified_name}` has no review procedure for `{entity_type.name}` to "
