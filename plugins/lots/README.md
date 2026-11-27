@@ -248,7 +248,12 @@ measured.
   disitamab vedotin (Thermo Fisher AN002598) is 3.91; Adcetris's reduced
   chains (Agilent 5991-6559EN), an IgG1's, give 3.99 (Agilent: 4.0). Its rules
   keep a distribution to one kind, intact or chains, and a reduced one to both
-  chains. A DAR by UV/Vis is entered, and kept whatever distribution there is.
+  chains. A distribution names how it was measured, its **Distribution by**:
+  HIC and intact LC-MS give intact species, and reduced LC-MS and RP-HPLC give
+  chains. Its DAR follows the distribution when its **DAR by** is the
+  distribution's method, or not given. A DAR measured another way, such as by
+  UV/Vis or by intact LC-MS beside a HIC distribution, is kept as entered, and
+  the distribution's DAR is kept beside it, so the two can be compared.
 - **A polymer's dispersity**: its molar-mass dispersity, Đ = Mw/Mn (IUPAC,
   2009), never below 1: the rule `mw_is_at_least_mn` refuses an Mw below its
   Mn. It's 1 when every chain has the same molar mass, which chains of one

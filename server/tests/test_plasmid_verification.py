@@ -90,15 +90,18 @@ def test_prep_evidence_is_pinned_and_signed_under_its_recorded_flow(
     )
 
 
-def test_archiving_a_legacy_discrepant_alignment_requires_a_reason() -> None:
+def test_a_whole_plasmid_verification_reads_its_alignments_verdict() -> None:
+    """A whole-plasmid result's verdict is its one classification (core Alignment's), so a
+    match recorded over one that differs needs a reason."""
     archive = runpy.run_path(str(LOTS / "scripts" / "verification.py"))["archive"]
     plasmid = {"id": "record", "revision": 1, "values": {"sequence": "reference"}}
     prep = {"id": "prep", "values": {"plasmid": "entry"}, "included": {"plasmid": [plasmid]}}
     alignment = {
         "id": "alignment",
         "revision": 4,
+        "type": "iki/plasmid_sequencing.WholePlasmidAlignment",
         "values": {
-            "agreement": "differs",
+            "verdict": "differs",
             "reference": "reference",
             "aligned": "file",
         },
@@ -435,6 +438,14 @@ def exercise_review(blob: Blob) -> None:
     create(whole_type, reads | {"read_set_revision": read_set.revision}, by_run=True)
 
     whole_alignment = create(whole_type, comparison, by_run=True)
+    # Its verdict is the one classification the verification reads: a match over an
+    # incomplete one needs a reason.
+    with pytest.raises(services.Invalid, match="Give a reason"):
+        create(
+            TYPE,
+            values("research", whole_alignment, override_reason) | {"override_reason": None},
+            by_run=True,
+        )
     with pytest.raises(ValueError, match="Give a reason"):
         values("regulated_qc", whole_alignment)
     bound = values("regulated_qc", whole_alignment, override_reason)

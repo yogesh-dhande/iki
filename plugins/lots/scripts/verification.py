@@ -47,8 +47,8 @@ def archive(run: dict[str, Any]) -> dict[str, Any]:
         sample = alignment["values"].get("sample")
         if sample is not None and sample != prep["id"]:
             raise ValueError("The alignment names a different physical prep.")
-        # Earlier whole-plasmid comparisons kept the verdict in their subtype's agreement.
-        verdict = alignment["values"].get("verdict") or alignment["values"].get("agreement")
+        # The alignment's verdict is its one classification, a whole-plasmid one's too.
+        verdict = alignment["values"].get("verdict")
         if params["outcome"] == "match" and verdict in {"differs", "incomplete"} and not reason:
             raise ValueError(
                 "Give a reason to record a match over differing or incomplete evidence."
