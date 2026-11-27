@@ -116,7 +116,7 @@ def curate(
     (ADR 0270) is its list's curators' too: its required values can't be cleared, and its
     place changes by reordering the list (:mod:`.lists`)."""
     _registrar(user, entry)
-    listed = _is_list(entry.type)
+    listed = registry.is_lab_list(entry.type)
     if not reason.strip():
         raise Invalid({"reason": ["Say why: a fact's change is every holder's."]})
     with transaction.atomic(), services._unique_values():
@@ -206,7 +206,7 @@ def _registrar(user: User, entry: Entity) -> Registry:
     if entry.registry_id is None:
         raise Refused(f"{entry.hrid} is a project's record, not a registry entry.")
     found = Registry.objects.get(pk=entry.registry_id)
-    if _is_list(entry.type):
+    if registry.is_lab_list(entry.type):
         if not permissions.can_curate_list(user, found, entry.type):
             label = registry.types()[entry.type].label_plural
             raise PermissionDenied(
@@ -216,11 +216,6 @@ def _registrar(user: User, entry: Entity) -> Registry:
     if not permissions.can(user, Action.REGISTRY_CURATE, found):
         raise PermissionDenied(f"Only {found.name}'s registrars curate its entries.")
     return found
-
-
-def _is_list(type_name: str) -> bool:
-    found = registry.types().get(type_name)
-    return found is not None and found.is_list
 
 
 def _registry_refs(entry: Entity) -> Any:  # noqa: ANN401 - Refs
@@ -296,7 +291,7 @@ def supersede(user: User, entry: Entity, replacement: Entity, *, reason: str) ->
                 "reason": reason.strip(),
             },
         )
-        if _is_list(locked.type):
+        if registry.is_lab_list(locked.type):
             _tell_referrers(user, locked, other, reason.strip())
         else:
             _tell_holders(user, locked, other, reason.strip())

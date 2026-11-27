@@ -2,7 +2,7 @@
 
 The versioned specs for Iki plugins, and the Python package that reads and
 checks them. Version `iki/v1` covers plugins, entity types, extensions,
-fields, units, settings, actions, environments and workflows; the run
+lab lists, fields, units, settings, actions, environments and workflows; the run
 protocol, triggers and components arrive in later versions of this document
 as they land.
 
@@ -24,7 +24,7 @@ A plugin is a git repository (or a directory in one):
 
 ```text
 plugin.yaml          # kind: Plugin — exactly one, at the root
-types/               # kind: EntityType and EntityTypeExtension
+types/               # kind: EntityType, EntityTypeExtension and List
   protein.yaml       # any number of files, each with one or more documents (---)
   structure.yaml
 actions/             # kind: Action
@@ -1142,22 +1142,21 @@ the declared project lab roles once per low-stock episode.
 
 ### Lab lists
 
-A type marked `list` is a list the lab curates, such as purification
-methods or deviation categories (ADR 0270). Its entities are the list's
-options, and a field that refers to it is an ordinary reference, which forms
-show as a dropdown of its options:
+A list is a vocabulary the lab curates, such as purification methods or
+deviation categories (ADR 0270). It's a manifest of its own kind,
+`kind: List` (ADR 0295), in `types/`. Its entities are the list's options,
+and a field that refers to it is an ordinary reference, which forms show as
+a dropdown of its options:
 
 ```yaml
 apiVersion: iki/v1
-kind: EntityType
+kind: List
 name: PurificationMethod
 label: Purification method
 schema_version: 1
-hrid: { prefix: PUM }
-list:
-  options: # each registry starts with these, in this order
-    - { code: protein_a, label: Protein A, description: Affinity capture on protein A. }
-    - { code: imac, label: IMAC, category: chromatography }
+options: # each registry starts with these, in this order
+  - { code: protein_a, label: Protein A, description: Affinity capture on protein A. }
+  - { code: imac, label: IMAC, category: chromatography }
 fields:
   category: { type: ref, to: MethodCategory } # another list
   sop: { type: string, format: uri }
@@ -1166,36 +1165,59 @@ fields:
 method: { type: ref, to: PurificationMethod }
 ```
 
-`list: true` makes a list with no starting options.
+| Key                     | Meaning                                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------------------- |
+| `name`                  | PascalCase. A field refers to the list by it, as `to: PurificationMethod` or `to: iki/lots.PurityMethod`. |
+| `label`, `label_plural` | What people call an option, and the list. Default: the name split into words, and that plus "s".          |
+| `description`           | What the list is for, shown on its page.                                                                  |
+| `schema_version`        | A whole number from 1, increased whenever the fields change, as a type's is.                              |
+| `fields`                | Its options' facts besides their own four, such as a method's SOP. See below.                             |
+| `options`               | The options each registry starts with, in order. Without it, the list starts empty.                       |
+
+A list has those keys and no others. It has no `hrid`, `identity`,
+`extends`, `abstract`, `display` or any of a record type's keys, because its
+options are registry entries its curators keep, never records a project
+works on. A key that isn't a list's is the schema's problem.
 
 - Every option has four fields of its own: `code`, its identity in the list,
   which never changes (exports and the API give it); `label`, what people
-  see and pick, once in the list; `description`; and `position`, its place in
-  the list's order. A type can't declare fields with those names
-  (`list-field-reserved`). Its other fields are its options' facts too, such
-  as a method's SOP. A reference among them names another list, never a
-  record (`list-refers-to-entry`).
+  see and pick, once in the list, and the option's title wherever it's
+  shown; `description`; and `position`, its place in the list's order. A
+  list can't declare fields with those names (`list-field-reserved`).
+- Its `fields` are its options' facts, which its curators give. A fact is a
+  string, number, quantity, Boolean, enum, date or time, a reference, or a
+  list of them; never a state, a person, free text, JSON or a file. It takes
+  a field's `label`, `description`, `required`, `immutable` (a fixed fact,
+  ADR 0143), `indexed`, `unique`, `link`, `removed` and `default`, and its
+  kind's value options, but not `computed` or `registry`: each of a list's
+  fields is a fact already. A fact keeps a registry fact's rules, such as a
+  string needing a `pattern` or `format` (`registry-fact-free-text`). A
+  reference among them names another list, never a record
+  (`list-refers-to-entry`).
 - Options are registry entries (ADR 0115): every project in a registry picks
   from the same options. The registry's registrars, and the curators Org
   Admins appoint for a list, add options, relabel them, change their facts,
   reorder, archive and restore them, and supersede a wrong code, each with
   a reason. Each change is a revision of the option and an audit event.
+- An option's HRID, which its page's address uses, comes from one sequence
+  every list's options share: `OPTION-000123`. Iki reserves the prefix
+  (`reserved-hrid-prefix`), so a list spends none of the prefixes types
+  share. Pages show an option by its label, and exports, the API and
+  bundles name it by its code.
 - A form offers the active options, in order. An archived or superseded
   option isn't offered for a new value. A record that names one already
   keeps it, and it stays in search, filters, exports and the API.
 - Starting options give a `code` and a `label`, and may give a `description`
-  and values for the type's other fields. A reference names the other
+  and values for the list's other fields. A reference names the other
   list's starting option by its code (`list-option-unknown`). Codes and
   labels are each the list's once (`list-option-twice`, `list-label-twice`),
   and a required field needs a value (`list-option-incomplete`). Installing
   the plugin adds them to every registry, and to one made later. An upgrade
   adds those a registry hasn't got, by code, at the end of its list. It never
   changes, reorders or restores the options a registry has.
-- A list isn't a record type: it has no states, rules, identity, computed
-  fields, amounts, viewers or other record keys (`list-key`, `list-state`,
-  `list-computed`). An extension of a list adds facts only
-  (`list-extension-record-field`). A reference to a list names that list
-  alone (`list-among-types`).
+- Nothing extends a list (`extends-list`). An extension of a list adds facts
+  only (`list-extension-record-field`). A reference to a list names that
+  list alone (`list-among-types`).
 - Only descriptive vocabulary is a list. A value that a state, guard, rule,
   signature or calculation reads stays an `enum`, because a curator's change
   to a list mustn't change what a plugin's logic does. A rule or guard that
@@ -3201,7 +3223,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Names                           |
 | `unknown-role`; `duplicate-role-label` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Lab roles                       |
 | `unknown-starter` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Starters                        |
-| `list-key`, `list-state`, `list-computed`, `list-field-reserved`, `list-refers-to-entry`, `list-among-types`, `list-extension-record-field`, `list-option-twice`, `list-label-twice`, `list-option-incomplete`, `list-option-unknown`, `list-option-value`, `reads-curated-fact`, `include-curated-fact`; `list-code-in-expression` (warning)                                                                                                                                                                                                                                                                                                         | Lab lists                       |
+| `extends-list`, `list-field-reserved`, `list-refers-to-entry`, `list-among-types`, `list-extension-record-field`, `list-option-twice`, `list-label-twice`, `list-option-incomplete`, `list-option-unknown`, `list-option-value`, `reads-curated-fact`, `include-curated-fact`; `list-code-in-expression` (warning)                                                                                                                                                                                                                                                                                                                                    | Lab lists                       |
 | `row-role-not-enum`, `row-role-optional`, `unknown-row-role`, `unknown-row-field`, `row-role-not-reference`, `row-role-type-not-allowed`, `row-id-field`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Lists of rows                   |
 | `state-initial`, `state-removed`, `unknown-state`, `state-unreachable`, `state-signatures`, `state-on-edit`, `state-field-in-extension`, `state-field-in-list`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | States                          |
 | `rule-kind`, `rule-field`, `rule-while`, `rule-shadows-parent`, `invalid-expression`, `expressions-unchecked`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Rules and guards                |
@@ -3210,7 +3232,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `service-field-inherited`, `service-field-refers`, `service-field-unique`, `service-field-immutable`, `service-field-required`, `request-sends-not-a-reference`, `request-sends-service-field`, `request-with-identity`, `request-redeclared`, `result-with-identity`, `result-is-a-request`, `result-of-not-a-request`, `result-of-changes`, `result-released-without-states`, `result-released-initial`, `result-release-on-edit`, `result-release-lock`                                                                                                                                                                                            | Requests between projects       |
 | `amount-unit`, `amount-concentration`, `amount-aliquots`, `amount-twice`, `amount-on-identity`, `holds-without-amount`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Amounts                         |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Types                           |
-| `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HRIDs                           |
+| `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`, `reserved-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | HRIDs                           |
 | `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                                                                                                                                                                                                              | Identities                      |
 | `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Field options                   |
 | `unsupported-index`, `index-needs-max-length`, `unique-needs-index`, `link-not-https`, `link-without-value`, `link-unknown-placeholder`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Indexes                         |

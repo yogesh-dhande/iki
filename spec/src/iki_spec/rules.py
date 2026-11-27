@@ -492,7 +492,7 @@ class _Rules:
     def fixed_ref_fields(self, name: str) -> tuple[str, Mapping[str, Field]] | None:
         """As :meth:`ref_fields`, without what a lab list's curators can change (ADR 0270)."""
         found = self.ref_fields(name)
-        if found is None or not self.s.types[name].is_list:
+        if found is None or not self.s.types[name].is_lab_list:
             return found
         label, fields = found
         return label, {n: f for n, f in fields.items() if f.immutable}
@@ -510,7 +510,7 @@ class _Rules:
             for target in targets:
                 listed = self.s.types.get(target)
                 found = self.ref_fields(target)
-                if listed is None or found is None or not listed.is_list:
+                if listed is None or found is None or not listed.is_lab_list:
                     continue
                 out.update(f"{listed.name}.{n}" for n, x in found[1].items() if not x.immutable)
         return sorted(out)
@@ -973,7 +973,7 @@ class _Rules:
             f = fields.get(name)
             if f is None or f.type != "ref":
                 continue
-            lists = [t for t in f.to if (found := self.s.types.get(t)) and found.is_list]
+            lists = [t for t in f.to if (found := self.s.types.get(t)) and found.is_lab_list]
             if not lists:
                 continue
             self.add(

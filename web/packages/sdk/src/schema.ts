@@ -8952,7 +8952,10 @@ export interface components {
             extends: string | null;
             /** Fields */
             fields: components["schemas"]["FieldOut"][];
-            /** Hrid Prefix */
+            /**
+             * Hrid Prefix
+             * @description The prefix of its entities' HRIDs, such as PRT. None for an abstract type, and for a lab list, whose options are named by their code and numbered in the one sequence every list's options share (ADR 0295).
+             */
             hrid_prefix: string | null;
             /**
              * Identity
@@ -12849,7 +12852,10 @@ export interface components {
             code: string;
             /** Description */
             description: string;
-            /** Hrid */
+            /**
+             * Hrid
+             * @description Its page's address, such as OPTION-000123, from the one sequence every list's options share (ADR 0295). It's shown by its label and named by its code.
+             */
             hrid: string;
             /**
              * Id

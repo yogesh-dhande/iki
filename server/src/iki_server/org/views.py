@@ -495,7 +495,7 @@ def registry_list(request: HttpRequest) -> HttpResponse:
 
 def _lab_lists(found: Registry) -> list[dict[str, Any]]:
     """The installed lab lists (ADR 0270), by label, each with its curators in the registry."""
-    from iki_server.entities import lists
+    from iki_server.entities import registry
 
     curators: dict[str, list[ListCurator]] = {}
     for row in (
@@ -504,7 +504,7 @@ def _lab_lists(found: Registry) -> list[dict[str, Any]]:
         .order_by("user__name", "user__email")
     ):
         curators.setdefault(row.list_type, []).append(row)
-    every = sorted(lists.types().items(), key=lambda t: (t[1].label_plural.casefold(), t[0]))
+    every = sorted(registry.lab_lists().items(), key=lambda t: (t[1].label_plural.casefold(), t[0]))
     return [
         {
             "type": name,
@@ -592,11 +592,11 @@ def registry_detail(request: HttpRequest, registry_id: str) -> HttpResponse:
                     messages.info(request, f"{person.get_full_name()} curates {label} already.")
                 return redirect(f"{request.path}#list-curators-title")
         elif action == "dismiss_curator":
-            from iki_server.entities import lists
+            from iki_server.entities import registry
 
             person = get_object_or_404(User, pk=request.POST.get("user"))
             list_type = request.POST.get("list", "")
-            listed = lists.types().get(list_type)
+            listed = registry.lab_lists().get(list_type)
             if registries.dismiss_curator(found, list_type, person, by=me):
                 messages.success(
                     request,

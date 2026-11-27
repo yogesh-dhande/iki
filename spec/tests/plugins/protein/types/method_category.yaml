@@ -1,10 +1,8 @@
 apiVersion: iki/v1
-kind: EntityType
+kind: List
 name: MethodCategory
 label: Method category
 label_plural: Method categories
 schema_version: 1
-hrid: { prefix: MCAT }
-list:
-  options:
-    - { code: chromatography, label: Chromatography }
+options:
+  - { code: chromatography, label: Chromatography }

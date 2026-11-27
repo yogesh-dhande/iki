@@ -46,7 +46,7 @@ from iki_server.api.entities import (
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, ProjectRef, RegistryRef, TeamRef, UserOut
-from iki_server.entities import access, entries, lists, services
+from iki_server.entities import access, entries, registry, services
 from iki_server.entities.history import FieldNames
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid, ids_in, shape, to_json
@@ -396,7 +396,7 @@ def _curates(user: User, entry: Entity) -> bool:
     """Whether the user curates the entry: its registry's registrars do, and a lab list's
     option's curators (ADR 0270)."""
     assert entry.registry is not None  # noqa: S101 - entries have one
-    if lists.is_list(entry.type):
+    if registry.is_lab_list(entry.type):
         return permissions.can_curate_list(user, entry.registry, entry.type)
     return permissions.can(user, Action.REGISTRY_CURATE, entry.registry)
 
@@ -585,7 +585,7 @@ def list_entry_revisions(
     entry, curates = _entry(me, ref)
     # A lab list's option is curated in the open (ADR 0270): every reader is told who
     # changed it, when and why, as no project's work is in it.
-    curates = curates or lists.is_list(entry.type)
+    curates = curates or registry.is_lab_list(entry.type)
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
     names = FieldNames.for_type(entry.type, entry=True)
     revisions = trail.applied(
@@ -636,7 +636,7 @@ def get_entry_revision(request: HttpRequest, ref: str, number: int) -> dict[str,
     names = FieldNames.for_type(entry.type, entry=True)
     told = (
         {**_revision(revision, _runs_of(me, [revision]), names=names), "entry": True}
-        if curates or lists.is_list(entry.type) or services.discloses(revision, readable)
+        if curates or registry.is_lab_list(entry.type) or services.discloses(revision, readable)
         else undisclosed(revision, names)
     )
     return {

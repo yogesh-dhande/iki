@@ -201,7 +201,7 @@ def test_quantities_and_durations() -> None:
 
 def test_actions_live_under_actions(tmp_path: Path) -> None:
     result = make(tmp_path, files={"types/action.yaml": ACTION})
-    assert "Files under types/ hold entity types and extensions, not an action" in only(
+    assert "Files under types/ hold entity types, extensions and lab lists, not an action" in only(
         result, "wrong-file"
     )
     assert result.problems[0].hint == "Move it to a file under actions/."

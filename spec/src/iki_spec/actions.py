@@ -695,7 +695,7 @@ class _Rules:
         ref = f.items if f.type == "list" and f.items is not None else f
         for target in ref.to:
             listed = self.s.types.get(target)
-            if listed is None or not listed.is_list:
+            if listed is None or not listed.is_lab_list:
                 continue
             changeable = sorted(
                 n

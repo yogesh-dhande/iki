@@ -75,7 +75,7 @@ def _registry(user: User, scope: Scope) -> Registry:
 
 def _list(type_name: str) -> EntityType:
     found = registry.types().get(type_name)
-    if found is None or not found.is_list:
+    if found is None or not found.is_lab_list:
         raise Problem(404, f"There’s no lab list {type_name}.")
     return found
 
@@ -123,7 +123,7 @@ def list_lists(request: HttpRequest, scope: Query[Scope]) -> list[Any]:
     me = caller(request)
     found = _registry(me, scope)
     counts = lists.counted(found.pk)
-    every = sorted(lists.types().values(), key=lambda t: (t.label_plural.casefold(), t.name))
+    every = sorted(registry.lab_lists().values(), key=lambda t: (t.label_plural.casefold(), t.name))
     return [_list_out(me, found, t, counts) for t in every]
 
 
@@ -144,7 +144,10 @@ class OptionReplacementOut(Schema):
 
 class OptionOut(Schema):
     id: UUID = Field(description="What a record's reference to it holds.")
-    hrid: str
+    hrid: str = Field(
+        description="Its page's address, such as OPTION-000123, from the one sequence every "
+        "list's options share (ADR 0295). It's shown by its label and named by its code."
+    )
     code: str = Field(
         description="Its identity in the list, which never changes: what exports give for it."
     )

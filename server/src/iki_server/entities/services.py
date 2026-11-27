@@ -83,13 +83,12 @@ from iki_server.entities.values import (
     shape,
     to_history,
 )
-from iki_server.entities.values import is_list_table as _is_list
 from iki_server.files.models import FileUse
 from iki_server.notifications import declared
 from iki_server.org.models import Project, registry_of
 from iki_server.org.services import Refused
 from iki_server.setup import starter_flows
-from iki_spec.model import EntityType, Field, names_people
+from iki_spec.model import EntityType, Field, names_people, stored_in_list_table
 
 __all__ = [
     "Invalid",
@@ -209,7 +208,7 @@ class Rows:
     def value(self, part: Part, f: Field) -> Any:  # noqa: ANN401 - a model value
         holder = self.holder(part)
         if holder is None:
-            return [] if _is_list(f) else None
+            return [] if stored_in_list_table(f) else None
         return read_value(holder, f, part)
 
     def get(self, name: str) -> Any:  # noqa: ANN401 - a model value
@@ -393,7 +392,7 @@ def _new_record(
     for part in mine:
         if not part.extension:
             for name, f in part.fields.items():
-                if name in given and not _is_list(f):
+                if name in given and not stored_in_list_table(f):
                     _set(instance, f, given[name])
     own = {n: v for n, v in given.items() if not form.part_of(n).entry}
     clashes = unique.taken(project, form, own)
@@ -405,12 +404,12 @@ def _new_record(
         if part.extension and any(own.get(n) is not None for n in part.fields):
             row = rows.ensure(part)
             for name, f in part.fields.items():
-                if name in own and not _is_list(f):
+                if name in own and not stored_in_list_table(f):
                     _set(row, f, own[name])
             row.save()
             touched.append(part)
         for name, f in part.fields.items():
-            if _is_list(f) and own.get(name):
+            if stored_in_list_table(f) and own.get(name):
                 _write_list(part, f, instance.pk, own[name])
     changed = sorted(n for n, v in own.items() if v is not None)
     revision = _revise(
@@ -487,7 +486,7 @@ def _lists(form: Shape, given: Mapping[str, Any]) -> dict[str, Any]:
         for part in form.parts
         if part.entry and not part.extension
         for name, f in part.fields.items()
-        if _is_list(f)
+        if stored_in_list_table(f)
     }
 
 
@@ -498,7 +497,7 @@ def _entry_instance(form: Shape, given: Mapping[str, Any]) -> Model:
     for part in form.parts:
         if part.entry and not part.extension:
             for name, f in part.fields.items():
-                if name in given and not _is_list(f):
+                if name in given and not stored_in_list_table(f):
                     _set(instance, f, given[name])
     return instance
 
@@ -541,12 +540,12 @@ def _new_entry(
         if part.extension and any(mine.get(n) is not None for n in part.fields):
             row = rows.ensure(part)
             for name, f in part.fields.items():
-                if name in mine and not _is_list(f):
+                if name in mine and not stored_in_list_table(f):
                     _set(row, f, mine[name])
             row.save()
             touched.append(part)
         for name, f in part.fields.items():
-            if _is_list(f) and mine.get(name):
+            if stored_in_list_table(f) and mine.get(name):
                 _write_list(part, f, instance.pk, mine[name])
     changed = sorted(n for n, v in mine.items() if v is not None)
     revision = _revise(
@@ -764,7 +763,7 @@ def prepare(
     entity_type = form.entity_type
     if entity_type.abstract:
         raise Invalid({"type": [f"{type_name} is abstract: create one of its subtypes."]})
-    if entity_type.is_list:
+    if entity_type.is_lab_list:
         raise Invalid({"type": [not_a_record(entity_type)]})
     why = frozen(form)
     if why:
@@ -1023,7 +1022,7 @@ def update(
                 continue
             # A list stored as item rows reads back as [] when cleared, including
             # when the client sends null. Compare what will actually be stored.
-            if converted is None and not f.required and _is_list(f):
+            if converted is None and not f.required and stored_in_list_table(f):
                 converted = []
             if converted == current:
                 continue
@@ -1192,7 +1191,7 @@ def _write(form: Shape, rows: Rows, new: Mapping[str, Any], owner_id: Any) -> li
         key = owner.pk if owner is not None else owner_id
         for name, value in mine.items():
             f = part.fields[name]
-            if _is_list(f):
+            if stored_in_list_table(f):
                 part.list_model(name)._default_manager.filter(entity_id=key).delete()
                 if value:
                     _write_list(part, f, key, value)
@@ -1403,7 +1402,7 @@ def current_values_of(entities: Sequence[Entity]) -> dict[Any, dict[str, Any]]:
                     for r in part.model._default_manager.filter(entity_id__in=ids)
                 }
             for name, f in part.fields.items():
-                if _is_list(f) and not f.removed:
+                if stored_in_list_table(f) and not f.removed:
                     items: dict[Any, list[Any]] = defaultdict(list)
                     rows = part.list_model(name)._default_manager.filter(entity_id__in=ids)
                     rows = rows.order_by("entity_id", "position")

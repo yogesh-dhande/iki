@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-11-26
+- Amended by [0295](0295-a-lab-list-is-a-manifest-kind-of-its-own.md): a list is
+  `kind: List`, not an entity type marked `list`
 - Refines: [0115](0115-registries-keep-identities-projects-keep-records.md),
   [0143](0143-a-registry-fact-can-be-fixed.md)
 

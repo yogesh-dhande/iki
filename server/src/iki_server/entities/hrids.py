@@ -66,11 +66,14 @@ def format_hrid(prefix: str, digits: int, number: int) -> str:
 
 
 def next_hrid(entity_type: EntityType) -> str:
-    if entity_type.hrid_prefix is None:
+    """The next HRID of the type's own sequence, or, for a lab list's option, of the one
+    sequence every list's options share (ADR 0295)."""
+    prefix = entity_type.numbering_prefix
+    if prefix is None:
         raise ValueError(f"{entity_type.qualified_name} has no HRIDs")
-    if (made := provisional_hrid(entity_type.hrid_prefix)) is not None:
+    if (made := provisional_hrid(prefix)) is not None:
         return made
-    name = sequence_name(entity_type.hrid_prefix)
+    name = sequence_name(prefix)
     try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT nextval(%s::regclass)", [name])
@@ -79,4 +82,4 @@ def next_hrid(entity_type: EntityType) -> str:
         raise ImproperlyConfigured(
             f"The HRID sequence {name} doesn't exist; run `iki-server sync_plugins`."
         ) from error
-    return format_hrid(entity_type.hrid_prefix, entity_type.hrid_digits, number)
+    return format_hrid(prefix, entity_type.hrid_digits, number)

@@ -634,7 +634,7 @@ class _Planner:
                 continue
             found = here.get(digest)
             entity_type = registry.types().get(line["type"])
-            listed = entity_type is not None and entity_type.is_list
+            listed = entity_type is not None and entity_type.is_lab_list
             if found is not None:
                 self.counts.entries_here += 1
                 why = self._against_entry(line, found)
@@ -705,7 +705,7 @@ class _Planner:
                 f"{here.superseded_by.hrid}."
             )
         found = registry.types().get(here.type)
-        if found is not None and found.is_list:
+        if found is not None and found.is_lab_list:
             # A lab list's option is its code here (ADR 0270): its label, description and
             # place are this registry's curators', whatever the bundle's registry calls it.
             return ""
