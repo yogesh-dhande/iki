@@ -36,8 +36,10 @@ fields:
   calculation:
     type: enum
     label: Worked out by Iki from
+    immutable: true
     values: [a280]
     description: >-
       Which of Iki's calculations gives a concentration by this method: a280, from the
       lot's A280, dilution and path length, and its ε280. Empty for a method whose
-      concentration is entered as measured.
+      concentration is entered as measured. Fixed once the option is added: a wrong
+      one is superseded.

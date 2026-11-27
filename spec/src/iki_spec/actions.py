@@ -18,6 +18,7 @@ import yaml
 from iki_spec import apis, schemas
 from iki_spec import validate as _validate
 from iki_spec.model import (
+    LIST_FIELDS,
     Action,
     Creates,
     EntityType,
@@ -682,6 +683,36 @@ class _Rules:
                     source,
                     where,
                 )
+            else:
+                self.curated(found, source, where)
+
+    def curated(self, f: Field, source: Document, path: Path) -> None:
+        """An included lab list's values a calculation can work from or branch on, its
+        enums, numbers and Booleans, are fixed once an option is added (ADR 0143): what a
+        calculation or worker reads is the plugin's, and a curator's change mustn't change
+        what it gives for records already made (ADR 0270). Its text, such as an SOP, and its
+        references to other lists, which a run reads as IDs, are the curators' to change."""
+        ref = f.items if f.type == "list" and f.items is not None else f
+        for target in ref.to:
+            listed = self.s.types.get(target)
+            if listed is None or not listed.is_list:
+                continue
+            changeable = sorted(
+                n
+                for n, (x, _) in self.s.all_fields(listed).items()
+                if n not in LIST_FIELDS and not x.immutable and not x.removed and _drives(x)
+            )
+            if changeable:
+                shown = ", ".join(f"`{n}`" for n in changeable)
+                self.add(
+                    "include-curated-fact",
+                    f"The run reads {listed.name}'s {shown}, which the list's curators can "
+                    "change: what a calculation or worker reads is the plugin's (ADR 0270).",
+                    source,
+                    path,
+                    hint="Declare each `immutable: true`, so it's fixed once an option is added "
+                    "and a wrong one is superseded (ADR 0143).",
+                )
 
     def param(self, param: Field, source: Document, path: Path) -> None:
         if param.required and param.has_default:
@@ -1129,3 +1160,10 @@ def _references(fields: dict[str, Field]) -> str:
         if cell.type == "ref"
     )
     return ", ".join(f"`{n}`" for n in names) or "it has none"
+
+
+def _drives(f: Field) -> bool:
+    """Whether a value is one a calculation works from or branches on: an enum, a number or
+    a Boolean, or a list of them."""
+    kind = f.items.type if f.type == "list" and f.items is not None else f.type
+    return kind in {"enum", "bool", "int", "float", "quantity"}
