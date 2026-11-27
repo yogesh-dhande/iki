@@ -1,0 +1,24 @@
+apiVersion: iki/v1
+kind: Action
+name: link_rearrangement
+label: Link a rearrangement to an antibody
+description: >-
+  Record that a rearrangement in an imported AIRR repertoire encodes a chain of a registered
+  antibody, after checking the row is in that repertoire and has an immunoglobulin locus.
+inputs:
+  result:
+    type: iki/sequencing_analysis.SequencingAnalysisResult
+    description: An AIRR result, imported with Import AIRR rearrangements.
+  antibody: { type: iki/antibody.Antibody }
+params:
+  sequence_id:
+    type: string
+    label: AIRR sequence_id
+    required: true
+    max_length: 250
+    description: The rearrangement's exact sequence_id in the report.
+effects:
+  creates: [{ type: AntibodyRearrangement, derived_from: [result, antibody] }]
+runs_on: { tier: backend, environment: link-tools }
+command: [python, ./scripts/link_rearrangement.py]
+timeout: 30m

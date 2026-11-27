@@ -1868,25 +1868,16 @@ def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
     prefix = "iki/sequencing."
     give_lab_roles(alice, project, prefix + "reviewer")
     accession = "SRR8690267"
-    runs = matching_records(alice, project, prefix + "SequencingRun", "run_accession", accession)
-    run = (
-        runs[0]
-        if runs
-        else created(
-            alice,
-            project,
-            prefix + "SequencingRun",
-            {
-                "name": "Yeast RNA-seq excerpt",
-                "instrument_model": "Illumina HiSeq 2500",
-                "run_accession": accession,
-            },
-        )
-    )
-    read_sets = matching_records(alice, project, prefix + "ReadSet", "run", run["id"])
+    read_sets = matching_records(alice, project, prefix + "ReadSet", "run_accession", accession)
     if read_sets:
         reads = read_sets[0]
     else:
+        run = created(
+            alice,
+            project,
+            prefix + "SequencingRun",
+            {"name": "Yeast RNA-seq excerpt", "instrument_model": "Illumina HiSeq 2500"},
+        )
         sample = created(
             alice,
             project,
@@ -1915,7 +1906,7 @@ def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
             alice,
             project,
             prefix + "ReadSet",
-            {"run": run["id"], "library": library["id"], **files},
+            {"run": run["id"], "library": library["id"], "run_accession": accession, **files},
         )
     summaries = matching_records(alice, project, prefix + "FASTQSummary", "read_set", reads["id"])
     if summaries:
@@ -1966,10 +1957,9 @@ def sequencing_analysis(alice: requests.Session, project: dict[str, Any]) -> Non
         imported = launch(
             alice,
             project,
-            prefix + "import_result",
+            prefix + "import_counts",
             {"library": library["id"]},
             {
-                "format": "counts",
                 "report": report,
                 "tool": "featureCounts",
                 "tool_version": "Reported in GEO GSE176296",
@@ -2025,25 +2015,20 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
         _, plasmid = register_puc19(alice, project)
         launch(alice, project, "iki/plasmid.annotate_plasmid", {"plasmid": plasmid["id"]})
     accession = "SRR17915342"
-    runs = matching_records(
-        alice, project, "iki/sequencing.SequencingRun", "run_accession", accession
+    read_sets = matching_records(
+        alice, project, "iki/sequencing.ReadSet", "run_accession", accession
     )
-    run = (
-        runs[0]
-        if runs
-        else created(
-            alice,
-            project,
-            "iki/sequencing.SequencingRun",
-            {"name": "pUC19 MinION run", "instrument_model": "MinION", "run_accession": accession},
-        )
-    )
-    read_sets = matching_records(alice, project, "iki/sequencing.ReadSet", "run", run["id"])
     if read_sets:
         reads = read_sets[0]
         library = record(alice, reads["values"]["library"])
         prep = record(alice, library["values"]["sample"])
     else:
+        run = created(
+            alice,
+            project,
+            "iki/sequencing.SequencingRun",
+            {"name": "pUC19 MinION run", "instrument_model": "MinION"},
+        )
         prep = created(
             alice,
             project,
@@ -2070,7 +2055,12 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
             alice,
             project,
             "iki/sequencing.ReadSet",
-            {"run": run["id"], "library": library["id"], "read_1": read_1},
+            {
+                "run": run["id"],
+                "library": library["id"],
+                "run_accession": accession,
+                "read_1": read_1,
+            },
         )
     results = matching_records(
         alice, project, prefix + "WholePlasmidAlignment", "read_set", reads["id"]
@@ -2861,7 +2851,7 @@ def analysis_result(
         analyst,
         asking,
         "iki/requests.QCRequest",
-        {"title": "SEC purity", "materials": [sample["id"]], "analyses": ["sec_purity"]},
+        {"title": "SEC purity", "materials": [sample["id"]]},
     )
     path = start_service_work(analyst, core, request)
     report = upload(
@@ -2869,9 +2859,7 @@ def analysis_result(
     )
     measurement = {
         "material": sample["id"],
-        "analysis": "sec_purity",
-        "purity": 98.5,
-        "result": "pass",
+        "notes": "SEC-HPLC main peak 98.5 % (synthetic training measurement).",
     }
     result = created(
         analyst,
@@ -2908,12 +2896,12 @@ def analysis_result(
     if reversal["status"] != "signed" or not reversal["set"]:
         fail(f"Reopening {result['hrid']} for correction failed: {reversal}")
     reopened = record(analyst, result["id"])
-    measurement["purity"] = 97.0
+    measurement["notes"] = "SEC-HPLC main peak 97.0 % after reintegration (synthetic)."
     edit = api_call(
         analyst,
         "PATCH",
         result_path,
-        {"values": {"purity": measurement["purity"]}, "reason": "Correct the measured purity"},
+        {"values": {"notes": measurement["notes"]}, "reason": "Correct the measured purity"},
         {"If-Match": f'"{reopened["revision"]}"'},
     )
     if edit.status_code != 200 or edit.json()["values"]["review"] != "recorded":
@@ -2986,7 +2974,9 @@ def core_facility_requests(
     asking: dict[str, Any],
     core: dict[str, Any],
 ) -> None:
-    """The working core returns production and sequencing deliverables through Requests."""
+    """The working core returns production and sequencing deliverables through Requests.
+    The lot, mass and run accession are in each delivery report: a core that records them
+    as fields uses its own request types, as the facility examples show (ADR 0235)."""
     give_lab_roles(analyst, core, "iki/lab_roles.coordinator")
     example = Path(__file__).resolve().parents[2] / "examples" / "core-facility-requests"
     # The production transaction is simulated; only the registered UniProt identity is public.
@@ -3008,25 +2998,15 @@ def core_facility_requests(
         (
             "Research",
             "P00330-production.txt",
-            {
-                "title": "Training: ADH1 production",
-                "facility_service": "protein_production",
-                "records": [protein["id"]],
-                "requested_mass": 1,
-            },
-            {"protein": protein["id"], "lot_number": "TRAINING-ADH1-01", "delivered_mass": 0.8},
+            {"title": "Training: ADH1 production, 1 mg", "records": [protein["id"]]},
+            {},
             ((reviewer, "bob", "signed_off"),),
         ),
         (
             "QC",
             "ERR13376132-delivery.txt",
-            {
-                "title": "Training: long-read sequencing",
-                "facility_service": "sequencing",
-                "sequencing_method": "long_read",
-                "tubes": [tube["id"]],
-            },
-            {"material": tube["id"], "run_accession": "ERR13376132"},
+            {"title": "Training: long-read sequencing", "tubes": [tube["id"]]},
+            {"material": tube["id"]},
             (
                 (analyst, "alice", "submitted"),
                 (reviewer, "bob", "reviewed"),
@@ -4209,6 +4189,7 @@ def plate_assay(alice: requests.Session, project: dict[str, Any]) -> None:
                 "size": "plate_96",
                 "assignments": public_plate.assignments(compounds),
                 "reader_file": source,
+                "reader_format": "iki_plate_matrix",
                 "procedure": public_plate.ASSAY,
                 "procedure_revision": public_plate.SOURCE["procedure_revision"],
             },
@@ -4258,6 +4239,7 @@ def fit_assay_plate(
         or set(read["values"]["measurements"]) != {m["id"] for m in measurements}
         or any(
             m["values"]["reader_file"] != plate["values"]["reader_file"]
+            or m["values"]["readout"] != "normalized_activity"
             or m["values"]["activity_percent"] is None
             or m["values"]["signal"] is not None
             for m in measurements

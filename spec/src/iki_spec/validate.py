@@ -82,6 +82,7 @@ from iki_spec.model import (
     matches_format,
     names_people,
     qualify,
+    reference_refinement,
     refinement,
     split_entry,
 )
@@ -843,7 +844,17 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
                 if isinstance(r, dict)
             }
             for name, body_refines in (body.get("refines") or {}).items()
+            if isinstance(body_refines, dict) and "to" not in body_refines
+        },
+        refines_to={
+            name: (
+                (qualify(to, plugin),)
+                if isinstance(to, str)
+                else tuple(qualify(t, plugin) for t in to if isinstance(t, str))
+            )
+            for name, body_refines in (body.get("refines") or {}).items()
             if isinstance(body_refines, dict)
+            and isinstance(to := body_refines.get("to"), str | list)
         },
     )
 
@@ -3819,8 +3830,10 @@ class _Semantics:
 
     def refines(self, entity_type: EntityType, source: Document) -> None:
         """A subtype's roles for lists of rows it inherits (ADR 0164): each a list of rows
-        with roles by a field, the roles each one its rows may have, within its ancestors'."""
+        with roles by a field, the roles each one its rows may have, within its ancestors'.
+        And the types for references it inherits (ADR 0235), within its ancestors'."""
         lineage = [entity_type, *self.ancestors(entity_type)]
+        self.refines_to(entity_type, lineage, source)
         for name, roles in entity_type.refines.items():
             at: Path = ("refines", name)
             if name in entity_type.fields:
@@ -3861,6 +3874,55 @@ class _Semantics:
             identity_owner = next((t for t in lineage if t.identity), None)
             entries = identity_owner is not None and name in identity_owner.identity
             self.row_roles(row, by, roles, source, (*at, "roles"), within=above, entries=entries)
+
+    def refines_to(
+        self, entity_type: EntityType, lineage: list[EntityType], source: Document
+    ) -> None:
+        """Each reference a subtype refines (ADR 0235): one it inherits, a reference or a
+        list of them, and types it refers to that are each one of its ancestor's or a
+        subtype of one."""
+        for name, targets in entity_type.refines_to.items():
+            at: Path = ("refines", name)
+            if name in entity_type.fields:
+                self.add(
+                    "refines-own-field",
+                    f"`{name}` is this type's own field: give the types it refers to there.",
+                    source,
+                    at,
+                    key=True,
+                )
+                continue
+            owner = next((t for t in lineage[1:] if name in t.fields), None)
+            f = owner.fields[name] if owner is not None else None
+            ref = f.items if f is not None and f.type == "list" else f
+            if f is None or ref is None or ref.type != "ref":
+                self.add(
+                    "refines-not-a-reference",
+                    f"`refines` with `to` gives the types a reference this type inherits "
+                    f"refers to, and `{name}` "
+                    + ("isn't a field of its parents." if f is None else "isn't a reference."),
+                    source,
+                    at,
+                    key=True,
+                )
+                continue
+            above = reference_refinement(lineage[1:], name) or ref.to
+            several = len(targets) > 1
+            for index, target in enumerate(targets):
+                where: Path = (*at, "to", index) if several else (*at, "to")
+                named = self.reference(target, source, where)
+                if named is None or naming.ENTITY in above:
+                    continue
+                kinds = {named.qualified_name} | {a.qualified_name for a in self.ancestors(named)}
+                if not kinds & set(above):
+                    self.add(
+                        "refines-wider",
+                        f"`{target}` isn't one of the types `{name}` refers to in this type's "
+                        f"parent ({', '.join(above)}), or one of their subtypes.",
+                        source,
+                        where,
+                        hint="A subtype narrows what its parent's references refer to.",
+                    )
 
     def targets(self, f: Field, source: Document, path: Path) -> None:
         """A reference's types (ADR 0136): each one the plugin can name, and none of them

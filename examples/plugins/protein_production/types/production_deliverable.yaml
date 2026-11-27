@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# What the core returns for a production request: a Research deliverable, with
+# the lot it made. Its checks run as it's saved, and again as a reviewer signs it
+# off, so a request changed since can't be signed off with an old answer.
+apiVersion: iki/v1
+kind: EntityType
+name: ProductionDeliverable
+label: Production deliverable
+extends: iki/requests.ResearchDeliverable
+schema_version: 1
+hrid: { prefix: PPD }
+description: The lot of protein a production request returns, or why none was made.
+refines:
+  # It answers production requests, and they take no other deliverable (ADR 0235).
+  request: { to: ProductionRequest }
+fields:
+  protein:
+    type: ref
+    to: iki/protein.Protein
+    required: true
+    immutable: true
+    description: The protein produced, which the request sent.
+  lot_number:
+    type: string
+    label: Lot number
+    max_length: 100
+    description: The number on the container label and the production report.
+  delivered_mass:
+    type: quantity
+    label: Delivered mass
+    unit: mg
+    min: 0
+    description: How much purified protein the core delivered.
+display:
+  title: "{{ lot_number or hrid }}"
+rules:
+  requested_protein:
+    check: record.request.records != null && record.protein.id in record.request.records
+    recheck_before_signing: true
+    message: Name the protein the request sent.
+    fields: [protein]
+  produced_lot:
+    when: record.outcome == "fulfilled"
+    check: >-
+      record.lot_number != null && record.lot_number != "" &&
+      record.delivered_mass != null && record.delivered_mass > 0
+    recheck_before_signing: true
+    message: Give the lot number and a positive delivered mass for a fulfilled production.
+    fields: [lot_number, delivered_mass]

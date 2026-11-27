@@ -5,6 +5,7 @@ import importlib
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from tempfile import mkdtemp
 from threading import Barrier
 from typing import Any
 from uuid import UUID, uuid4
@@ -30,7 +31,7 @@ __all__ = ["database"]
 PLATES = PLUGINS / "plate_assays"
 
 
-def test_a_plate_commits_only_the_previewed_revision_once(tmp_path: Path, database: str) -> None:
+def test_each_export_commits_once_as_a_read_of_the_plate(tmp_path: Path, database: str) -> None:
     build = tmp_path / "build"
     built = iki("plugin", "build", *build_order(PLATES), "--output", build, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
@@ -153,7 +154,7 @@ def exercise_import(project: Project) -> None:
     assert not RunEffect.objects.filter(run=lost[0]).exists()
     with pytest.raises(results.Rejected, match="revision"):
         apply(*lost)
-    with pytest.raises(ValueError, match="already been committed"):
+    with pytest.raises(ValueError, match="already committed"):
         reader_run("commit_reader")
 
     # Both the retained file and every joined measurement belong to the winning commit.
@@ -186,3 +187,50 @@ def exercise_import(project: Project) -> None:
     assert stored["fit_status"] == "fitted" and stored["fit_reason"] is None
     assert stored["point_count"] == len(stored["measurements"]) == 8
     assert stored["ci_low"] < stored["endpoint_value"] < stored["ci_high"]
+    assert values["reader_format"] == "bmg_mars_absorbance/1"
+    assert values["acquisition"]["test_name"] == "Synthetic decreasing dose response"
+
+    # A later read of the same plate, here its synthetic values re-exported as run 2,
+    # commits on the same fixed layout as the plate's second read.
+    later = source.read_bytes().replace(b"Test run no.: 1", b"Test run no.: 2")
+    later_digest = hashlib.sha256(later).hexdigest()
+    second_file = File.objects.create(
+        name="mars-96-series-run-2.csv",
+        media_type="text/csv",
+        project=project,
+        blob=clean_blob(
+            sha256=later_digest, size=len(later), storage_uri=f"s3://test/{later_digest}"
+        ),
+    )
+    plate.refresh_from_db()
+    entities.update(
+        analyst, plate, {"reader_file": str(second_file.pk)}, expected_revision=plate.revision
+    )
+    staged = Path(mkdtemp()) / "run-2.csv"
+    staged.write_bytes(later)
+
+    def second_run(name: str) -> tuple[ActionRun, dict[str, Any]]:
+        run, doc = start(name, {"plate": [plate.pk]})
+        doc["files"][str(second_file.pk)]["path"] = str(staged)
+        return run, assay.reader_output(doc, commit=name == "commit_reader")
+
+    apply(*second_run("preview_reader"))
+    apply(*second_run("commit_reader"))
+    reads = list(Entity.objects.filter(type="iki/plate_assays.PlateRead").order_by("created_at"))
+    assert len(reads) == 2
+    both = entities.current_values_of(reads)
+    assert both[reads[1].pk]["acquisition"]["test_run"] == "2"
+    assert str(both[reads[1].pk]["reader_file"]) == str(second_file.pk)
+    assert len(both[reads[1].pk]["measurements"]) == 10
+    plate.refresh_from_db()
+    committed = entities.current_values_of([plate])[plate.pk]["committed_reads"]
+    assert [r["sha256"] for r in committed] == [digest, later_digest]
+    # Committing the first export again is still refused, as the plate's first read.
+    entities.update(
+        analyst, plate, {"reader_file": str(reader.pk)}, expected_revision=plate.revision
+    )
+    _, preview_output = reader_run("preview_reader")
+    issues = preview_output["updates"]["plate"][0]["values"]["preview"]["issues"]
+    assert issues == [
+        "This reader file is already committed to this plate. Attach the next read's file."
+    ]

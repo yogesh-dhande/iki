@@ -1,4 +1,6 @@
-"""Protein production and sequencing as cross-project requests."""
+"""Work sent to a core facility: its private work items, and each kind of deliverable's
+return. The facility examples' own request and deliverable types are tested in
+test_facility_services.py."""
 
 import hashlib
 import json
@@ -42,9 +44,9 @@ WORK = REQUESTS + "WorkItem"
 REQUESTER = "outsider"
 
 
-def _facility_build(tmp_path: Path, database: str, plugin: str) -> Path:
+def _facility_build(tmp_path: Path, database: str, *plugins: Path) -> Path:
     build = tmp_path / "build"
-    plugins = build_order(PLUGIN, PLUGINS / plugin)
+    plugins = build_order(PLUGIN, *plugins)
     built = iki("plugin", "build", *plugins, "--output", build, cwd=PLUGINS)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(build, database)
@@ -52,9 +54,11 @@ def _facility_build(tmp_path: Path, database: str, plugin: str) -> Path:
     return build
 
 
-def test_the_shipping_lims_serves_both_facility_requests(tmp_path: Path, database: str) -> None:
+def test_a_core_keeps_its_work_and_returns_each_kind_of_deliverable(
+    tmp_path: Path, database: str
+) -> None:
     exercise = django(
-        _facility_build(tmp_path, database, "protein"),
+        _facility_build(tmp_path, database),
         database,
         "-c",
         "import django; django.setup(); from test_core_facility import exercise_core_requests; "
@@ -72,7 +76,7 @@ def test_returned_sample_covers_its_draw(
     tmp_path: Path, database: str, request_type: str, delivery_type: str
 ) -> None:
     exercise = django(
-        _facility_build(tmp_path, database, "samples"),
+        _facility_build(tmp_path, database, PLUGINS / "samples"),
         database,
         "-c",
         "import django; django.setup(); from test_core_facility import exercise_sample_delivery; "
@@ -185,9 +189,9 @@ def _facility(*request_types: str) -> tuple[World, Project]:
 
 def exercise_core_requests() -> None:
     world, asking = _facility(RESEARCH, PLAIN)
-    _production(world, asking)
+    _research_sign_off(world, asking)
     _plain_delivery_coverage(world, asking)
-    _sequencing(world, asking, Api(world.browser(REQUESTER)))
+    _qc_tube_delivery(world, asking, Api(world.browser(REQUESTER)))
 
 
 def exercise_sample_delivery(request_type: str, delivery_type: str) -> None:
@@ -219,8 +223,6 @@ def exercise_sample_delivery(request_type: str, delivery_type: str) -> None:
             amount={"value": 10, "unit": "uL"},
         )
         scope = {"tubes": [str(subject.pk)]}
-        if request_type == REGULATED:
-            scope["analyses"] = ["sec_purity"]
     request = _make(world, REQUESTER, request_type, asking, title="Sample report", **scope)
     _send(world, request)
     source = subject
@@ -246,8 +248,6 @@ def exercise_sample_delivery(request_type: str, delivery_type: str) -> None:
         "outcome": "fulfilled",
         "report": _report(core, "sample-report.txt", b"Sample measurements"),
     }
-    if request_type == REGULATED:
-        fields.update(analysis="sec_purity", result="pass", purity=99)
 
     def report_on(material: Entity) -> Entity:
         return _make(world, "editor", delivery_type, core, **fields, material=str(material.pk))
@@ -311,30 +311,17 @@ def exercise_sample_delivery(request_type: str, delivery_type: str) -> None:
     _status(world, request, "admin", "delivered")
 
 
-def _production(world: World, asking: Project) -> None:
-    # UniProtKB P00330, Alcohol dehydrogenase 1, Saccharomyces cerevisiae S288c.
-    # https://www.uniprot.org/uniprotkb/P00330/entry
-    fasta = (EXAMPLES / "P00330.fasta").read_text().splitlines()
-    protein = _make(
-        world,
-        REQUESTER,
-        "iki/protein.Protein",
-        asking,
-        name="Yeast alcohol dehydrogenase 1",
-        sequence="".join(fasta[1:]),
-        uniprot_accession="P00330",
-    )
-    subject = {"title": "Training: ADH1 production", "facility_service": "protein_production"}
-    with pytest.raises(Invalid, match="positive requested mass"):
-        _make(world, REQUESTER, RESEARCH, asking, **subject, records=[str(protein.pk)])
+def _research_sign_off(world: World, asking: Project) -> None:
+    # The core's production report for UniProtKB P00330, yeast alcohol dehydrogenase 1:
+    # https://www.uniprot.org/uniprotkb/P00330/entry. The lot and masses are synthetic.
+    construct = _make(world, REQUESTER, "iki/core.Collection", asking, name="ADH1 construct")
     research = _make(
         world,
         REQUESTER,
         RESEARCH,
         asking,
-        **subject,
-        records=[str(protein.pk)],
-        requested_mass=1,
+        title="Training: ADH1 production",
+        records=[str(construct.pk)],
     )
     with pytest.raises(Invalid, match="isn't a request sent to"):
         _make(world, REQUESTER, WORK, asking, request=str(research.pk))
@@ -343,16 +330,12 @@ def _production(world: World, asking: Project) -> None:
         _status(world, research, "admin", "delivered")
     report_path = EXAMPLES / "P00330-production.txt"
     report = _report(world.project, report_path.name, report_path.read_bytes())
-    fields = {
-        "request": str(research.pk),
-        "protein": str(protein.pk),
-        "outcome": "fulfilled",
-        "lot_number": "TRAINING-ADH1-01",
-        "delivered_mass": 0.8,
-        "report": report,
-    }
-    with pytest.raises(Invalid):
-        _make(world, "editor", REGULATED_DELIVERY, world.project, **fields)
+    fields = {"request": str(research.pk), "outcome": "fulfilled", "report": report}
+    # A deliverable answers only its own kind of request: a QC deliverable's signatures
+    # don't answer a research request, nor a plain delivery's absence of them.
+    for weaker_or_other in (REGULATED_DELIVERY, BASIC_DELIVERY):
+        with pytest.raises(Invalid):
+            _make(world, "editor", weaker_or_other, world.project, **fields)
     deliverable = _make(world, "editor", RESEARCH_DELIVERY, world.project, **fields)
     assert not ProjectLink.objects.filter(entity=deliverable, project=asking).exists()
     with pytest.raises(Refused, match="returned"):
@@ -361,8 +344,6 @@ def _production(world: World, asking: Project) -> None:
     assert Signature.objects.filter(entity=deliverable).count() == 1
     assert json.loads(review.content)["values"]["report"] == report
     assert ProjectLink.objects.get(entity=deliverable, project=asking).via_request_id == research.pk
-    with pytest.raises(Invalid):
-        _make(world, "editor", BASIC_DELIVERY, world.project, **fields)
     plain = _make(world, REQUESTER, PLAIN, asking, title="Training bench work")
     _send(world, plain)
     _private_work_and_basic_deliveries(
@@ -490,7 +471,8 @@ def _plain_delivery_coverage(world: World, asking: Project) -> None:
         world.users[REQUESTER], request, {"tubes": subjects[:1]}, expected_revision=request.revision
     )
     request.refresh_from_db()
-    with pytest.raises(Refused, match="Choose a sample or tube on this request"):
+    # The delivery's own guard refuses it before Iki's release check would.
+    with pytest.raises(Refused, match="must still be on the request"):
         _status(world, last, "admin", "delivered")
     services.update(
         world.users[REQUESTER], request, {"tubes": subjects}, expected_revision=request.revision
@@ -501,9 +483,9 @@ def _plain_delivery_coverage(world: World, asking: Project) -> None:
     _status(world, request, "admin", "delivered")
 
 
-def _sequencing(world: World, asking: Project, api: Api) -> None:
-    # ERR13376132 is the public long-read run for natural yeast isolate CEY652.
-    # https://www.ncbi.nlm.nih.gov/sra/ERX12747051
+def _qc_tube_delivery(world: World, asking: Project, api: Api) -> None:
+    # The core's delivery report for ERR13376132, the public long-read run for natural
+    # yeast isolate CEY652: https://www.ncbi.nlm.nih.gov/sra/ERX12747051
     sender = world.users[REQUESTER]
     stock = _make(world, REQUESTER, "iki/core.Collection", asking, name="CEY652 stock")
     tube = services.create(
@@ -521,14 +503,8 @@ def _sequencing(world: World, asking: Project, api: Api) -> None:
     private_tube = _make(
         world, REQUESTER, "iki/inventory.Tube", asking, name="Another project tube"
     )
-    fields = {
-        "title": "Training: long-read sequencing",
-        "facility_service": "sequencing",
-        "sequencing_method": "long_read",
-    }
-    with pytest.raises(Invalid, match="name the tubes"):
-        _make(world, REQUESTER, REGULATED, asking, **fields)
-    qc = _make(world, REQUESTER, REGULATED, asking, **fields, tubes=[str(tube.pk)])
+    fields = {"title": "Training: long-read sequencing", "tubes": [str(tube.pk)]}
+    qc = _make(world, REQUESTER, REGULATED, asking, **fields)
     with pytest.raises(requests.NoSuchService):
         requests.submit(world.users[REQUESTER], qc, world.project, expected_revision=qc.revision)
     requests.set_intake(
@@ -550,7 +526,6 @@ def _sequencing(world: World, asking: Project, api: Api) -> None:
         "outcome": "fulfilled",
         "material": str(portion.pk),
         "report": report,
-        "run_accession": "ERR13376132",
     }
     for type_name in (RESEARCH_DELIVERY, BASIC_DELIVERY):
         with pytest.raises(Invalid):
@@ -564,10 +539,6 @@ def _sequencing(world: World, asking: Project, api: Api) -> None:
             world.project,
             **{**fields, "material": str(duplicate_tube.pk)},
         )
-    with pytest.raises(Invalid, match="attach files or a public run accession"):
-        _make(
-            world, "editor", REGULATED_DELIVERY, world.project, **{**fields, "run_accession": None}
-        )
     deliverable = _make(world, "editor", REGULATED_DELIVERY, world.project, **fields)
     _sign(world, "editor", deliverable, "submitted")
     with pytest.raises(Refused, match="did not create, submit or edit"):
@@ -576,7 +547,7 @@ def _sequencing(world: World, asking: Project, api: Api) -> None:
     assert api.get(f"/entities/{deliverable.pk}").status_code == 404
     assert api.get(f"/files/{report}").status_code == 404
 
-    corrected = _report(world.project, "corrected-report.txt", b"Training: confirmed run accession")
+    corrected = _report(world.project, "corrected-report.txt", b"Training: confirmed read counts")
     _sign(world, "admin", deliverable, "recorded", "Reopen the report for correction")
     services.update(
         world.users["editor"],
@@ -632,12 +603,7 @@ def _sequencing(world: World, asking: Project, api: Api) -> None:
             "editor",
             REGULATED_DELIVERY,
             world.project,
-            **{
-                **fields,
-                "material": str(material.pk),
-                "outcome": outcome,
-                "run_accession": None if outcome == "unsuccessful" else fields["run_accession"],
-            },
+            **{**fields, "material": str(material.pk), "outcome": outcome},
         )
         _sign(world, "editor", result, "submitted")
         _sign(world, "admin", result, "reviewed")

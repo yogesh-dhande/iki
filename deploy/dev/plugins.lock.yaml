@@ -26,6 +26,11 @@ plugins:
   - { name: iki/proteomics, local: ../../plugins/proteomics, state: active }
   - { name: iki/sequencing, local: ../../plugins/sequencing, state: active }
   - { name: iki/sequencing_analysis, local: ../../plugins/sequencing_analysis, state: active }
+  - {
+      name: iki/antibody_rearrangements,
+      local: ../../plugins/antibody_rearrangements,
+      state: active,
+    }
   - { name: iki/plasmid_sequencing, local: ../../plugins/plasmid_sequencing, state: active }
   - { name: iki/inventory, local: ../../plugins/inventory, state: active }
   - { name: iki/lab_roles, local: ../../plugins/lab_roles, state: active }

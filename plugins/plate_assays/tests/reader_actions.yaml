@@ -10,6 +10,7 @@ inputs:
     - values:
         name: Synthetic preview
         reader_file: { $file: reader }
+        reader_format: bmg_mars_absorbance
         size: plate_96
         assignments: [{ well: A9, control: low, replicate: 1 }]
 expect:
@@ -21,7 +22,18 @@ expect:
             preview:
               issues: ["Measured wells without assignments: A1, A2, A3, A4, A5, A6, A7, A8, A10."]
               readings:
-                [{ well: A9, control: low, value: 0.1, channel: Absorbance 484 nm, unit: AU }]
+                [
+                  {
+                    well: A9,
+                    control: low,
+                    value: 0.1,
+                    channel: Absorbance 484 nm,
+                    unit: AU,
+                    readout: absorbance,
+                  },
+                ]
+              format: { id: bmg_mars_absorbance, version: 1 }
+              acquisition: { test_name: Synthetic decreasing dose response, test_run: "1" }
 ---
 apiVersion: iki/v1
 kind: ActionTest
@@ -33,6 +45,7 @@ inputs:
     - values:
         name: Synthetic commit
         reader_file: { $file: reader }
+        reader_format: bmg_mars_absorbance
         size: plate_96
         assignments: [{ well: A9, control: low, replicate: 1 }]
 expect: { error: Resolve the preview issues before committing }
@@ -61,6 +74,7 @@ inputs:
               sample: 00000000-0000-7000-8003-000000000001
               well: A1
               channel: Absorbance 484 nm
+              readout: absorbance
               concentration: 10
               concentration_unit: nM
               replicate: 1
@@ -71,6 +85,7 @@ inputs:
               sample: 00000000-0000-7000-8003-000000000001
               well: A2
               channel: Absorbance 484 nm
+              readout: absorbance
               concentration: 20
               concentration_unit: nM
               replicate: 1
@@ -93,3 +108,39 @@ expect:
                 exclusion_reason: bubble in well,
                 excluded_by: 00000000-0000-7000-8005-000000000001,
               }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: preview_the_tox21_plate_matrix_as_normalized_activity
+description: >-
+  The Tox21 AID 1224835 teaching matrix in Iki's plate matrix format. Its signed percent
+  activity is previewed as normalized activity, never as absorbance.
+action: preview_reader
+files: { reader: tests/data/aid-1224835-activity.csv }
+inputs:
+  plate:
+    - values:
+        name: Tox21 luciferase
+        reader_file: { $file: reader }
+        reader_format: iki_plate_matrix
+        size: plate_96
+        assignments: [{ well: A1, control: tox21, replicate: 1 }]
+expect:
+  output:
+    updates:
+      plate:
+        - values:
+            preview:
+              format: { id: iki_plate_matrix, version: 1 }
+              acquisition: {}
+              unit: "%"
+              readings:
+                [
+                  {
+                    well: A1,
+                    value: 1.5711,
+                    unit: "%",
+                    readout: normalized_activity,
+                    channel: Normalized activity,
+                  },
+                ]

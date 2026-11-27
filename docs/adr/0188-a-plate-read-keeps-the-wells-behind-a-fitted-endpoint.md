@@ -1,6 +1,6 @@
 # 0188. A plate read keeps the wells behind a fitted endpoint
 
-- Status: Accepted
+- Status: Accepted. [ADR 0246](0246-a-plate-reader-file-is-read-in-a-named-format-one-read-per-export.md) names the reader formats and lets a plate take more than one read.
 - Date: 2026-11-22
 
 ## Context
