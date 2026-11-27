@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/antibody_rearrangements
-version: 0.1.0
+version: 0.2.0
 title: Antibody rearrangements
 description: Link a registered antibody to the AIRR rearrangements that encode its chains, as a curator's attributed statement.
 license: Apache-2.0

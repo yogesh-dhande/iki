@@ -627,3 +627,65 @@ expect:
         text: "Its isotype is igg1, as given: etanercept, compared whole as it has no numbered variable domain, is IgG1's, 99.1% identical to IMGT's IGHG1*01 (J00228) over 232 residues; the next nearest, IgG2's, is 92.2%."
       - level: info
         text: "The disulfides between its chains aren't given: its format is other, whose chains may be joined any way, so give them yourself if they're known; and 4 within its domains, each domain's own."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_macaques_constant_region_isnt_a_humans
+description: >-
+  A cynomolgus macaque's IgG heavy chain (GenBank L13307; Lewis et al., 1993) is
+  89.5% identical to human IgG1's, but nearer IMGT's rhesus IGHG1*03: it isn't
+  recorded as human, and its species and isotype are left for the registrant.
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: cynomolgus IgG heavy chain
+        sequence: QVQLQESGPGLVKPSETLSLTCAVSGGSISSAYDWSWIRQPPGKGLEWIGRIYGSGGSTSYNPSLKSRVTISIDTSKNQVSLKLSSVTAADTAVYYCARGDSGSYIRDNSLDVWGRGVLVTVSSASTKGPSVFPLAPSSRSTSESTAALGCLVKDYFPEPVTVSWNSGSLTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYVCNVNHKPSNTKVDKRVEIKTCGGGSKPPRCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSQEDPDVKFNWYVNGAEVHHARETQYNSTYRVVSVLTVTHQDWLNGKEYTCKVSNKALPAPIQKTISKDKGQPREPQVYTLPPSREELTKNQVSLTCLVKGFYPSDIVVEWESSGQPENTYKTTPPVLDSDGSYFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSVSPGK
+        variable_domains:
+          - { chain: H, start: 1, end: 124, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: trastuzumab light chain
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { format: igg }
+expect:
+  output:
+    creates:
+      - values:
+          format: igg
+    messages:
+      - level: warning
+        text: "cynomolgus IgG heavy chain's constant region is nearer a macaque constant region than any human one: IgG1's, 98.5% identical to IMGT's rhesus macaque IGHG1*03 (BK063715) over 332 residues; the nearest human one, IgG1's, is 89.5%. That's an Old World monkey's, whose species these references don't tell apart (a baboon's is as near them as a macaque's), so its species and isotype are left out: give macaque for a rhesus or cynomolgus macaque's, and its isotype is read off the chain."
+      - level: info
+        text: "The disulfides between its chains aren't given: its heavy chain's constant region isn't one human subclass's, so give them yourself if they're known; and 6 within its domains, each domain's own."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_macaques_isotype_is_read_as_a_macaque_names_it
+description: >-
+  Given as a macaque's, the same chain's isotype is read off IMGT's rhesus
+  references: IgG1.
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: cynomolgus IgG heavy chain
+        sequence: QVQLQESGPGLVKPSETLSLTCAVSGGSISSAYDWSWIRQPPGKGLEWIGRIYGSGGSTSYNPSLKSRVTISIDTSKNQVSLKLSSVTAADTAVYYCARGDSGSYIRDNSLDVWGRGVLVTVSSASTKGPSVFPLAPSSRSTSESTAALGCLVKDYFPEPVTVSWNSGSLTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYVCNVNHKPSNTKVDKRVEIKTCGGGSKPPRCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSQEDPDVKFNWYVNGAEVHHARETQYNSTYRVVSVLTVTHQDWLNGKEYTCKVSNKALPAPIQKTISKDKGQPREPQVYTLPPSREELTKNQVSLTCLVKGFYPSDIVVEWESSGQPENTYKTTPPVLDSDGSYFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSVSPGK
+        variable_domains:
+          - { chain: H, start: 1, end: 124, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: trastuzumab light chain
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { format: igg, constant_species: macaque }
+expect:
+  output:
+    creates:
+      - values:
+          format: igg
+          isotype: igg1
+          constant_species: macaque
