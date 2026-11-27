@@ -233,11 +233,11 @@ kind: ActionTest
 name: trastuzumab_at_21_mg_per_ml
 description: >-
   Trastuzumab (KEGG D03257) as iki/antibody assembles it: two copies each of its heavy
-  and light chains, and the 16 disulfides KEGG lists. Its complex keeps 145,197.41 g/mol
+  and light chains, and the 16 disulfides KEGG lists. Its complex keeps 145,199.44 g/mol
   and 213,380 L/(mol·cm) with every thiol free, as compute_composition gives them
-  (ADR 0161); its 16 cystines add 2,000 L/(mol·cm) and take 32.25 g/mol off, 215,380
-  over 145,165.16 g/mol, 1.4837 mL/(mg·cm). Herceptin is reconstituted at 21 mg/mL:
-  diluted 1 in 30, it reads 1.039, which is 1.039 × 30 / 1.4837 = 21.0084 mg/mL.
+  (ADR 0161); its 16 cystines add 2,000 L/(mol·cm) and take 32.26 g/mol off, 215,380
+  over 145,167.18 g/mol, 1.4837 mL/(mg·cm). Herceptin is reconstituted at 21 mg/mL:
+  diluted 1 in 30, it reads 1.039, which is 1.039 × 30 / 1.4837 = 21.0087 mg/mL.
 action: compute_protein_lot
 inputs:
   lot:
@@ -398,20 +398,20 @@ inputs:
                     partner_copy: 2,
                     partner_residue: 194,
                   }
-              molecular_weight: 145197.41
+              molecular_weight: 145199.44
               extinction_coefficient_reduced: 213380
 expect:
   output:
     updates:
       lot:
-        - values: { a280_extinction: 1.4837, concentration: 21.0084 }
+        - values: { a280_extinction: 1.4837, concentration: 21.0087 }
 ---
 apiVersion: iki/v1
 kind: ActionTest
 name: trastuzumab_reduced
 description: >-
-  Reduced, trastuzumab's thiols are free: 213,380 L/(mol·cm) over 145,197.41 g/mol,
-  1.4696 mL/(mg·cm), so the same A280 is 21.2101 mg/mL.
+  Reduced, trastuzumab's thiols are free: 213,380 L/(mol·cm) over 145,199.44 g/mol,
+  1.4696 mL/(mg·cm), so the same A280 is 21.2104 mg/mL.
 action: compute_protein_lot
 inputs:
   lot:
@@ -570,13 +570,13 @@ inputs:
                     partner_copy: 2,
                     partner_residue: 194,
                   }
-              molecular_weight: 145197.41
+              molecular_weight: 145199.44
               extinction_coefficient_reduced: 213380
 expect:
   output:
     updates:
       lot:
-        - values: { a280_extinction: 1.4696, concentration: 21.2101 }
+        - values: { a280_extinction: 1.4696, concentration: 21.2104 }
 ---
 apiVersion: iki/v1
 kind: ActionTest
