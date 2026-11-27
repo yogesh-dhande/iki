@@ -138,7 +138,7 @@ def test_results_must_be_files_the_command_made(
     )
     ran = run_local(worker_bin, tmp_path, run_input([sys.executable, "main.py"]), plugin=plugin)
     assert ran.returncode == 1
-    assert "isn't a file in IKI_OUT_DIR" in ran.stderr
+    assert "isn't a regular file in IKI_OUT_DIR" in ran.stderr
 
 
 def test_the_command_sees_only_its_own_environment_and_is_stopped_at_its_timeout(
