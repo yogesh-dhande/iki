@@ -6,7 +6,7 @@
 import { ifMatch, unwrap, type Problem, type Schemas } from "@ikisci/sdk";
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
-import { iki } from "./api";
+import { everyPage, iki } from "./api";
 import type { EntityType } from "./entities";
 
 export type Shape = Schemas["ShapeOut"];
@@ -40,7 +40,10 @@ export const STORAGE = ["storage"] as const;
 
 export const placesQuery = queryOptions({
   queryKey: [...STORAGE, "places"],
-  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/storage/places", { signal })),
+  queryFn: ({ signal }) =>
+    everyPage(async (page) =>
+      unwrap(await iki.GET("/api/v1/storage/places", { params: { query: page }, signal })),
+    ),
 });
 
 export function containerQuery(ref: string) {
@@ -87,12 +90,14 @@ export type CheckedOut = Schemas["CheckedOutOut"];
 export function checkedOutQuery(custodian?: string) {
   return queryOptions({
     queryKey: [...STORAGE, "checked-out", custodian ?? "all"],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/storage/checked-out", {
-          params: { query: custodian ? { custodian } : {} },
-          signal,
-        }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/storage/checked-out", {
+            params: { query: { ...(custodian ? { custodian } : {}), ...page } },
+            signal,
+          }),
+        ),
       ),
   });
 }
@@ -100,19 +105,25 @@ export function checkedOutQuery(custodian?: string) {
 /** What was received into someone's custody without a location, and isn't put away yet. */
 export const awaitingPutAwayQuery = queryOptions({
   queryKey: [...STORAGE, "awaiting-put-away"],
-  queryFn: async ({ signal }) =>
-    unwrap(await iki.GET("/api/v1/storage/awaiting-put-away", { signal })),
+  queryFn: ({ signal }) =>
+    everyPage(async (page) =>
+      unwrap(
+        await iki.GET("/api/v1/storage/awaiting-put-away", { params: { query: page }, signal }),
+      ),
+    ),
 });
 
 export function reconciliationsQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "reconciliations", ref.toUpperCase()],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/storage/containers/{ref}/reconciliations", {
-          params: { path: { ref } },
-          signal,
-        }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/storage/containers/{ref}/reconciliations", {
+            params: { path: { ref }, query: page },
+            signal,
+          }),
+        ),
       ),
   });
 }
@@ -176,13 +187,13 @@ async function historyPage(
   const cancel = signal ? { signal } : {};
   return parent === "receipts"
     ? unwrap(
-        await iki.GET("/api/v1/receipts/{receipt_id}/history", {
+        await iki.GET("/api/v1/receipts/{receipt_id}/observations", {
           params: { path: { receipt_id: id }, query },
           ...cancel,
         }),
       )
     : unwrap(
-        await iki.GET("/api/v1/reconciliations/{reconciliation_id}/history", {
+        await iki.GET("/api/v1/reconciliations/{reconciliation_id}/observations", {
           params: { path: { reconciliation_id: id }, query },
           ...cancel,
         }),
@@ -413,7 +424,7 @@ export async function cancelCount(
 
 /** The records a scanned code names, among those its reader can read. */
 export async function scanFor(code: string): Promise<ScanMatch[]> {
-  return unwrap(await iki.GET("/api/v1/storage/scan", { params: { query: { code } } })).items;
+  return unwrap(await iki.GET("/api/v1/storage/scan", { params: { query: { code } } })).matches;
 }
 
 // --- Which tube a scan identifies ---------------------------------------------------------------

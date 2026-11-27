@@ -124,7 +124,7 @@ function inBox(found: Schemas["ContainerOut"]) {
 
 function onBox(found = container()) {
   withTypes();
-  answer("GET /api/v1/entity-types", [PROTEIN, TUBE_TYPE]);
+  answer("GET /api/v1/entity-types", page([PROTEIN, TUBE_TYPE]));
   answer("GET /api/v1/storage/containers/BOX-000014", found);
   answer(`GET /api/v1/storage/containers/${BOX_ID}`, found);
   answer("POST /api/v1/storage/scan/resolve", inBox(found));
@@ -293,7 +293,7 @@ describe("a container's page", () => {
       const target = { ...occupant(23, 2, 3), code };
       onBox({ ...container(), contents: [target] });
       const lookup = "/api/v1/storage/scan";
-      answer(`GET ${lookup}`, { code: "RC001", items: [] });
+      answer(`GET ${lookup}`, { code: "RC001", matches: [] });
       await renderApp("/storage/BOX-000014/");
       const button = screen.getByRole("button", { name: "Show free positions" });
       button.focus();
@@ -362,7 +362,7 @@ describe("a container's page", () => {
       return {
         done: !body.preview,
         operation: body.preview ? null : "00000000-0000-7000-8000-000000000099",
-        items: [11, 12].map((n, i) => ({
+        moves: [11, 12].map((n, i) => ({
           record: {
             id: occupant(n, 1, 1).id ?? "",
             hrid: `TUBE-0000${String(n)}`,
@@ -430,7 +430,7 @@ describe("a container's page", () => {
     expect(sent[0]).toMatchObject({ preview: true });
     expect(resolved()).toEqual([{ scope: "destination", code: "BOX-000015" }]);
     expect(sent[1]).toEqual({
-      items: [
+      moves: [
         { record: occupant(11, 1, 1).id, to: "BOX-000015", position: "C1" },
         { record: occupant(12, 1, 2).id, to: "BOX-000015", position: "C3" },
       ],
@@ -488,13 +488,13 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
   }
 
   function plan(call: Sent) {
-    const body = call.body as { preview: boolean; items: { to_choice?: string }[] };
-    const to = body.items[0]?.to_choice === OTHER.id ? OTHER : SPARE;
+    const body = call.body as { preview: boolean; moves: { to_choice?: string }[] };
+    const to = body.moves[0]?.to_choice === OTHER.id ? OTHER : SPARE;
     return {
       done: !body.preview,
       operation: body.preview ? null : "00000000-0000-7000-8000-000000000099",
       plan: body.preview ? "e5".repeat(32) : null,
-      items: [first, second].map((o, i) => ({
+      moves: [first, second].map((o, i) => ({
         record: {
           id: o.id ?? "",
           hrid: o.ref?.hrid ?? "",
@@ -515,7 +515,7 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
   async function openMove() {
     solo = [first];
     onBox({ ...container(), contents: [first, second] });
-    answer("GET /api/v1/entity-types", [PROTEIN, MOVED]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, MOVED]));
     answer("POST /api/v1/storage/scan/resolve", resolver);
     answer("POST /api/v1/storage/moves", plan);
     const { user } = await renderApp("/storage/BOX-000014/");
@@ -626,7 +626,7 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
       (call.body as { preview: boolean }).preview
         ? plan(call)
         : problem(422, "validation_failed", "Some fields are invalid.", [
-            { pointer: "#/items/0", detail: refused },
+            { pointer: "#/moves/0", detail: refused },
           ]),
     );
     await user.click(within(dialog).getByRole("button", { name: "Move all 2" }));
@@ -707,11 +707,11 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
     // Meanwhile another bench puts a tube in BOX-000015's A1: the first would now go to A3.
     const shown = (calls("POST", "/api/v1/storage/moves").at(-1)?.body ?? {}) as Sent["body"];
     const now = plan({ body: shown } as Sent);
-    const [mine, theirs] = now.items;
+    const [mine, theirs] = now.moves;
     const moved = {
       ...now,
       plan: "f6".repeat(32),
-      items: [{ ...mine, to: mine?.to ? { ...mine.to, position: "A3" } : null }, theirs],
+      moves: [{ ...mine, to: mine?.to ? { ...mine.to, position: "A3" } : null }, theirs],
     };
     answer("POST /api/v1/storage/moves", (call: Sent) =>
       (call.body as { plan?: string }).plan === moved.plan
@@ -763,12 +763,12 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
         { ...second, custodian, custody_since: "2026-11-23T09:00:00Z" },
       ],
     });
-    answer("GET /api/v1/entity-types", [PROTEIN, MOVED]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, MOVED]));
     answer("POST /api/v1/storage/scan/resolve", resolver);
     answer(
       "POST /api/v1/storage/check-in",
       problem(422, "validation_failed", "Some fields are invalid.", [
-        { pointer: "#/items/0", detail: "Could not confirm TUBE-000011." },
+        { pointer: "#/check_ins/0", detail: "Could not confirm TUBE-000011." },
       ]),
     );
     const { user } = await renderApp("/storage/BOX-000014/");
@@ -845,7 +845,7 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
     const table = await within(dialog).findByRole("table", { name: "What moving them does" });
     expect(table).toHaveTextContent("BOX-000016, A1");
     expect(calls("POST", "/api/v1/storage/moves").at(-1)?.body).toMatchObject({
-      items: [
+      moves: [
         { record: first.id, to: "RACK-SHELF", to_choice: OTHER.id },
         { record: second.id, to: "RACK-SHELF", to_choice: OTHER.id },
       ],
@@ -864,10 +864,10 @@ describe("a record's page", () => {
       type: "acme/lims.Tube",
       values: {},
     });
-    answer("GET /api/v1/entity-types", [PROTEIN, TUBE_TYPE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, TUBE_TYPE]));
     answer("GET /api/v1/entities/TUBE-000023", tube);
     answer("GET /api/v1/entities/TUBE-000023/provenance", {});
-    answer("GET /api/v1/entities/TUBE-000023/projects", []);
+    answer("GET /api/v1/entities/TUBE-000023/projects", page([]));
     answer(`GET /api/v1/entities/${tube.id}/location`, {
       path: [FREEZER, { ...FREEZER, id: BOX_ID, hrid: "BOX-000014", title: "Kinase retains" }],
       hidden: false,

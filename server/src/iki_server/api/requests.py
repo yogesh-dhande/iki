@@ -30,9 +30,10 @@ from iki_server.api.entities import (
     _one,
     _out,
 )
+from iki_server.api.pagination import PageParams, page_by
 from iki_server.api.preconditions import IfMatch
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import ProjectRef, UserOut
+from iki_server.api.schemas import Page, ProjectRef, UserOut
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import access, registry, requests, services
 from iki_server.entities.models import Entity, ProjectLink, Request
@@ -80,9 +81,12 @@ class ServiceOut(Schema):
     )
 
 
-class ServicesFilters(Schema):
-    type: str | None = Field(
-        None, description="Only services taking this request type (qualified), or a parent."
+class ServicesFilters(PageParams):
+    type: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Only services taking one of these request types (qualified), or a parent "
+        "of one: repeat it for several.",
     )
 
 
@@ -198,69 +202,67 @@ def _invalid(error: Invalid) -> Problem:
 
 @router.get(
     "/projects/{project_id}/services",
-    response=list[ServiceOut],
+    response=Page[ServiceOut],
     summary="The services a project may send requests to",
 )
 def list_services(
     request: HttpRequest, project_id: UUID, filters: Query[ServicesFilters]
-) -> list[dict[str, Any]]:
-    """Each project that takes requests from this one (ADR 0132), of `type` if given, with
-    the request types it takes. Its members can read them: a service's name and description
-    are what it shows those it serves."""
+) -> dict[str, Any]:
+    """Each project that takes requests from this one (ADR 0132), by name, of one of `type`
+    if given, with the request types it takes. Its members can read them: a service's name
+    and description are what it shows those it serves."""
     me = caller(request)
     asking = project(me, project_id, Action.PROJECT_READ)
-    wanted = filters.type
-    if wanted is not None and (wanted not in registry.types() or requests.spec_of(wanted) is None):
-        return []
+    wanted = [t for t in filters.type if t in registry.types() and requests.spec_of(t) is not None]
+    if filters.type and not wanted:
+        return {"items": [], "next_cursor": None}
+    accepted = {n for t in wanted for n in requests.accepted_by(t)}
+    found = page_by(requests.services_for(asking, wanted), filters, by=("name", "pk"))
     out = []
-    for found in services_list(asking, wanted):
-        intake = requests.intake_of(found)
+    for service in found["items"]:
+        intake = requests.intake_of(service)
         out.append(
             {
-                "project": found,
-                "description": found.description,
-                "types": [
-                    _type_ref(t)
-                    for t in intake.types
-                    if wanted is None or t in requests.accepted_by(wanted)
-                ],
+                "project": service,
+                "description": service.description,
+                "types": [_type_ref(t) for t in intake.types if not wanted or t in accepted],
             }
         )
-    return out
+    return {**found, "items": out}
 
 
 @router.get(
     "/projects/{project_id}/sent-to",
-    response=list[ProjectRef],
+    response=Page[ProjectRef],
     summary="The services a project has sent requests to",
 )
-def list_sent_to(request: HttpRequest, project_id: UUID) -> list[Project]:
+def list_sent_to(
+    request: HttpRequest, project_id: UUID, params: Query[PageParams]
+) -> dict[str, Any]:
     """Each project this one has sent a request to (ADR 0132), by name, whether or not it
     still takes them: what its requests' `service` says, and the `sent_to` condition
     finds. Its members can read them; nothing else of those projects shows."""
     me = caller(request)
     asking = project(me, project_id, Action.PROJECT_READ)
     sent = Request.objects.filter(entity__owner_project=asking).values("service_id")
-    return list(Project.objects.filter(pk__in=sent).order_by("name", "pk")[:200])
+    return page_by(Project.objects.filter(pk__in=sent), params, by=("name", "pk"))
 
 
 @router.get(
     "/projects/{project_id}/sent-from",
-    response=list[ProjectRef],
+    response=Page[ProjectRef],
     summary="The projects that have sent a project requests",
 )
-def list_sent_from(request: HttpRequest, project_id: UUID) -> list[Project]:
+def list_sent_from(
+    request: HttpRequest, project_id: UUID, params: Query[PageParams]
+) -> dict[str, Any]:
     """Each project that has sent this one a request (ADR 0132), by name: what its queue's
     requests' `asking_project` says, which its `owner_project` condition finds. Its members
     can read them, though they can't see those projects; nothing else of theirs shows."""
     me = caller(request)
     service = project(me, project_id, Action.PROJECT_READ)
     asking = Request.objects.filter(service=service).values("entity__owner_project_id")
-    return list(Project.objects.filter(pk__in=asking).order_by("name", "pk")[:200])
-
-
-def services_list(asking: Project, type_name: str | None) -> list[Project]:
-    return list(requests.services_for(asking, type_name).order_by("name", "pk")[:200])
+    return page_by(Project.objects.filter(pk__in=asking), params, by=("name", "pk"))
 
 
 @router.post(

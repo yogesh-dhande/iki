@@ -22,7 +22,7 @@ import {
 } from "./lineage";
 import { searchWords } from "./filters";
 import { ACTION } from "./run-fixtures";
-import { answer, calls } from "./test-server";
+import { answer, calls, page } from "./test-server";
 
 const PARENT = "00000000-0000-7000-8000-00000000e000";
 const CHILD = "00000000-0000-7000-8000-00000000e002";
@@ -207,7 +207,7 @@ describe("an entity's lineage page", () => {
     );
     answer("GET /api/v1/entities/PRT-000001/downstream", walk());
     answer("GET /api/v1/entities/PRT-000001/graph", graph());
-    answer("GET /api/v1/actions", [ACTION]);
+    answer("GET /api/v1/actions", page([ACTION]));
   }
 
   it("starts with what it was derived from, and says what it can't show", async () => {

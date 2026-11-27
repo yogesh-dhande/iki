@@ -30,7 +30,7 @@ from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import F, Q, QuerySet
+from django.db.models import Case, F, Q, QuerySet, Value, When
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
 from pydantic import ConfigDict, ValidationError, field_serializer
@@ -40,7 +40,14 @@ from iki_server.amounts import eligibility
 from iki_server.amounts.models import DrawPurpose
 from iki_server.api import common, csvs, preconditions
 from iki_server.api.common import caller, project, require
-from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT, PageParams, page
+from iki_server.api.pagination import (
+    DEFAULT_LIMIT,
+    MAX_LIMIT,
+    PageParams,
+    page,
+    page_by,
+    page_sorted,
+)
 from iki_server.api.preconditions import IfMatch
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import (
@@ -1331,15 +1338,26 @@ class EntityProjectOut(Schema):
     linked_at: datetime
 
 
+#: The most types a filter names.
+MAX_TYPES = 20
+
+
+def typed(names: list[str]) -> dict[str, Any]:
+    """A search's ``type`` and ``types`` for a ``type`` filter's types: one is a search of
+    that type, its fields' conditions and columns its own; several are any one of them, as a
+    reference to several types names them (ADR 0136)."""
+    if len(names) == 1:
+        return {"type": names[0]}
+    return {"types": tuple(names)}
+
+
 class EntityFilters(PageParams):
-    type: str | None = Field(None, description="This type and its subtypes.")
-    types: list[str] | None = Field(
-        None,
-        max_length=20,
-        description="Any one of these types, and their subtypes, as a reference to several "
-        "types names them (ADR 0136). Not with `type`.",
+    type: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_TYPES,
+        description="Only these types and their subtypes: repeat it for several.",
     )
-    exact_type: bool = Field(False, description="Only the type itself, not its subtypes.")
+    exact_type: bool = Field(False, description="Only the types themselves, not subtypes.")
     project: UUID | None = Field(None, description="Entities that belong to this project.")
     archived: bool | None = None
     q: str | None = Field(
@@ -1760,14 +1778,15 @@ def _display(unit: str | None, display_unit: str | None) -> dict[str, float | No
 
 @router.get(
     "/entity-types",
-    response=list[EntityTypeOut],
+    response=Page[EntityTypeOut],
     summary="The installed entity types",
     by_alias=True,
 )
-def list_types(request: HttpRequest) -> list[dict[str, Any]]:
+def list_types(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
     """Every type the deployment's plugins define, abstract ones included, by name."""
     caller(request)
-    return [_type_out(t) for _, t in sorted(_types().items())]
+    found = page_sorted(_types().items(), params, by=("name",), key=lambda t: (t[0],))
+    return {**found, "items": [_type_out(t) for _, t in found["items"]]}
 
 
 @router.get(
@@ -2507,8 +2526,7 @@ def list_entities(request: HttpRequest, filters: Query[EntityFilters]) -> dict[s
     if filters.project:
         project(me, filters.project)
     wanted = search.Search(
-        type=filters.type,
-        types=tuple(filters.types or ()),
+        **typed(filters.type),
         exact_type=filters.exact_type,
         project=filters.project,
         archived=filters.archived,
@@ -2595,8 +2613,14 @@ EXPORT_PAGE = 500
 
 
 class SearchCsvParams(Schema):
-    type: str | None = Field(None, description="This type and its subtypes.")
-    exact_type: bool = Field(False, description="Only the type itself, not its subtypes.")
+    type: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_TYPES,
+        description="Only these types and their subtypes: repeat it for several. With one, "
+        "``where`` and ``columns`` may name its fields; with several, only those every entity "
+        "has.",
+    )
+    exact_type: bool = Field(False, description="Only the types themselves, not subtypes.")
     project: UUID | None = Field(None, description="Entities that belong to this project.")
     archived: bool | None = None
     q: str | None = Field(
@@ -2654,7 +2678,7 @@ def search_csv(request: HttpRequest, params: Query[SearchCsvParams]) -> Streamin
     place = project(me, params.project) if params.project else None
     where = _where_of(params.where)
     wanted = search.Search(
-        type=params.type,
+        **typed(params.type),
         exact_type=params.exact_type,
         project=params.project,
         archived=params.archived,
@@ -2666,15 +2690,16 @@ def search_csv(request: HttpRequest, params: Query[SearchCsvParams]) -> Streamin
         descending=params.descending,
         then=tuple((t.removeprefix("-"), t.startswith("-")) for t in params.then),
     )
-    entity_type = registry.types().get(params.type) if params.type else None
-    typed = entity_type if entity_type is not None and params.type != "iki/core.Entity" else None
+    one = params.type[0] if len(params.type) == 1 else None
+    entity_type = registry.types().get(one) if one else None
+    of_type = entity_type if entity_type is not None and one != "iki/core.Entity" else None
     # Each page is read in one snapshot (ADR 0207): a row's values are those of the revision
     # and time it ends with, whatever's committed while the page is read.
     with snapshot(), _searching(parameters=True):
         found = search.queryset(me, wanted)
         try:
             table = search_exports.columns(
-                _type_out(typed) if typed is not None else None,
+                _type_out(of_type) if of_type is not None else None,
                 params.columns,
                 projects=place is None,
             )
@@ -2682,7 +2707,7 @@ def search_csv(request: HttpRequest, params: Query[SearchCsvParams]) -> Streamin
             raise search.SearchError([(f"#/columns/{error.index}", str(error))]) from error
         rows, cursor = search.page(found, wanted, None, EXPORT_PAGE)
         first = _table_rows(me, rows)
-    name = _download_name(place, typed)
+    name = _download_name(place, of_type)
     with transaction.atomic():
         audit.record(
             "search.exported",
@@ -2816,45 +2841,50 @@ def _searching(*, parameters: bool = False) -> Iterator[None]:
 
 
 #: More entities than one value of a unique field has across the projects a person reads.
-LOOKUP_LIMIT = 100
 
 
-class LookupParams(Schema):
-    type: str = Field(description="The entity type, such as `iki/protein.Protein`; subtypes count.")
-    field: str = Field(description="One of the type's unique fields, such as `lims_id`.")
+class LookupParams(PageParams):
+    type: list[str] = Field(
+        min_length=1,
+        max_length=MAX_TYPES,
+        description="The entity types, such as `iki/protein.Protein`, each with its subtypes: "
+        "repeat it for several.",
+    )
+    field: str = Field(description="A unique field of each type, such as `lims_id`.")
     value: str = Field(min_length=1, max_length=600)
     project: UUID | None = Field(None, description="Only entities that belong to this project.")
 
 
-@router.get("/entities/lookup", response=list[EntityOut], summary="Entities by an external ID")
-def lookup_entities(request: HttpRequest, params: Query[LookupParams]) -> list[dict[str, Any]]:
+@router.get("/entities/lookup", response=Page[EntityOut], summary="Entities by an external ID")
+def lookup_entities(request: HttpRequest, params: Query[LookupParams]) -> dict[str, Any]:
     """The entities you can read of ``type`` (or a subtype) whose unique ``field`` is
     ``value``, such as the record's ID in a LIMS (ADR 0082). Each project has at most one of
     its own, so with ``project`` you get its own and any linked into it. Oldest first."""
     me = caller(request)
-    type_name, field, project_id = params.type, params.field, params.project
-    if type_name not in _types():
-        raise Problem(404, f"There’s no entity type {type_name}.")
-    form = shape(type_name)
-    spec = form.fields().get(field)
-    if spec is None or not spec.unique:
-        raise Problem(
-            422,
-            f"`{field}` isn’t a unique field of {type_name}.",
-            code="validation_failed",
-            errors=[{"parameter": "field", "detail": "isn't a unique field of the type."}],
-        )
+    field, project_id = params.field, params.project
+    matching = Q(pk__in=[])
+    for type_name in params.type:
+        if type_name not in _types():
+            raise Problem(404, f"There’s no entity type {type_name}.")
+        form = shape(type_name)
+        spec = form.fields().get(field)
+        if spec is None or not spec.unique:
+            raise Problem(
+                422,
+                f"`{field}` isn’t a unique field of {type_name}.",
+                code="validation_failed",
+                errors=[{"parameter": "field", "detail": "isn't a unique field of the type."}],
+            )
+        rows = unique.holders(unique.key(form.part_of(field).model, field), params.value)
+        # A unique registry fact is its entries' (ADR 0115): their records are what's found.
+        matching |= (Q(pk__in=rows) | Q(entry__in=rows)) & Q(type__in=subtypes(type_name))
     if project_id is not None:
         project(me, project_id)
-    rows = unique.holders(unique.key(form.part_of(field).model, field), params.value)
-    # A unique registry fact is its entries' (ADR 0115): their records are what's found.
-    entities = access.visible(me).filter(
-        Q(pk__in=rows) | Q(entry__in=rows), type__in=subtypes(type_name)
-    )
+    entities = access.visible(me).filter(matching)
     if project_id is not None:
         entities = entities.filter(links__project_id=project_id)
-    picked = list(entities.select_related("created_by").order_by("created_at", "pk")[:LOOKUP_LIMIT])
-    return _out(me, picked)
+    found = page_by(entities.select_related("created_by"), params, by=("created_at", "pk"))
+    return {**found, "items": _out(me, found["items"])}
 
 
 class TypeCountOut(Schema):
@@ -3300,21 +3330,17 @@ class ProjectChangeOut(RevisionOut):
     entity: ChangedOut = Field(description="The record it changed.")
 
 
-class ChangesParams(Schema):
-    limit: int = Field(10, ge=1, le=50, description="How many, newest first.")
-
-
 @router.get(
     "/projects/{project_id}/changes",
-    response=list[ProjectChangeOut],
+    response=Page[ProjectChangeOut],
     summary="A project's latest changes",
     by_alias=True,
 )
 def project_changes(
     request: HttpRequest,
     project_id: UUID,
-    params: Query[ChangesParams],
-) -> list[dict[str, Any]]:
+    params: Query[PageParams],
+) -> dict[str, Any]:
     """Newest first: the latest revisions of the records in the project (its own, and those
     linked into it) that you can read, as its Entities tab lists them, each with the record
     it changed. Its records' own revisions: a registry entry's curation is on the entry's
@@ -3323,13 +3349,14 @@ def project_changes(
     me = caller(request)
     found = project(me, project_id, Action.PROJECT_READ)
     records = search.queryset(me, search.Search(project=found.pk)).values("pk")
-    revisions = list(
-        Revision.objects.filter(entity__in=records)
-        .select_related("user", "agent", "entity")
-        # Revisions' IDs are UUIDv7, in the order they were made, imported ones' included:
-        # newest first by the primary key's index, without sorting the project's history.
-        .order_by("-id")[: params.limit]
+    # Revisions' IDs are UUIDv7, in the order they were made, imported ones' included:
+    # newest first by the primary key's index, without sorting the project's history.
+    paged = page(
+        Revision.objects.filter(entity__in=records).select_related("user", "agent", "entity"),
+        params,
+        newest_first=True,
     )
+    revisions = paged["items"]
     entities = list({r.entity_id: r.entity for r in revisions}.values())
     values = services.current_values_of(entities) if entities else {}
     submitted = _submissions(me, revisions)
@@ -3358,7 +3385,7 @@ def project_changes(
                 },
             }
         )
-    return out
+    return {**paged, "items": out}
 
 
 def _holds_opened(
@@ -3755,17 +3782,21 @@ class OriginOut(Schema):
 
 @router.get(
     "/entities/{ref}/origins",
-    response=list[OriginOut],
+    response=Page[OriginOut],
     summary="Where it was imported from",
 )
-def get_origins(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
+def list_origins(request: HttpRequest, ref: str, params: Query[PageParams]) -> dict[str, Any]:
     """The records runs imported it from, newest first: a public database's, or one in a
     file. An entity found again by a later import lists each."""
     me = caller(request)
     entity = _find(me, ref)
-    rows = list(
-        ExternalOrigin.objects.filter(entity=entity).select_related("run", "file").order_by("-id")
+    paged = page(
+        ExternalOrigin.objects.filter(entity=entity).select_related("run", "file"),
+        params,
+        key="id",
+        newest_first=True,
     )
+    rows = paged["items"]
     runs = set(
         visible_runs(me).filter(pk__in={r.run_id for r in rows}).values_list("pk", flat=True)
     )
@@ -3774,7 +3805,7 @@ def get_origins(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
         .filter(pk__in={r.file_id for r in rows if r.file_id})
         .values_list("pk", flat=True)
     )
-    return [
+    items = [
         {
             "source": row.source,
             "id": row.identifier,
@@ -3798,6 +3829,7 @@ def get_origins(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+    return {**paged, "items": items}
 
 
 def _made(made: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -3837,24 +3869,28 @@ class MakingOut(Schema):
 
 
 @router.get(
-    "/entities/{ref}/making",
-    response=list[MakingOut],
+    "/entities/{ref}/makings",
+    response=Page[MakingOut],
     summary="How it was made",
 )
-def get_making(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
-    """How it was made, and who says so (ADR 0106), one tool at a time, Iki's own records
-    first: a run of an action that lists its software, or what a record it was imported
-    from says. Empty when it was made by hand, or its source doesn't say."""
+def list_makings(request: HttpRequest, ref: str, params: Query[PageParams]) -> dict[str, Any]:
+    """How it was made, and who says so (ADR 0106), one making (a tool) at a time, Iki's own
+    records first: a run of an action that lists its software, or what a record it was
+    imported from says. Empty when it was made by hand, or its source doesn't say."""
     me = caller(request)
     entity = _find(me, ref)
-    rows = list(
-        EntityMaking.objects.filter(entity=entity).select_related("run", "origin").order_by("id")
+    paged = page_by(
+        EntityMaking.objects.filter(entity=entity)
+        .select_related("run", "origin")
+        .annotate(by_source=Case(When(by=MadeBy.IKI, then=Value(0)), default=Value(1))),
+        params,
+        by=("by_source", "id"),
     )
+    rows = paged["items"]
     runs = set(
         visible_runs(me).filter(pk__in={r.run_id for r in rows}).values_list("pk", flat=True)
     )
-    rows.sort(key=lambda r: (r.by != MadeBy.IKI, r.id))
-    return [
+    items = [
         {
             "by": row.by,
             "kind": row.kind,
@@ -3880,6 +3916,7 @@ def get_making(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+    return {**paged, "items": items}
 
 
 class BundleOriginOut(Schema):
@@ -3901,27 +3938,29 @@ class BundleOriginOut(Schema):
 
 @router.get(
     "/entities/{ref}/bundles",
-    response=list[BundleOriginOut],
+    response=Page[BundleOriginOut],
     summary="Which bundles it was imported from",
 )
-def get_bundle_origins(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
+def list_bundle_origins(
+    request: HttpRequest, ref: str, params: Query[PageParams]
+) -> dict[str, Any]:
     """The imports from other deployments that made it here, or added to its history,
     newest first (ADR 0096)."""
     from iki_server.bundles.models import EntityPlan, ImportEntity, ImportState
 
     me = caller(request)
     entity = _find(me, ref)
-    rows = (
+    paged = page_by(
         ImportEntity.objects.filter(
             entity_id=entity.pk,
             bundle_import__state=ImportState.APPLIED,
             action__in=[EntityPlan.NEW, EntityPlan.UPDATE],
-        )
-        .select_related("bundle_import__project__team", "bundle_import__applied_by")
-        .order_by("-bundle_import__applied_at")
+        ).select_related("bundle_import__project__team", "bundle_import__applied_by"),
+        params,
+        by=("-bundle_import__applied_at", "-pk"),
     )
     out = []
-    for row in rows:
+    for row in paged["items"]:
         made = row.bundle_import
         out.append(
             {
@@ -3939,7 +3978,7 @@ def get_bundle_origins(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
                 "project_slug": made.project.slug,
             }
         )
-    return out
+    return {**paged, "items": out}
 
 
 # --- Projects ------------------------------------------------------------------------------------
@@ -3956,21 +3995,23 @@ def _link_out(link: ProjectLink, entity: Entity) -> dict[str, Any]:
 
 @router.get(
     "/entities/{ref}/projects",
-    response=list[EntityProjectOut],
+    response=Page[EntityProjectOut],
     summary="The projects an entity belongs to",
 )
-def list_entity_projects(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
-    """Only the projects you can see."""
+def list_entity_projects(
+    request: HttpRequest, ref: str, params: Query[PageParams]
+) -> dict[str, Any]:
+    """Only the projects you can see, in the order it joined them."""
     me = caller(request)
     entity = _find(me, ref)
-    links = (
+    links = page_by(
         ProjectLink.objects.filter(
             entity=entity, project__in=permissions.visible_projects(me).values("pk")
-        )
-        .select_related("project", "linked_by")
-        .order_by("linked_at", "pk")
+        ).select_related("project", "linked_by"),
+        params,
+        by=("linked_at", "pk"),
     )
-    return [_link_out(link, entity) for link in links]
+    return {**links, "items": [_link_out(link, entity) for link in links["items"]]}
 
 
 @router.put(

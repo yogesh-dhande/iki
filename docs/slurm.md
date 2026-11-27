@@ -102,7 +102,7 @@ Templates are shown, read-only, under **Compute → Slurm**.
 
 Each project's jobs are charged to a Slurm account on each cluster. Under
 **Compute → Slurm**, a Compute admin sets the account for each project. The
-API is `PUT /api/v1/compute/slurm/{cluster}/accounts/{project_id}`. A
+API is `PUT /api/v1/compute/slurm-clusters/{cluster}/accounts/{project_id}`. A
 project without one uses its template's `account`. If the template has none,
 the project's runs fail with a message saying who can set it. The audit log
 records each change, with the account before and after

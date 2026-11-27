@@ -30,8 +30,8 @@ function onProject(can: Partial<Schemas["ProjectOut"]["can"]> = {}): void {
   withTypes();
   const atlas = project({ can: { ...KINASE.can, run: ["self_hosted", "backend"], ...can } });
   answer("GET /api/v1/projects", page([atlas]));
-  answer("GET /api/v1/actions", [WEIGH_ACTION]);
-  answer("GET /api/v1/workflows", [WORKFLOW, ON_MACHINES, OFFLINE]);
+  answer("GET /api/v1/actions", page([WEIGH_ACTION]));
+  answer("GET /api/v1/workflows", page([WORKFLOW, ON_MACHINES, OFFLINE]));
 }
 
 describe("a project's workflows", () => {

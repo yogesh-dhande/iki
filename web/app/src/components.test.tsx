@@ -61,13 +61,13 @@ const EVIDENCE_PATH = "/api/v1/components/iki/equipment.instrument_uses/entities
 /** A protein's page, with a tab on every record whose search finds `found` for it. */
 function onEvidence(found: unknown[]) {
   onResidues();
-  answer("GET /api/v1/components", [RESIDUES, EVIDENCE]);
+  answer("GET /api/v1/components", page([RESIDUES, EVIDENCE]));
   answer(`POST ${EVIDENCE_PATH}`, page(found));
 }
 
 function onResidues() {
   withTypes();
-  answer("GET /api/v1/components", [RESIDUES]);
+  answer("GET /api/v1/components", page([RESIDUES]));
   answer("GET /api/v1/entities/PRT-000001", entity());
 }
 
@@ -158,7 +158,7 @@ describe("tabs", () => {
 
   it("say so when there's no such component for the entity", async () => {
     onResidues();
-    answer("GET /api/v1/components", []);
+    answer("GET /api/v1/components", page([]));
     await renderApp("/entities/PRT-000001/components/iki/protein.residues/");
     expect(await screen.findByRole("heading", { name: "Not found" })).toBeInTheDocument();
   });
@@ -265,9 +265,9 @@ describe("an action it offers", () => {
 
   async function open(can: string[]) {
     withTypes();
-    answer("GET /api/v1/components", [OFFERING]);
+    answer("GET /api/v1/components", page([OFFERING]));
     answer("GET /api/v1/entities/PRT-000001", entity());
-    answer("GET /api/v1/actions", [ACTION]);
+    answer("GET /api/v1/actions", page([ACTION]));
     answer(
       "GET /api/v1/projects",
       page([project({ can: { ...project().can, run: can as never } })]),

@@ -8,7 +8,7 @@ import { unwrap, type Schemas } from "@ikisci/sdk";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { useId } from "react";
 
-import { iki } from "./api";
+import { everyPage, iki } from "./api";
 
 export type OutsideApi = Schemas["OutsideApiOut"];
 export type Statement = Schemas["ConsentStatementOut"];
@@ -19,19 +19,24 @@ export const OUTSIDE_APIS = ["outside-apis"] as const;
 /** Every installed outside API, with each project's approval: for Org Admins. */
 export const outsideApisQuery = queryOptions({
   queryKey: [...OUTSIDE_APIS, "all"],
-  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/outside-apis", { signal })),
+  queryFn: ({ signal }) =>
+    everyPage(async (page) =>
+      unwrap(await iki.GET("/api/v1/outside-apis", { params: { query: page }, signal })),
+    ),
 });
 
 /** Every installed outside API, with whether it's approved for the project. */
 export function projectOutsideApisQuery(projectId: string) {
   return queryOptions({
     queryKey: [...OUTSIDE_APIS, "project", projectId],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/projects/{project_id}/outside-apis", {
-          params: { path: { project_id: projectId } },
-          signal,
-        }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/projects/{project_id}/outside-apis", {
+            params: { path: { project_id: projectId }, query: page },
+            signal,
+          }),
+        ),
       ),
   });
 }

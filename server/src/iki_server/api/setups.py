@@ -13,7 +13,7 @@ from django.http import HttpRequest, HttpResponse
 from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.api.common import caller, require
-from iki_server.api.pagination import PageParams, page
+from iki_server.api.pagination import PageParams, page, page_sorted
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, PersonRef
 from iki_server.entities import registry
@@ -77,58 +77,65 @@ class EnvironmentVolumesOut(Schema):
 
 @router.get(
     "/compute/volumes",
-    response=list[EnvironmentVolumesOut],
+    response=Page[EnvironmentVolumesOut],
     summary="Environments' volumes and their versions",
 )
-def list_volumes(request: HttpRequest) -> list[dict[str, Any]]:
-    """Each installed environment that declares volumes."""
+def list_volumes(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
+    """Each installed environment that declares volumes, by qualified name."""
     require(caller(request), Action.COMPUTE_MANAGE)
+    paged = page_sorted(
+        (
+            (f"{plugin_name}.{name}", name, environment)
+            for plugin_name, plugin in registry.plugins().items()
+            for name, environment in plugin.environments.items()
+            if environment.volumes
+        ),
+        params,
+        by=("environment",),
+        key=lambda e: (e[0],),
+    )
     found = []
-    for plugin_name, plugin in sorted(registry.plugins().items()):
-        for name, environment in sorted(plugin.environments.items()):
-            if not environment.volumes:
-                continue
-            qualified = f"{plugin_name}.{name}"
-            versions = []
-            for place in setups.places(qualified):
-                build = setups.current(qualified, place.name)
-                versions.append(
-                    {
-                        "place": place.name,
-                        "build": build.pk if build else None,
-                        "hrid": build.hrid if build else None,
-                        "version": build.version if build else None,
-                        "data_version": build.data_version if build else None,
-                        "ready_at": build.finished_at if build else None,
-                    }
-                )
-            found.append(
+    for qualified, name, environment in paged["items"]:
+        versions = []
+        for place in setups.places(qualified):
+            build = setups.current(qualified, place.name)
+            versions.append(
                 {
-                    "environment": qualified,
-                    "label": environment.label or name,
-                    "volumes": [
-                        {
-                            "name": v.name,
-                            "size": v.size,
-                            "mount": v.mount,
-                            "access": v.access,
-                            "filled_by_setup": v.populated_by == "setup",
-                        }
-                        for v in sorted(environment.volumes.values(), key=lambda v: v.name)
-                    ],
-                    "setup": {
-                        "script": environment.setup_script,
-                        "timeout": environment.setup_timeout,
-                        "requires_approval": environment.setup_requires_approval,
-                        "network": list(environment.setup_network),
-                    }
-                    if environment.setup_script
-                    else None,
-                    "places": versions,
-                    "waiting": setups.missing(qualified),
+                    "place": place.name,
+                    "build": build.pk if build else None,
+                    "hrid": build.hrid if build else None,
+                    "version": build.version if build else None,
+                    "data_version": build.data_version if build else None,
+                    "ready_at": build.finished_at if build else None,
                 }
             )
-    return found
+        found.append(
+            {
+                "environment": qualified,
+                "label": environment.label or name,
+                "volumes": [
+                    {
+                        "name": v.name,
+                        "size": v.size,
+                        "mount": v.mount,
+                        "access": v.access,
+                        "filled_by_setup": v.populated_by == "setup",
+                    }
+                    for v in sorted(environment.volumes.values(), key=lambda v: v.name)
+                ],
+                "setup": {
+                    "script": environment.setup_script,
+                    "timeout": environment.setup_timeout,
+                    "requires_approval": environment.setup_requires_approval,
+                    "network": list(environment.setup_network),
+                }
+                if environment.setup_script
+                else None,
+                "places": versions,
+                "waiting": setups.missing(qualified),
+            }
+        )
+    return {**paged, "items": found}
 
 
 # --- Setup builds -------------------------------------------------------------------------------

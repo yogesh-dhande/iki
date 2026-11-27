@@ -45,21 +45,24 @@ function collection(values: Record<string, unknown>) {
 function onProject(): void {
   withTypes();
   answer("GET /api/v1/projects", page([KINASE]));
-  answer("GET /api/v1/saved-searches", []);
+  answer("GET /api/v1/saved-searches", page([]));
 }
 
 function onCollection(values: Record<string, unknown>): void {
   withTypes();
   answer("GET /api/v1/entities/COL-000001", collection(values));
   answer("GET /api/v1/entities/COL-000001/provenance", {});
-  answer("GET /api/v1/entities/COL-000001/projects", [
-    {
-      project: { id: KINASE.id, name: KINASE.name, slug: KINASE.slug },
-      owner: true,
-      linked_at: "2026-03-14T09:00:00Z",
-      linked_by: null,
-    },
-  ]);
+  answer(
+    "GET /api/v1/entities/COL-000001/projects",
+    page([
+      {
+        project: { id: KINASE.id, name: KINASE.name, slug: KINASE.slug },
+        owner: true,
+        linked_at: "2026-03-14T09:00:00Z",
+        linked_by: null,
+      },
+    ]),
+  );
 }
 
 describe("collections", () => {

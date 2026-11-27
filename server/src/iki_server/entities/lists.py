@@ -33,8 +33,8 @@ from typing import Any
 
 from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
-from django.db.models import Count, Max, Q, QuerySet
-from django.db.models.functions import Lower
+from django.db.models import Count, Max, Q, QuerySet, Value
+from django.db.models.functions import Coalesce, Lower
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
@@ -65,15 +65,18 @@ from iki_spec.model import (
 )
 
 __all__ = [
+    "ORDER",
     "Option",
     "add",
     "archive",
+    "as_options",
     "change",
     "codes_of",
     "find",
     "is_list",
     "list_type",
     "names_of",
+    "option_rows",
     "options",
     "reorder",
     "repoint",
@@ -129,18 +132,24 @@ def entries_in(registry_id: Any) -> QuerySet[Entity]:  # noqa: ANN401 - a UUID
     return Entity.objects.filter(registry_id=registry_id, type__in=list(types()))
 
 
-def options(
+#: What a list's options sort by, in its order: for :func:`option_rows`' paging.
+ORDER = ("list_position", LIST_CODE, "pk")
+
+
+def option_rows(
     registry_id: Any,  # noqa: ANN401 - a UUID
     type_name: str,
     *,
     archived: bool = False,
     ids: Iterable[Any] | None = None,
-) -> list[Option]:
-    """A list's options in a registry, in the list's order: the active ones, or with
-    ``archived`` every one, archived and superseded ones too. ``ids``: only these."""
+    q: str | None = None,
+) -> QuerySet[Any]:
+    """A list's options in a registry, as rows to sort by :data:`ORDER`: the active ones, or
+    with ``archived`` every one, archived and superseded ones too. ``ids``: only these;
+    ``q``: only those whose label or code has it in it, in any case. :func:`as_options`
+    reads them."""
     list_type(type_name)
-    form = shape(type_name)
-    model = form.entry_model
+    model = shape(type_name).entry_model
     assert model is not None  # noqa: S101 - lists' options are entries
     found = model._default_manager.filter(registry_id=registry_id, type=type_name).filter(
         purged_at__isnull=True
@@ -149,8 +158,32 @@ def options(
         found = found.filter(pk__in=list(ids))
     if not archived:
         found = found.filter(archived_at__isnull=True, superseded_by__isnull=True)
-    rows = list(found.select_related("superseded_by").order_by(LIST_POSITION, LIST_CODE))
+    if q and (text := q.strip()):
+        found = found.filter(
+            Q(**{f"{LIST_LABEL}__icontains": text}) | Q(**{f"{LIST_CODE}__icontains": text})
+        )
+    return found.select_related("superseded_by").annotate(
+        list_position=Coalesce(LIST_POSITION, Value(0))
+    )
+
+
+def as_options(type_name: str, rows: Sequence[Any]) -> list[Option]:
+    """Rows of :func:`option_rows`, as options."""
+    form = shape(type_name)
     return [_option(form, row, values) for row, values in _with_values(form, rows)]
+
+
+def options(
+    registry_id: Any,  # noqa: ANN401 - a UUID
+    type_name: str,
+    *,
+    archived: bool = False,
+    ids: Iterable[Any] | None = None,
+) -> list[Option]:
+    """A list's options in a registry, in the list's order, every one: as
+    :func:`option_rows` finds them."""
+    rows = option_rows(registry_id, type_name, archived=archived, ids=ids)
+    return as_options(type_name, list(rows.order_by(*ORDER)))
 
 
 def _with_values(form: Shape, rows: Sequence[Any]) -> list[tuple[Any, dict[str, Any]]]:

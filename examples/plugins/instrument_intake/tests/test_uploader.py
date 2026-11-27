@@ -31,6 +31,13 @@ TYPE = "acme/instrument_intake.QPCRRun"
 CLEAN = {"state": "clean", "usable": True, "reason": ""}
 
 
+class Found(list[Any]):
+    """Matches as :class:`iki.Results` gives them."""
+
+    def first(self) -> Any:
+        return self[0] if self else None
+
+
 class FakeIki:
     """The parts of iki.Client the uploader uses, keeping what's in the project."""
 
@@ -81,7 +88,7 @@ class FakeIki:
     # entities
     def lookup(self, type: str, field: str, value: str, *, project: str) -> Any:
         self._maybe_fail("lookup")
-        return [r for r in self.records if r["values"][field] == value]
+        return Found([r for r in self.records if r["values"][field] == value])
 
     def create(self, type: str, values: dict[str, Any], *, project: str, reason: str) -> Any:
         self._maybe_fail("create")

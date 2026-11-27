@@ -22,7 +22,7 @@ class StockFilters(PageParams):
 
 
 @router.get(
-    "/projects/{project_id}/stock",
+    "/projects/{project_id}/stock/items",
     response=Page[stock.StockSummary],
     summary="Current stock and reorder thresholds",
 )
@@ -58,7 +58,7 @@ def stock_orders(
 
 
 @router.get(
-    "/projects/{project_id}/stock/{item_id}/lots",
+    "/projects/{project_id}/stock/items/{item_id}/lots",
     response=Page[stock.StockLot],
     summary="A catalogue item's lots and storage positions",
 )

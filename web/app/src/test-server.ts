@@ -202,8 +202,8 @@ export function page<T>(items: T[]): { items: T[]; next_cursor: null } {
 /** The calls every page makes. */
 export function signedIn(me: Partial<Schemas["MeOut"]> = {}): void {
   answer("GET /api/v1/me", { ...ME, ...me });
-  answer("GET /api/v1/project-roles", ROLES);
-  answer("GET /api/v1/lab-roles", []);
+  answer("GET /api/v1/project-roles", page(ROLES));
+  answer("GET /api/v1/lab-roles", page([]));
   answer("GET /api/v1/notifications/summary", { unread: 0 });
 }
 

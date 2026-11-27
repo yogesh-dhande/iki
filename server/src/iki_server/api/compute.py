@@ -14,13 +14,13 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, F, Prefetch, Q, QuerySet
+from django.db.models import Count, Prefetch, Q, QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 from ninja import Field, Query, Router, Schema, Status
 
-from iki_server.api.common import caller, require
-from iki_server.api.pagination import PageParams, page
+from iki_server.api.common import SCOPE_ORDER, by_scope, caller, require
+from iki_server.api.pagination import PageParams, page, page_by, page_sorted
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, PersonRef
 from iki_server.audit import log as audit
@@ -667,49 +667,54 @@ class QuotaScopeOut(Schema):
     team_id: UUID | None = Field(description="A project's team's ID; null for a team.")
 
 
-class ScopeSearch(Schema):
+class ScopeSearch(PageParams):
     kind: Literal["team", "project"]
-    search: str = Field("", max_length=100, description="Part of the name.")
+    q: str = Field("", max_length=100, description="Part of the name.")
     team: list[UUID] = Field(
         default_factory=list, description="Only projects of these teams, when given."
     )
-    limit: int = Field(20, ge=1, le=50)
 
 
 @router.get(
-    "/compute/quota-scopes", response=list[QuotaScopeOut], summary="Teams or projects to choose"
+    "/compute/quota-scopes", response=Page[QuotaScopeOut], summary="Teams or projects to choose"
 )
-def quota_scopes(request: HttpRequest, params: Query[ScopeSearch]) -> list[dict[str, Any]]:
-    """The teams or projects with `search` in their names, by name, archived ones left out.
+def quota_scopes(request: HttpRequest, params: Query[ScopeSearch]) -> dict[str, Any]:
+    """The teams or projects with `q` in their names, by name, archived ones left out.
     Compute Admins set quotas on any of them, member or not, and give self-hosted workers
     to them, so this gives names only."""
     require(caller(request), Action.COMPUTE_MANAGE)
-    term = params.search.strip()
+    term = params.q.strip()
     if params.kind == "team":
         teams = Team.objects.filter(archived_at__isnull=True, name__icontains=term)
-        return [
-            {"id": t.pk, "name": t.name, "team": None, "team_id": None}
-            for t in teams.order_by("name", "id")[: params.limit]
-        ]
+        found = page_by(teams, params, by=("name", "id"))
+        return {
+            **found,
+            "items": [
+                {"id": t.pk, "name": t.name, "team": None, "team_id": None} for t in found["items"]
+            ],
+        }
     projects = Project.objects.filter(
         archived_at__isnull=True, team__archived_at__isnull=True, name__icontains=term
     ).select_related("team")
     if params.team:
         projects = projects.filter(team__in=params.team)
-    return [
-        {"id": p.pk, "name": p.name, "team": p.team.name, "team_id": p.team_id}
-        for p in projects.order_by("name", "team__name", "id")[: params.limit]
-    ]
+    found = page_by(projects, params, by=("name", "team__name", "id"))
+    return {
+        **found,
+        "items": [
+            {"id": p.pk, "name": p.name, "team": p.team.name, "team_id": p.team_id}
+            for p in found["items"]
+        ],
+    }
 
 
-@router.get("/compute/quotas", response=list[QuotaOut], summary="Run quotas")
-def list_quotas(request: HttpRequest) -> list[dict[str, Any]]:
-    """Every quota, the organization's first, with how much of each is in use."""
+@router.get("/compute/quotas", response=Page[QuotaOut], summary="Run quotas")
+def list_quotas(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
+    """Every quota, the organization's first, then teams', then projects', with how much of
+    each is in use."""
     require(caller(request), Action.COMPUTE_MANAGE)
-    ordered = _quotas().order_by(
-        F("project").asc(nulls_first=True), F("team").asc(nulls_first=True), "tier", "id"
-    )
-    return [_quota_out(q) for q in ordered]
+    found = page_by(by_scope(_quotas()), params, by=(*SCOPE_ORDER, "tier", "id"))
+    return {**found, "items": [_quota_out(q) for q in found["items"]]}
 
 
 @router.post("/compute/quotas", response={201: QuotaOut}, summary="Set a run quota")
@@ -871,12 +876,13 @@ def _slurm_template_out(template: Template, jobs: dict[str, int]) -> dict[str, A
     }
 
 
-@router.get("/compute/slurm", response=list[SlurmClusterOut], summary="Slurm clusters")
-def list_slurm_clusters(request: HttpRequest) -> list[dict[str, Any]]:
+@router.get("/compute/slurm-clusters", response=Page[SlurmClusterOut], summary="Slurm clusters")
+def list_slurm_clusters(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
     """The clusters the deployment's Slurm templates name, from its compute.yaml, which is
-    reviewed like code (ADR 0041): each one's templates, workers and accounts."""
+    reviewed like code (ADR 0041), by name: each one's templates, workers and accounts."""
     require(caller(request), Action.COMPUTE_MANAGE)
-    found = slurm.clusters()
+    paged = page_sorted(slurm.clusters().items(), params, by=("name",), key=lambda c: (c[0],))
+    found = dict(paged["items"])
     names = [t.name for ts in found.values() for t in ts]
     jobs = dict(
         Job.objects.filter(state__in=HELD, template__in=names, packed_into__isnull=True)
@@ -899,15 +905,18 @@ def list_slurm_clusters(request: HttpRequest) -> list[dict[str, Any]]:
         .annotate(n=Count("pk"))
         .values_list("cluster", "n")
     )
-    return [
-        {
-            "name": name,
-            "templates": [_slurm_template_out(t, jobs) for t in templates],
-            "workers_online": online.get(name, 0),
-            "accounts": accounts.get(name, 0),
-        }
-        for name, templates in found.items()
-    ]
+    return {
+        **paged,
+        "items": [
+            {
+                "name": name,
+                "templates": [_slurm_template_out(t, jobs) for t in templates],
+                "workers_online": online.get(name, 0),
+                "accounts": accounts.get(name, 0),
+            }
+            for name, templates in found.items()
+        ],
+    }
 
 
 class SlurmAccountOut(Schema):
@@ -949,7 +958,7 @@ def _slurm_cluster(cluster: str) -> str:
 
 
 @router.get(
-    "/compute/slurm/{cluster}/accounts",
+    "/compute/slurm-clusters/{cluster}/accounts",
     response=Page[SlurmAccountOut],
     summary="Projects' Slurm accounts",
 )
@@ -975,7 +984,7 @@ def _project(project_id: UUID) -> Project:
 
 
 @router.put(
-    "/compute/slurm/{cluster}/accounts/{project_id}",
+    "/compute/slurm-clusters/{cluster}/accounts/{project_id}",
     response=SlurmAccountOut,
     summary="Set a project's Slurm account",
 )
@@ -995,7 +1004,7 @@ def set_slurm_account(
 
 
 @router.delete(
-    "/compute/slurm/{cluster}/accounts/{project_id}",
+    "/compute/slurm-clusters/{cluster}/accounts/{project_id}",
     response={204: None},
     summary="Clear a project's Slurm account",
 )

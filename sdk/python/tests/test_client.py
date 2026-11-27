@@ -1,6 +1,7 @@
 """The client, against a fake Iki: what it sends, and what it makes of the answers."""
 
 import hashlib
+import inspect
 import io
 import json
 from datetime import date, datetime, timedelta, timezone
@@ -14,7 +15,7 @@ from fake_iki import URL, FakeIki, config, entity, isolated, problem, store_with
 
 import iki
 from iki import auth
-from iki.client import Client
+from iki.client import Client, _Part
 
 __all__ = ["config", "isolated"]  # the fixtures, used here
 
@@ -242,7 +243,7 @@ def test_searching_goes_through_every_page(fake: FakeIki, client: Client) -> Non
         project=PROJECT,
         where={"field": "length", "op": "gte", "value": 300},
         sort="-created_at",
-        page_size=2,
+        limit=2,
     )
     assert [e["hrid"] for e in found] == ["PRT-000001", "PRT-000002", "PRT-000003"]
     sent = [json.loads(r.content) for r in fake.sent("POST", "/api/v1/entities/search")]
@@ -280,7 +281,7 @@ def test_projects_are_named_by_slug_or_id(fake: FakeIki, client: Client) -> None
 
 
 def test_entities_are_looked_up_by_an_external_id(fake: FakeIki, client: Client) -> None:
-    fake.on("GET", "/api/v1/entities/lookup", [entity("PRT-000007", lims_id="LIMS-7")])
+    fake.on("GET", "/api/v1/entities/lookup", page([entity("PRT-000007", lims_id="LIMS-7")]))
     found = client.entities.lookup("iki/protein.Protein", "lims_id", "LIMS-7", project=PROJECT)
     assert [e["hrid"] for e in found] == ["PRT-000007"]
     sent = fake.requests[-1].url.params
@@ -289,6 +290,7 @@ def test_entities_are_looked_up_by_an_external_id(fake: FakeIki, client: Client)
         "field": "lims_id",
         "value": "LIMS-7",
         "project": PROJECT,
+        "limit": "50",
     }
 
 
@@ -452,12 +454,12 @@ def test_a_record_is_taken(fake: FakeIki, client: Client) -> None:
 def test_requests_go_to_a_service_and_come_back_with_results(fake: FakeIki, client: Client) -> None:
     project, core = "0190d5a4-0000-7000-8000-000000000001", "0190d5a4-0000-7000-8000-000000000002"
     listed: Any = [{"project": {"id": core, "name": "Core"}, "description": "", "types": []}]
-    fake.on("GET", f"/api/v1/projects/{project}/services", listed)
-    services = client.projects.services(project, type="iki/requests.PlainRequest")
+    fake.on("GET", f"/api/v1/projects/{project}/services", page(listed))
+    services = list(client.projects.services(project, type="iki/requests.PlainRequest"))
     assert services == listed
-    assert fake.sent("GET", f"/api/v1/projects/{project}/services")[0].url.params["type"] == (
-        "iki/requests.PlainRequest"
-    )
+    assert fake.sent("GET", f"/api/v1/projects/{project}/services")[0].url.params.get_list(
+        "type"
+    ) == ["iki/requests.PlainRequest"]
     submitted = "/api/v1/entities/REQ-000001/submit"
     fake.on("POST", submitted, entity("REQ-000001", title="Lot 12"))
     client.entities.submit("REQ-000001", services[0]["project"], revision=2, reason="Lot 12")
@@ -479,10 +481,10 @@ def test_requests_go_to_a_service_and_come_back_with_results(fake: FakeIki, clie
     fake.on("GET", f"/api/v1/projects/{core}/intake", intake)
     assert client.projects.intake(core) == intake
     named: Any = [{"id": core, "name": "Core", "slug": "core"}]
-    fake.on("GET", f"/api/v1/projects/{project}/sent-to", named)
-    assert client.projects.sent_to(project) == named
-    fake.on("GET", f"/api/v1/projects/{core}/sent-from", [])
-    assert client.projects.sent_from(core) == []
+    fake.on("GET", f"/api/v1/projects/{project}/sent-to", page(named))
+    assert list(client.projects.sent_to(project)) == named
+    fake.on("GET", f"/api/v1/projects/{core}/sent-from", page([]))
+    assert list(client.projects.sent_from(core)) == []
 
 
 def test_many_records_are_reassigned_at_once(fake: FakeIki, client: Client) -> None:
@@ -504,21 +506,21 @@ def test_many_records_are_reassigned_at_once(fake: FakeIki, client: Client) -> N
 
 def test_work_is_listed_page_by_page(fake: FakeIki, client: Client) -> None:
     item = {"entity": entity("SMP-000001"), "fields": ["analyst"], "due": "2026-12-01"}
-    fake.on("GET", "/api/v1/me/work", page([item], "next"), page([item]))
+    fake.on("GET", "/api/v1/me/work-items", page([item], "next"), page([item]))
     found = list(
         client.work.mine(
             project=PROJECT, type="acme/lims.Sample", state={"status": ["received", "in_testing"]}
         )
     )
     assert found == [item, item]
-    first, second = fake.sent("GET", "/api/v1/me/work")
+    first, second = fake.sent("GET", "/api/v1/me/work-items")
     assert first.url.params.get_list("project") == [PROJECT]
     assert first.url.params.get_list("type") == ["acme/lims.Sample"]
     assert first.url.params.get_list("state") == ["status.received", "status.in_testing"]
     assert (first.url.params["sort"], second.url.params["cursor"]) == ("due", "next")
-    fake.on("GET", "/api/v1/me/work/open", page([]))
+    fake.on("GET", "/api/v1/me/open-work-items", page([]))
     assert list(client.work.open(sort="updated")) == []
-    assert fake.sent("GET", "/api/v1/me/work/open")[0].url.params["sort"] == "updated"
+    assert fake.sent("GET", "/api/v1/me/open-work-items")[0].url.params["sort"] == "updated"
 
 
 def test_notifications_are_listed_and_chosen(fake: FakeIki, client: Client) -> None:
@@ -750,7 +752,7 @@ def test_waiting_longer_than_allowed_raises(fake: FakeIki, client: Client) -> No
 
 
 def test_a_log_is_read_whole(fake: FakeIki, client: Client) -> None:
-    fake.on("GET", "/api/v1/runs/RUN-000001/attempts", [{"attempt": 1}, {"attempt": 2}])
+    fake.on("GET", "/api/v1/runs/RUN-000001/attempts", page([{"attempt": 1}, {"attempt": 2}]))
 
     def log(request: httpx2.Request) -> httpx2.Response:
         offset = int(request.url.params["offset"])
@@ -1052,7 +1054,7 @@ def downloadable(fake: FakeIki, content: bytes, sha256: str, name: str = "abl1.p
 
 def test_entities_say_where_they_were_imported_from(fake: FakeIki, client: Client) -> None:
     record: dict[str, Any] = {"source": "NCBI Nucleotide", "id": "L09137", "version": "L09137.2"}
-    fake.on("GET", "/api/v1/entities/DNA-000001/origins", [record])
+    fake.on("GET", "/api/v1/entities/DNA-000001/origins", page([record]))
     (found,) = client.entities.origins("DNA-000001")
     assert (found["source"], found["version"]) == ("NCBI Nucleotide", "L09137.2")
 
@@ -1136,24 +1138,26 @@ def kept_artifacts(fake: FakeIki, content: bytes) -> None:
     fake.on(
         "GET",
         "/api/v1/runs/RUN-000001/artifacts",
-        [
-            {
-                "id": "a1",
-                "attempt": 1,
-                "path": "alignment.txt",
-                "name": "alignment.txt",
-                "sha256": sha,
-                "state": "kept",
-            },
-            {
-                "id": "a2",
-                "attempt": 2,
-                "path": "alignment.txt",
-                "name": "alignment.txt",
-                "sha256": sha,
-                "state": "kept",
-            },
-        ],
+        page(
+            [
+                {
+                    "id": "a1",
+                    "attempt": 1,
+                    "path": "alignment.txt",
+                    "name": "alignment.txt",
+                    "sha256": sha,
+                    "state": "kept",
+                },
+                {
+                    "id": "a2",
+                    "attempt": 2,
+                    "path": "alignment.txt",
+                    "name": "alignment.txt",
+                    "sha256": sha,
+                    "state": "kept",
+                },
+            ]
+        ),
     )
     for artifact in ("a1", "a2"):
         fake.on(
@@ -1260,8 +1264,8 @@ def test_a_projects_costs_by_its_slug(fake: FakeIki, client: Client) -> None:
 
 
 def test_budgets_say_what_has_been_spent(fake: FakeIki, client: Client) -> None:
-    fake.on("GET", "/api/v1/compute/budgets", [{"id": "b1", "amount": 50.0, "spent": 40.25}])
-    assert client.costs.budgets()[0]["spent"] == 40.25
+    fake.on("GET", "/api/v1/compute/budgets", page([{"id": "b1", "amount": 50.0, "spent": 40.25}]))
+    assert client.costs.budgets().first()["spent"] == 40.25  # type: ignore[index]
 
 
 # --- Across the graph --------------------------------------------------------------------------
@@ -1319,7 +1323,7 @@ def test_downstream_walks_a_page_at_a_time_and_sums_up(fake: FakeIki, client: Cl
     assert [i["entity"]["hrid"] for i in found] == ["SAM-000001", "SAM-000002", "SAM-000003"]
     first, second = fake.sent("GET", path)
     assert first.url.params.get_list("type") == ["iki/samples.Sample"]
-    assert (first.url.params["depth"], first.url.params["limit"]) == ("4", "100")
+    assert (first.url.params["depth"], first.url.params["limit"]) == ("4", "50")
     assert second.url.params["cursor"] == "next"
     assert found.summary()["total"] == 3
 
@@ -1348,9 +1352,29 @@ def test_signatures_are_read_and_checked_never_given(fake: FakeIki, client: Clie
     """ADR 0126: the SDK lists a record's signatures and verifies one; it has no way to
     sign, which takes a person signing in again in the web app."""
     signature = "01a1ee10-0000-7000-8000-000000000001"
-    fake.on("GET", "/api/v1/entities/LOT-000001/signatures", {"items": [], "missing": []})
-    assert client.signatures.list("LOT-000001", verify=True) == {"items": [], "missing": []}
+    fake.on("GET", "/api/v1/entities/LOT-000001/signatures", {"signatures": [], "missing": []})
+    assert client.signatures.list("LOT-000001", verify=True) == {"signatures": [], "missing": []}
     assert dict(fake.requests[-1].url.params) == {"verify": "true"}
     fake.on("GET", f"/api/v1/signatures/{signature}/verification", {"valid": True, "checks": []})
     assert client.signatures.verify(signature)["valid"] is True
     assert not [name for name in dir(client.signatures) if name.startswith("sign")]
+
+
+def test_every_list_is_read_a_page_of_limit_at_a_time(client: Client) -> None:
+    """ADR 0291: every method that reads a list takes ``limit``, 50 by default as the API's
+    own, and returns a :class:`Results` that follows the pages; none says ``page_size``."""
+    parts = [
+        getattr(client, name) for name in vars(client) if isinstance(getattr(client, name), _Part)
+    ]
+    checked = 0
+    for part in parts:
+        for name, method in inspect.getmembers(part, inspect.ismethod):
+            if name.startswith("_"):
+                continue
+            signature = inspect.signature(method)
+            assert "page_size" not in signature.parameters, f"{type(part).__name__}.{name}"
+            returned = str(signature.return_annotation)
+            if returned.startswith("Results[") or "Walk" in returned:
+                assert signature.parameters["limit"].default == 50, f"{type(part).__name__}.{name}"
+                checked += 1
+    assert checked >= 20

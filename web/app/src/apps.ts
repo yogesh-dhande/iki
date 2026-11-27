@@ -7,7 +7,7 @@
 import { unwrap } from "@ikisci/sdk";
 import { queryOptions } from "@tanstack/react-query";
 
-import { iki } from "./api";
+import { everyPage, iki } from "./api";
 import { COMPONENT_NAME, ENTITIES, type Entity } from "./entities";
 import { newWorker } from "./reading";
 import expressionsUrl from "./workers/expressions.ts?worker&url";
@@ -49,12 +49,20 @@ export interface AppSpec {
   panels: Panel[];
 }
 
-/** The apps about an entity, which its page shows as tabs. */
+/** The most apps an entity's page shows as tabs: more wouldn't fit as tabs. */
+const APP_TABS_SHOWN = 20;
+
+/** The apps about an entity, which its page shows as tabs: the first {@link APP_TABS_SHOWN}. */
 export function entityAppsQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "apps", ref.toUpperCase()],
     queryFn: async ({ signal }) =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/apps", { params: { path: { ref } }, signal })),
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/apps", {
+          params: { path: { ref }, query: { limit: APP_TABS_SHOWN } },
+          signal,
+        }),
+      ).items,
   });
 }
 
@@ -86,12 +94,14 @@ export function dashboardQuery(projectId: string) {
 export function dashboardChoicesQuery(projectId: string) {
   return queryOptions({
     queryKey: [...dashboardKey(projectId), "choices"],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/projects/{project_id}/dashboard/choices", {
-          params: { path: { project_id: projectId } },
-          signal,
-        }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/projects/{project_id}/dashboard/choices", {
+            params: { path: { project_id: projectId }, query: page },
+            signal,
+          }),
+        ),
       ),
   });
 }

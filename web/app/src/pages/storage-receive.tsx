@@ -845,8 +845,8 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
         const preview = await previewReceiptPlacement(id, plan.revision, { put_away });
         if (
           !preview.plan ||
-          preview.items.length !== plan.put_away.length ||
-          preview.items.some(
+          preview.moves.length !== plan.put_away.length ||
+          preview.moves.some(
             (item, i) => item.problems.length || item.to?.position !== plan.put_away[i]?.position,
           )
         ) {
@@ -954,7 +954,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     const into = shownBox?.hrid;
     const shown = receipt;
     const showPlacement = (moves: Schemas["MovesOut"]) => {
-      const changes: StaleItem[] = moves.items.flatMap((item, i) => {
+      const changes: StaleItem[] = moves.moves.flatMap((item, i) => {
         const before = plan.put_away[i];
         if (!before || (!item.problems.length && before.position === item.to?.position)) return [];
         return [

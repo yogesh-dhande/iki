@@ -9,7 +9,7 @@ from django.http import HttpRequest
 from ninja import Field, Query, Router, Status
 
 from iki_server.api.common import caller, person, project, require, team
-from iki_server.api.pagination import PageParams, page, page_by
+from iki_server.api.pagination import PageParams, page, page_by, page_sorted
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import (
     LabRoleOut,
@@ -59,38 +59,46 @@ def _reload(user: Any, found: Project) -> Project:  # noqa: ANN401
 
 
 @router.get(
-    "/project-roles", response=list[ProjectRoleOut], summary="The project roles, lowest first"
+    "/project-roles", response=Page[ProjectRoleOut], summary="The project roles, lowest first"
 )
-def project_roles(request: HttpRequest) -> list[dict[str, str]]:
+def project_roles(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
     """Each role includes everything the roles before it can do."""
     caller(request)
-    return [
-        {
-            "name": role.name.lower(),
-            "label": role.label,
-            "description": PROJECT_ROLE_DESCRIPTIONS[role],
-        }
-        for role in ProjectRole
-    ]
+    found = page_sorted(ProjectRole, params, by=("rank",), key=lambda r: (int(r),))
+    return {
+        **found,
+        "items": [
+            {
+                "name": role.name.lower(),
+                "label": role.label,
+                "description": PROJECT_ROLE_DESCRIPTIONS[role],
+            }
+            for role in found["items"]
+        ],
+    }
 
 
-@router.get("/lab-roles", response=list[LabRoleOut], summary="The lab roles plugins declare")
-def list_lab_roles(request: HttpRequest) -> list[dict[str, Any]]:
+@router.get("/lab-roles", response=Page[LabRoleOut], summary="The lab roles plugins declare")
+def list_lab_roles(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
     """Named roles such as QA (ADR 0116), which a project's Admins give its members beside
     their project role, and what each lets its holders do. A lab role grants nothing by
     itself."""
     caller(request)
     labels = lab_roles.labels()
-    return [
-        {
-            "name": name,
-            "label": labels[name],
-            "description": role.description,
-            "plugin": role.plugin,
-            "uses": lab_roles.uses(name),
-        }
-        for name, role in sorted(lab_roles.declared().items())
-    ]
+    found = page_sorted(lab_roles.declared().items(), params, by=("name",), key=lambda r: (r[0],))
+    return {
+        **found,
+        "items": [
+            {
+                "name": name,
+                "label": labels[name],
+                "description": role.description,
+                "plugin": role.plugin,
+                "uses": lab_roles.uses(name),
+            }
+            for name, role in found["items"]
+        ],
+    }
 
 
 @router.get("/projects", response=Page[ProjectOut], summary="Projects you can see")

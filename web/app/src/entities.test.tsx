@@ -83,25 +83,28 @@ describe("the type browser", () => {
 
   it("previews whom a type's notifications tell, and when", async () => {
     withTypes();
-    answer("GET /api/v1/entity-types", [
-      {
-        ...PROTEIN,
-        notifications: [
-          {
-            name: "renamed",
-            kind: "iki/protein.Protein.renamed",
-            label: "Renamed",
-            description: "Its owner hears when it's renamed.",
-            declared_by: "iki/protein.Protein",
-            when: "When its Name changes",
-            only_some: true,
-            tells: ["Whoever its Owner names", "Everyone with the QA role in its project"],
-            email: false,
-            required: true,
-          },
-        ],
-      },
-    ]);
+    answer(
+      "GET /api/v1/entity-types",
+      page([
+        {
+          ...PROTEIN,
+          notifications: [
+            {
+              name: "renamed",
+              kind: "iki/protein.Protein.renamed",
+              label: "Renamed",
+              description: "Its owner hears when it's renamed.",
+              declared_by: "iki/protein.Protein",
+              when: "When its Name changes",
+              only_some: true,
+              tells: ["Whoever its Owner names", "Everyone with the QA role in its project"],
+              email: false,
+              required: true,
+            },
+          ],
+        },
+      ]),
+    );
     await renderApp("/types/iki/protein.Protein/");
     const section = screen.getByRole("list", { name: "Its notifications" });
     const row = within(section).getByRole("listitem");
@@ -460,7 +463,7 @@ describe("a project's entities", () => {
       updated_at: "2026-03-14T09:00:00Z",
       can: { change: true, delete: true },
     };
-    answer("GET /api/v1/saved-searches", [human]);
+    answer("GET /api/v1/saved-searches", page([human]));
     answer("POST /api/v1/saved-searches", respond(201, { ...human, name: "Sorted" }));
     const { router, user } = await renderApp(
       "/projects/kinase-atlas/entities/?type=iki/protein.Protein",
@@ -526,7 +529,7 @@ describe("a project's entities", () => {
       updated_at: "2026-03-14T09:00:00Z",
       can: { change: true, delete: true },
     });
-    answer("GET /api/v1/saved-searches", [saved("From the tube", lineage)]);
+    answer("GET /api/v1/saved-searches", page([saved("From the tube", lineage)]));
     answer("POST /api/v1/saved-searches", respond(201, saved("Kinases", lineage)));
     const filters = encodeURIComponent(
       JSON.stringify([{ field: "name", op: "contains", value: "kinase" }]),
@@ -572,16 +575,19 @@ describe("a project's entities", () => {
       updated_at: "2026-03-14T09:00:00Z",
       can: { change: false, delete: false },
     });
-    answer("GET /api/v1/saved-searches", [
-      // Sequences, and not their subtypes: the grid shows a type's subtypes too.
-      made("Plain sequences", { type: "iki/core.Sequence", exact_type: true }),
-      // Text that the search box would read as a lineage condition.
-      made("Notes naming a tube", { exact_type: false, q: "downstream:TUB-000001" }),
-      made("Lineage", {
-        exact_type: false,
-        where: { all: [{ all: [{ field: "downstream", op: "of", value: "TUB-000001" }] }] },
-      }),
-    ]);
+    answer(
+      "GET /api/v1/saved-searches",
+      page([
+        // Sequences, and not their subtypes: the grid shows a type's subtypes too.
+        made("Plain sequences", { type: "iki/core.Sequence", exact_type: true }),
+        // Text that the search box would read as a lineage condition.
+        made("Notes naming a tube", { exact_type: false, q: "downstream:TUB-000001" }),
+        made("Lineage", {
+          exact_type: false,
+          where: { all: [{ all: [{ field: "downstream", op: "of", value: "TUB-000001" }] }] },
+        }),
+      ]),
+    );
     await renderApp("/projects/kinase-atlas/entities/?type=iki/protein.Protein");
     const saved = await screen.findByRole("navigation", { name: "Saved searches" });
     expect(within(saved).queryByRole("link", { name: "Plain sequences" })).toBeNull();
@@ -634,11 +640,14 @@ describe("a project's entities", () => {
       op: "contains",
       value: `part${String(i + 1)}`,
     }));
-    answer("GET /api/v1/saved-searches", [
-      made("Kinases from the tube", stored),
-      made("Twenty-one names", { exact_type: false, where: { all: many } }),
-      made("Long text", { exact_type: false, q: "kinase ".repeat(40).trim() }),
-    ]);
+    answer(
+      "GET /api/v1/saved-searches",
+      page([
+        made("Kinases from the tube", stored),
+        made("Twenty-one names", { exact_type: false, where: { all: many } }),
+        made("Long text", { exact_type: false, q: "kinase ".repeat(40).trim() }),
+      ]),
+    );
     const { router, user } = await renderApp(
       "/projects/kinase-atlas/entities/?type=iki/protein.Protein",
     );
@@ -714,20 +723,27 @@ describe("an entity's page", () => {
       }),
       resolution: revision({ number: 2, kind: "edited", reason: "Refined" }),
     });
-    answer("GET /api/v1/entities/PST-000001/projects", [
-      {
-        project: { id: KINASE.id, name: KINASE.name, slug: KINASE.slug },
-        owner: true,
-        linked_at: "2026-03-14T09:00:00Z",
-        linked_by: ALICE,
-      },
-      {
-        project: { id: "00000000-0000-7000-8000-0000000000p2", name: "Imatinib", slug: "imatinib" },
-        owner: false,
-        linked_at: "2026-03-14T09:00:00Z",
-        linked_by: ALICE,
-      },
-    ]);
+    answer(
+      "GET /api/v1/entities/PST-000001/projects",
+      page([
+        {
+          project: { id: KINASE.id, name: KINASE.name, slug: KINASE.slug },
+          owner: true,
+          linked_at: "2026-03-14T09:00:00Z",
+          linked_by: ALICE,
+        },
+        {
+          project: {
+            id: "00000000-0000-7000-8000-0000000000p2",
+            name: "Imatinib",
+            slug: "imatinib",
+          },
+          owner: false,
+          linked_at: "2026-03-14T09:00:00Z",
+          linked_by: ALICE,
+        },
+      ]),
+    );
   }
 
   it("shows each value, and who set it, how and when on asking", async () => {
@@ -776,7 +792,7 @@ describe("an entity's page", () => {
     withTypes();
     answer("GET /api/v1/entities/PRT-000001", entity());
     answer("GET /api/v1/entities/PRT-000001/provenance", {});
-    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    answer("GET /api/v1/entities/PRT-000001/projects", page([]));
     answer("GET /api/v1/entities/counts", {
       types: [{ type: PROTEIN.name, label: "Protein", count: 1 }],
       total: 1,
@@ -796,7 +812,7 @@ describe("an entity's page", () => {
     withTypes();
     answer("GET /api/v1/entities/PRT-000001", entity());
     answer("GET /api/v1/entities/PRT-000001/provenance", {});
-    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    answer("GET /api/v1/entities/PRT-000001/projects", page([]));
     await renderApp("/entities/PRT-000001/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/^ABL1 kinase$/);
     // Its ID, beside its title and in its breadcrumb.
@@ -817,12 +833,15 @@ describe("an entity's page", () => {
   it("shows a short JSON value, and folds a long one", async () => {
     withTypes();
     const json = (name: string, label: string) => field({ name, label, type: "json" });
-    answer("GET /api/v1/entity-types", [
-      {
-        ...PROTEIN,
-        fields: [...PROTEIN.fields, json("ends", "Ends"), json("positions", "Positions")],
-      },
-    ]);
+    answer(
+      "GET /api/v1/entity-types",
+      page([
+        {
+          ...PROTEIN,
+          fields: [...PROTEIN.fields, json("ends", "Ends"), json("positions", "Positions")],
+        },
+      ]),
+    );
     const nucleotides = Array.from({ length: 12 }, (_, i) => ({ position: i + 1, base: "A" }));
     answer(
       "GET /api/v1/entities/PRT-000001",
@@ -836,7 +855,7 @@ describe("an entity's page", () => {
       }),
     );
     answer("GET /api/v1/entities/PRT-000001/provenance", {});
-    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    answer("GET /api/v1/entities/PRT-000001/projects", page([]));
     const { user } = await renderApp("/entities/PRT-000001/");
     expect(screen.getByText(/"five": "FAM"/)).toBeVisible();
     const folded = screen.getByText("Show its JSON (52 lines)");
@@ -854,13 +873,13 @@ describe("an entity's page", () => {
       unique: true,
       link: "https://lims.example.org/proteins/{value}",
     });
-    answer("GET /api/v1/entity-types", [{ ...PROTEIN, fields: [...PROTEIN.fields, lims] }]);
+    answer("GET /api/v1/entity-types", page([{ ...PROTEIN, fields: [...PROTEIN.fields, lims] }]));
     answer(
       "GET /api/v1/entities/PRT-000001",
       entity({ values: { name: "ABL1 kinase", sequence: "MKV", lims_id: "P 42/7" } }),
     );
     answer("GET /api/v1/entities/PRT-000001/provenance", {});
-    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    answer("GET /api/v1/entities/PRT-000001/projects", page([]));
     await renderApp("/entities/PRT-000001/");
     const values = screen.getByRole("region", { name: "Values" });
     const record = within(values).getByRole("link", { name: "P 42/7" });
@@ -872,7 +891,7 @@ describe("an entity's page", () => {
     withTypes();
     answer("GET /api/v1/entities/PRT-000001", entity());
     answer("GET /api/v1/entities/PRT-000001/provenance", {});
-    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    answer("GET /api/v1/entities/PRT-000001/projects", page([]));
     const origin = {
       source: "UniProtKB",
       id: "P00519",
@@ -896,7 +915,7 @@ describe("an entity's page", () => {
       run: null,
       revision: null,
     };
-    answer("GET /api/v1/entities/PRT-000001/origins", [origin, fromFile]);
+    answer("GET /api/v1/entities/PRT-000001/origins", page([origin, fromFile]));
     await renderApp("/entities/PRT-000001/");
     const details = screen.getByRole("region", { name: "Details" });
     const record = await within(details).findByRole("link", { name: "P00519 (2026_04)" });
@@ -924,7 +943,7 @@ describe("an entity's page", () => {
     withTypes();
     answer("GET /api/v1/entities/PRT-000001", entity());
     answer("GET /api/v1/entities/PRT-000001/provenance", {});
-    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    answer("GET /api/v1/entities/PRT-000001/projects", page([]));
     const run = {
       id: "r1",
       hrid: "RUN-000009",
@@ -961,12 +980,10 @@ describe("an entity's page", () => {
       version: "",
       source: { source: "RCSB PDB", id: "4HHB", version: "", url: "" },
     };
-    answer("GET /api/v1/entities/PRT-000001/making", [
-      recorded,
-      { ...recorded, software: "OpenMM", version: "8.6.1" },
-      stated,
-      measured,
-    ]);
+    answer(
+      "GET /api/v1/entities/PRT-000001/makings",
+      page([recorded, { ...recorded, software: "OpenMM", version: "8.6.1" }, stated, measured]),
+    );
     await renderApp("/entities/PRT-000001/");
     const details = screen.getByRole("region", { name: "Details" });
     await within(details).findByText("How it was made");
@@ -998,21 +1015,24 @@ describe("an entity's page", () => {
     withTypes();
     answer("GET /api/v1/entities/PRT-000001", entity());
     answer("GET /api/v1/entities/PRT-000001/provenance", {});
-    answer("GET /api/v1/entities/PRT-000001/projects", []);
-    answer("GET /api/v1/entities/PRT-000001/bundles", [
-      {
-        deployment: "staging",
-        project: "Kinase Atlas",
-        hrid: "PRT-000012",
-        action: "new",
-        revisions: 2,
-        applied_by: { id: "u1", name: "Ada Lovelace" },
-        applied_at: "2026-11-15T11:00:00Z",
-        reason: "Moving the kinase work",
-        bundle_import: "00000000-0000-7000-8000-0000000000i1",
-        project_slug: "kinase-atlas",
-      },
-    ]);
+    answer("GET /api/v1/entities/PRT-000001/projects", page([]));
+    answer(
+      "GET /api/v1/entities/PRT-000001/bundles",
+      page([
+        {
+          deployment: "staging",
+          project: "Kinase Atlas",
+          hrid: "PRT-000012",
+          action: "new",
+          revisions: 2,
+          applied_by: { id: "u1", name: "Ada Lovelace" },
+          applied_at: "2026-11-15T11:00:00Z",
+          reason: "Moving the kinase work",
+          bundle_import: "00000000-0000-7000-8000-0000000000i1",
+          project_slug: "kinase-atlas",
+        },
+      ]),
+    );
     await renderApp("/entities/PRT-000001/");
     const details = screen.getByRole("region", { name: "Details" });
     const link = await within(details).findByRole("link", { name: "the import" });
@@ -1069,11 +1089,11 @@ describe("an entity's page", () => {
           : f,
       ),
     };
-    answer("GET /api/v1/entity-types", [described]);
-    answer("GET /api/v1/components", []);
+    answer("GET /api/v1/entity-types", page([described]));
+    answer("GET /api/v1/components", page([]));
     answer("GET /api/v1/entities/PRT-000001", entity());
     answer("GET /api/v1/entities/PRT-000001/provenance", {});
-    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    answer("GET /api/v1/entities/PRT-000001/projects", page([]));
     const { user } = await renderApp("/entities/PRT-000001/");
     const values = await screen.findByRole("region", { name: "Values" });
     const about = within(values).getByRole("button", { name: "About Molecular weight" });
@@ -1107,13 +1127,13 @@ describe("an entity's page", () => {
         },
       ],
     };
-    answer("GET /api/v1/entity-types", [viewed]);
-    answer("GET /api/v1/components", []);
+    answer("GET /api/v1/entity-types", page([viewed]));
+    answer("GET /api/v1/components", page([]));
     // Titin's first 60 residues (UniProt Q8WZ42), seven times: longer than a page shows.
     const sequence = "MTTQAPTFTQPLQSVVVLEGSTATFEAHISGFPVPEVSWFRDGQVISTSTLPGVQISFSD".repeat(7);
     answer("GET /api/v1/entities/PRT-000001", entity({ values: { name: "Titin", sequence } }));
     answer("GET /api/v1/entities/PRT-000001/provenance", {});
-    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    answer("GET /api/v1/entities/PRT-000001/projects", page([]));
     const { user } = await renderApp("/entities/PRT-000001/");
     const values = await screen.findByRole("region", { name: "Values" });
     const shown = within(values).getByText(/^MTTQAPTFTQ.+…$/);

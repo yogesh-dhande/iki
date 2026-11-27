@@ -196,7 +196,7 @@ describe("a list of rows' values", () => {
 describe("typing rows in", () => {
   it("adds a row of inputs, and shows the API's message on the row's field", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, BISPECIFIC]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, BISPECIFIC]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer("GET /api/v1/entities", page([]));
     answer(
@@ -225,7 +225,7 @@ describe("typing rows in", () => {
 
   it("names the row's field the API points at", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, BISPECIFIC]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, BISPECIFIC]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer(
       "GET /api/v1/entities",
@@ -264,7 +264,7 @@ describe("typing rows in", () => {
 describe("a complex's parts", () => {
   it("offers its type's roles, by their labels, where they're all a part may have", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, COMPLEX]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, COMPLEX]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer(
       "GET /api/v1/entities",
@@ -304,7 +304,7 @@ describe("a complex's parts", () => {
 describe("a record's rows", () => {
   it("shows them as a table", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, BISPECIFIC]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, BISPECIFIC]));
     answer("GET /api/v1/projects", page([KINASE]));
     const made = entity({
       hrid: "BSP-000001",
@@ -328,8 +328,8 @@ describe("a record's rows", () => {
     });
     answer("GET /api/v1/entities/BSP-000001", made);
     answer("GET /api/v1/entities/BSP-000001/provenance", {});
-    answer("GET /api/v1/entities/BSP-000001/projects", []);
-    answer("GET /api/v1/entities/BSP-000001/making", respond(200, []));
+    answer("GET /api/v1/entities/BSP-000001/projects", page([]));
+    answer("GET /api/v1/entities/BSP-000001/makings", respond(200, []));
     await renderApp("/entities/BSP-000001/");
     const table = await screen.findByRole("table", { name: "Components" });
     const rows = within(table).getAllByRole("row");

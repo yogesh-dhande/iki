@@ -75,7 +75,7 @@ def options(api: Api, project: Project | None, **query: Any) -> list[dict[str, A
     at = {"project": str(project.pk)} if project is not None else scope()
     response = api.get(OPTIONS, **at, **query)
     assert response.status_code == 200, response.content
-    found: list[dict[str, Any]] = response.json()
+    found: list[dict[str, Any]] = response.json()["items"]
     return found
 
 
@@ -132,6 +132,20 @@ def test_a_registry_starts_with_the_plugins_options_in_order(world: World) -> No
     first = editor.get(f"/entries/{found[0]['id']}/revisions").json()["items"][-1]
     assert first["kind"] == "created" and first["user"] is None
     assert first["reason"] == "A starting option of acme/protein 3.0.0."
+
+
+def test_a_lists_options_page_in_order_and_are_found_by_code_or_label(world: World) -> None:
+    editor = api_as(world, "editor")
+    at = {"project": str(world.project.pk)}
+    first = editor.get(OPTIONS, **at, limit=2).json()
+    assert [o["code"] for o in first["items"]] == ["protein_a", "sec"]
+    rest = editor.get(OPTIONS, **at, limit=2, cursor=first["next_cursor"]).json()
+    assert ([o["code"] for o in rest["items"]], rest["next_cursor"]) == (["dialysis"], None)
+    assert [o["code"] for o in options(editor, world.project, q="EXCLU")] == ["sec"]
+    assert [o["code"] for o in options(editor, world.project, q="dialy")] == ["dialysis"]
+    # A project is named by its ID: a slug is the web app's.
+    body = problem(editor.get(OPTIONS, project=world.project.slug), 422, "validation_failed")
+    assert [e["parameter"] for e in body["errors"]] == ["project"]
 
 
 def test_seeding_again_adds_only_what_a_registry_lacks(world: World) -> None:

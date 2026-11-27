@@ -168,7 +168,7 @@ function structure(): Schemas["EntityOut"] {
 describe("an entity's tab", () => {
   function onTab(answers: (call: Sent) => unknown) {
     withTypes();
-    answer("GET /api/v1/components", [BOARD]);
+    answer("GET /api/v1/components", page([BOARD]));
     answer("GET /api/v1/entities/PST-000001", structure());
     answer(`POST ${BOARD_PATH}`, answers);
   }
@@ -259,9 +259,9 @@ describe("an entity's tab", () => {
 describe("the grid's results", () => {
   it("can be shown in a component, given the grid's search", async () => {
     withTypes();
-    answer("GET /api/v1/components", [BOARD]);
+    answer("GET /api/v1/components", page([BOARD]));
     answer("GET /api/v1/projects", page([KINASE]));
-    answer("GET /api/v1/saved-searches", []);
+    answer("GET /api/v1/saved-searches", page([]));
     answer("POST /api/v1/entities/search", page([entity()]));
     answer(`POST ${BOARD_PATH}`, page([item(1)]));
     const { user } = await renderApp(
@@ -296,7 +296,7 @@ describe("the grid's results", () => {
 describe("sections", () => {
   function onProject() {
     withTypes();
-    answer("GET /api/v1/components", [BOARD]);
+    answer("GET /api/v1/components", page([BOARD]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer(`GET /api/v1/projects/${KINASE.id}/dashboard`, {
       app: null,
@@ -331,7 +331,7 @@ describe("sections", () => {
 
   it("show on a person's home, of what names them", async () => {
     withTypes();
-    answer("GET /api/v1/components", [BOARD]);
+    answer("GET /api/v1/components", page([BOARD]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer("GET /api/v1/registries", page([]));
     answer(`POST ${BOARD_PATH}`, page([item(1), item(2)]));
@@ -372,7 +372,7 @@ describe("sections", () => {
     ];
     const paths = components.map((c) => `/api/v1/components/${c.name}/entities`);
     withTypes();
-    answer("GET /api/v1/components", components);
+    answer("GET /api/v1/components", page(components));
     answer("GET /api/v1/projects", page([KINASE]));
     answer("GET /api/v1/registries", page([]));
     answer(`POST ${paths[0] ?? ""}`, page([booking(1)]));

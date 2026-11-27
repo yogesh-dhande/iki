@@ -36,7 +36,7 @@ function onBatch(found: () => Schemas["BatchOut"], runs: () => Schemas["RunOut"]
   withTypes();
   answer("GET /api/v1/projects", page([KINASE]));
   answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
-  answer("GET /api/v1/actions", [{ ...ACTION, batchable: 100 }]);
+  answer("GET /api/v1/actions", page([{ ...ACTION, batchable: 100 }]));
   answer("GET /api/v1/batches/BAT-000001", () => found());
   answer("GET /api/v1/runs", (r: { query: URLSearchParams }) => {
     const status = r.query.get("status");
@@ -170,7 +170,7 @@ describe("a batch's page", () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
     answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
-    answer("GET /api/v1/actions", [ACTION]);
+    answer("GET /api/v1/actions", page([ACTION]));
     await renderApp("/batches/BAT-000009/");
     expect(
       screen.getByText("There’s nothing here, or you don’t have access to it."),
@@ -183,28 +183,31 @@ describe("a run in a batch", () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
     answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
-    answer("GET /api/v1/actions", [ACTION]);
+    answer("GET /api/v1/actions", page([ACTION]));
     answer("GET /api/v1/runs/RUN-000002", member(2));
-    answer("GET /api/v1/runs/RUN-000002/attempts", [
-      {
-        attempt: 1,
-        state: "running",
-        worker: "pod-7",
-        worker_labels: [],
-        environment_build: "",
-        queued_at: "2026-03-14T09:00:00Z",
-        started_at: "2026-03-14T09:00:05Z",
-        finished_at: null,
-        progress: 0.5,
-        progress_message: "",
-        log_size: 0,
-        error: null,
-        network: [],
-        secrets: [],
-        volumes: {},
-        pack: { runs: 3, reported_as: "RUN-000001" },
-      },
-    ]);
+    answer(
+      "GET /api/v1/runs/RUN-000002/attempts",
+      page([
+        {
+          attempt: 1,
+          state: "running",
+          worker: "pod-7",
+          worker_labels: [],
+          environment_build: "",
+          queued_at: "2026-03-14T09:00:00Z",
+          started_at: "2026-03-14T09:00:05Z",
+          finished_at: null,
+          progress: 0.5,
+          progress_message: "",
+          log_size: 0,
+          error: null,
+          network: [],
+          secrets: [],
+          volumes: {},
+          pack: { runs: 3, reported_as: "RUN-000001" },
+        },
+      ]),
+    );
     answer("GET /api/v1/runs/RUN-000002/attempts/1/log", {
       offset: 0,
       text: "",

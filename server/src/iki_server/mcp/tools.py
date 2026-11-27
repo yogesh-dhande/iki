@@ -133,6 +133,21 @@ async def _walk(
     )
 
 
+async def _every(where: str, query: Query | None = None) -> list[Any]:
+    """Every item of one of a resource's own lists, page after page: what a tool that
+    reads the resource shows whole, such as a run's attempts."""
+    items: list[Any] = []
+    cursor = None
+    while True:
+        listed = await call(
+            "GET", where, query={**(query or {}), "limit": MAX_LIMIT, "cursor": cursor}
+        )
+        items += listed["items"]
+        cursor = listed.get("next_cursor")
+        if not cursor:
+            return items
+
+
 def answer(data: Any, *, note: str = "") -> CallToolResult:  # noqa: ANN401 - JSON
     """Iki's data, fenced as data. A `note` is Iki's own word to the agent, outside it."""
     fence = f"iki-data-{secrets.token_hex(6)}"
@@ -325,8 +340,8 @@ def build() -> MCPServer:
         """The person you act for, with their organization roles."""
         return answer(await call("GET", "/me"))
 
-    @server.tool(annotations=READ, title="My work")
-    async def my_work(
+    @server.tool(annotations=READ, title="List my work items")
+    async def list_work_items(
         open_to_my_roles: Annotated[
             bool,
             Field(
@@ -364,7 +379,7 @@ def build() -> MCPServer:
             "limit": limit,
             "cursor": cursor,
         }
-        where = "/me/work/open" if open_to_my_roles else "/me/work"
+        where = "/me/open-work-items" if open_to_my_roles else "/me/work-items"
         return answer(await call("GET", where, query=query))
 
     @server.tool(annotations=READ, title="List projects")
@@ -383,20 +398,23 @@ def build() -> MCPServer:
         return answer(await call("GET", "/projects", query=query))
 
     @server.tool(annotations=READ, title="List lab roles")
-    async def list_lab_roles() -> CallToolResult:
+    async def list_lab_roles(limit: Limit = DEFAULT_LIMIT, cursor: Cursor = None) -> CallToolResult:
         """The lab roles the installed plugins declare, such as QA, and what each lets its
         holders do. A project's Admins give them to its members beside their project role;
         list_projects says which the person holds where. Only people give them, in Iki."""
-        return answer(await call("GET", "/lab-roles"))
+        return answer(await call("GET", "/lab-roles", query={"limit": limit, "cursor": cursor}))
 
     @server.tool(annotations=READ, title="List lab lists")
     async def list_lab_lists(
         project: Annotated[UUID, Field(description="The project whose records pick from them.")],
+        limit: Limit = DEFAULT_LIMIT,
+        cursor: Cursor = None,
     ) -> CallToolResult:
         """The dropdowns the lab curates itself (ADR 0270), such as lot methods: each list's
         type and how many options it offers. A field referring to one of these types takes
         one of its options' IDs, from list_lab_list_options."""
-        return answer(await call("GET", "/lists", query={"project": str(project)}))
+        query: Query = {"project": str(project), "limit": limit, "cursor": cursor}
+        return answer(await call("GET", "/lists", query=query))
 
     @server.tool(annotations=READ, title="List a lab list's options")
     async def list_lab_list_options(
@@ -411,11 +429,19 @@ def build() -> MCPServer:
         q: Annotated[
             str | None, Field(description="Only options whose label or code has this in it.")
         ] = None,
+        limit: Limit = DEFAULT_LIMIT,
+        cursor: Cursor = None,
     ) -> CallToolResult:
         """A lab list's options in its order, each with its ID, code and label. A record's
         field referring to the list takes the option's ID; only active ones can be chosen
         anew. Its curators change the list, in Iki: there's no tool for it."""
-        query = {"project": str(project), "archived": archived, "q": q}
+        query = {
+            "project": str(project),
+            "archived": archived,
+            "q": q,
+            "limit": limit,
+            "cursor": cursor,
+        }
         return answer(await call("GET", path("/lists/{name}/options", name=list_type), query=query))
 
     @server.tool(annotations=READ, title="Find files")
@@ -493,7 +519,7 @@ def build() -> MCPServer:
             "GET", "/files", query={**filters, "sort": sort, "limit": limit, "cursor": cursor}
         )
         count = await call("GET", "/files/count", query=filters)
-        formats = await call("GET", "/files/formats", query=filters)
+        formats = await _every("/files/formats", filters)
         return answer({**page, **count, "formats": formats})
 
     @server.tool(annotations=READ, title="Get a file")
@@ -531,15 +557,19 @@ def build() -> MCPServer:
         return answer(await call("GET", path("/files/{id}/content-url", id=str(file_id))))
 
     @server.tool(annotations=READ, title="List entity types")
-    async def list_entity_types() -> CallToolResult:
-        """Every installed entity type: its name (such as iki/dna.DNASequence), label,
-        plugin and the type it extends. describe_entity_type gives one's fields."""
-        types = await call("GET", "/entity-types")
+    async def list_entity_types(
+        limit: Limit = DEFAULT_LIMIT, cursor: Cursor = None
+    ) -> CallToolResult:
+        """The installed entity types, by name: each one's name (such as
+        iki/dna.DNASequence), label, plugin and the type it extends. describe_entity_type
+        gives one's fields."""
+        listed = await call("GET", "/entity-types", query={"limit": limit, "cursor": cursor})
+        keys = ("name", "label", "description", "plugin", "extends")
         return answer(
-            [
-                {k: t.get(k) for k in ("name", "label", "description", "plugin", "extends")}
-                for t in types
-            ]
+            {
+                "items": [{k: t.get(k) for k in keys} for t in listed["items"]],
+                "next_cursor": listed["next_cursor"],
+            }
         )
 
     @server.tool(annotations=READ, title="Describe an entity type")
@@ -614,7 +644,14 @@ def build() -> MCPServer:
 
     @server.tool(annotations=READ, title="Look up entities by an external ID")
     async def lookup_entities(
-        type: Annotated[str, Field(description="The type, such as iki/protein.Protein.")],
+        type: Annotated[
+            list[str],
+            Field(
+                min_length=1,
+                max_length=20,
+                description="The types, such as [iki/protein.Protein], each with its subtypes.",
+            ),
+        ],
         field: Annotated[
             str,
             Field(
@@ -624,6 +661,8 @@ def build() -> MCPServer:
         ],
         value: Annotated[str, Field(min_length=1, max_length=600)],
         project: Annotated[UUID | None, Field(description="Only this project's.")] = None,
+        limit: Limit = DEFAULT_LIMIT,
+        cursor: Cursor = None,
     ) -> CallToolResult:
         """The entities whose unique field has this value, such as the ID a LIMS or ELN
         gives its record: at most one in each project the person can read. A field's `link`
@@ -633,6 +672,8 @@ def build() -> MCPServer:
             "field": field,
             "value": value,
             "project": str(project) if project else None,
+            "limit": limit,
+            "cursor": cursor,
         }
         return answer(await call("GET", "/entities/lookup", query=query))
 
@@ -739,7 +780,7 @@ def build() -> MCPServer:
         entry, whose ID (such as CPD-000123) the record shares: its identity, derived values
         and facts are every holding project's; the rest are this project's. If it was
         imported, `origins` says from where: a database's record (with its version, link
-        and when it was fetched) or a file's. `making` says how it was made, one tool at a
+        and when it was fetched) or a file's. `makings` says how it was made, one tool at a
         time: `by: iki` is Iki's record of the run that made it, `by: source` what a record
         it was imported from claims, which Iki can't check. A state field's value is its
         state; `locked` says whether a state locks the record (`locked_by`: which fields),
@@ -754,10 +795,10 @@ def build() -> MCPServer:
         # The record's own ID: an entry's HRID can name several projects' records.
         ref = str(found["id"]) if isinstance(found, dict) and "id" in found else ref
         provenance = await call("GET", path("/entities/{ref}/provenance", ref=ref))
-        origins = await call("GET", path("/entities/{ref}/origins", ref=ref))
-        making = await call("GET", path("/entities/{ref}/making", ref=ref))
+        origins = await _every(path("/entities/{ref}/origins", ref=ref))
+        makings = await _every(path("/entities/{ref}/makings", ref=ref))
         return answer(
-            {"entity": found, "provenance": provenance, "origins": origins, "making": making}
+            {"entity": found, "provenance": provenance, "origins": origins, "makings": makings}
         )
 
     @server.tool(annotations=READ, title="Get a registry entry")
@@ -1036,15 +1077,17 @@ def build() -> MCPServer:
     async def list_services(
         project: Annotated[UUID, Field(description="The project asking: one of list_projects'.")],
         type: Annotated[
-            str | None,
-            Field(description="Only services taking this request type (qualified)."),
+            list[str] | None,
+            Field(max_length=20, description="Only services taking one of these request types."),
         ] = None,
+        limit: Limit = DEFAULT_LIMIT,
+        cursor: Cursor = None,
     ) -> CallToolResult:
         """The other projects that take requests from this one (ADR 0132): core facilities
         and other services, each with the request types it takes. A request type's records
         (describe_entity_type's `request`) are made in the asking project with
         create_entity, then sent to one of these with submit_request."""
-        query = {"type": type} if type is not None else None
+        query: Query = {"type": type or [], "limit": limit, "cursor": cursor}
         return answer(
             await call("GET", path("/projects/{id}/services", id=str(project)), query=query)
         )
@@ -1159,8 +1202,8 @@ def build() -> MCPServer:
             )
         )
 
-    @server.tool(annotations=ADD, title="Split into aliquots")
-    async def split_into_aliquots(
+    @server.tool(annotations=ADD, title="Create aliquots")
+    async def create_aliquots(
         ref: Ref,
         count: Annotated[int, Field(ge=1, le=200, description="How many aliquots.")],
         each: Annotated[AmountIn, Field(description="How much each aliquot holds.")],
@@ -1205,8 +1248,8 @@ def build() -> MCPServer:
         check again until there are none, then create_app."""
         return answer(await call("POST", "/apps/check", body={"spec": spec}))
 
-    @server.tool(annotations=READ, title="Read HELM")
-    async def read_helm(
+    @server.tool(annotations=READ, title="Parse HELM")
+    async def parse_helm(
         helm: Annotated[
             list[str],
             Field(
@@ -1357,10 +1400,13 @@ def build() -> MCPServer:
             list[str] | None,
             Field(description="Only actions that take entities of each of these types."),
         ] = None,
+        limit: Limit = DEFAULT_LIMIT,
+        cursor: Cursor = None,
     ) -> CallToolResult:
-        """Installed actions: what each takes, changes and creates, where it runs (its
-        tier) and whether it can run now."""
-        return answer(await call("GET", "/actions", query={"takes": takes or []}))
+        """Installed actions, by name: what each takes, changes and creates, where it runs
+        (its tier) and whether it can run now."""
+        query: Query = {"takes": takes or [], "limit": limit, "cursor": cursor}
+        return answer(await call("GET", "/actions", query=query))
 
     @server.tool(annotations=READ, title="Describe an action")
     async def describe_action(
@@ -1396,8 +1442,8 @@ def build() -> MCPServer:
         each call: the model and version the API said answered, the parameters, and hashes
         of what was sent and answered. A `parked` run waits on an outside API's job."""
         found = await call("GET", path("/runs/{ref}", ref=ref))
-        attempts = await call("GET", path("/runs/{ref}/attempts", ref=ref))
-        artifacts = await call("GET", path("/runs/{ref}/artifacts", ref=ref))
+        attempts = await _every(path("/runs/{ref}/attempts", ref=ref))
+        artifacts = await _every(path("/runs/{ref}/artifacts", ref=ref))
         out = {"run": found, "attempts": attempts, "artifacts": artifacts}
         if found.get("apis"):
             # Its calls to outside APIs, as the egress proxy recorded them (ADR 0130).
@@ -1534,12 +1580,12 @@ def build() -> MCPServer:
         return answer(run, note=waiting([run]))
 
     @server.tool(annotations=READ, title="List workflows")
-    async def list_workflows() -> CallToolResult:
-        """Installed workflows: several of a plugin's actions run as one, each step an
-        ordinary run started once the steps it takes from have succeeded. Each lists its
+    async def list_workflows(limit: Limit = DEFAULT_LIMIT, cursor: Cursor = None) -> CallToolResult:
+        """Installed workflows, by name: several of a plugin's actions run as one, each step
+        an ordinary run started once the steps it takes from have succeeded. Each lists its
         inputs, params, steps (with their conditions and approvals), the tiers its steps run
         on, and whether it can run now."""
-        return answer(await call("GET", "/workflows"))
+        return answer(await call("GET", "/workflows", query={"limit": limit, "cursor": cursor}))
 
     @server.tool(annotations=READ, title="Describe a workflow")
     async def describe_workflow(

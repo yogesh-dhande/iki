@@ -215,13 +215,13 @@ function seeing(...projects: Schemas["ProjectOut"][]): void {
 
 function onRequest(found: Schemas["EntityOut"], ...projects: Schemas["ProjectOut"][]): void {
   withTypes();
-  answer("GET /api/v1/entity-types", [SAMPLE, ASK, RESULT]);
+  answer("GET /api/v1/entity-types", page([SAMPLE, ASK, RESULT]));
   seeing(...(projects.length ? projects : [KINASE]));
   answer("GET /api/v1/entities/ARQ-000001", found);
   answer(`GET /api/v1/entities/${ASK_ID}`, found);
   answer("GET /api/v1/entities/ARQ-000001/provenance", {});
-  answer("GET /api/v1/entities/ARQ-000001/projects", []);
-  answer(`GET /api/v1/projects/${KINASE.id}/services`, SERVICES);
+  answer("GET /api/v1/entities/ARQ-000001/projects", page([]));
+  answer(`GET /api/v1/projects/${KINASE.id}/services`, page(SERVICES));
 }
 
 function region(name: string): HTMLElement {
@@ -377,7 +377,7 @@ describe("a request's page", () => {
 
   it("says why it can't be sent, when no service takes it", async () => {
     onRequest(request());
-    answer(`GET /api/v1/projects/${KINASE.id}/services`, []);
+    answer(`GET /api/v1/projects/${KINASE.id}/services`, page([]));
     await renderApp("/entities/ARQ-000001/");
     const panel = await screen.findByRole("region", { name: "Request" });
     const why =
@@ -524,7 +524,7 @@ describe("a request's forms", () => {
 describe("a result's page", () => {
   function onResult(review: string): void {
     withTypes();
-    answer("GET /api/v1/entity-types", [SAMPLE, ASK, RESULT]);
+    answer("GET /api/v1/entity-types", page([SAMPLE, ASK, RESULT]));
     seeing(CORE);
     answer(
       "GET /api/v1/entities/ARS-000001",
@@ -547,7 +547,7 @@ describe("a result's page", () => {
       }),
     );
     answer("GET /api/v1/entities/ARS-000001/provenance", {});
-    answer("GET /api/v1/entities/ARS-000001/projects", []);
+    answer("GET /api/v1/entities/ARS-000001/projects", page([]));
   }
 
   it("says it's the service's until it's released, and links its request", async () => {
@@ -577,10 +577,10 @@ describe("what a service takes", () => {
 
   function onCore(found: Schemas["ProjectOut"] = CORE): void {
     withTypes();
-    answer("GET /api/v1/entity-types", [SAMPLE, ASK, RESULT]);
+    answer("GET /api/v1/entity-types", page([SAMPLE, ASK, RESULT]));
     seeing(found, KINASE, ELSEWHERE);
     answer(`GET /api/v1/projects/${CORE.id}/dashboard`, { app: null, set_by: null, set_at: null });
-    answer(`GET /api/v1/projects/${CORE.id}/dashboard/choices`, []);
+    answer(`GET /api/v1/projects/${CORE.id}/dashboard/choices`, page([]));
     answer(`GET ${INTAKE}`, { types: [], from_registry: false, projects: [] });
   }
 
@@ -689,11 +689,11 @@ describe("a project's Requests tab", () => {
     } = {},
   ): void {
     withTypes();
-    answer("GET /api/v1/entity-types", [SAMPLE, ASK, RESULT]);
+    answer("GET /api/v1/entity-types", page([SAMPLE, ASK, RESULT]));
     seeing(found, KINASE, CORE);
     answer(`GET /api/v1/projects/${found.id}/intake`, intake);
-    answer(`GET /api/v1/projects/${found.id}/sent-to`, to.map(ref));
-    answer(`GET /api/v1/projects/${found.id}/sent-from`, from.map(ref));
+    answer(`GET /api/v1/projects/${found.id}/sent-to`, page(to.map(ref)));
+    answer(`GET /api/v1/projects/${found.id}/sent-from`, page(from.map(ref)));
     answer(`GET /api/v1/projects/${found.id}/dashboard`, { app: null, set_by: null, set_at: null });
   }
 

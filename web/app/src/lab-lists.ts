@@ -12,7 +12,7 @@
 import { unwrap, type Schemas } from "@ikisci/sdk";
 import { queryOptions, useQueries, useQuery } from "@tanstack/react-query";
 
-import { iki } from "./api";
+import { everyPage, iki } from "./api";
 import { ENTITIES, type EntityType, type FieldDef } from "./entities";
 import { registriesQuery } from "./registries";
 
@@ -63,8 +63,15 @@ export function listOfItems(field: FieldDef, types: readonly EntityType[]): Enti
 export function labListsQuery(scope: ListScope) {
   return queryOptions({
     queryKey: [...LAB_LISTS, "lists", scopeKey(scope)],
-    queryFn: async ({ signal }) =>
-      unwrap(await iki.GET("/api/v1/lists", { params: { query: query(scope) }, signal })),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/lists", {
+            params: { query: { ...query(scope), ...page } },
+            signal,
+          }),
+        ),
+      ),
   });
 }
 
@@ -86,17 +93,19 @@ export function labListQuery(name: string, scope: ListScope) {
 /**
  * A list's options, in its order: the active ones a dropdown offers, or with `every`,
  * archived and superseded ones too, as records may still name them. A list is short, a
- * few hundred options at most, so it's read whole and searched in the browser.
+ * few hundred options at most, so it's read whole, every page, and searched in the browser.
  */
 export function optionsQuery(name: string, scope: ListScope, every = false) {
   return queryOptions({
     queryKey: [...LAB_LISTS, "options", name, scopeKey(scope), every],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/lists/{name}/options", {
-          params: { path: { name }, query: { ...query(scope), archived: every } },
-          signal,
-        }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/lists/{name}/options", {
+            params: { path: { name }, query: { ...query(scope), archived: every, ...page } },
+            signal,
+          }),
+        ),
       ),
     staleTime: 30_000,
   });

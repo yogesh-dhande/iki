@@ -1155,7 +1155,7 @@ function Details({ entity, type }: { entity: Entity; type: EntityType | undefine
   const origins = useQuery(originsQuery(ref)).data ?? [];
   const making = useQuery(makingQuery(ref)).data ?? [];
   const bundles = useQuery(bundleOriginsQuery(ref)).data ?? [];
-  const signatures = useQuery(signaturesQuery(ref, false)).data?.items ?? [];
+  const signatures = useQuery(signaturesQuery(ref, false)).data?.signatures ?? [];
   const carried = signatures.filter((s) => s.status === "carried");
   const entry = entity.entry;
   const also = (projects ?? []).filter((p) => !p.owner);

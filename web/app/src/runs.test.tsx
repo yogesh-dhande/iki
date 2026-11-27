@@ -50,10 +50,10 @@ function onRun(found: () => Schemas["RunOut"], attempts: () => Schemas["RunAttem
   withTypes();
   answer("GET /api/v1/projects", page([KINASE]));
   answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
-  answer("GET /api/v1/actions", [ACTION]);
+  answer("GET /api/v1/actions", page([ACTION]));
   answer("GET /api/v1/runs/RUN-000001", () => found());
-  answer("GET /api/v1/runs/RUN-000001/attempts", () => attempts());
-  answer("GET /api/v1/runs/RUN-000001/artifacts", []);
+  answer("GET /api/v1/runs/RUN-000001/attempts", () => page(attempts()));
+  answer("GET /api/v1/runs/RUN-000001/artifacts", page([]));
 }
 
 function artifact(overrides: Partial<Schemas["RunArtifactOut"]> = {}): Schemas["RunArtifactOut"] {
@@ -94,7 +94,7 @@ describe("a project's runs", () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
     answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
-    answer("GET /api/v1/actions", [ACTION]);
+    answer("GET /api/v1/actions", page([ACTION]));
     answer(
       "GET /api/v1/runs",
       page([
@@ -130,7 +130,7 @@ describe("a project's runs", () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
     answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
-    answer("GET /api/v1/actions", [ACTION]);
+    answer("GET /api/v1/actions", page([ACTION]));
     answer("GET /api/v1/runs", page([]));
     await renderApp("/projects/kinase-atlas/runs/");
     expect(
@@ -264,7 +264,7 @@ describe("a run's page", () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
     answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
-    answer("GET /api/v1/actions", [IMPORT]);
+    answer("GET /api/v1/actions", page([IMPORT]));
     const imported = run({
       action: IMPORT.name,
       inputs: [],
@@ -273,7 +273,7 @@ describe("a run's page", () => {
       settings: { default_model: "colabfold", allowed_presets: ["monomer"] },
     });
     answer("GET /api/v1/runs/RUN-000001", imported);
-    answer("GET /api/v1/runs/RUN-000001/attempts", []);
+    answer("GET /api/v1/runs/RUN-000001/attempts", page([]));
     await renderApp("/runs/RUN-000001/");
     const inputs = screen.getByRole("region", { name: "Inputs" });
     expect(await within(inputs).findByRole("link", { name: "kinases.fasta" })).toHaveAttribute(
@@ -306,7 +306,7 @@ describe("a run's page", () => {
               note: "",
             },
             batch: "BAT-000003",
-            workflow: null,
+            workflow_run: null,
             inputs_elsewhere: [
               {
                 name: "protein",
@@ -536,7 +536,7 @@ describe("a run's page", () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
     answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
-    answer("GET /api/v1/actions", [IMPORT]);
+    answer("GET /api/v1/actions", page([IMPORT]));
     const FILE = "00000000-0000-7000-8000-00000000f001";
     answer(
       "GET /api/v1/runs/RUN-000001",
@@ -549,7 +549,7 @@ describe("a run's page", () => {
         },
       }),
     );
-    answer("GET /api/v1/runs/RUN-000001/attempts", []);
+    answer("GET /api/v1/runs/RUN-000001/attempts", page([]));
     await renderApp("/runs/RUN-000001/");
     const inputs = screen.getByRole("region", { name: "Inputs" });
     const topology = (await within(inputs).findByText("Topology")).nextSibling as HTMLElement;
@@ -826,22 +826,25 @@ describe("a run's page", () => {
       () => "",
       () => true,
     );
-    answer("GET /api/v1/runs/RUN-000001/artifacts", [
-      artifact({
-        id: "00000000-0000-7000-8000-0000000000a0",
-        path: "msas/uniref90.a3m",
-        name: "uniref90.a3m",
-        state: "deleted",
-        deleted_at: "2026-06-12T10:17:00Z",
-      }),
-      artifact({ expires_at: "2099-06-12T10:17:00Z" }),
-      artifact({
-        id: "00000000-0000-7000-8000-0000000000a2",
-        path: "pae.json",
-        name: "pae.json",
-        expires_at: "2026-06-12T10:17:00Z",
-      }),
-    ]);
+    answer(
+      "GET /api/v1/runs/RUN-000001/artifacts",
+      page([
+        artifact({
+          id: "00000000-0000-7000-8000-0000000000a0",
+          path: "msas/uniref90.a3m",
+          name: "uniref90.a3m",
+          state: "deleted",
+          deleted_at: "2026-06-12T10:17:00Z",
+        }),
+        artifact({ expires_at: "2099-06-12T10:17:00Z" }),
+        artifact({
+          id: "00000000-0000-7000-8000-0000000000a2",
+          path: "pae.json",
+          name: "pae.json",
+          expires_at: "2026-06-12T10:17:00Z",
+        }),
+      ]),
+    );
     await renderApp("/runs/RUN-000001/");
     const card = await screen.findByRole("region", { name: "Artifacts" });
     const kept = within(card).getByRole("link", { name: "alignment.txt" });
@@ -1142,7 +1145,7 @@ describe("a run's page", () => {
 
     function onAgain(found: () => Schemas["RunOut"]): void {
       answer("GET /api/v1/runs/RUN-000002", () => found());
-      answer("GET /api/v1/runs/RUN-000002/attempts", () => [attempt({ state: "queued" })]);
+      answer("GET /api/v1/runs/RUN-000002/attempts", () => page([attempt({ state: "queued" })]));
       answer("GET /api/v1/runs/RUN-000002/attempts/1/log", {
         offset: 0,
         text: "",
@@ -1597,7 +1600,7 @@ describe("a run's page", () => {
 
   it("says when there's no such run", async () => {
     withTypes();
-    answer("GET /api/v1/actions", [ACTION]);
+    answer("GET /api/v1/actions", page([ACTION]));
     await renderApp("/runs/RUN-999999/");
     expect(
       screen.getByText("There’s nothing here, or you don’t have access to it."),
@@ -1625,7 +1628,7 @@ describe("an entity's provenance", () => {
         run: { id: RUN_ID, hrid: "RUN-000002", action: "iki/protein.import_proteins" },
       }),
     });
-    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    answer("GET /api/v1/entities/PRT-000001/projects", page([]));
     const { user } = await renderApp("/entities/PRT-000001/");
     // Who set each value is on demand, in its history (ADR 0176).
     const weight = await fieldHistory(user, "Molecular weight");
@@ -1649,7 +1652,7 @@ describe("an entity's provenance", () => {
     answer("GET /api/v1/entities/PRT-000001/provenance", {
       name: revision({ via: "run", run: null, run_withheld: false }),
     });
-    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    answer("GET /api/v1/entities/PRT-000001/projects", page([]));
     const { user } = await renderApp("/entities/PRT-000001/");
     const name = await fieldHistory(user, "Name");
     expect(within(name).getByText(/by a run not recorded here/)).toBeInTheDocument();

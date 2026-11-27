@@ -14,8 +14,9 @@ from ninja import Field, Query, Router, Schema, Status
 from iki_server.accounts.models import User
 from iki_server.api.common import caller, project, require_scope
 from iki_server.api.entities import Condition, SortIn
+from iki_server.api.pagination import PageParams, page_by
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import PersonRef
+from iki_server.api.schemas import Page, PersonRef
 from iki_server.org.permissions import Action
 from iki_server.searches import services
 from iki_server.searches.models import SavedSearch
@@ -75,14 +76,13 @@ class SavedSearchOut(Schema):
     can: SavedSearchCan
 
 
-class SavedSearchFilters(Schema):
+class SavedSearchFilters(PageParams):
     project: UUID | None = Field(
         None,
         description="Only this project's. Without one, every search you see: your own, and "
         "those shared with projects you can read.",
     )
     mine: bool = Field(False, description="Only your own: the sidebar's saved views.")
-    limit: int | None = Field(None, ge=1, le=100, description="At most this many.")
 
 
 def _query(query: QueryIn) -> dict[str, Any]:
@@ -145,8 +145,8 @@ def _find(user: User, saved_id: UUID) -> SavedSearch:
     return saved
 
 
-@router.get("/saved-searches", response=list[SavedSearchOut], summary="Saved searches")
-def list_saved_searches(request: HttpRequest, filters: Query[SavedSearchFilters]) -> Any:  # noqa: ANN401
+@router.get("/saved-searches", response=Page[SavedSearchOut], summary="Saved searches")
+def list_saved_searches(request: HttpRequest, filters: Query[SavedSearchFilters]) -> dict[str, Any]:
     """Yours, and those shared with the project, by name. Without a project: every one you
     see, your searches of every project among them. Only your own with ``mine`` (the
     sidebar's saved views, ADR 0176)."""
@@ -157,10 +157,10 @@ def list_saved_searches(request: HttpRequest, filters: Query[SavedSearchFilters]
         searches = services.visible(me, project(me, filters.project, Action.PROJECT_READ))
         if filters.mine:
             searches = searches.filter(created_by=me)
-    searches = searches.select_related("project__team", "created_by").order_by("name", "pk")
-    if filters.limit is not None:
-        searches = searches[: filters.limit]
-    return [_out(me, s) for s in searches]
+    found = page_by(
+        searches.select_related("project__team", "created_by"), filters, by=("name", "pk")
+    )
+    return {**found, "items": [_out(me, s) for s in found["items"]]}
 
 
 @router.post("/saved-searches", response={201: SavedSearchOut}, summary="Save a search")

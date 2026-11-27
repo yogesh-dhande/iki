@@ -23,7 +23,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from iki_server.accounts.models import User
@@ -444,7 +444,7 @@ def plan(
     takes custody from wherever a record was recorded. A receipt preview supplies the
     records it will have taken out of their prior locations before putting any away."""
     if len(wanted) > MAX_MOVES:
-        raise Wrong({"items": [f"has more than {MAX_MOVES} moves."]})
+        raise Wrong({"moves": [f"has more than {MAX_MOVES} moves."]})
     records = [w.record.pk for w in wanted]
     places = {
         p.pk: p for p in Place.objects.filter(pk__in=records) if p.pk not in taken_into_custody
@@ -634,7 +634,7 @@ def _lock(ids: Iterable[Any]) -> None:
 
 
 def problems_of(planned: Sequence[Planned]) -> dict[str, list[str]]:
-    return {f"items/{i}": p.problems for i, p in enumerate(planned) if p.problems}
+    return {f"moves/{i}": p.problems for i, p in enumerate(planned) if p.problems}
 
 
 def _lock_moves(wanted: Sequence[Wanted]) -> None:
@@ -671,7 +671,7 @@ def move(
     if not reason.strip():
         raise Wrong({"reason": ["is required: say why they're moved."]})
     if not wanted:
-        raise Wrong({"items": ["names nothing to move."]})
+        raise Wrong({"moves": ["names nothing to move."]})
     with transaction.atomic():
         _lock_moves(wanted)
         for to in {w.to.pk: w.to for w in wanted if w.to is not None}.values():
@@ -946,7 +946,7 @@ def check_in(
     """Checks records back in: each to the position it kept, or, where ``to`` is given, to
     another, in the same change."""
     if not wanted:
-        raise Wrong({"records": ["names nothing to check in."]})
+        raise Wrong({"check_ins": ["names nothing to check in."]})
     with transaction.atomic():
         _lock_moves(wanted)
         records = [w.record for w in wanted]
@@ -959,15 +959,15 @@ def check_in(
         for i, w in enumerate(wanted):
             p = places.get(w.record.pk)
             if w.record.pk in seen:
-                wrong[f"records/{i}"] = [f"{w.record.hrid} is named twice."]
+                wrong[f"check_ins/{i}"] = [f"{w.record.hrid} is named twice."]
             elif p is None or p.custodian_id is None:
-                wrong[f"records/{i}"] = [f"{w.record.hrid} isn't checked out."]
+                wrong[f"check_ins/{i}"] = [f"{w.record.hrid} isn't checked out."]
             elif w.to is None and p.container_id is None:
-                wrong[f"records/{i}"] = [
+                wrong[f"check_ins/{i}"] = [
                     f"Say where {w.record.hrid} goes: it has no position kept."
                 ]
             elif w.to is None and not keeps(user, p.container):  # type: ignore[arg-type]
-                wrong[f"records/{i}"] = [
+                wrong[f"check_ins/{i}"] = [
                     f"Checking {w.record.hrid} in needs Editor in its container's project."
                 ]
             seen.add(w.record.pk)
@@ -976,7 +976,7 @@ def check_in(
         verified, errors = _confirmed(user, records, records, confirmations or {})
         if errors:
             raise Wrong(
-                {f"items/{i}": [errors[r.pk]] for i, r in enumerate(records) if r.pk in errors}
+                {f"check_ins/{i}": [errors[r.pk]] for i, r in enumerate(records) if r.pk in errors}
             )
         operation = uuid7()
         moving = [w for w in wanted if w.to is not None]
@@ -1018,13 +1018,11 @@ def check_in(
         return out
 
 
-def checked_out(user: User, custodian: User) -> list[Place]:
-    """What ``custodian`` has, of what ``user`` can read."""
-    return list(
-        Place.objects.filter(
-            custodian=custodian, entity__in=access.visible(user).values("pk")
-        ).order_by("custody_since")
-    )
+def checked_out(user: User, custodian: User) -> QuerySet[Place]:
+    """What ``custodian`` has, of what ``user`` can read, longest held first."""
+    return Place.objects.filter(
+        custodian=custodian, entity__in=access.visible(user).values("pk")
+    ).order_by("custody_since", "pk")
 
 
 def took_custody(

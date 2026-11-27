@@ -8,14 +8,15 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
-from django.db.models import Q
+from django.db.models import Case, Q, Value, When
+from django.db.models.functions import Coalesce, Collate, Lower, NullIf
 from django.http import HttpRequest, HttpResponse
 from ninja import Field, Query, Router, Schema
 
 from iki_server.api import preconditions
 from iki_server.api.common import caller, project
 from iki_server.api.entities import EntityOut, _find, _invalid, _one, _out
-from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT
+from iki_server.api.pagination import PageParams, page_by
 from iki_server.api.preconditions import IfMatch
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page
@@ -37,34 +38,35 @@ class NameableOut(Schema):
     email: str
 
 
-class NameableFilters(Schema):
+class NameableFilters(PageParams):
     q: str = Field("", max_length=200, description="Part of their name or email address.")
     role: str | None = Field(
         None, description="Only those holding this lab role in the project, qualified."
     )
-    type: str | None = Field(
-        None, description="With `field`: only those that field of this type can name."
+    entity_type: str | None = Field(
+        None, description="With `field`: only those that field of this entity type can name."
     )
-    field: str | None = None
-    limit: int = Field(20, ge=1, le=50)
+    field: str | None = Field(None, description="With `entity_type`: one of its person fields.")
 
 
 @router.get(
     "/projects/{project_id}/people",
-    response=list[NameableOut],
+    response=Page[NameableOut],
     summary="Whom its records can name",
 )
 def nameable(
     request: HttpRequest, project_id: UUID, filters: Query[NameableFilters]
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """The people its records' fields can name (ADR 0122), for a picker: active people
     who can read it, holding the field's lab role if it has one. Service accounts and
-    placeholders can't be named. Best matches first. It needs you to read the project."""
+    placeholders can't be named. Best matches first: those whose name, a word of it, or
+    email address starts with ``q``, then the rest, each by name. It needs you to read the
+    project."""
     me = caller(request)
     found = project(me, project_id, Action.PROJECT_READ)
     role = filters.role
-    if filters.type is not None or filters.field is not None:
-        entity_type = registry.types().get(filters.type or "")
+    if filters.entity_type is not None or filters.field is not None:
+        entity_type = registry.types().get(filters.entity_type or "")
         f = None
         if entity_type is not None and filters.field:
             f = shape(entity_type.qualified_name).fields().get(filters.field)
@@ -75,22 +77,28 @@ def nameable(
         raise Problem(404, "No such lab role.")
     candidates = people.nameable(found, role)
     text = filters.q.strip()
-    if text:
-        candidates = candidates.filter(Q(name__icontains=text) | Q(email__icontains=text))
-    rows = list(candidates.only("pk", "name", "email").order_by("name", "email")[:200])
-    key = text.casefold()
-
     # The web app's picker works out this answer from an earlier, wider one while it waits
     # (narrowNameable in web/app/src/people.ts): a change to the match or order goes there too.
-    def rank(u: Any) -> tuple[int, str]:  # noqa: ANN401 - a User
-        name, email = (u.name or "").casefold(), u.email.casefold()
-        starts = name.startswith(key) or email.startswith(key) or f" {key}" in f" {name}"
-        return (0 if not key or starts else 1, name or email)
-
-    rows.sort(key=rank)
-    return [
-        {"id": u.pk, "name": u.name or u.email, "email": u.email} for u in rows[: filters.limit]
-    ]
+    if text:
+        candidates = candidates.filter(Q(name__icontains=text) | Q(email__icontains=text))
+        starts = (
+            Q(name__istartswith=text) | Q(email__istartswith=text) | Q(name__icontains=f" {text}")
+        )
+        rank: Case | Value = Case(When(starts, then=Value(0)), default=Value(1))
+    else:
+        rank = Value(0)
+    ranked = candidates.only("pk", "name", "email").annotate(
+        match_rank=rank,
+        # By name as shown, in code point order, as the picker's own sort compares them.
+        shown_name=Collate(Lower(Coalesce(NullIf("name", Value("")), "email")), "C"),
+    )
+    paged = page_by(ranked, filters, by=("match_rank", "shown_name", "pk"))
+    return {
+        **paged,
+        "items": [
+            {"id": u.pk, "name": u.name or u.email, "email": u.email} for u in paged["items"]
+        ],
+    }
 
 
 # --- Work -----------------------------------------------------------------------------------------
@@ -107,7 +115,7 @@ class WorkItemOut(Schema):
     )
 
 
-class WorkFilters(Schema):
+class WorkFilters(PageParams):
     project: list[UUID] = Field(default_factory=list, description="Only these projects'.")
     type: list[str] = Field(
         default_factory=list, description="Only these types' records (and their subtypes')."
@@ -122,8 +130,6 @@ class WorkFilters(Schema):
         "due",
         description="`due`: soonest due first, undated ones last; `updated`: latest changed first.",
     )
-    cursor: str | None = Field(None, description="From the previous page's next_cursor.")
-    limit: int = Field(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT)
 
 
 def _work(request: HttpRequest, filters: WorkFilters, *, open_: bool) -> dict[str, Any]:
@@ -170,8 +176,8 @@ def _work(request: HttpRequest, filters: WorkFilters, *, open_: bool) -> dict[st
     }
 
 
-@router.get("/me/work", response=Page[WorkItemOut], summary="What's assigned to you")
-def my_work(request: HttpRequest, filters: Query[WorkFilters]) -> dict[str, Any]:
+@router.get("/me/work-items", response=Page[WorkItemOut], summary="What's assigned to you")
+def list_work_items(request: HttpRequest, filters: Query[WorkFilters]) -> dict[str, Any]:
     """Everything assigned to you now (ADR 0122), across the projects you read: records an
     assignment field names you in, while their state fields are in states it counts in. You
     drop off a record's work when you can't be named in it any more (you left its project,
@@ -179,8 +185,10 @@ def my_work(request: HttpRequest, filters: Query[WorkFilters]) -> dict[str, Any]
     return _work(request, filters, open_=False)
 
 
-@router.get("/me/work/open", response=Page[WorkItemOut], summary="Work open to your lab roles")
-def open_work(request: HttpRequest, filters: Query[WorkFilters]) -> dict[str, Any]:
+@router.get(
+    "/me/open-work-items", response=Page[WorkItemOut], summary="Work open to your lab roles"
+)
+def list_open_work_items(request: HttpRequest, filters: Query[WorkFilters]) -> dict[str, Any]:
     """Records nobody is assigned that one of your lab roles could take (ADR 0122): an
     assignment field limited to a role you hold in the record's project counts in its
     states, and names nobody who can be named there now. Take one with `POST

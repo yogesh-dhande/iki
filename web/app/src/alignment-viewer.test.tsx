@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { colourOf, moved, residueNumber, shownRows } from "./alignment";
 import { entity, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import type { Reading } from "./reading";
-import { answer } from "./test-server";
+import { answer, page } from "./test-server";
 import { readViewState } from "./views";
 
 const read = vi.hoisted(() =>
@@ -114,7 +114,7 @@ async function onAlignment(
   mediaType = "chemical/seq-aa-fasta",
 ) {
   withTypes();
-  answer("GET /api/v1/entity-types", [PROTEIN, ALIGNMENT_TYPE]);
+  answer("GET /api/v1/entity-types", page([PROTEIN, ALIGNMENT_TYPE]));
   answer(
     "GET /api/v1/entities/ALN-000001",
     entity({

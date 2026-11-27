@@ -11,7 +11,7 @@ import userEvent from "@testing-library/user-event";
 
 import { queryClient } from "./api";
 import { createAppRouter } from "./router";
-import { answer, ME, project, signedIn } from "./test-server";
+import { answer, ME, page, project, signedIn } from "./test-server";
 
 /** The item at `index`, which the test expects to be there. */
 export function nth<T>(items: readonly T[], index: number): T {
@@ -294,6 +294,6 @@ export function revision(overrides: Partial<Schemas["RevisionOut"]> = {}): Schem
 
 export function withTypes(): void {
   signedIn();
-  answer("GET /api/v1/entity-types", [COLLECTION_TYPE, PROTEIN, STRUCTURE]);
-  answer("GET /api/v1/components", []);
+  answer("GET /api/v1/entity-types", page([COLLECTION_TYPE, PROTEIN, STRUCTURE]));
+  answer("GET /api/v1/components", page([]));
 }

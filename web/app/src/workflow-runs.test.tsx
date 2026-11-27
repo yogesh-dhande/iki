@@ -16,7 +16,7 @@ function onWorkflow(found: () => ReturnType<typeof workflowRun>): void {
   withTypes();
   answer("GET /api/v1/projects", page([KINASE]));
   answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
-  answer("GET /api/v1/actions", [ACTION]);
+  answer("GET /api/v1/actions", page([ACTION]));
   answer("GET /api/v1/workflow-runs/WF-000001", () => found());
 }
 
@@ -345,11 +345,11 @@ describe("a run that's a workflow's step", () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
     answer(`GET /api/v1/projects/${KINASE.id}`, KINASE);
-    answer("GET /api/v1/actions", [ACTION]);
-    const step = run({ workflow: { id: WORKFLOW_ID, hrid: "WF-000001", step: "properties" } });
+    answer("GET /api/v1/actions", page([ACTION]));
+    const step = run({ workflow_run: { id: WORKFLOW_ID, hrid: "WF-000001", step: "properties" } });
     answer("GET /api/v1/runs/RUN-000001", step);
-    answer("GET /api/v1/runs/RUN-000001/attempts", []);
-    answer("GET /api/v1/runs/RUN-000001/artifacts", []);
+    answer("GET /api/v1/runs/RUN-000001/attempts", page([]));
+    answer("GET /api/v1/runs/RUN-000001/artifacts", page([]));
     await renderApp("/runs/RUN-000001/");
     const link = await screen.findByRole("link", { name: "WF-000001" });
     expect(link).toHaveAttribute("href", "/workflow-runs/WF-000001/");

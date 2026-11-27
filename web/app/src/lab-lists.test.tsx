@@ -168,16 +168,20 @@ function registry(over: Partial<Schemas["RegistryOut"]> = {}): Schemas["Registry
 /** The list's options: the active ones, or with `archived`, every one. */
 function onOptions(every: Schemas["OptionOut"][] = EVERY): void {
   answer(`GET ${OPTIONS}`, ({ query }: Sent) =>
-    query.get("archived") === "true" ? every : every.filter((o) => !o.archived && !o.superseded_by),
+    page(
+      query.get("archived") === "true"
+        ? every
+        : every.filter((o) => !o.archived && !o.superseded_by),
+    ),
   );
-  answer(`GET /api/v1/lists/${CATEGORY}/options`, [CHROMATOGRAPHY]);
+  answer(`GET /api/v1/lists/${CATEGORY}/options`, page([CHROMATOGRAPHY]));
 }
 
 function onLab(): void {
   signedIn();
-  answer("GET /api/v1/entity-types", [PREP, METHOD_TYPE, CATEGORY_TYPE]);
+  answer("GET /api/v1/entity-types", page([PREP, METHOD_TYPE, CATEGORY_TYPE]));
   answer("GET /api/v1/projects", page([KINASE]));
-  answer("GET /api/v1/components", []);
+  answer("GET /api/v1/components", page([]));
   answer("GET /api/v1/registries", page([registry()]));
   onOptions();
 }
@@ -210,7 +214,7 @@ function ref(o: Schemas["OptionOut"], superseded = false): Schemas["RefOut"] {
 function onPrep(record: Schemas["EntityOut"]): void {
   answer("GET /api/v1/entities/PRP-000001", record);
   answer(`GET /api/v1/entities/${PREP_ID}/provenance`, {});
-  answer(`GET /api/v1/entities/${PREP_ID}/projects`, []);
+  answer(`GET /api/v1/entities/${PREP_ID}/projects`, page([]));
 }
 
 describe("a record's dropdown of a lab list", () => {
@@ -303,7 +307,7 @@ describe("a record's dropdown of a lab list", () => {
 
   it("says when a list has no options, and when its options can't be read", async () => {
     onLab();
-    answer(`GET ${OPTIONS}`, []);
+    answer(`GET ${OPTIONS}`, page([]));
     await renderApp(`/projects/kinase-atlas/entities/new/?type=${PREP_TYPE}`);
     const method = await screen.findByRole("combobox", { name: /^Method/ });
     await waitFor(() => {
@@ -743,7 +747,8 @@ describe("a list's page", () => {
       name: "Partner",
     };
     answer(`GET /api/v1/lists/${METHOD}`, ({ query }: Sent) =>
-      query.get("project") === "kinase-atlas" || query.get("registry") === partner.id
+      // The address names the project by its slug, the API by its ID.
+      query.get("project") === KINASE.id || query.get("registry") === partner.id
         ? list({ registry: partner })
         : problem(404, "not_found", "No such project, or you can’t read it."),
     );

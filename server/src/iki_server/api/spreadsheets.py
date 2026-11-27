@@ -894,20 +894,29 @@ def replace_mapping(
     return replaced
 
 
+class MappingFilters(PageParams):
+    type: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Only mappings into these types: repeat it for several.",
+    )
+
+
 @router.get(
     "/projects/{project_id}/spreadsheet-mappings",
-    response=list[SavedMappingOut],
+    response=Page[SavedMappingOut],
     summary="The project's saved spreadsheet mappings",
 )
 def list_mappings(
-    request: HttpRequest, project_id: UUID, type: str | None = None
-) -> list[SavedMapping]:
+    request: HttpRequest, project_id: UUID, filters: Query[MappingFilters]
+) -> dict[str, Any]:
+    """By type, then name."""
     me = caller(request)
     target = project(me, project_id, Action.PROJECT_READ)
     found = SavedMapping.objects.filter(project=target).select_related("created_by", "updated_by")
-    if type:
-        found = found.filter(type=type)
-    return list(found.order_by("type", "name"))
+    if filters.type:
+        found = found.filter(type__in=filters.type)
+    return page_by(found, filters, by=("type", "name", "pk"))
 
 
 @router.delete(

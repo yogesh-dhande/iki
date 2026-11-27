@@ -12,12 +12,13 @@ from typing import Any
 from uuid import UUID
 
 from django.http import HttpRequest
-from ninja import Field, Router, Schema, Status
+from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.api.common import caller, project, require_scope
 from iki_server.api.entities import _find
+from iki_server.api.pagination import PageParams, page_by
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import PersonRef, ProjectRef
+from iki_server.api.schemas import Page, PersonRef, ProjectRef
 from iki_server.entities import app_drafts, app_specs, dashboards
 from iki_server.entities.models import Entity
 from iki_server.org.permissions import Action
@@ -97,14 +98,15 @@ class EntityAppOut(Schema):
     name: str
 
 
-@router.get("/entities/{ref}/apps", response=list[EntityAppOut], summary="The apps about an entity")
-def entity_apps(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
+@router.get("/entities/{ref}/apps", response=Page[EntityAppOut], summary="The apps about an entity")
+def entity_apps(request: HttpRequest, ref: str, params: Query[PageParams]) -> dict[str, Any]:
     """Apps about its type in the projects it's in, that you can read, by name: its page
     shows each as a tab, about it."""
     me = caller(request)
     require_scope(me, "read")
     entity = _find(me, ref)
-    return [_app_out(app) for app in app_specs.about(me, entity)]
+    found = page_by(app_specs.about(me, entity), params, by=app_specs.BY_NAME)
+    return {**found, "items": [_app_out(app) for app in found["items"]]}
 
 
 def _app_out(app: Entity) -> dict[str, Any]:
@@ -175,14 +177,17 @@ def delete_dashboard(request: HttpRequest, project_id: UUID) -> Status[None]:
 
 @router.get(
     "/projects/{project_id}/dashboard/choices",
-    response=list[EntityAppOut],
+    response=Page[EntityAppOut],
     summary="The apps that could be a project's dashboard",
 )
-def dashboard_choices(request: HttpRequest, project_id: UUID) -> list[dict[str, Any]]:
+def dashboard_choices(
+    request: HttpRequest, project_id: UUID, params: Query[PageParams]
+) -> dict[str, Any]:
     """The project's apps you can read that aren't archived or about an entity, by name."""
     me = caller(request)
     found = project(me, project_id, Action.DASHBOARD_CHOICES)
-    return [_app_out(app) for app in dashboards.choices(me, found)]
+    choices = page_by(dashboards.choices(me, found), params, by=app_specs.BY_NAME)
+    return {**choices, "items": [_app_out(app) for app in choices["items"]]}
 
 
 class AppDraftIn(Schema):

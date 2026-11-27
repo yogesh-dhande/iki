@@ -87,7 +87,7 @@ function tarball(): Entry {
 
 function onList(items: Entry[] | Response) {
   signedIn({ can: REVIEWER });
-  answer("GET /api/v1/quarantine", Array.isArray(items) ? page(items) : items);
+  answer("GET /api/v1/quarantine-decisions", Array.isArray(items) ? page(items) : items);
 }
 
 describe("why a file is held, in words", () => {
@@ -149,7 +149,9 @@ describe("Admin → Quarantine", () => {
       "aria-current",
       "page",
     );
-    expect(calls("GET", "/api/v1/quarantine").at(-1)?.query.get("status")).toBe("held");
+    expect(calls("GET", "/api/v1/quarantine-decisions").at(-1)?.query.get("released")).toBe(
+      "false",
+    );
   });
 
   it("filters by status, what was found and name, and keeps them in the address", async () => {
@@ -158,16 +160,18 @@ describe("Admin → Quarantine", () => {
     await screen.findByRole("table", { name: "Files held in quarantine" });
     await user.selectOptions(screen.getByRole("combobox", { name: "Why" }), "infected");
     await waitFor(() => {
-      expect(calls("GET", "/api/v1/quarantine").at(-1)?.query.get("state")).toBe("infected");
+      expect(calls("GET", "/api/v1/quarantine-decisions").at(-1)?.query.get("state")).toBe(
+        "infected",
+      );
     });
-    answer("GET /api/v1/quarantine", page([]));
+    answer("GET /api/v1/quarantine-decisions", page([]));
     await user.type(screen.getByRole("searchbox", { name: "Search" }), "plate-09");
     expect(
       await screen.findByText(
         "No held files match. Try another part of the name, or clear the filters.",
       ),
     ).toBeVisible();
-    const asked = calls("GET", "/api/v1/quarantine").at(-1)?.query;
+    const asked = calls("GET", "/api/v1/quarantine-decisions").at(-1)?.query;
     expect([asked?.get("q"), asked?.get("state")]).toEqual(["plate-09", "infected"]);
     expect(router.state.location.search).toEqual({ state: "infected", q: "plate-09" });
     await user.click(screen.getByRole("button", { name: "Clear filters" }));
@@ -187,7 +191,7 @@ describe("Admin → Quarantine", () => {
     const table = await screen.findByRole("table", { name: "Files released from quarantine" });
     expect(within(table).getByRole("columnheader", { name: "Released" })).toBeVisible();
     expect(within(table).getAllByRole("row")[1]).toHaveTextContent("by Ada Lovelace");
-    expect(calls("GET", "/api/v1/quarantine").at(-1)?.query.get("status")).toBe("released");
+    expect(calls("GET", "/api/v1/quarantine-decisions").at(-1)?.query.get("released")).toBe("true");
   });
 
   it("says when nothing is held, and when nothing was released", async () => {
@@ -212,7 +216,7 @@ describe("Admin → Quarantine", () => {
     signedIn({ can: { ...ME.can, manage_compute: true } });
     await renderApp("/admin/quarantine/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Not found");
-    expect(calls("GET", "/api/v1/quarantine")).toHaveLength(0);
+    expect(calls("GET", "/api/v1/quarantine-decisions")).toHaveLength(0);
   });
 });
 
@@ -231,9 +235,9 @@ describe("a quarantined file’s page", () => {
       ],
       file_count: 2,
     });
-    answer(`GET /api/v1/quarantine/${MACRO_ID}`, held);
+    answer(`GET /api/v1/quarantine-decisions/${MACRO_ID}`, held);
     const reason = "Compared byte for byte with the EnVision export on the instrument PC.";
-    answer(`POST /api/v1/quarantine/${MACRO_ID}/release`, (sent: Sent) =>
+    answer(`POST /api/v1/quarantine-decisions/${MACRO_ID}/release`, (sent: Sent) =>
       macro({
         ...held,
         releasable: false,
@@ -269,7 +273,7 @@ describe("a quarantined file’s page", () => {
     expect(dialog).toHaveTextContent("It can’t be undone.");
     await user.click(within(dialog).getByRole("button", { name: "Release" }));
     expect(await within(dialog).findByText("Say why it’s a false positive.")).toBeVisible();
-    expect(calls("POST", `/api/v1/quarantine/${MACRO_ID}/release`)).toHaveLength(0);
+    expect(calls("POST", `/api/v1/quarantine-decisions/${MACRO_ID}/release`)).toHaveLength(0);
     const field = within(dialog).getByRole("textbox", { name: "Why is it a false positive?" });
     expect(field).toHaveFocus();
     await user.type(field, reason);
@@ -277,7 +281,7 @@ describe("a quarantined file’s page", () => {
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).toBeNull();
     });
-    expect(calls("POST", `/api/v1/quarantine/${MACRO_ID}/release`).at(-1)?.body).toEqual({
+    expect(calls("POST", `/api/v1/quarantine-decisions/${MACRO_ID}/release`).at(-1)?.body).toEqual({
       reason,
     });
     expect(
@@ -296,9 +300,9 @@ describe("a quarantined file’s page", () => {
 
   it("says why the server refused a release", async () => {
     signedIn({ can: REVIEWER });
-    answer(`GET /api/v1/quarantine/${MACRO_ID}`, macro());
+    answer(`GET /api/v1/quarantine-decisions/${MACRO_ID}`, macro());
     answer(
-      `POST /api/v1/quarantine/${MACRO_ID}/release`,
+      `POST /api/v1/quarantine-decisions/${MACRO_ID}/release`,
       problem(409, "conflict", "This finding has already been released."),
     );
     const { user } = await renderApp(`/admin/quarantine/${MACRO_ID}/`);
@@ -316,7 +320,7 @@ describe("a quarantined file’s page", () => {
 
   it("offers no release for a scan that couldn’t finish, and says why", async () => {
     signedIn({ can: { ...REVIEWER, read_audit: true } });
-    answer(`GET /api/v1/quarantine/${TAR_ID}`, tarball());
+    answer(`GET /api/v1/quarantine-decisions/${TAR_ID}`, tarball());
     await renderApp(`/admin/quarantine/${TAR_ID}/`);
     const release = await screen.findByRole("region", { name: "Release" });
     expect(release).toHaveTextContent(
@@ -340,7 +344,7 @@ describe("a quarantined file’s page", () => {
   it("says a decision isn’t one it holds", async () => {
     signedIn({ can: REVIEWER });
     answer(
-      `GET /api/v1/quarantine/${MACRO_ID}`,
+      `GET /api/v1/quarantine-decisions/${MACRO_ID}`,
       problem(404, "not_found", "No such quarantined file."),
     );
     await renderApp(`/admin/quarantine/${MACRO_ID}/`);

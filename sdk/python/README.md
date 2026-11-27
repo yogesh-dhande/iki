@@ -76,7 +76,9 @@ found.to_pandas(limit=1000)  # a DataFrame, indexed by HRID
 
 abl1 = iki.entities.get("PRT-000123")
 # Look up a tube by its unique barcode in an Inventory project.
-tubes = iki.entities.lookup("iki/inventory.Tube", "barcode", "TUBE-0042", project="kinase-atlas")
+tube = iki.entities.lookup(
+    "iki/inventory.Tube", "barcode", "TUBE-0042", project="kinase-atlas"
+).first()
 
 made = iki.entities.create(
     "iki/protein.Protein",
@@ -147,7 +149,7 @@ client.notifications.watch("SAM-000013")  # or "muted", or "default"
 
 # Requests between projects (ADR 0132): sent to a core that takes them, for good,
 # with the samples it names. The core writes its own fields; you write yours.
-core = iki.projects.services("kinase-atlas", type="iki/requests.PlainRequest")[0]
+core = iki.projects.services("kinase-atlas", type="iki/requests.PlainRequest").first()
 lot = {"title": "Lot 12", "materials": [sample["id"]]}
 asked = iki.entities.create("iki/requests.PlainRequest", lot, project="kinase-atlas")
 iki.entities.submit(asked["hrid"], core["project"], revision=asked["revision"], reason="Lot 12")
@@ -310,7 +312,7 @@ dates or ISO date strings. `sample` and `run`
 take an ID or HRID. Use `accepts` and `max_size` (bytes) to match a field
 or action parameter. Omit `project` to include every file you can read.
 `list` accepts `sort` (`newest`, `oldest`, `name`, `name_desc`, `acquired`
-or `acquired_oldest`) and `page_size` (1–100). The default order is newest
+or `acquired_oldest`) and `limit` (1–100, 50 by default). The default order is newest
 added first. `acquired` puts the latest acquisition first. Both acquisition
 sorts put unknown dates last.
 
@@ -323,8 +325,8 @@ file was added: `instrument`, `manufacturer`, `serial`, `instrument_name`, `oper
 `@RG` lines' standard tags, such as `ID`, `SM` and `LB`. For a registration,
 `origin["uri"]` and `origin["version"]` identify the object. Each page has
 its own `next_cursor`. Pass these to `get(file_id, records_cursor=...,
-runs_cursor=...)` to continue the corresponding page. Set `page_size` to
-limit each page. An unreadable or unknown file raises `iki.NotFound`.
+runs_cursor=...)` to continue the corresponding page. Set `limit` to
+size each page. An unreadable or unknown file raises `iki.NotFound`.
 
 ### Register an object in place
 
@@ -492,6 +494,19 @@ your administrator. Its subclasses let you catch what you'd handle differently:
 
 Requests that Iki asks you to slow down for are sent again after waiting as
 long as it says.
+
+## Lists
+
+Every list the API answers is paged (ADR 0291), and every method that reads one
+returns a `Results`: iterate over it and it fetches each page as you reach it,
+following the API's `next_cursor`. `limit` sets how many each page holds, 1–100,
+50 by default. `first()` reads one page at most, and `to_pandas()` makes a
+DataFrame.
+
+```python
+for action in iki.actions.list(takes=["iki/protein.Protein"], limit=100):
+    print(action["name"])
+```
 
 ## Types
 

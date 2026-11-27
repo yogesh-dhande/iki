@@ -12,7 +12,7 @@ import { queryClient } from "./api";
 import { entity, field, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import { ENTITIES } from "./entities";
 import { leave } from "./pages/entity-signatures";
-import { answer, calls, ME, problem } from "./test-server";
+import { answer, calls, ME, page, problem } from "./test-server";
 
 const LOT_ID = "00000000-0000-7000-8000-00000000e701";
 const SIGNATURE_ID = "00000000-0000-7000-8000-00000000e7a1";
@@ -197,11 +197,11 @@ function lot(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityOut"
 
 function onLot(signatures: Schemas["SignatureOut"][] = []): void {
   withTypes();
-  answer("GET /api/v1/entity-types", [PROTEIN, LOT]);
+  answer("GET /api/v1/entity-types", page([PROTEIN, LOT]));
   answer("GET /api/v1/entities/LOT-000001", lot());
   answer("GET /api/v1/entities/LOT-000001/provenance", {});
-  answer("GET /api/v1/entities/LOT-000001/projects", []);
-  answer("GET /api/v1/entities/LOT-000001/signatures", { items: signatures, missing: [] });
+  answer("GET /api/v1/entities/LOT-000001/projects", page([]));
+  answer("GET /api/v1/entities/LOT-000001/signatures", { signatures, missing: [] });
   answer("GET /api/v1/me/signing", {
     can_sign: true,
     why_not: null,
@@ -468,7 +468,7 @@ describe("a record's signatures", () => {
     expect(given).toHaveTextContent(GIVEN.manifestation);
     expect(given).toHaveTextContent("Waiting for others");
     answer("GET /api/v1/entities/LOT-000001/signatures", (call: { query: URLSearchParams }) => ({
-      items: [
+      signatures: [
         {
           ...GIVEN,
           verification:

@@ -16,7 +16,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { queryClient } from "./api";
 import { entity, field, KINASE, nth } from "./entity-fixtures";
 import { RecordSheet } from "./pages/record-sheet";
-import { answer, calls, problem } from "./test-server";
+import { answer, calls, page, problem } from "./test-server";
 
 // jsdom lays nothing out; the sheet draws the rows that fit in its scrolling region.
 const sizes = { clientHeight: 600, clientWidth: 1000, offsetHeight: 600, offsetWidth: 1000 };
@@ -492,8 +492,8 @@ describe("a sheet's lab list cells (ADR 0270)", () => {
   }
 
   function openPreps() {
-    answer("GET /api/v1/entity-types", [PREP, LIST]);
-    answer(`GET /api/v1/lists/${METHOD}/options`, [PROTEIN_A, SEC]);
+    answer("GET /api/v1/entity-types", page([PREP, LIST]));
+    answer(`GET /api/v1/lists/${METHOD}/options`, page([PROTEIN_A, SEC]));
     answer(`POST ${PATH}`, (request: { body: { rows: Schemas["SheetEditCheckRowIn"][] } }) => ({
       rows: request.body.rows.map((r) => checked(r, { values: {}, shown: {} })),
     }));

@@ -72,9 +72,9 @@ function onLaunch(approved: boolean): void {
   withTypes();
   const atlas = project({ can: { ...KINASE.can, run: ["self_hosted", "backend"] } });
   answer("GET /api/v1/projects", page([atlas]));
-  answer("GET /api/v1/actions", [PREDICT]);
+  answer("GET /api/v1/actions", page([PREDICT]));
   answer("POST /api/v1/entities/search", page([entity()]));
-  answer(`GET /api/v1/projects/${KINASE.id}/outside-apis`, [outsideApi(approved)]);
+  answer(`GET /api/v1/projects/${KINASE.id}/outside-apis`, page([outsideApi(approved)]));
 }
 
 const LAUNCH = `/projects/kinase-atlas/runs/new/?entities=PRT-000001&action=${PREDICT.name}`;
@@ -84,8 +84,8 @@ describe("launching a run that sends data outside Iki", () => {
     onLaunch(true);
     answer(`POST /api/v1/actions/${PREDICT.name}/runs`, () => run({ action: PREDICT.name }));
     answer("GET /api/v1/runs/RUN-000001", run({ action: PREDICT.name }));
-    answer("GET /api/v1/runs/RUN-000001/attempts", []);
-    answer("GET /api/v1/runs/RUN-000001/artifacts", []);
+    answer("GET /api/v1/runs/RUN-000001/attempts", page([]));
+    answer("GET /api/v1/runs/RUN-000001/artifacts", page([]));
     const { user, router } = await renderApp(LAUNCH);
     const sends = await screen.findByRole("group", { name: "It sends data outside Iki" });
     expect(sends).toHaveTextContent(STATEMENT.statement);
@@ -165,10 +165,10 @@ describe("a run that calls an outside API", () => {
   it("shows the job it waits on, who agreed, and each call with its model", async () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
-    answer("GET /api/v1/actions", [PREDICT]);
+    answer("GET /api/v1/actions", page([PREDICT]));
     answer("GET /api/v1/runs/RUN-000001", parked);
-    answer("GET /api/v1/runs/RUN-000001/attempts", []);
-    answer("GET /api/v1/runs/RUN-000001/artifacts", []);
+    answer("GET /api/v1/runs/RUN-000001/attempts", page([]));
+    answer("GET /api/v1/runs/RUN-000001/artifacts", page([]));
     answer(
       "GET /api/v1/runs/RUN-000001/api-calls",
       page([
@@ -216,7 +216,7 @@ describe("a run that calls an outside API", () => {
   it("asks the person approving an agent’s run to agree to what it sends", async () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
-    answer("GET /api/v1/actions", [PREDICT]);
+    answer("GET /api/v1/actions", page([PREDICT]));
     answer(
       "GET /api/v1/runs/RUN-000001",
       run({
@@ -225,8 +225,8 @@ describe("a run that calls an outside API", () => {
         approval: approval({ consent: [STATEMENT] }),
       }),
     );
-    answer("GET /api/v1/runs/RUN-000001/attempts", []);
-    answer("GET /api/v1/runs/RUN-000001/artifacts", []);
+    answer("GET /api/v1/runs/RUN-000001/attempts", page([]));
+    answer("GET /api/v1/runs/RUN-000001/artifacts", page([]));
     await renderApp("/runs/RUN-000001/");
     const request = await screen.findByRole("region", { name: "Waiting for your approval" });
     expect(request).toHaveTextContent(
@@ -246,7 +246,7 @@ describe("Admin → Outside APIs", () => {
     });
     withTypes();
     answer("GET /api/v1/projects", page([KINASE, other]));
-    answer("GET /api/v1/outside-apis", [outsideApi(true)]);
+    answer("GET /api/v1/outside-apis", page([outsideApi(true)]));
     answer(`POST /api/v1/outside-apis/${API}/approvals`, () => ({
       ...outsideApi(true).approvals[0],
       project: other.id,

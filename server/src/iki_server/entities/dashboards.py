@@ -11,7 +11,7 @@ from typing import cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F, Q, QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.functions import Now
 
 from iki_server.accounts.models import User
@@ -37,8 +37,8 @@ def _apps(user: User, project: Project) -> QuerySet[Entity]:
 
 
 def choices(user: User, project: Project) -> QuerySet[Entity]:
-    """The apps the user could make the project's dashboard, by name."""
-    return _apps(user, project).order_by(F("name"), "hrid")
+    """The apps the user could make the project's dashboard, to sort by name and HRID."""
+    return _apps(user, project)
 
 
 def of(user: User, project: Project) -> tuple[ProjectDashboard | None, Entity | None]:

@@ -3,6 +3,8 @@
 from typing import Any
 from uuid import UUID
 
+from django.db.models import Case, F, Model, QuerySet, UUIDField, Value, When
+from django.db.models.functions import Coalesce
 from django.http import HttpRequest
 
 from iki_server.accounts.models import User
@@ -84,3 +86,22 @@ def person(user_id: UUID) -> User:
     if found is None:
         raise Problem(404, "No such person or service account.")
     return found
+
+
+#: The sort fields :func:`by_scope` adds, for :func:`~iki_server.api.pagination.page_by`.
+SCOPE_ORDER = ("scope_rank", "scope_id")
+
+
+def by_scope[M: Model](queryset: QuerySet[M, M]) -> QuerySet[M, M]:
+    """A budget's or quota's queryset, able to be sorted the organization's first, then each
+    team's, then each project's, by ID: :data:`SCOPE_ORDER`, never null, so it pages."""
+    return queryset.annotate(  # type: ignore[return-value] # annotate widens the row type
+        scope_rank=Case(
+            When(project__isnull=False, then=Value(2)),
+            When(team__isnull=False, then=Value(1)),
+            default=Value(0),
+        ),
+        scope_id=Coalesce(
+            F("project_id"), F("team_id"), Value(UUID(int=0)), output_field=UUIDField()
+        ),
+    )

@@ -287,7 +287,7 @@ it("reviews a refused completion's count only once the latest one is shown", asy
   const latest = inventory(2, { ...moved, found: "A4", revision: 2 });
   const showLatest = holdResponse(`GET ${api}`, latest);
   answer(
-    `GET ${api}/history`,
+    `GET ${api}/observations`,
     page([
       event({
         line_id: moved.id,
@@ -338,7 +338,7 @@ it("shows what changed, and who changed it, when a first decision is refused as 
   );
   answer(`GET ${api}`, inventory(2, { ...moved, found: "A3", revision: 2 }));
   answer(
-    `GET ${api}/history`,
+    `GET ${api}/observations`,
     page([
       event({
         line_id: moved.id,
@@ -508,7 +508,7 @@ it("asks why a scan replaces an empty position, and keeps the reason when it’s
   );
   answer(`GET ${api}`, inventory(2, { ...empty, revision: 2 }));
   answer(
-    `GET ${api}/history`,
+    `GET ${api}/observations`,
     page([
       event({
         line_id: empty.id,
@@ -1008,7 +1008,7 @@ it("shows who changed the tube chosen as moved, and asks again", async () => {
   );
   answer(`GET ${api}`, inventory(2, a1, reread));
   answer(
-    `GET ${api}/history`,
+    `GET ${api}/observations`,
     page([
       event({
         line_id: a2.id,
@@ -1055,7 +1055,7 @@ it("refreshes the count when the tube chosen can no longer have moved, and offer
   answer(`POST ${api}/scans`, choiceAt("A3", a1));
   answer(`GET ${api}`, inventory(2, a1, elsewhere));
   answer(
-    `GET ${api}/history`,
+    `GET ${api}/observations`,
     page([
       event({
         line_id: a2.id,

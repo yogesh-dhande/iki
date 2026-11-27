@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { entity, field, PROTEIN, renderApp, STRUCTURE, withTypes } from "./entity-fixtures";
 import { MAX_STRUCTURE_BYTES } from "./pages/structure-viewer";
-import { answer, calls, CORE_FORMATS } from "./test-server";
+import { answer, calls, CORE_FORMATS, page } from "./test-server";
 
 const FILE = "0b6f1c1e-5d2c-4a51-9a63-2c1f6a1b9e01";
 const CIF = new TextEncoder().encode("data_1CRN\n_entry.id 1CRN\n");
@@ -27,7 +27,7 @@ async function onStructure(
   sha?: string,
 ) {
   withTypes();
-  answer("GET /api/v1/entity-types", [PROTEIN, WITH_VIEWER]);
+  answer("GET /api/v1/entity-types", page([PROTEIN, WITH_VIEWER]));
   answer(
     "GET /api/v1/entities/PST-000001",
     entity({
@@ -95,20 +95,23 @@ describe("the structure viewer", () => {
 
   it("routes a plugin’s format to the declared structure decoder", async () => {
     await onStructure({ name: "crambin.lab", media_type: "application/x-lab-structure" });
-    answer("GET /api/v1/formats", [
-      ...CORE_FORMATS,
-      {
-        id: "lab/example.coordinates",
-        label: "Lab coordinates",
-        canonical: "application/x-lab-structure",
-        media_types: ["application/x-lab-structure"],
-        extensions: [".lab"],
-        signatures: [],
-        viewer: "structure-mmcif",
-        reader: null,
-        parsers: [],
-      },
-    ]);
+    answer(
+      "GET /api/v1/formats",
+      page([
+        ...CORE_FORMATS,
+        {
+          id: "lab/example.coordinates",
+          label: "Lab coordinates",
+          canonical: "application/x-lab-structure",
+          media_types: ["application/x-lab-structure"],
+          extensions: [".lab"],
+          signatures: [],
+          viewer: "structure-mmcif",
+          reader: null,
+          parsers: [],
+        },
+      ]),
+    );
     await renderApp("/entities/PST-000001/viewers/structure/");
     expect(await screen.findByTitle("Structure of Crambin")).toBeInTheDocument();
     expect(screen.getByText(/Lab coordinates/)).toBeVisible();
@@ -193,7 +196,7 @@ const MOVED = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 0, 1];
 describe("a view of several structures", () => {
   async function onScene() {
     withTypes();
-    answer("GET /api/v1/entity-types", [PROTEIN, WITH_VIEWER, VIEW]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, WITH_VIEWER, VIEW]));
     const ref = (hrid: string, title: string) => ({
       hrid,
       title,

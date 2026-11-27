@@ -281,7 +281,11 @@ class RegistryEntryOut(Schema):
 
 
 class RegistryEntryFilters(PageParams):
-    type: str | None = Field(None, description="Only this type's entries (and its subtypes').")
+    type: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Only these types' entries (and their subtypes'): repeat it for several.",
+    )
     q: str | None = Field(None, max_length=32, description="An HRID, or the start of one.")
     superseded: bool | None = None
 
@@ -303,7 +307,7 @@ def list_registry_entries(
     if filters.type:
         from iki_server.entities.values import subtypes
 
-        rows = rows.filter(type__in=subtypes(filters.type))
+        rows = rows.filter(type__in={n for t in filters.type for n in subtypes(t)})
     if filters.q:
         rows = rows.filter(hrid__startswith=filters.q.strip().upper())
     if filters.superseded is not None:

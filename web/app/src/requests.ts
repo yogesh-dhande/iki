@@ -8,7 +8,7 @@
 import { unwrap, type Schemas } from "@ikisci/sdk";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 
-import { iki, type Project } from "./api";
+import { everyPage, iki, type Project } from "./api";
 import {
   searchEntities,
   ENTITIES,
@@ -44,12 +44,14 @@ export function intakeQuery(projectId: string) {
 export function servicesQuery(projectId: string, type: string) {
   return queryOptions({
     queryKey: ["projects", projectId, "services", type],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/projects/{project_id}/services", {
-          params: { path: { project_id: projectId }, query: { type } },
-          signal,
-        }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/projects/{project_id}/services", {
+            params: { path: { project_id: projectId }, query: { type: [type], ...page } },
+            signal,
+          }),
+        ),
       ),
   });
 }
@@ -98,12 +100,14 @@ export function sentBy(projectId: string): Filter[] {
 export function sentToQuery(projectId: string) {
   return queryOptions({
     queryKey: ["projects", projectId, "sent-to"],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/projects/{project_id}/sent-to", {
-          params: { path: { project_id: projectId } },
-          signal: signal,
-        }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/projects/{project_id}/sent-to", {
+            params: { path: { project_id: projectId }, query: page },
+            signal,
+          }),
+        ),
       ),
   });
 }
@@ -112,12 +116,14 @@ export function sentToQuery(projectId: string) {
 export function sentFromQuery(projectId: string) {
   return queryOptions({
     queryKey: ["projects", projectId, "sent-from"],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/projects/{project_id}/sent-from", {
-          params: { path: { project_id: projectId } },
-          signal,
-        }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/projects/{project_id}/sent-from", {
+            params: { path: { project_id: projectId }, query: page },
+            signal,
+          }),
+        ),
       ),
   });
 }

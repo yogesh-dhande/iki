@@ -281,13 +281,13 @@ def test_a_notebook_finds_the_same_files_as_the_files_list_and_reads_their_uses(
     ]
     for query in filters:
         web = browser.get("/files", project=str(project.pk), sort="name_desc", **query).json()
-        rows = list(client.files.list(project=project.slug, sort="name_desc", page_size=1, **query))
+        rows = list(client.files.list(project=project.slug, sort="name_desc", limit=1, **query))
         assert rows == web["items"], query
         assert client.files.count(project=project.slug, **query) == {
             "total": len(rows),
             "more_than_total": False,
         }, query
-    assert [row["id"] for row in client.files.list(q="plate", sort="name", page_size=1)] == [
+    assert [row["id"] for row in client.files.list(q="plate", sort="name", limit=1)] == [
         str(trace.pk),
         str(notes.pk),
     ]
@@ -306,12 +306,12 @@ def test_a_notebook_finds_the_same_files_as_the_files_list_and_reads_their_uses(
     assert stating["facts"]["operator"] == aurora["operator"]
     assert stating["facts"]["serial"] is None and stating["read_groups"] == []
 
-    first = client.files.get(str(trace.pk), page_size=1)
+    first = client.files.get(str(trace.pk), limit=1)
     assert first["used_by"] == {"records": 2, "runs": 2}
     next_records, next_runs = first["records"]["next_cursor"], first["runs"]["next_cursor"]
     assert next_records and next_runs
     second = client.files.get(
-        str(trace.pk), records_cursor=next_records, runs_cursor=next_runs, page_size=1
+        str(trace.pk), records_cursor=next_records, runs_cursor=next_runs, limit=1
     )
     assert second["records"]["next_cursor"] is None and second["runs"]["next_cursor"] is None
     records = first["records"]["items"] + second["records"]["items"]

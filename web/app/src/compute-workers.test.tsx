@@ -122,11 +122,13 @@ function selfHosted(overrides: Partial<Schemas["WorkerOut"]> = {}): Schemas["Wor
 
 function onScopes() {
   answer("GET /api/v1/compute/quota-scopes", (r: { query: URLSearchParams }) =>
-    r.query.get("kind") === "team"
-      ? [BIO, CHEM].map((t) => ({ ...t, team: null, team_id: null }))
-      : r.query.getAll("team").includes(CHEM.id)
-        ? [{ ...ASSAYS, team: CHEM.name, team_id: CHEM.id }]
-        : [],
+    page<Schemas["QuotaScopeOut"]>(
+      r.query.get("kind") === "team"
+        ? [BIO, CHEM].map((t) => ({ ...t, team: null, team_id: null }))
+        : r.query.getAll("team").includes(CHEM.id)
+          ? [{ ...ASSAYS, team: CHEM.name, team_id: CHEM.id }]
+          : [],
+    ),
   );
 }
 
@@ -327,9 +329,10 @@ describe("Compute → Workers", () => {
   it("makes a Container token for a Slurm cluster, and says to register on its login node", async () => {
     const tokens: Schemas["WorkerRegistrationOut"][] = [];
     onWorkers([], tokens);
-    answer("GET /api/v1/compute/slurm", [
-      { name: "hpc", templates: [], workers_online: 0, accounts: 0 },
-    ]);
+    answer(
+      "GET /api/v1/compute/slurm-clusters",
+      page([{ name: "hpc", templates: [], workers_online: 0, accounts: 0 }]),
+    );
     const made = token({
       label: "HPC login node",
       tier: "container",
@@ -381,7 +384,7 @@ describe("Compute → Workers", () => {
     await user.type(await card.findByRole("textbox", { name: /What it’s for/ }), "GPU pool");
     await user.click(card.getByRole("button", { name: "Make token" }));
     await card.findByText("Copy the token now.");
-    expect(calls("GET", "/api/v1/compute/slurm")).toEqual([]);
+    expect(calls("GET", "/api/v1/compute/slurm-clusters")).toEqual([]);
     expect(calls("POST", "/api/v1/compute/registration-tokens")[0]?.body).toMatchObject({
       tier: "backend",
       slurm_cluster: "",

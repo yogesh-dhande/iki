@@ -4,7 +4,7 @@ import { afterEach, beforeEach } from "vitest";
 
 import { resetActivity } from "./activity";
 import { queryClient, resetSignedOut } from "./api";
-import { answer, CORE_FORMATS, resetApi, serverFetch } from "./test-server";
+import { answer, CORE_FORMATS, page, resetApi, serverFetch } from "./test-server";
 
 // The app's API client calls whatever `fetch` is at the time: here, a fake API.
 globalThis.fetch = serverFetch;
@@ -16,7 +16,7 @@ window.scrollTo = () => undefined;
 configure({ asyncUtilTimeout: 5000 });
 
 beforeEach(() => {
-  answer("GET /api/v1/formats", CORE_FORMATS);
+  answer("GET /api/v1/formats", page(CORE_FORMATS));
   document.head.innerHTML =
     '<meta name="csrf-token" content="test-csrf-token">' +
     '<meta name="iki-organization" content="Example Bio">';

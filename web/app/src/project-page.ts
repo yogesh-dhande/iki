@@ -22,7 +22,7 @@ export function projectChangesQuery(projectId: string, limit = 8) {
           params: { path: { project_id: projectId }, query: { limit } },
           signal,
         }),
-      ),
+      ).items,
   });
 }
 

@@ -228,7 +228,7 @@ class OutsideRef(Schema):
 class ImportOutside(Schema):
     count: int = Field(description="The entities its values refer to that aren't in it.")
     here: int = Field(description="How many of them are here.")
-    items: list[OutsideRef] = Field(description=f"The first {imports.OUTSIDE_SHOWN}.")
+    first: list[OutsideRef] = Field(description=f"The first {imports.OUTSIDE_SHOWN}.")
 
 
 class ImportPlan(Schema):

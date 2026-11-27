@@ -4,11 +4,13 @@ from typing import Any, Literal
 from uuid import UUID
 
 from django.http import HttpRequest
-from ninja import Field, Router, Schema
+from ninja import Field, Query, Router, Schema
 from pydantic import ConfigDict
 
 from iki_server.api import common
+from iki_server.api.pagination import PageParams, page_sorted
 from iki_server.api.problems import Problem
+from iki_server.api.schemas import Page
 from iki_server.org.permissions import Action
 from iki_server.setup import starters
 
@@ -104,13 +106,20 @@ class StarterSetupOut(Schema):
     )
 
 
-@router.get("/starters", response=list[StarterOut], summary="List installed starters")
-def list_starters(request: HttpRequest, project: UUID | None = None) -> list[dict[str, Any]]:
-    """Include the current flow and version when the caller supplies a readable project."""
+class StarterFilters(PageParams):
+    project: UUID | None = Field(
+        None, description="A project you read: each starter's flow and version applied there."
+    )
+
+
+@router.get("/starters", response=Page[StarterOut], summary="List installed starters")
+def list_starters(request: HttpRequest, filters: Query[StarterFilters]) -> dict[str, Any]:
+    """By ID. Include the current flow and version when the caller supplies a readable
+    project."""
     me = common.caller(request)
     common.require_scope(me, "read")
-    found = common.project(me, project, Action.PROJECT_READ) if project else None
-    return starters.list_starters(found)
+    found = common.project(me, filters.project, Action.PROJECT_READ) if filters.project else None
+    return page_sorted(starters.list_starters(found), filters, by=("id",), key=lambda s: (s["id"],))
 
 
 @router.post(

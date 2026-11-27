@@ -26,7 +26,7 @@ import {
   Popover,
 } from "react-aria-components";
 
-import { iki, problemOf, useApiMutation, useOpenedRevision } from "../api";
+import { iki, problemOf, projectQuery, useApiMutation, useOpenedRevision } from "../api";
 import {
   inSentence,
   personName,
@@ -74,15 +74,20 @@ export function ListOptions({ type, types }: { type: EntityType; types: EntityTy
   const search = useSearch({ from: "/types/$" });
   const navigate = useNavigate();
   const registries = useQuery(registriesQuery());
-  const viaProject = useQuery({
-    ...labListQuery(type.name, { project: search.project ?? "" }),
+  // The address names the project by its slug; the API, by its ID.
+  const project = useQuery({
+    ...projectQuery(search.project ?? ""),
     enabled: Boolean(search.project) && !search.registry,
+  });
+  const viaProject = useQuery({
+    ...labListQuery(type.name, { project: project.data?.id ?? "" }),
+    enabled: Boolean(project.data) && !search.registry,
   });
   const registryId =
     search.registry ??
     (search.project ? viaProject.data?.registry.id : registries.data?.[0]?.id) ??
     undefined;
-  const problem = viaProject.error ?? (registryId ? null : registries.error);
+  const problem = project.error ?? viaProject.error ?? (registryId ? null : registries.error);
   const seen = registries.data ?? [];
   const pickerId = useId();
   return (

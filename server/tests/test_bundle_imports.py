@@ -1273,7 +1273,7 @@ def test_a_run_whose_input_isnt_coming_keeps_it_on_record(world: World, tmp_path
     api = Api(world.browser("admin"))
     made = upload(api, world.project, path)
     assert made["plan"]["applicable"], made["plan"]
-    assert made["plan"]["outside"]["items"][0]["why"] == "run"
+    assert made["plan"]["outside"]["first"][0]["why"] == "run"
     assert made["plan"]["counts"]["runs_renumbered"] == 1
     done = applied(api, made)
     assert done["state"] == "applied", done

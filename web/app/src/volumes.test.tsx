@@ -91,7 +91,7 @@ function build(overrides: Partial<Schemas["SetupBuildOut"]> = {}): Schemas["Setu
 
 function onVolumes(builds: () => Schemas["SetupBuildOut"][]): void {
   signedIn({ can: COMPUTE_ADMIN });
-  answer("GET /api/v1/compute/volumes", [environment()]);
+  answer("GET /api/v1/compute/volumes", page([environment()]));
   answer("GET /api/v1/compute/setups", () => page(builds()));
 }
 
@@ -264,21 +264,24 @@ describe("Compute → Volumes", () => {
       ],
     });
     signedIn({ can: COMPUTE_ADMIN });
-    answer("GET /api/v1/compute/volumes", [
-      environment({
-        waiting: "",
-        places: [
-          {
-            place: "iki-runs",
-            build: BUILD_ID,
-            hrid: "SETUP-000001",
-            version: 1,
-            data_version: "AlphaFold DBs 2026-10",
-            ready_at: "2026-11-13T11:36:00Z",
-          },
-        ],
-      }),
-    ]);
+    answer(
+      "GET /api/v1/compute/volumes",
+      page([
+        environment({
+          waiting: "",
+          places: [
+            {
+              place: "iki-runs",
+              build: BUILD_ID,
+              hrid: "SETUP-000001",
+              version: 1,
+              data_version: "AlphaFold DBs 2026-10",
+              ready_at: "2026-11-13T11:36:00Z",
+            },
+          ],
+        }),
+      ]),
+    );
     answer("GET /api/v1/compute/setups", () => page([current]));
     answer(`POST /api/v1/compute/setups/${BUILD_ID}/retire`, () => {
       current = {

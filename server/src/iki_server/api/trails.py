@@ -18,8 +18,9 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q
 from django.http import HttpRequest
-from ninja import Router
+from ninja import Field, Query, Router
 
 from iki_server.accounts.models import User
 from iki_server.api import csvs
@@ -33,7 +34,8 @@ from iki_server.api.entities import (
     _type_out,
     refs_in,
 )
-from iki_server.api.schemas import UserOut
+from iki_server.api.pagination import PageParams, page_by
+from iki_server.api.schemas import Page, UserOut
 from iki_server.audit import log as audit
 from iki_server.entities import access, registry, services
 from iki_server.entities.models import Entity, Revision, RevisionKind
@@ -114,27 +116,31 @@ def _entry_revisions(user: User, record: Entity) -> tuple[Any, set[Any], bool]:
     return Revision.objects.filter(entity_id=record.entry_id), readable, _curates(user, record)
 
 
+class ContributorParams(PageParams):
+    project: UUID | None = Field(None, description="Whose record, as for reading it.")
+
+
 @router.get(
     "/entities/{ref}/contributors",
-    response=list[UserOut],
+    response=Page[UserOut],
     summary="Who changed it",
     by_alias=True,
 )
-def list_contributors(request: HttpRequest, ref: str, project: UUID | None = None) -> Any:  # noqa: ANN401 - a QuerySet
+def list_contributors(
+    request: HttpRequest, ref: str, params: Query[ContributorParams]
+) -> dict[str, Any]:
     """Everyone who made one of its revisions, by name: whom its audit trail can be
     narrowed to (``person``). For a record of a registry entry, also who made the entry's
     revisions, of those you're told who made. ``project`` says whose record, as for
     reading it."""
     me = caller(request)
-    record = _find(me, ref, project)
-    ids = set(
-        Revision.objects.filter(entity=record, user__isnull=False).values_list("user_id", flat=True)
-    )
+    record = _find(me, ref, params.project)
+    made = Q(pk__in=Revision.objects.filter(entity=record).values("user_id"))
     entry, readable, curates = _entry_revisions(me, record)
     if entry is not None:
         told = entry if curates else entry.filter(services.disclosing(readable))
-        ids |= set(told.filter(user__isnull=False).values_list("user_id", flat=True))
-    return User.objects.filter(pk__in=ids).order_by("name", "email", "pk")
+        made |= Q(pk__in=told.values("user_id"))
+    return page_by(User.objects.filter(made), params, by=("name", "email", "pk"))
 
 
 _CSV = {"responses": {200: {"description": "As CSV", "content": {"text/csv": {}}}}}

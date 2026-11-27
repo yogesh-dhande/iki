@@ -6,7 +6,7 @@
 import { unwrap, type Schemas } from "@ikisci/sdk";
 import { queryOptions, useQueryClient } from "@tanstack/react-query";
 
-import { iki } from "./api";
+import { everyPage, iki } from "./api";
 import { useStream } from "./runs";
 
 export type EnvironmentVolumes = Schemas["EnvironmentVolumesOut"];
@@ -17,7 +17,10 @@ export const VOLUMES = ["volumes"] as const;
 
 export const volumesQuery = queryOptions({
   queryKey: [...VOLUMES, "environments"],
-  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/compute/volumes", { signal })),
+  queryFn: ({ signal }) =>
+    everyPage(async (page) =>
+      unwrap(await iki.GET("/api/v1/compute/volumes", { params: { query: page }, signal })),
+    ),
 });
 
 /** How often the builds are read again while one hasn't finished. */

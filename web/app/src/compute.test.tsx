@@ -5,7 +5,7 @@ import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { renderApp } from "./entity-fixtures";
-import { answer, calls, ME, signedIn } from "./test-server";
+import { answer, calls, ME, page, signedIn } from "./test-server";
 
 const COMPUTE_ADMIN = { ...ME.can, manage_compute: true };
 
@@ -124,7 +124,7 @@ describe("Compute → Overview", () => {
   it("leads to Volumes, which leads back", async () => {
     signedIn({ can: COMPUTE_ADMIN });
     answer("GET /api/v1/compute/overview", overview());
-    answer("GET /api/v1/compute/volumes", []);
+    answer("GET /api/v1/compute/volumes", page([]));
     await renderApp("/admin/compute/volumes/");
     const tabs = await screen.findByRole("navigation", { name: "Compute" });
     expect(within(tabs).getByRole("link", { name: "Volumes" })).toHaveAttribute(

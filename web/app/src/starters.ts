@@ -9,7 +9,7 @@
 import { unwrap, type Schemas } from "@ikisci/sdk";
 import { queryOptions } from "@tanstack/react-query";
 
-import { iki } from "./api";
+import { everyPage, iki } from "./api";
 import type { FlowField } from "./flow";
 
 export type Starter = Schemas["StarterOut"];
@@ -24,9 +24,14 @@ export const STARTERS = ["starters"] as const;
 export function startersQuery(projectId: string) {
   return queryOptions({
     queryKey: [...STARTERS, projectId],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/starters", { params: { query: { project: projectId } }, signal }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/starters", {
+            params: { query: { project: projectId, ...page } },
+            signal,
+          }),
+        ),
       ),
   });
 }

@@ -503,10 +503,10 @@ class Uploader:
         def lookup(client: iki.Client) -> Any:  # noqa: ANN401
             return client.entities.lookup(
                 self.config.record_type, self.config.key_field, sha256, project=self.config.project
-            )
+            ).first()
 
         found = self._call("Looking for the export's record", lookup)
-        return str(found[0]["hrid"]) if found else None
+        return str(found["hrid"]) if found else None
 
     def _file(self, path: Path, sha256: str, entry: dict[str, Any]) -> dict[str, Any] | None:
         """The export's file in Iki once it's checked and scanned, or None to try again

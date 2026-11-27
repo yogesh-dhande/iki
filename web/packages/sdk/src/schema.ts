@@ -317,7 +317,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Installed components */
+        /**
+         * Installed components
+         * @description By qualified name.
+         */
         get: operations["iki_server_api_components_list_components"];
         put?: never;
         post?: never;
@@ -360,7 +363,8 @@ export interface paths {
         };
         /**
          * Budgets
-         * @description Every budget, the organization's first, with what's been spent this month.
+         * @description Every budget, the organization's first, then teams', then projects', with what's been
+         *     spent this month.
          */
         get: operations["iki_server_api_costs_list_budgets"];
         put?: never;
@@ -493,7 +497,7 @@ export interface paths {
         };
         /**
          * Teams or projects to choose
-         * @description The teams or projects with `search` in their names, by name, archived ones left out.
+         * @description The teams or projects with `q` in their names, by name, archived ones left out.
          *     Compute Admins set quotas on any of them, member or not, and give self-hosted workers
          *     to them, so this gives names only.
          */
@@ -515,7 +519,8 @@ export interface paths {
         };
         /**
          * Run quotas
-         * @description Every quota, the organization's first, with how much of each is in use.
+         * @description Every quota, the organization's first, then teams', then projects', with how much of
+         *     each is in use.
          */
         get: operations["iki_server_api_compute_list_quotas"];
         put?: never;
@@ -723,7 +728,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/compute/slurm": {
+    "/api/v1/compute/slurm-clusters": {
         parameters: {
             query?: never;
             header?: never;
@@ -733,7 +738,7 @@ export interface paths {
         /**
          * Slurm clusters
          * @description The clusters the deployment's Slurm templates name, from its compute.yaml, which is
-         *     reviewed like code (ADR 0041): each one's templates, workers and accounts.
+         *     reviewed like code (ADR 0041), by name: each one's templates, workers and accounts.
          */
         get: operations["iki_server_api_compute_list_slurm_clusters"];
         put?: never;
@@ -744,7 +749,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/compute/slurm/{cluster}/accounts": {
+    "/api/v1/compute/slurm-clusters/{cluster}/accounts": {
         parameters: {
             query?: never;
             header?: never;
@@ -765,7 +770,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/compute/slurm/{cluster}/accounts/{project_id}": {
+    "/api/v1/compute/slurm-clusters/{cluster}/accounts/{project_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -799,7 +804,7 @@ export interface paths {
         };
         /**
          * Environments' volumes and their versions
-         * @description Each installed environment that declares volumes.
+         * @description Each installed environment that declares volumes, by qualified name.
          */
         get: operations["iki_server_api_setups_list_volumes"];
         put?: never;
@@ -1260,7 +1265,7 @@ export interface paths {
          * @description The imports from other deployments that made it here, or added to its history,
          *     newest first (ADR 0096).
          */
-        get: operations["iki_server_api_entities_get_bundle_origins"];
+        get: operations["iki_server_api_entities_list_bundle_origins"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1456,7 +1461,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/entities/{ref}/making": {
+    "/api/v1/entities/{ref}/makings": {
         parameters: {
             query?: never;
             header?: never;
@@ -1465,11 +1470,11 @@ export interface paths {
         };
         /**
          * How it was made
-         * @description How it was made, and who says so (ADR 0106), one tool at a time, Iki's own records
-         *     first: a run of an action that lists its software, or what a record it was imported
-         *     from says. Empty when it was made by hand, or its source doesn't say.
+         * @description How it was made, and who says so (ADR 0106), one making (a tool) at a time, Iki's own
+         *     records first: a run of an action that lists its software, or what a record it was
+         *     imported from says. Empty when it was made by hand, or its source doesn't say.
          */
-        get: operations["iki_server_api_entities_get_making"];
+        get: operations["iki_server_api_entities_list_makings"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1513,7 +1518,7 @@ export interface paths {
          * @description The records runs imported it from, newest first: a public database's, or one in a
          *     file. An entity found again by a later import lists each.
          */
-        get: operations["iki_server_api_entities_get_origins"];
+        get: operations["iki_server_api_entities_list_origins"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1531,7 +1536,7 @@ export interface paths {
         };
         /**
          * The projects an entity belongs to
-         * @description Only the projects you can see.
+         * @description Only the projects you can see, in the order it joined them.
          */
         get: operations["iki_server_api_entities_list_entity_projects"];
         put?: never;
@@ -2217,8 +2222,9 @@ export interface paths {
         };
         /**
          * The formats of files
-         * @description Format labels and counts for readable files matching the other filters. Aliases
-         *     count together. A file of an undeclared type keeps its media type as its label.
+         * @description Format labels and counts for readable files matching the other filters, the most
+         *     common first. Aliases count together. A file of an undeclared type keeps its media type
+         *     as its label.
          */
         get: operations["iki_server_api_files_file_formats"];
         put?: never;
@@ -2752,6 +2758,29 @@ export interface paths {
         patch: operations["iki_server_api_notifications_change_notification_settings"];
         trace?: never;
     };
+    "/api/v1/me/open-work-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Work open to your lab roles
+         * @description Records nobody is assigned that one of your lab roles could take (ADR 0122): an
+         *     assignment field limited to a role you hold in the record's project counts in its
+         *     states, and names nobody who can be named there now. Take one with `POST
+         *     /entities/{ref}/take`, or simply do it: a locked record's people can't change.
+         */
+        get: operations["iki_server_api_work_list_open_work_items"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/signing": {
         parameters: {
             query?: never;
@@ -2769,7 +2798,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/me/work": {
+    "/api/v1/me/work-items": {
         parameters: {
             query?: never;
             header?: never;
@@ -2783,30 +2812,7 @@ export interface paths {
          *     drop off a record's work when you can't be named in it any more (you left its project,
          *     say).
          */
-        get: operations["iki_server_api_work_my_work"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/me/work/open": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Work open to your lab roles
-         * @description Records nobody is assigned that one of your lab roles could take (ADR 0122): an
-         *     assignment field limited to a role you hold in the record's project counts in its
-         *     states, and names nobody who can be named there now. Take one with `POST
-         *     /entities/{ref}/take`, or simply do it: a locked record's people can't change.
-         */
-        get: operations["iki_server_api_work_open_work"];
+        get: operations["iki_server_api_work_list_work_items"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2895,9 +2901,9 @@ export interface paths {
         };
         /**
          * Outside APIs
-         * @description Every outside API installed plugins call, with where data goes, why, the actions that
-         *     send it and what each sends, the key's state, the price, and each project's approval.
-         *     Org Admins see every project's approvals.
+         * @description Every outside API installed plugins call, by name, with where data goes, why, the
+         *     actions that send it and what each sends, the key's state, the price, and each project's
+         *     approval. Org Admins see every project's approvals.
          */
         get: operations["iki_server_api_outside_apis_list_outside_apis"];
         put?: never;
@@ -3362,8 +3368,8 @@ export interface paths {
         };
         /**
          * Outside APIs, and whether each is approved for a project
-         * @description Every installed outside API, with the project's approval if it has one: what its
-         *     members see before launching an action that sends data outside.
+         * @description Every installed outside API, by name, with the project's approval if it has one: what
+         *     its members see before launching an action that sends data outside.
          */
         get: operations["iki_server_api_outside_apis_list_project_outside_apis"];
         put?: never;
@@ -3385,7 +3391,9 @@ export interface paths {
          * Whom its records can name
          * @description The people its records' fields can name (ADR 0122), for a picker: active people
          *     who can read it, holding the field's lab role if it has one. Service accounts and
-         *     placeholders can't be named. Best matches first. It needs you to read the project.
+         *     placeholders can't be named. Best matches first: those whose name, a word of it, or
+         *     email address starts with ``q``, then the rest, each by name. It needs you to read the
+         *     project.
          */
         get: operations["iki_server_api_work_nameable"];
         put?: never;
@@ -3449,9 +3457,9 @@ export interface paths {
         };
         /**
          * The services a project may send requests to
-         * @description Each project that takes requests from this one (ADR 0132), of `type` if given, with
-         *     the request types it takes. Its members can read them: a service's name and description
-         *     are what it shows those it serves.
+         * @description Each project that takes requests from this one (ADR 0132), by name, of one of `type`
+         *     if given, with the request types it takes. Its members can read them: a service's name
+         *     and description are what it shows those it serves.
          */
         get: operations["iki_server_api_requests_list_services"];
         put?: never;
@@ -3542,7 +3550,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The project's saved spreadsheet mappings */
+        /**
+         * The project's saved spreadsheet mappings
+         * @description By type, then name.
+         */
         get: operations["iki_server_api_spreadsheets_list_mappings"];
         put?: never;
         post?: never;
@@ -3552,7 +3563,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{project_id}/stock": {
+    "/api/v1/projects/{project_id}/stock/items": {
         parameters: {
             query?: never;
             header?: never;
@@ -3575,6 +3586,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/stock/items/{item_id}/lots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A catalogue item's lots and storage positions */
+        get: operations["iki_server_api_stock_stock_lots"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/stock/orders": {
         parameters: {
             query?: never;
@@ -3584,23 +3612,6 @@ export interface paths {
         };
         /** Outstanding stock reorders */
         get: operations["iki_server_api_stock_stock_orders"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/projects/{project_id}/stock/{item_id}/lots": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** A catalogue item's lots and storage positions */
-        get: operations["iki_server_api_stock_stock_lots"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3638,7 +3649,7 @@ export interface paths {
         };
         /**
          * Triggers in a project
-         * @description Every installed trigger, and whether it's on in the project, as whom.
+         * @description Every installed trigger, by name, and whether it's on in the project, as whom.
          */
         get: operations["iki_server_api_triggers_project_triggers"];
         put?: never;
@@ -3713,7 +3724,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/quarantine": {
+    "/api/v1/quarantine-decisions": {
         parameters: {
             query?: never;
             header?: never;
@@ -3723,7 +3734,7 @@ export interface paths {
         /**
          * List quarantined files
          * @description For Quarantine Admins. Newest first, across the deployment: what's held now, or with
-         *     ``status=released``, the infected findings released as false positives. Each entry
+         *     ``released``, the infected findings released as false positives. Each entry
          *     identifies the held bytes, the finding, and where the bytes are: several project files
          *     can share one source, and so its scan.
          */
@@ -3736,7 +3747,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/quarantine/{decision_id}": {
+    "/api/v1/quarantine-decisions/{decision_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -3757,7 +3768,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/quarantine/{decision_id}/release": {
+    "/api/v1/quarantine-decisions/{decision_id}/release": {
         parameters: {
             query?: never;
             header?: never;
@@ -3846,26 +3857,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/receipts/{receipt_id}/history": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * A receipt's observation history
-         * @description Newest first. Supply a line ID to follow its observations, even after it was removed.
-         */
-        get: operations["iki_server_api_storage_receipt_history"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/receipts/{receipt_id}/lines/{line_id}": {
         parameters: {
             query?: never;
@@ -3906,6 +3897,26 @@ export interface paths {
          * @description From the line's revision you reviewed (If-Match), with a reason.
          */
         post: operations["iki_server_api_storage_restore_line"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/receipts/{receipt_id}/observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A receipt's observation history
+         * @description Newest first. Supply a line ID to follow its observations, even after it was removed.
+         */
+        get: operations["iki_server_api_storage_receipt_history"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4014,26 +4025,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/reconciliations/{reconciliation_id}/history": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * A reconciliation's observation history
-         * @description Newest first. Supply a line ID to follow its observations, even after it was removed.
-         */
-        get: operations["iki_server_api_storage_reconciliation_history"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}": {
         parameters: {
             query?: never;
@@ -4054,6 +4045,26 @@ export interface paths {
          *     decision requires a reason in addition to any note supporting the new decision.
          */
         patch: operations["iki_server_api_storage_resolve_line"];
+        trace?: never;
+    };
+    "/api/v1/reconciliations/{reconciliation_id}/observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A reconciliation's observation history
+         * @description Newest first. Supply a line ID to follow its observations, even after it was removed.
+         */
+        get: operations["iki_server_api_storage_reconciliation_history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/reconciliations/{reconciliation_id}/scans": {
@@ -4125,7 +4136,7 @@ export interface paths {
         };
         /**
          * Where files can be registered
-         * @description The approved buckets and prefixes, set by your administrators.
+         * @description The approved buckets and prefixes, set by your administrators, by URI.
          */
         get: operations["iki_server_api_files_registration_locations"];
         put?: never;
@@ -4987,7 +4998,8 @@ export interface paths {
         };
         /**
          * List installed starters
-         * @description Include the current flow and version when the caller supplies a readable project.
+         * @description By ID. Include the current flow and version when the caller supplies a readable
+         *     project.
          */
         get: operations["iki_server_api_starters_list_starters"];
         put?: never;
@@ -5052,7 +5064,8 @@ export interface paths {
         };
         /**
          * Received material awaiting a storage location
-         * @description Matched and damaged records you can read that are still in custody without a location.
+         * @description Matched and damaged records you can read that are still in custody without a
+         *     location, longest held first.
          */
         get: operations["iki_server_api_storage_list_awaiting_put_away"];
         put?: never;
@@ -5249,7 +5262,7 @@ export interface paths {
         /**
          * The outermost places
          * @description The containers you can read that aren't in another you can read: freezers, rooms,
-         *     shelves. ``project`` narrows them to one project's.
+         *     shelves, by HRID. ``project`` narrows them to one project's.
          */
         get: operations["iki_server_api_storage_list_places"];
         put?: never;
@@ -5386,7 +5399,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Installed triggers */
+        /**
+         * Installed triggers
+         * @description By name.
+         */
         get: operations["iki_server_api_triggers_list_triggers"];
         put?: never;
         post?: never;
@@ -5591,7 +5607,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The events webhooks can receive */
+        /**
+         * The events webhooks can receive
+         * @description By type.
+         */
         get: operations["iki_server_api_webhooks_webhook_events"];
         put?: never;
         post?: never;
@@ -5766,7 +5785,7 @@ export interface paths {
         };
         /**
          * Workflow runs you can read
-         * @description Newest first. `GET /runs?workflow=` lists a workflow run's runs.
+         * @description Newest first. `GET /runs?workflow_run=` lists a workflow run's runs.
          */
         get: operations["iki_server_api_workflows_list_workflow_runs"];
         put?: never;
@@ -6026,6 +6045,17 @@ export interface components {
         };
         /** ActionFilters */
         ActionFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
             /**
              * Takes
              * @description Only actions with an input that takes entities of each of these types, such as `takes=iki/dna.Primer`. An input takes its own type and every type that extends it.
@@ -7470,23 +7500,14 @@ export interface components {
             /** Type */
             type: string;
         };
-        /** ChangesParams */
-        ChangesParams: {
-            /**
-             * Limit
-             * @description How many, newest first.
-             * @default 10
-             */
-            limit: number;
-        };
         /** CheckInIn */
         CheckInIn: {
+            /** Check Ins */
+            check_ins: components["schemas"]["CheckInItemIn"][];
             /** Confirmations */
             confirmations?: {
                 [key: string]: string | components["schemas"]["IkiIdConfirmationIn"];
             };
-            /** Items */
-            items: components["schemas"]["CheckInItemIn"][];
             /**
              * Reason
              * @default
@@ -7522,6 +7543,25 @@ export interface components {
              * @description Who has them: you, if null.
              */
             to?: string | null;
+        };
+        /** CheckedOutFilters */
+        CheckedOutFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Custodian
+             * @description Whose: yours, if left out.
+             */
+            custodian?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
         };
         /** CheckedOutOut */
         CheckedOutOut: {
@@ -8083,6 +8123,25 @@ export interface components {
              * @description A signed URL that reads the file, for five minutes.
              */
             url: string;
+        };
+        /** ContributorParams */
+        ContributorParams: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Project
+             * @description Whose record, as for reading it.
+             */
+            project?: string | null;
         };
         /** CostGroupOut */
         CostGroupOut: {
@@ -8725,7 +8784,7 @@ export interface components {
             cursor?: string | null;
             /**
              * Exact Type
-             * @description Only the type itself, not its subtypes.
+             * @description Only the types themselves, not subtypes.
              * @default false
              */
             exact_type: boolean;
@@ -8752,14 +8811,9 @@ export interface components {
             run?: string | null;
             /**
              * Type
-             * @description This type and its subtypes.
+             * @description Only these types and their subtypes: repeat it for several.
              */
-            type?: string | null;
-            /**
-             * Types
-             * @description Any one of these types, and their subtypes, as a reference to several types names them (ADR 0136). Not with `type`.
-             */
-            types?: string[] | null;
+            type?: string[];
         };
         /** EntityIn */
         EntityIn: {
@@ -9277,6 +9331,27 @@ export interface components {
              * @description What its recent runs that succeeded cost, the median of them; null before any has.
              */
             typical: number | null;
+        };
+        /** EventFilters */
+        EventFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Scope
+             * @description A project's webhooks', or the organization's.
+             * @default project
+             * @enum {string}
+             */
+            scope: "project" | "org";
         };
         /** EventOut */
         EventOut: {
@@ -10219,6 +10294,42 @@ export interface components {
              * @description The state being set. Its roles, guards and signatures apply.
              */
             to: string;
+        };
+        /** FormatFacetParams */
+        FormatFacetParams: {
+            /** Accepts */
+            accepts?: string[];
+            /** Acquired From */
+            acquired_from?: string | null;
+            /** Acquired To */
+            acquired_to?: string | null;
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /** Format */
+            format?: string[];
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /** Max Size */
+            max_size?: number | null;
+            /** Project */
+            project?: string | null;
+            /**
+             * Q
+             * @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.
+             * @default
+             */
+            q: string;
+            /** Run */
+            run?: string | null;
+            /** Sample */
+            sample?: string | null;
         };
         /** FormatOut */
         FormatOut: {
@@ -11251,15 +11362,15 @@ export interface components {
              */
             count: number;
             /**
+             * First
+             * @description The first 200.
+             */
+            first: components["schemas"]["OutsideRef"][];
+            /**
              * Here
              * @description How many of them are here.
              */
             here: number;
-            /**
-             * Items
-             * @description The first 200.
-             */
-            items: components["schemas"]["OutsideRef"][];
         };
         /** ImportPersonOut */
         ImportPersonOut: {
@@ -11920,6 +12031,30 @@ export interface components {
              */
             type: string;
         };
+        /** ListsParams */
+        ListsParams: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Project
+             * @description A project you read, by ID: its registry's lists, which its records pick from.
+             */
+            project?: string | null;
+            /**
+             * Registry
+             * @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.
+             */
+            registry?: string | null;
+        };
         /** LocationOut */
         LocationOut: {
             /** @description Who has it: checked out (its position kept for it), or received and not put away yet. */
@@ -11947,14 +12082,6 @@ export interface components {
              */
             stored: boolean;
         };
-        /** LocationsOut */
-        LocationsOut: {
-            /**
-             * Locations
-             * @description Where files may be registered, such as s3://lab/.
-             */
-            locations: string[];
-        };
         /** LogParams */
         LogParams: {
             /**
@@ -11967,10 +12094,21 @@ export interface components {
         /** LookupParams */
         LookupParams: {
             /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
              * Field
-             * @description One of the type's unique fields, such as `lims_id`.
+             * @description A unique field of each type, such as `lims_id`.
              */
             field: string;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
             /**
              * Project
              * @description Only entities that belong to this project.
@@ -11978,9 +12116,9 @@ export interface components {
             project?: string | null;
             /**
              * Type
-             * @description The entity type, such as `iki/protein.Protein`; subtypes count.
+             * @description The entity types, such as `iki/protein.Protein`, each with its subtypes: repeat it for several.
              */
-            type: string;
+            type: string[];
             /** Value */
             value: string;
         };
@@ -12068,6 +12206,25 @@ export interface components {
             url: string;
             /** Version */
             version: string;
+        };
+        /** MappingFilters */
+        MappingFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Type
+             * @description Only mappings into these types: repeat it for several.
+             */
+            type?: string[];
         };
         /** MarkAllIn */
         MarkAllIn: {
@@ -12454,8 +12611,8 @@ export interface components {
             confirmations?: {
                 [key: string]: string | components["schemas"]["IkiIdConfirmationIn"];
             };
-            /** Items */
-            items: components["schemas"]["MoveItemIn"][];
+            /** Moves */
+            moves: components["schemas"]["MoveItemIn"][];
             /**
              * Plan
              * @description The `plan` a preview of these moves returned: what was reviewed. They're made only if they'd still do exactly that, each record from where it was shown and to the position shown; otherwise nothing moves (409 `moves_plan_changed`, with `moves`, what they'd do now). Without it, a null position is the next free one when it's made.
@@ -12481,8 +12638,8 @@ export interface components {
              * @description Every move was made. False for a preview.
              */
             done: boolean;
-            /** Items */
-            items: components["schemas"]["PlannedOut"][];
+            /** Moves */
+            moves: components["schemas"]["PlannedOut"][];
             /**
              * Operation
              * @description The moves' operation, once they're made.
@@ -12523,11 +12680,25 @@ export interface components {
         };
         /** NameableFilters */
         NameableFilters: {
-            /** Field */
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Entity Type
+             * @description With `field`: only those that field of this entity type can name.
+             */
+            entity_type?: string | null;
+            /**
+             * Field
+             * @description With `entity_type`: one of its person fields.
+             */
             field?: string | null;
             /**
              * Limit
-             * @default 20
+             * @description Items per page.
+             * @default 50
              */
             limit: number;
             /**
@@ -12541,11 +12712,6 @@ export interface components {
              * @description Only those holding this lab role in the project, qualified.
              */
             role?: string | null;
-            /**
-             * Type
-             * @description With `field`: only those that field of this type can name.
-             */
-            type?: string | null;
         };
         /** NameableOut */
         NameableOut: {
@@ -12792,8 +12958,19 @@ export interface components {
              */
             archived: boolean;
             /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
              * Project
-             * @description A project you read, by ID or slug: its registry's lists, which its records pick from.
+             * @description A project you read, by ID: its registry's lists, which its records pick from.
              */
             project?: string | null;
             /**
@@ -12842,7 +13019,8 @@ export interface components {
         OptionMoveIn: {
             /**
              * Project
-             * @description The project whose records move, by ID or slug.
+             * Format: uuid
+             * @description The project whose records move, by ID.
              */
             project: string;
             /**
@@ -13191,6 +13369,16 @@ export interface components {
              */
             limit: number;
         };
+        /** Page[ActionOut] */
+        Page_ActionOut_: {
+            /** Items */
+            items: components["schemas"]["ActionOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[ApiCallOut] */
         Page_ApiCallOut_: {
             /** Items */
@@ -13201,10 +13389,60 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[AwaitingPutAwayOut] */
+        Page_AwaitingPutAwayOut_: {
+            /** Items */
+            items: components["schemas"]["AwaitingPutAwayOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[BatchOut] */
         Page_BatchOut_: {
             /** Items */
             items: components["schemas"]["BatchOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[BudgetOut] */
+        Page_BudgetOut_: {
+            /** Items */
+            items: components["schemas"]["BudgetOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[BundleOriginOut] */
+        Page_BundleOriginOut_: {
+            /** Items */
+            items: components["schemas"]["BundleOriginOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[CheckedOutOut] */
+        Page_CheckedOutOut_: {
+            /** Items */
+            items: components["schemas"]["CheckedOutOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[ComponentOut] */
+        Page_ComponentOut_: {
+            /** Items */
+            items: components["schemas"]["ComponentOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -13231,10 +13469,60 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[EntityAppOut] */
+        Page_EntityAppOut_: {
+            /** Items */
+            items: components["schemas"]["EntityAppOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[EntityOut] */
         Page_EntityOut_: {
             /** Items */
             items: components["schemas"]["EntityOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[EntityProjectOut] */
+        Page_EntityProjectOut_: {
+            /** Items */
+            items: components["schemas"]["EntityProjectOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[EntityTypeOut] */
+        Page_EntityTypeOut_: {
+            /** Items */
+            items: components["schemas"]["EntityTypeOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[EnvironmentVolumesOut] */
+        Page_EnvironmentVolumesOut_: {
+            /** Items */
+            items: components["schemas"]["EnvironmentVolumesOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[EventTypeOut] */
+        Page_EventTypeOut_: {
+            /** Items */
+            items: components["schemas"]["EventTypeOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -13255,6 +13543,16 @@ export interface components {
         Page_FiringOut_: {
             /** Items */
             items: components["schemas"]["FiringOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[FormatOut] */
+        Page_FormatOut_: {
+            /** Items */
+            items: components["schemas"]["FormatOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -13301,10 +13599,60 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[InstalledFormatOut] */
+        Page_InstalledFormatOut_: {
+            /** Items */
+            items: components["schemas"]["InstalledFormatOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[InventoryOut] */
         Page_InventoryOut_: {
             /** Items */
             items: components["schemas"]["InventoryOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[LabRoleOut] */
+        Page_LabRoleOut_: {
+            /** Items */
+            items: components["schemas"]["LabRoleOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[ListOut] */
+        Page_ListOut_: {
+            /** Items */
+            items: components["schemas"]["ListOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[MakingOut] */
+        Page_MakingOut_: {
+            /** Items */
+            items: components["schemas"]["MakingOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[NameableOut] */
+        Page_NameableOut_: {
+            /** Items */
+            items: components["schemas"]["NameableOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -13331,10 +13679,60 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[OptionOut] */
+        Page_OptionOut_: {
+            /** Items */
+            items: components["schemas"]["OptionOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[OriginOut] */
+        Page_OriginOut_: {
+            /** Items */
+            items: components["schemas"]["OriginOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[OutsideApiOut] */
+        Page_OutsideApiOut_: {
+            /** Items */
+            items: components["schemas"]["OutsideApiOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[PlaceOut] */
+        Page_PlaceOut_: {
+            /** Items */
+            items: components["schemas"]["PlaceOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[PreviewRowOut] */
         Page_PreviewRowOut_: {
             /** Items */
             items: components["schemas"]["PreviewRowOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[ProjectChangeOut] */
+        Page_ProjectChangeOut_: {
+            /** Items */
+            items: components["schemas"]["ProjectChangeOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -13361,6 +13759,36 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[ProjectRef] */
+        Page_ProjectRef_: {
+            /** Items */
+            items: components["schemas"]["ProjectRef"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[ProjectRoleOut] */
+        Page_ProjectRoleOut_: {
+            /** Items */
+            items: components["schemas"]["ProjectRoleOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[ProjectTriggerOut] */
+        Page_ProjectTriggerOut_: {
+            /** Items */
+            items: components["schemas"]["ProjectTriggerOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[QuarantineOut] */
         Page_QuarantineOut_: {
             /** Items */
@@ -13371,10 +13799,50 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[QuotaOut] */
+        Page_QuotaOut_: {
+            /** Items */
+            items: components["schemas"]["QuotaOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[QuotaScopeOut] */
+        Page_QuotaScopeOut_: {
+            /** Items */
+            items: components["schemas"]["QuotaScopeOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[ReconciliationOut] */
+        Page_ReconciliationOut_: {
+            /** Items */
+            items: components["schemas"]["ReconciliationOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[RecordExportOut] */
         Page_RecordExportOut_: {
             /** Items */
             items: components["schemas"]["RecordExportOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[RegistrationLocationOut] */
+        Page_RegistrationLocationOut_: {
+            /** Items */
+            items: components["schemas"]["RegistrationLocationOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -13421,6 +13889,26 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[RunArtifactOut] */
+        Page_RunArtifactOut_: {
+            /** Items */
+            items: components["schemas"]["RunArtifactOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[RunAttemptOut] */
+        Page_RunAttemptOut_: {
+            /** Items */
+            items: components["schemas"]["RunAttemptOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[RunOut] */
         Page_RunOut_: {
             /** Items */
@@ -13431,10 +13919,40 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[SavedMappingOut] */
+        Page_SavedMappingOut_: {
+            /** Items */
+            items: components["schemas"]["SavedMappingOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[SavedSearchOut] */
+        Page_SavedSearchOut_: {
+            /** Items */
+            items: components["schemas"]["SavedSearchOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[ServiceAccountOut] */
         Page_ServiceAccountOut_: {
             /** Items */
             items: components["schemas"]["ServiceAccountOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[ServiceOut] */
+        Page_ServiceOut_: {
+            /** Items */
+            items: components["schemas"]["ServiceOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -13461,10 +13979,30 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[SlurmClusterOut] */
+        Page_SlurmClusterOut_: {
+            /** Items */
+            items: components["schemas"]["SlurmClusterOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[SpreadsheetImportOut] */
         Page_SpreadsheetImportOut_: {
             /** Items */
             items: components["schemas"]["SpreadsheetImportOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[StarterOut] */
+        Page_StarterOut_: {
+            /** Items */
+            items: components["schemas"]["StarterOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -13515,6 +14053,16 @@ export interface components {
         Page_TeamRef_: {
             /** Items */
             items: components["schemas"]["TeamRef"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[TriggerOut] */
+        Page_TriggerOut_: {
+            /** Items */
+            items: components["schemas"]["TriggerOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -13585,6 +14133,16 @@ export interface components {
         Page_WorkerRegistrationOut_: {
             /** Items */
             items: components["schemas"]["WorkerRegistrationOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[WorkflowOut] */
+        Page_WorkflowOut_: {
+            /** Items */
+            items: components["schemas"]["WorkflowOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -13879,6 +14437,25 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+        };
+        /** PlaceFilters */
+        PlaceFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Project
+             * @description Only this project's.
+             */
+            project?: string | null;
         };
         /** PlaceOut */
         PlaceOut: {
@@ -14697,17 +15274,16 @@ export interface components {
              */
             q: string;
             /**
+             * Released
+             * @description Infected findings released as false positives, rather than what's held now.
+             * @default false
+             */
+            released: boolean;
+            /**
              * State
              * @description Only malware findings, or only inspections that couldn't finish.
              */
             state?: ("infected" | "not_scanned") | null;
-            /**
-             * Status
-             * @description Held now, or infected findings released as false positives.
-             * @default held
-             * @enum {string}
-             */
-            status: "held" | "released";
         };
         /** QuarantineOut */
         QuarantineOut: {
@@ -15464,6 +16040,14 @@ export interface components {
              */
             version: string;
         };
+        /** RegistrationLocationOut */
+        RegistrationLocationOut: {
+            /**
+             * Uri
+             * @description Where files may be registered, such as s3://lab/.
+             */
+            uri: string;
+        };
         /** RegistrationOut */
         RegistrationOut: {
             /**
@@ -15575,9 +16159,9 @@ export interface components {
             superseded?: boolean | null;
             /**
              * Type
-             * @description Only this type's entries (and its subtypes').
+             * @description Only these types' entries (and their subtypes'): repeat it for several.
              */
-            type?: string | null;
+            type?: string[];
         };
         /** RegistryEntryOut */
         RegistryEntryOut: {
@@ -16628,10 +17212,10 @@ export interface components {
             project?: string | null;
             status?: components["schemas"]["RunStatus"] | null;
             /**
-             * Workflow
+             * Workflow Run
              * @description Only the runs of this workflow run (its ID or HRID), in launch order.
              */
-            workflow?: string | null;
+            workflow_run?: string | null;
         };
         /** RunImportedOut */
         RunImportedOut: {
@@ -16680,10 +17264,10 @@ export interface components {
                 [key: string]: string;
             };
             /**
-             * Workflow
+             * Workflow Run
              * @description The workflow run it was a step of there.
              */
-            workflow: string | null;
+            workflow_run: string | null;
         };
         /** RunIn */
         RunIn: {
@@ -16948,7 +17532,7 @@ export interface components {
             /** @description While files it reads are being scanned for malware (ADR 0234): no worker takes it until they're found usable, and it fails, saying why, if one is held. Its attempts' `scan_wait` say when it waited. */
             waiting_for_scan: components["schemas"]["RunScanWaitOut"] | null;
             /** @description The workflow run it's a step of, if any (ADR 0079). */
-            workflow: components["schemas"]["WorkflowStepRefOut"] | null;
+            workflow_run: components["schemas"]["WorkflowStepRefOut"] | null;
         };
         /** RunRef */
         RunRef: {
@@ -17095,10 +17679,16 @@ export interface components {
         /** SavedSearchFilters */
         SavedSearchFilters: {
             /**
-             * Limit
-             * @description At most this many.
+             * Cursor
+             * @description From the previous page's next_cursor.
              */
-            limit?: number | null;
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
             /**
              * Mine
              * @description Only your own: the sidebar's saved views.
@@ -17296,10 +17886,10 @@ export interface components {
             /** Code */
             code: string;
             /**
-             * Items
+             * Matches
              * @description Every record the code names that you can read: usually one.
              */
-            items: components["schemas"]["ScanMatchOut"][];
+            matches: components["schemas"]["ScanMatchOut"][];
         };
         /** ScanParams */
         ScanParams: {
@@ -17390,7 +17980,7 @@ export interface components {
         Scope: {
             /**
              * Project
-             * @description A project you read, by ID or slug: its registry's lists, which its records pick from.
+             * @description A project you read, by ID: its registry's lists, which its records pick from.
              */
             project?: string | null;
             /**
@@ -17412,21 +18002,27 @@ export interface components {
         /** ScopeSearch */
         ScopeSearch: {
             /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
              * Kind
              * @enum {string}
              */
             kind: "team" | "project";
             /**
              * Limit
-             * @default 20
+             * @description Items per page.
+             * @default 50
              */
             limit: number;
             /**
-             * Search
+             * Q
              * @description Part of the name.
              * @default
              */
-            search: string;
+            q: string;
             /**
              * Team
              * @description Only projects of these teams, when given.
@@ -17454,7 +18050,7 @@ export interface components {
             descending: boolean;
             /**
              * Exact Type
-             * @description Only the type itself, not its subtypes.
+             * @description Only the types themselves, not subtypes.
              * @default false
              */
             exact_type: boolean;
@@ -17485,9 +18081,9 @@ export interface components {
             then?: string[];
             /**
              * Type
-             * @description This type and its subtypes.
+             * @description Only these types and their subtypes: repeat it for several. With one, ``where`` and ``columns`` may name its fields; with several, only those every entity has.
              */
-            type?: string | null;
+            type?: string[];
             /**
              * Where
              * @description Conditions on the type's fields, as JSON: what `POST /entities/search` takes as `where`.
@@ -17527,10 +18123,10 @@ export interface components {
              */
             kind?: ("entities" | "requests" | "runs" | "files" | "projects" | "saved_views" | "people") | null;
             /**
-             * Limit
-             * @description Results per kind: 5 by default, 20 for one `kind`.
+             * Per Kind
+             * @description Results of each kind: 5 by default, 20 for one `kind`. Each group's `href` is its full list.
              */
-            limit?: number | null;
+            per_kind?: number | null;
             /**
              * Q
              * @description What to look for.
@@ -17545,8 +18141,6 @@ export interface components {
              * @description Their full list, when there is one.
              */
             href: string | null;
-            /** Items */
-            items: components["schemas"]["SearchResultOut"][];
             /**
              * Kind
              * @enum {string}
@@ -17559,6 +18153,11 @@ export interface components {
              * @description There are more than `total`.
              */
             more_than_total: boolean;
+            /**
+             * Results
+             * @description The first `per_kind`, best first.
+             */
+            results: components["schemas"]["SearchResultOut"][];
             /**
              * Total
              * @description How many there are, up to 1,000; null when counting would be too slow.
@@ -17791,10 +18390,21 @@ export interface components {
         /** ServicesFilters */
         ServicesFilters: {
             /**
-             * Type
-             * @description Only services taking this request type (qualified), or a parent.
+             * Cursor
+             * @description From the previous page's next_cursor.
              */
-            type?: string | null;
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Type
+             * @description Only services taking one of these request types (qualified), or a parent of one: repeat it for several.
+             */
+            type?: string[];
         };
         /** SettingsIn */
         SettingsIn: {
@@ -18721,13 +19331,13 @@ export interface components {
         };
         /** SignaturesOut */
         SignaturesOut: {
-            /** Items */
-            items: components["schemas"]["SignatureOut"][];
             /**
              * Missing
              * @description Signatures the record's states were set with that are gone from the database. Empty, unless something outside Iki deleted them.
              */
             missing: string[];
+            /** Signatures */
+            signatures: components["schemas"]["SignatureOut"][];
         };
         /**
          * SignedChangeOut
@@ -19407,6 +20017,25 @@ export interface components {
              * @description Installed starter version shown at setup.
              */
             version: string;
+        };
+        /** StarterFilters */
+        StarterFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Project
+             * @description A project you read: each starter's flow and version applied there.
+             */
+            project?: string | null;
         };
         /** StarterFlowOut */
         StarterFlowOut: {
@@ -21064,6 +21693,7 @@ export interface components {
             cursor?: string | null;
             /**
              * Limit
+             * @description Items per page.
              * @default 50
              */
             limit: number;
@@ -21773,6 +22403,10 @@ export interface operations {
     iki_server_api_runs_list_actions: {
         parameters: {
             query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
                 /** @description Only actions with an input that takes entities of each of these types, such as `takes=iki/dna.Primer`. An input takes its own type and every type that extends it. */
                 takes?: string[];
             };
@@ -21788,7 +22422,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ActionOut"][];
+                    "application/json": components["schemas"]["Page_ActionOut_"];
                 };
             };
         };
@@ -22149,7 +22783,12 @@ export interface operations {
     };
     iki_server_api_components_list_components: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -22162,7 +22801,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ComponentOut"][];
+                    "application/json": components["schemas"]["Page_ComponentOut_"];
                 };
             };
         };
@@ -22195,7 +22834,12 @@ export interface operations {
     };
     iki_server_api_costs_list_budgets: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -22208,7 +22852,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BudgetOut"][];
+                    "application/json": components["schemas"]["Page_BudgetOut_"];
                 };
             };
         };
@@ -22377,11 +23021,39 @@ export interface operations {
     iki_server_api_compute_quota_scopes: {
         parameters: {
             query: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
                 kind: "team" | "project";
                 /** @description Part of the name. */
-                search?: string;
+                q?: string;
                 /** @description Only projects of these teams, when given. */
                 team?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_QuotaScopeOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_compute_list_quotas: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
                 limit?: number;
             };
             header?: never;
@@ -22396,27 +23068,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QuotaScopeOut"][];
-                };
-            };
-        };
-    };
-    iki_server_api_compute_list_quotas: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["QuotaOut"][];
+                    "application/json": components["schemas"]["Page_QuotaOut_"];
                 };
             };
         };
@@ -22732,7 +23384,12 @@ export interface operations {
     };
     iki_server_api_compute_list_slurm_clusters: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -22745,7 +23402,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SlurmClusterOut"][];
+                    "application/json": components["schemas"]["Page_SlurmClusterOut_"];
                 };
             };
         };
@@ -22827,7 +23484,12 @@ export interface operations {
     };
     iki_server_api_setups_list_volumes: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -22840,7 +23502,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EnvironmentVolumesOut"][];
+                    "application/json": components["schemas"]["Page_EnvironmentVolumesOut_"];
                 };
             };
         };
@@ -22928,11 +23590,9 @@ export interface operations {
                 cursor?: string | null;
                 /** @description Items per page. */
                 limit?: number;
-                /** @description This type and its subtypes. */
-                type?: string | null;
-                /** @description Any one of these types, and their subtypes, as a reference to several types names them (ADR 0136). Not with `type`. */
-                types?: string[] | null;
-                /** @description Only the type itself, not its subtypes. */
+                /** @description Only these types and their subtypes: repeat it for several. */
+                type?: string[];
+                /** @description Only the types themselves, not subtypes. */
                 exact_type?: boolean;
                 /** @description Entities that belong to this project. */
                 project?: string | null;
@@ -23059,9 +23719,13 @@ export interface operations {
     iki_server_api_entities_lookup_entities: {
         parameters: {
             query: {
-                /** @description The entity type, such as `iki/protein.Protein`; subtypes count. */
-                type: string;
-                /** @description One of the type's unique fields, such as `lims_id`. */
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description The entity types, such as `iki/protein.Protein`, each with its subtypes: repeat it for several. */
+                type: string[];
+                /** @description A unique field of each type, such as `lims_id`. */
                 field: string;
                 value: string;
                 /** @description Only entities that belong to this project. */
@@ -23079,7 +23743,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EntityOut"][];
+                    "application/json": components["schemas"]["Page_EntityOut_"];
                 };
             };
         };
@@ -23111,9 +23775,9 @@ export interface operations {
     iki_server_api_entities_search_csv: {
         parameters: {
             query?: {
-                /** @description This type and its subtypes. */
-                type?: string | null;
-                /** @description Only the type itself, not its subtypes. */
+                /** @description Only these types and their subtypes: repeat it for several. With one, ``where`` and ``columns`` may name its fields; with several, only those every entity has. */
+                type?: string[];
+                /** @description Only the types themselves, not subtypes. */
                 exact_type?: boolean;
                 /** @description Entities that belong to this project. */
                 project?: string | null;
@@ -23413,7 +24077,12 @@ export interface operations {
     };
     iki_server_api_apps_entity_apps: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path: {
                 ref: string;
@@ -23428,14 +24097,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EntityAppOut"][];
+                    "application/json": components["schemas"]["Page_EntityAppOut_"];
                 };
             };
         };
     };
-    iki_server_api_entities_get_bundle_origins: {
+    iki_server_api_entities_list_bundle_origins: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path: {
                 ref: string;
@@ -23450,7 +24124,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BundleOriginOut"][];
+                    "application/json": components["schemas"]["Page_BundleOriginOut_"];
                 };
             };
         };
@@ -23458,6 +24132,11 @@ export interface operations {
     iki_server_api_trails_list_contributors: {
         parameters: {
             query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description Whose record, as for reading it. */
                 project?: string | null;
             };
             header?: never;
@@ -23474,7 +24153,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserOut"][];
+                    "application/json": components["schemas"]["Page_UserOut_"];
                 };
             };
         };
@@ -23732,9 +24411,14 @@ export interface operations {
             };
         };
     };
-    iki_server_api_entities_get_making: {
+    iki_server_api_entities_list_makings: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path: {
                 ref: string;
@@ -23749,7 +24433,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MakingOut"][];
+                    "application/json": components["schemas"]["Page_MakingOut_"];
                 };
             };
         };
@@ -23801,9 +24485,14 @@ export interface operations {
             };
         };
     };
-    iki_server_api_entities_get_origins: {
+    iki_server_api_entities_list_origins: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path: {
                 ref: string;
@@ -23818,14 +24507,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OriginOut"][];
+                    "application/json": components["schemas"]["Page_OriginOut_"];
                 };
             };
         };
     };
     iki_server_api_entities_list_entity_projects: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path: {
                 ref: string;
@@ -23840,7 +24534,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EntityProjectOut"][];
+                    "application/json": components["schemas"]["Page_EntityProjectOut_"];
                 };
             };
         };
@@ -24536,7 +25230,12 @@ export interface operations {
     };
     iki_server_api_entities_list_types: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -24549,7 +25248,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EntityTypeOut"][];
+                    "application/json": components["schemas"]["Page_EntityTypeOut_"];
                 };
             };
         };
@@ -24906,6 +25605,10 @@ export interface operations {
     iki_server_api_files_file_formats: {
         parameters: {
             query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
                 project?: string | null;
                 /** @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case. */
                 q?: string;
@@ -24929,7 +25632,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FormatOut"][];
+                    "application/json": components["schemas"]["Page_FormatOut_"];
                 };
             };
         };
@@ -25054,7 +25757,12 @@ export interface operations {
     };
     iki_server_api_files_installed_formats: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -25067,7 +25775,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["InstalledFormatOut"][];
+                    "application/json": components["schemas"]["Page_InstalledFormatOut_"];
                 };
             };
         };
@@ -25282,7 +25990,12 @@ export interface operations {
     };
     iki_server_api_projects_list_lab_roles: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -25295,7 +26008,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LabRoleOut"][];
+                    "application/json": components["schemas"]["Page_LabRoleOut_"];
                 };
             };
         };
@@ -25303,7 +26016,11 @@ export interface operations {
     iki_server_api_lists_list_lists: {
         parameters: {
             query?: {
-                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description A project you read, by ID: its registry's lists, which its records pick from. */
                 project?: string | null;
                 /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
                 registry?: string | null;
@@ -25320,7 +26037,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ListOut"][];
+                    "application/json": components["schemas"]["Page_ListOut_"];
                 };
             };
         };
@@ -25328,7 +26045,7 @@ export interface operations {
     iki_server_api_lists_get_list: {
         parameters: {
             query?: {
-                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                /** @description A project you read, by ID: its registry's lists, which its records pick from. */
                 project?: string | null;
                 /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
                 registry?: string | null;
@@ -25355,7 +26072,11 @@ export interface operations {
     iki_server_api_lists_list_options: {
         parameters: {
             query?: {
-                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description A project you read, by ID: its registry's lists, which its records pick from. */
                 project?: string | null;
                 /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
                 registry?: string | null;
@@ -25378,7 +26099,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OptionOut"][];
+                    "application/json": components["schemas"]["Page_OptionOut_"];
                 };
             };
         };
@@ -25386,7 +26107,7 @@ export interface operations {
     iki_server_api_lists_add_option: {
         parameters: {
             query?: {
-                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                /** @description A project you read, by ID: its registry's lists, which its records pick from. */
                 project?: string | null;
                 /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
                 registry?: string | null;
@@ -25417,7 +26138,7 @@ export interface operations {
     iki_server_api_lists_get_option: {
         parameters: {
             query?: {
-                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                /** @description A project you read, by ID: its registry's lists, which its records pick from. */
                 project?: string | null;
                 /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
                 registry?: string | null;
@@ -25447,7 +26168,7 @@ export interface operations {
     iki_server_api_lists_patch_option: {
         parameters: {
             query?: {
-                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                /** @description A project you read, by ID: its registry's lists, which its records pick from. */
                 project?: string | null;
                 /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
                 registry?: string | null;
@@ -25500,7 +26221,7 @@ export interface operations {
     iki_server_api_lists_archive_option: {
         parameters: {
             query?: {
-                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                /** @description A project you read, by ID: its registry's lists, which its records pick from. */
                 project?: string | null;
                 /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
                 registry?: string | null;
@@ -25580,7 +26301,7 @@ export interface operations {
     iki_server_api_lists_restore_option: {
         parameters: {
             query?: {
-                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                /** @description A project you read, by ID: its registry's lists, which its records pick from. */
                 project?: string | null;
                 /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
                 registry?: string | null;
@@ -25633,7 +26354,7 @@ export interface operations {
     iki_server_api_lists_supersede_option: {
         parameters: {
             query?: {
-                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                /** @description A project you read, by ID: its registry's lists, which its records pick from. */
                 project?: string | null;
                 /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
                 registry?: string | null;
@@ -25686,7 +26407,7 @@ export interface operations {
     iki_server_api_lists_reorder_list: {
         parameters: {
             query?: {
-                /** @description A project you read, by ID or slug: its registry's lists, which its records pick from. */
+                /** @description A project you read, by ID: its registry's lists, which its records pick from. */
                 project?: string | null;
                 /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
                 registry?: string | null;
@@ -25794,6 +26515,39 @@ export interface operations {
             };
         };
     };
+    iki_server_api_work_list_open_work_items: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description Only these projects'. */
+                project?: string[];
+                /** @description Only these types' records (and their subtypes'). */
+                type?: string[];
+                /** @description Only records whose state fields (ADR 0125) are in these states, each `field.state` such as `status.in_review`: in any of a field's, and of every field named. Types without those state fields have none. */
+                state?: string[];
+                /** @description `due`: soonest due first, undated ones last; `updated`: latest changed first. */
+                sort?: "due" | "updated";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_WorkItemOut_"];
+                };
+            };
+        };
+    };
     iki_server_api_signatures_my_signing: {
         parameters: {
             query?: never;
@@ -25814,9 +26568,13 @@ export interface operations {
             };
         };
     };
-    iki_server_api_work_my_work: {
+    iki_server_api_work_list_work_items: {
         parameters: {
             query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
                 /** @description Only these projects'. */
                 project?: string[];
                 /** @description Only these types' records (and their subtypes'). */
@@ -25825,41 +26583,6 @@ export interface operations {
                 state?: string[];
                 /** @description `due`: soonest due first, undated ones last; `updated`: latest changed first. */
                 sort?: "due" | "updated";
-                /** @description From the previous page's next_cursor. */
-                cursor?: string | null;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Page_WorkItemOut_"];
-                };
-            };
-        };
-    };
-    iki_server_api_work_open_work: {
-        parameters: {
-            query?: {
-                /** @description Only these projects'. */
-                project?: string[];
-                /** @description Only these types' records (and their subtypes'). */
-                type?: string[];
-                /** @description Only records whose state fields (ADR 0125) are in these states, each `field.state` such as `status.in_review`: in any of a field's, and of every field named. Types without those state fields have none. */
-                state?: string[];
-                /** @description `due`: soonest due first, undated ones last; `updated`: latest changed first. */
-                sort?: "due" | "updated";
-                /** @description From the previous page's next_cursor. */
-                cursor?: string | null;
-                limit?: number;
             };
             header?: never;
             path?: never;
@@ -25977,7 +26700,12 @@ export interface operations {
     };
     iki_server_api_outside_apis_list_outside_apis: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -25990,7 +26718,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OutsideApiOut"][];
+                    "application/json": components["schemas"]["Page_OutsideApiOut_"];
                 };
             };
         };
@@ -26070,7 +26798,12 @@ export interface operations {
     };
     iki_server_api_projects_project_roles: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -26083,7 +26816,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectRoleOut"][];
+                    "application/json": components["schemas"]["Page_ProjectRoleOut_"];
                 };
             };
         };
@@ -26274,7 +27007,9 @@ export interface operations {
     iki_server_api_entities_project_changes: {
         parameters: {
             query?: {
-                /** @description How many, newest first. */
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
                 limit?: number;
             };
             header?: never;
@@ -26291,7 +27026,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectChangeOut"][];
+                    "application/json": components["schemas"]["Page_ProjectChangeOut_"];
                 };
             };
         };
@@ -26394,7 +27129,12 @@ export interface operations {
     };
     iki_server_api_apps_dashboard_choices: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path: {
                 project_id: string;
@@ -26409,7 +27149,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EntityAppOut"][];
+                    "application/json": components["schemas"]["Page_EntityAppOut_"];
                 };
             };
         };
@@ -26673,36 +27413,10 @@ export interface operations {
     };
     iki_server_api_outside_apis_list_project_outside_apis: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OutsideApiOut"][];
-                };
-            };
-        };
-    };
-    iki_server_api_work_nameable: {
-        parameters: {
             query?: {
-                /** @description Part of their name or email address. */
-                q?: string;
-                /** @description Only those holding this lab role in the project, qualified. */
-                role?: string | null;
-                /** @description With `field`: only those that field of this type can name. */
-                type?: string | null;
-                field?: string | null;
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
                 limit?: number;
             };
             header?: never;
@@ -26719,14 +27433,54 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NameableOut"][];
+                    "application/json": components["schemas"]["Page_OutsideApiOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_work_nameable: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description Part of their name or email address. */
+                q?: string;
+                /** @description Only those holding this lab role in the project, qualified. */
+                role?: string | null;
+                /** @description With `field`: only those that field of this entity type can name. */
+                entity_type?: string | null;
+                /** @description With `entity_type`: one of its person fields. */
+                field?: string | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_NameableOut_"];
                 };
             };
         };
     };
     iki_server_api_requests_list_sent_from: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path: {
                 project_id: string;
@@ -26741,14 +27495,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectRef"][];
+                    "application/json": components["schemas"]["Page_ProjectRef_"];
                 };
             };
         };
     };
     iki_server_api_requests_list_sent_to: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path: {
                 project_id: string;
@@ -26763,7 +27522,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectRef"][];
+                    "application/json": components["schemas"]["Page_ProjectRef_"];
                 };
             };
         };
@@ -26771,8 +27530,12 @@ export interface operations {
     iki_server_api_requests_list_services: {
         parameters: {
             query?: {
-                /** @description Only services taking this request type (qualified), or a parent. */
-                type?: string | null;
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description Only services taking one of these request types (qualified), or a parent of one: repeat it for several. */
+                type?: string[];
             };
             header?: never;
             path: {
@@ -26788,7 +27551,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ServiceOut"][];
+                    "application/json": components["schemas"]["Page_ServiceOut_"];
                 };
             };
         };
@@ -26917,7 +27680,12 @@ export interface operations {
     iki_server_api_spreadsheets_list_mappings: {
         parameters: {
             query?: {
-                type?: string | null;
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description Only mappings into these types: repeat it for several. */
+                type?: string[];
             };
             header?: never;
             path: {
@@ -26933,7 +27701,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SavedMappingOut"][];
+                    "application/json": components["schemas"]["Page_SavedMappingOut_"];
                 };
             };
         };
@@ -26966,33 +27734,6 @@ export interface operations {
             };
         };
     };
-    iki_server_api_stock_stock_orders: {
-        parameters: {
-            query?: {
-                /** @description From the previous page's next_cursor. */
-                cursor?: string | null;
-                /** @description Items per page. */
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Page_OpenOrder_"];
-                };
-            };
-        };
-    };
     iki_server_api_stock_stock_lots: {
         parameters: {
             query?: {
@@ -27017,6 +27758,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_StockLot_"];
+                };
+            };
+        };
+    };
+    iki_server_api_stock_stock_orders: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_OpenOrder_"];
                 };
             };
         };
@@ -27051,7 +27819,12 @@ export interface operations {
     };
     iki_server_api_triggers_project_triggers: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path: {
                 project_id: string;
@@ -27066,7 +27839,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectTriggerOut"][];
+                    "application/json": components["schemas"]["Page_ProjectTriggerOut_"];
                 };
             };
         };
@@ -27185,8 +27958,8 @@ export interface operations {
                 cursor?: string | null;
                 /** @description Items per page. */
                 limit?: number;
-                /** @description Held now, or infected findings released as false positives. */
-                status?: "held" | "released";
+                /** @description Infected findings released as false positives, rather than what's held now. */
+                released?: boolean;
                 /** @description Only malware findings, or only inspections that couldn't finish. */
                 state?: ("infected" | "not_scanned") | null;
                 /** @description Part of a file's name, or the start of its SHA-256. */
@@ -27422,34 +28195,6 @@ export interface operations {
             };
         };
     };
-    iki_server_api_storage_receipt_history: {
-        parameters: {
-            query?: {
-                /** @description From the previous page's next_cursor. */
-                cursor?: string | null;
-                /** @description Items per page. */
-                limit?: number;
-                line_id?: string | null;
-            };
-            header?: never;
-            path: {
-                receipt_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ObservationEventsOut"];
-                };
-            };
-        };
-    };
     iki_server_api_storage_drop_line: {
         parameters: {
             query?: never;
@@ -27585,6 +28330,34 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    iki_server_api_storage_receipt_history: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                line_id?: string | null;
+            };
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservationEventsOut"];
+                };
             };
         };
     };
@@ -27777,34 +28550,6 @@ export interface operations {
             };
         };
     };
-    iki_server_api_storage_reconciliation_history: {
-        parameters: {
-            query?: {
-                /** @description From the previous page's next_cursor. */
-                cursor?: string | null;
-                /** @description Items per page. */
-                limit?: number;
-                line_id?: string | null;
-            };
-            header?: never;
-            path: {
-                reconciliation_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ObservationEventsOut"];
-                };
-            };
-        };
-    };
     iki_server_api_storage_resolve_line: {
         parameters: {
             query?: never;
@@ -27848,6 +28593,34 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    iki_server_api_storage_reconciliation_history: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                line_id?: string | null;
+            };
+            header?: never;
+            path: {
+                reconciliation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservationEventsOut"];
+                };
             };
         };
     };
@@ -27953,7 +28726,12 @@ export interface operations {
     };
     iki_server_api_files_registration_locations: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -27966,7 +28744,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LocationsOut"];
+                    "application/json": components["schemas"]["Page_RegistrationLocationOut_"];
                 };
             };
         };
@@ -28099,8 +28877,8 @@ export interface operations {
                 cursor?: string | null;
                 /** @description Items per page. */
                 limit?: number;
-                /** @description Only this type's entries (and its subtypes'). */
-                type?: string | null;
+                /** @description Only these types' entries (and their subtypes'): repeat it for several. */
+                type?: string[];
                 /** @description An HRID, or the start of one. */
                 q?: string | null;
                 superseded?: boolean | null;
@@ -28361,7 +29139,7 @@ export interface operations {
                 action?: string | null;
                 status?: components["schemas"]["RunStatus"] | null;
                 /** @description Only the runs of this workflow run (its ID or HRID), in launch order. */
-                workflow?: string | null;
+                workflow_run?: string | null;
             };
             header?: never;
             path?: never;
@@ -28431,7 +29209,12 @@ export interface operations {
     };
     iki_server_api_runs_list_artifacts: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path: {
                 ref: string;
@@ -28446,7 +29229,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunArtifactOut"][];
+                    "application/json": components["schemas"]["Page_RunArtifactOut_"];
                 };
             };
         };
@@ -28474,7 +29257,12 @@ export interface operations {
     };
     iki_server_api_runs_list_attempts: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path: {
                 ref: string;
@@ -28489,7 +29277,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunAttemptOut"][];
+                    "application/json": components["schemas"]["Page_RunAttemptOut_"];
                 };
             };
         };
@@ -28626,12 +29414,14 @@ export interface operations {
     iki_server_api_searches_list_saved_searches: {
         parameters: {
             query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
                 /** @description Only this project's. Without one, every search you see: your own, and those shared with projects you can read. */
                 project?: string | null;
                 /** @description Only your own: the sidebar's saved views. */
                 mine?: boolean;
-                /** @description At most this many. */
-                limit?: number | null;
             };
             header?: never;
             path?: never;
@@ -28645,7 +29435,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SavedSearchOut"][];
+                    "application/json": components["schemas"]["Page_SavedSearchOut_"];
                 };
             };
         };
@@ -28749,8 +29539,8 @@ export interface operations {
                 q?: string;
                 /** @description Only this kind, with more of it. */
                 kind?: ("entities" | "requests" | "runs" | "files" | "projects" | "saved_views" | "people") | null;
-                /** @description Results per kind: 5 by default, 20 for one `kind`. */
-                limit?: number | null;
+                /** @description Results of each kind: 5 by default, 20 for one `kind`. Each group's `href` is its full list. */
+                per_kind?: number | null;
             };
             header?: never;
             path?: never;
@@ -29397,6 +30187,11 @@ export interface operations {
     iki_server_api_starters_list_starters: {
         parameters: {
             query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description A project you read: each starter's flow and version applied there. */
                 project?: string | null;
             };
             header?: never;
@@ -29411,7 +30206,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["StarterOut"][];
+                    "application/json": components["schemas"]["Page_StarterOut_"];
                 };
             };
         };
@@ -29470,7 +30265,12 @@ export interface operations {
     };
     iki_server_api_storage_list_awaiting_put_away: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -29483,7 +30283,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AwaitingPutAwayOut"][];
+                    "application/json": components["schemas"]["Page_AwaitingPutAwayOut_"];
                 };
             };
         };
@@ -29539,6 +30339,11 @@ export interface operations {
     iki_server_api_storage_list_checked_out: {
         parameters: {
             query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description Whose: yours, if left out. */
                 custodian?: string | null;
             };
             header?: never;
@@ -29553,7 +30358,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CheckedOutOut"][];
+                    "application/json": components["schemas"]["Page_CheckedOutOut_"];
                 };
             };
         };
@@ -29582,7 +30387,12 @@ export interface operations {
     };
     iki_server_api_storage_list_reconciliations: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path: {
                 ref: string;
@@ -29597,7 +30407,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ReconciliationOut"][];
+                    "application/json": components["schemas"]["Page_ReconciliationOut_"];
                 };
             };
         };
@@ -29719,6 +30529,11 @@ export interface operations {
     iki_server_api_storage_list_places: {
         parameters: {
             query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description Only this project's. */
                 project?: string | null;
             };
             header?: never;
@@ -29733,7 +30548,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PlaceOut"][];
+                    "application/json": components["schemas"]["Page_PlaceOut_"];
                 };
             };
         };
@@ -29958,7 +30773,12 @@ export interface operations {
     };
     iki_server_api_triggers_list_triggers: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -29971,7 +30791,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TriggerOut"][];
+                    "application/json": components["schemas"]["Page_TriggerOut_"];
                 };
             };
         };
@@ -30292,6 +31112,11 @@ export interface operations {
     iki_server_api_webhooks_webhook_events: {
         parameters: {
             query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description A project's webhooks', or the organization's. */
                 scope?: "project" | "org";
             };
             header?: never;
@@ -30306,7 +31131,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EventTypeOut"][];
+                    "application/json": components["schemas"]["Page_EventTypeOut_"];
                 };
             };
         };
@@ -30750,7 +31575,12 @@ export interface operations {
     };
     iki_server_api_workflows_list_workflows: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -30763,7 +31593,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorkflowOut"][];
+                    "application/json": components["schemas"]["Page_WorkflowOut_"];
                 };
             };
         };

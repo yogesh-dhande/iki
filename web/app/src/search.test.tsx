@@ -49,7 +49,11 @@ function result(overrides: Partial<SearchResult>): SearchResult {
   };
 }
 
-function group(kind: SearchGroup["kind"], items: SearchResult[], extra: Partial<SearchGroup> = {}) {
+function group(
+  kind: SearchGroup["kind"],
+  results: SearchResult[],
+  extra: Partial<SearchGroup> = {},
+) {
   const labels = {
     entities: "Entities",
     requests: "Requests",
@@ -62,10 +66,10 @@ function group(kind: SearchGroup["kind"], items: SearchResult[], extra: Partial<
   return {
     kind,
     label: labels[kind],
-    total: items.length,
+    total: results.length,
     more_than_total: false,
     href: null,
-    items,
+    results,
     ...extra,
   } satisfies SearchGroup;
 }
@@ -132,7 +136,7 @@ function answerSearch() {
     if (q === "nothing")
       return found(
         q,
-        LYS.groups.map((g) => ({ ...g, total: 0, items: [] })),
+        LYS.groups.map((g) => ({ ...g, total: 0, results: [] })),
       );
     return { ...LYS, q };
   });
@@ -403,7 +407,7 @@ describe("↵ opens what was typed", () => {
       "nothing",
       found(
         "nothing",
-        LYS.groups.map((g) => ({ ...g, total: 0, items: [] })),
+        LYS.groups.map((g) => ({ ...g, total: 0, results: [] })),
       ),
     );
     expect(await screen.findByText("Nothing you can read matches “nothing”.")).toBeInTheDocument();
@@ -491,8 +495,8 @@ describe("where results open", () => {
     const atlas = project();
     answer("GET /api/v1/projects", page([atlas]));
     answer(`GET /api/v1/projects/${atlas.id}`, atlas);
-    answer("GET /api/v1/saved-searches", []);
-    answer("GET /api/v1/entity-types", []);
+    answer("GET /api/v1/saved-searches", page([]));
+    answer("GET /api/v1/entity-types", page([]));
     answer("POST /api/v1/entities/search", { items: [], next_cursor: null, total: 0 });
     const view = { ...SAVED, title: "Ampicillin plasmids", projects: [atlas], query };
     answer("GET /api/v1/search", (sent: { query: URLSearchParams }) => {

@@ -1199,7 +1199,7 @@ export function PersonPicker({
   const items = useMemo(
     () =>
       withChosen(
-        (found.data ?? []).map((p) => ({ id: p.id, hrid: p.email, title: p.name })),
+        (found.data?.items ?? []).map((p) => ({ id: p.id, hrid: p.email, title: p.name })),
         value,
       ),
     [found.data, value],

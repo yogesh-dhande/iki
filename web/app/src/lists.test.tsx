@@ -95,7 +95,7 @@ function everywhere(rows: Schemas["EntityOut"][] = [ABL1, INSULIN]): void {
     ],
     total: rows.length + 1,
   });
-  answer("GET /api/v1/saved-searches", []);
+  answer("GET /api/v1/saved-searches", page([]));
 }
 
 const lastSearch = () => calls("POST", "/api/v1/entities/search").at(-1)?.body;
@@ -380,7 +380,7 @@ describe("all entities", () => {
   it("tells two types with the same label apart by their plugins", async () => {
     const OTHER = { ...PROTEIN, name: "acme/lab.Protein", plugin: "acme/lab", subtypes: [] };
     everywhere();
-    answer("GET /api/v1/entity-types", [COLLECTION_TYPE, PROTEIN, STRUCTURE, OTHER]);
+    answer("GET /api/v1/entity-types", page([COLLECTION_TYPE, PROTEIN, STRUCTURE, OTHER]));
     answer("GET /api/v1/entities/counts", {
       types: [
         { type: PROTEIN.name, label: "Protein", count: 2 },
@@ -458,7 +458,7 @@ describe("a type's table", () => {
 
   it("shows its saved views as tabs, the one showing current", async () => {
     everywhere();
-    answer("GET /api/v1/saved-searches", [VIEW]);
+    answer("GET /api/v1/saved-searches", page([VIEW]));
     const { user } = await renderApp(`/entities/types/${PROTEIN.name}/`);
     const tabs = await screen.findByRole("navigation", { name: "Views" });
     expect(within(tabs).getByRole("link", { name: "All proteins" })).toHaveAttribute(
@@ -520,7 +520,7 @@ describe("every request", () => {
 
   it("is every request its reader can read, and no other record", async () => {
     everywhere([]);
-    answer("GET /api/v1/entity-types", [PROTEIN, ASK]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, ASK]));
     await renderApp("/requests/");
     expect(await screen.findByRole("heading", { level: 1, name: "Requests" })).toBeVisible();
     await waitFor(() => {
@@ -542,7 +542,7 @@ describe("every request", () => {
 describe("every run", () => {
   it("lists runs of every project the reader reads, each with its project", async () => {
     everywhere();
-    answer("GET /api/v1/actions", [ACTION]);
+    answer("GET /api/v1/actions", page([ACTION]));
     answer(
       "GET /api/v1/runs",
       page([

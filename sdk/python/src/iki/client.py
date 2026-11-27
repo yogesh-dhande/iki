@@ -55,6 +55,7 @@ if TYPE_CHECKING:
         GraphOut,
         IkiIdConfirmationIn,
         IntakeOut,
+        MakingOut,
         MeOut,
         MovementOut,
         NotificationOut,
@@ -171,6 +172,23 @@ class Results[T]:
         from iki import frames
 
         return self._frame(items) if self._frame else frames.records(items)
+
+
+#: Items per page, as the API's own default: every list takes ``limit`` (1-100).
+DEFAULT_LIMIT = 50
+
+
+def _pages[T](
+    client: Client,
+    path: str,
+    params: Mapping[str, Any] | None = None,
+    *,
+    limit: int = DEFAULT_LIMIT,
+    frame: Callable[[builtins.list[T]], pd.DataFrame] | None = None,
+) -> Results[T]:
+    """A collection the API pages (ADR 0291), read a page of ``limit`` at a time."""
+    sent = {**(params or {}), "limit": limit}
+    return Results(lambda c: client.request("GET", path, params={**sent, "cursor": c}), frame)
 
 
 class Client:
@@ -401,7 +419,7 @@ class Entities(_Part):
         run: str | None = None,
         archived: bool | None = False,
         exact_type: bool = False,
-        page_size: int = 100,
+        limit: int = DEFAULT_LIMIT,
     ) -> Results[EntityOut]:
         """Entities you can read, a page at a time.
 
@@ -440,7 +458,7 @@ class Entities(_Part):
             "run": run,
             "archived": archived,
             "exact_type": exact_type,
-            "limit": page_size,
+            "limit": limit,
         }
         body = {k: v for k, v in body.items() if v is not None}
 
@@ -456,24 +474,30 @@ class Entities(_Part):
 
     def lookup(
         self,
-        type: str,
+        type: str | Sequence[str],
         field: str,
         value: str,
         *,
         project: str | Mapping[str, Any] | None = None,
-    ) -> list[EntityOut]:
-        """Find the entities whose unique `field` equals `value`, with at most one match
-        per readable project. For example, find a tube by barcode::
+        limit: int = DEFAULT_LIMIT,
+    ) -> Results[EntityOut]:
+        """Find the entities of `type` (one or several, each with its subtypes) whose unique
+        `field` equals `value`, with at most one match per readable project, oldest first.
+        For example, find a tube by barcode::
 
             iki.entities.lookup(
                 "iki/inventory.Tube", "barcode", "TUBE-0042", project="kinase-atlas"
-            )
+            ).first()
         """
         client = self._client
-        params = {"type": type, "field": field, "value": value}
+        params: dict[str, Any] = {
+            "type": [type] if isinstance(type, str) else list(type),
+            "field": field,
+            "value": value,
+        }
         if project is not None:
             params["project"] = client._project_id(project)
-        return cast("list[EntityOut]", client.request("GET", "/entities/lookup", params=params))
+        return _pages(client, "/entities/lookup", params, limit=limit)
 
     def get(self, ref: str, *, project: str | Mapping[str, Any] | None = None) -> EntityOut:
         """An entity, by its ID or HRID (``PRT-000123``). A registry ID such as
@@ -630,7 +654,7 @@ class Entities(_Part):
         the records its ``sends`` fields name, such as its samples. ``revision`` as for
         :meth:`update`::
 
-            core = iki.projects.services("kinase-atlas", type="iki/requests.PlainRequest")[0]
+            core = iki.projects.services("kinase-atlas", type="iki/requests.PlainRequest").first()
             iki.entities.submit("REQ-000003", core["project"], revision=1, reason="Lot 12")
         """
         return cast(
@@ -697,12 +721,11 @@ class Entities(_Part):
             "AmountOut", self._client.request("GET", _path("/entities/{ref}/amount", ref=ref))
         )
 
-    def movements(self, ref: str) -> Results[MovementOut]:
+    def movements(self, ref: str, *, limit: int = DEFAULT_LIMIT) -> Results[MovementOut]:
         """Its amount's ledger, newest first: each draw, transfer, split and adjustment,
         who made it and why."""
-        client = self._client
         path = _path("/entities/{ref}/amount/movements", ref=ref)
-        return Results(lambda c: client.request("GET", path, params={"cursor": c}))
+        return _pages(self._client, path, limit=limit)
 
     def draw(
         self,
@@ -793,11 +816,9 @@ class Entities(_Part):
             ),
         )
 
-    def history(self, ref: str) -> Results[RevisionOut]:
+    def history(self, ref: str, *, limit: int = DEFAULT_LIMIT) -> Results[RevisionOut]:
         """Its revisions, newest first: who changed what, when, how and why."""
-        client = self._client
-        path = _path("/entities/{ref}/revisions", ref=ref)
-        return Results(lambda c: client.request("GET", path, params={"cursor": c}))
+        return _pages(self._client, _path("/entities/{ref}/revisions", ref=ref), limit=limit)
 
     def revision(self, ref: str, number: int) -> RevisionDetailOut:
         """The record's values at that numbered revision, with its changes and provenance."""
@@ -815,13 +836,16 @@ class Entities(_Part):
             self._client.request("GET", _path("/entities/{ref}/provenance", ref=ref)),
         )
 
-    def origins(self, ref: str) -> builtins.list[OriginOut]:
+    def origins(self, ref: str, *, limit: int = DEFAULT_LIMIT) -> Results[OriginOut]:
         """Where runs imported it from, newest first: a database's record (its version,
         link and when it was fetched) or a record in a file."""
-        return cast(
-            "builtins.list[OriginOut]",
-            self._client.request("GET", _path("/entities/{ref}/origins", ref=ref)),
-        )
+        return _pages(self._client, _path("/entities/{ref}/origins", ref=ref), limit=limit)
+
+    def makings(self, ref: str, *, limit: int = DEFAULT_LIMIT) -> Results[MakingOut]:
+        """How it was made, one tool at a time (ADR 0106), Iki's own records first:
+        ``by`` is ``iki`` for a run that made it, ``source`` for what an imported record
+        says."""
+        return _pages(self._client, _path("/entities/{ref}/makings", ref=ref), limit=limit)
 
     def upstream(
         self,
@@ -832,7 +856,7 @@ class Entities(_Part):
         type: str | Sequence[str] | None = None,
         archived: bool | None = None,
         project: str | Mapping[str, Any] | None = None,
-        page_size: int = 100,
+        limit: int = DEFAULT_LIMIT,
     ) -> Walk:
         """Everything it was derived from that you can read (ADR 0123), nearest first: what
         its references name, what the runs that made it read, and on, up to `depth` edges.
@@ -842,7 +866,7 @@ class Entities(_Part):
             for item in iki.entities.upstream("SAM-000004"):
                 print(item["depth"], item["entity"]["hrid"])
         """
-        return self._walk("upstream", ref, depth, edges, type, archived, project, page_size)
+        return self._walk("upstream", ref, depth, edges, type, archived, project, limit)
 
     def downstream(
         self,
@@ -853,14 +877,14 @@ class Entities(_Part):
         type: str | Sequence[str] | None = None,
         archived: bool | None = None,
         project: str | Mapping[str, Any] | None = None,
-        page_size: int = 100,
+        limit: int = DEFAULT_LIMIT,
     ) -> Walk:
         """Everything derived from it that you can read (ADR 0123), nearest first: what
         refers to it, what runs made from it, and on: what a stock withdrawal affects::
 
             iki.entities.downstream("TUB-000001", type="iki/inventory.Tube").to_pandas()
         """
-        return self._walk("downstream", ref, depth, edges, type, archived, project, page_size)
+        return self._walk("downstream", ref, depth, edges, type, archived, project, limit)
 
     def upstream_csv(self, ref: str, **filters: Any) -> builtins.list[dict[str, str]]:  # noqa: ANN401
         """Everything :meth:`upstream` finds at once, as the CSV download has it."""
@@ -915,11 +939,11 @@ class Entities(_Part):
         type: str | Sequence[str] | None,
         archived: bool | None,
         project: str | Mapping[str, Any] | None,
-        page_size: int,
+        limit: int,
     ) -> Walk:
         client = self._client
         path = _path(f"/entities/{{ref}}/{direction}", ref=ref)
-        params = {**self._params(depth, edges, type, archived, project), "limit": page_size}
+        params = {**self._params(depth, edges, type, archived, project), "limit": limit}
         return Walk(
             lambda c: client.request("GET", path, params={**params, "cursor": c}),
         )
@@ -976,7 +1000,7 @@ class Work(_Part):
         type: str | Sequence[str] | None = None,
         state: Mapping[str, str | Sequence[str]] | None = None,
         sort: Literal["due", "updated"] = "due",
-        page_size: int = 50,
+        limit: int = DEFAULT_LIMIT,
     ) -> Results[WorkItemOut]:
         """Everything assigned to you now, across your projects: soonest due first, or
         latest changed. Each has its ``entity``, the ``fields`` naming you and when it's
@@ -987,7 +1011,7 @@ class Work(_Part):
             for item in client.work.mine(type="iki/samples.ReviewedSample", state=in_review):
                 print(item["entity"]["hrid"], item["due"])
         """
-        return self._list("/me/work", project, type, state, sort, page_size)
+        return self._list("/me/work-items", project, type, state, sort, limit)
 
     def open(
         self,
@@ -996,11 +1020,11 @@ class Work(_Part):
         type: str | Sequence[str] | None = None,
         state: Mapping[str, str | Sequence[str]] | None = None,
         sort: Literal["due", "updated"] = "due",
-        page_size: int = 50,
+        limit: int = DEFAULT_LIMIT,
     ) -> Results[WorkItemOut]:
         """Records nobody is assigned that one of your lab roles could take, with
         :meth:`Entities.take`."""
-        return self._list("/me/work/open", project, type, state, sort, page_size)
+        return self._list("/me/open-work-items", project, type, state, sort, limit)
 
     def _list(
         self,
@@ -1009,7 +1033,7 @@ class Work(_Part):
         type: str | Sequence[str] | None,
         state: Mapping[str, str | Sequence[str]] | None,
         sort: str,
-        page_size: int,
+        limit: int,
     ) -> Results[WorkItemOut]:
         client = self._client
         projects = (
@@ -1029,7 +1053,7 @@ class Work(_Part):
                 for s in ([states] if isinstance(states, str) else states)
             ],
             "sort": sort,
-            "limit": page_size,
+            "limit": limit,
         }
         return Results(lambda c: client.request("GET", path, params={**params, "cursor": c}))
 
@@ -1039,17 +1063,16 @@ class Notifications(_Part):
     (ADR 0129). An agent that works for you can read what you were told, and the people
     you asked it to keep an eye on records for."""
 
-    def list(self, *, unread: bool | None = None, page_size: int = 50) -> Results[NotificationOut]:
+    def list(
+        self, *, unread: bool | None = None, limit: int = DEFAULT_LIMIT
+    ) -> Results[NotificationOut]:
         """Newest first. Each says what it's about (``kind``), who caused it (``actor``,
         and ``agent`` if one acted for them), and the ``records`` it tells of that you can
         read now."""
-        params: dict[str, Any] = {"limit": page_size}
+        params: dict[str, Any] = {}
         if unread is not None:
             params["unread"] = unread
-        client = self._client
-        return Results(
-            lambda c: client.request("GET", "/notifications", params={**params, "cursor": c})
-        )
+        return _pages(self._client, "/notifications", params, limit=limit)
 
     def mark_read(
         self, notification: str | Mapping[str, Any], read: bool = True
@@ -1119,12 +1142,10 @@ class Entries(_Part):
         """An entry, by its ID or HRID, with the records of it in projects you can read."""
         return cast("EntryOut", self._client.request("GET", _path("/entries/{ref}", ref=ref)))
 
-    def history(self, ref: str) -> Results[RevisionOut]:
+    def history(self, ref: str, *, limit: int = DEFAULT_LIMIT) -> Results[RevisionOut]:
         """Its revisions, newest first. For changes through projects you can't read,
         only what was set: not who or when."""
-        client = self._client
-        path = _path("/entries/{ref}/revisions", ref=ref)
-        return Results(lambda c: client.request("GET", path, params={"cursor": c}))
+        return _pages(self._client, _path("/entries/{ref}/revisions", ref=ref), limit=limit)
 
     def add_to(
         self,
@@ -1212,8 +1233,9 @@ class Signatures(_Part):
 class Types(_Part):
     """The installed entity types."""
 
-    def list(self) -> builtins.list[EntityTypeOut]:
-        return cast("builtins.list[EntityTypeOut]", self._client.request("GET", "/entity-types"))
+    def list(self, *, limit: int = DEFAULT_LIMIT) -> Results[EntityTypeOut]:
+        """Every installed type, by name."""
+        return _pages(self._client, "/entity-types", limit=limit)
 
     def get(self, name: str) -> EntityTypeOut:
         """A type, such as ``iki/protein.Protein``: its fields, units and rules."""
@@ -1226,11 +1248,14 @@ class Projects(_Part):
     """Projects you can see."""
 
     def list(
-        self, *, member: bool | None = None, archived: bool | None = False
+        self,
+        *,
+        member: bool | None = None,
+        archived: bool | None = False,
+        limit: int = DEFAULT_LIMIT,
     ) -> Results[ProjectOut]:
-        client = self._client
         params = {"member": member, "archived": archived}
-        return Results(lambda c: client.request("GET", "/projects", params={**params, "cursor": c}))
+        return _pages(self._client, "/projects", params, limit=limit)
 
     def get(self, project: str) -> ProjectOut:
         """A project, by its ID or its slug (``kinase-atlas``)."""
@@ -1239,7 +1264,7 @@ class Projects(_Part):
                 "ProjectOut",
                 self._client.request("GET", _path("/projects/{id}", id=project)),
             )
-        for found in self.list(archived=None):
+        for found in self.list(archived=None, limit=100):
             if found["slug"] == project:
                 return found
         raise IkiError(f"No project {project!r} that you can see.")
@@ -1264,32 +1289,29 @@ class Projects(_Part):
             ),
         )
 
-    def services(self, project: str, *, type: str | None = None) -> builtins.list[ServiceOut]:
-        """The projects that take requests from this one (ADR 0132), of ``type`` if given:
-        where its requests can go, with the request types each takes."""
+    def services(
+        self,
+        project: str,
+        *,
+        type: str | Sequence[str] | None = None,
+        limit: int = DEFAULT_LIMIT,
+    ) -> Results[ServiceOut]:
+        """The projects that take requests from this one (ADR 0132), by name, of one of
+        ``type`` if given: where its requests can go, with the request types each takes."""
         found = self._client._project_id(project)
-        return cast(
-            "builtins.list[ServiceOut]",
-            self._client.request(
-                "GET", _path("/projects/{id}/services", id=found), params={"type": type}
-            ),
-        )
+        types = [type] if isinstance(type, str) else list(type or ())
+        path = _path("/projects/{id}/services", id=found)
+        return _pages(self._client, path, {"type": types}, limit=limit)
 
-    def sent_to(self, project: str) -> builtins.list[ProjectRef]:
+    def sent_to(self, project: str, *, limit: int = DEFAULT_LIMIT) -> Results[ProjectRef]:
         """The services a project has sent requests to (ADR 0132), by name."""
         found = self._client._project_id(project)
-        return cast(
-            "builtins.list[ProjectRef]",
-            self._client.request("GET", _path("/projects/{id}/sent-to", id=found)),
-        )
+        return _pages(self._client, _path("/projects/{id}/sent-to", id=found), limit=limit)
 
-    def sent_from(self, project: str) -> builtins.list[ProjectRef]:
+    def sent_from(self, project: str, *, limit: int = DEFAULT_LIMIT) -> Results[ProjectRef]:
         """The projects that have sent requests to a service (ADR 0132), by name."""
         found = self._client._project_id(project)
-        return cast(
-            "builtins.list[ProjectRef]",
-            self._client.request("GET", _path("/projects/{id}/sent-from", id=found)),
-        )
+        return _pages(self._client, _path("/projects/{id}/sent-from", id=found), limit=limit)
 
     def intake(self, project: str) -> IntakeOut:
         """What a project takes as a service (ADR 0132): request types, and who from."""
@@ -1341,9 +1363,10 @@ class Costs(_Part):
             ),
         )
 
-    def budgets(self) -> builtins.list[BudgetOut]:
-        """Every budget (ADR 0071), with what's been spent of it this month."""
-        return cast("builtins.list[BudgetOut]", self._client.request("GET", "/compute/budgets"))
+    def budgets(self, *, limit: int = DEFAULT_LIMIT) -> Results[BudgetOut]:
+        """Every budget (ADR 0071), the organization's first, with what's been spent of it
+        this month."""
+        return _pages(self._client, "/compute/budgets", limit=limit)
 
     def records(
         self, *, since: str | date | None = None, until: str | date | None = None
@@ -1358,12 +1381,10 @@ class Costs(_Part):
 class Actions(_Part):
     """The installed actions."""
 
-    def list(self, *, takes: Sequence[str] = ()) -> builtins.list[ActionOut]:
-        """Every action, or those that take entities of each of the types in `takes`."""
-        return cast(
-            "builtins.list[ActionOut]",
-            self._client.request("GET", "/actions", params={"takes": list(takes)}),
-        )
+    def list(self, *, takes: Sequence[str] = (), limit: int = DEFAULT_LIMIT) -> Results[ActionOut]:
+        """Every action, by name, or those that take entities of each of the types in
+        `takes`."""
+        return _pages(self._client, "/actions", {"takes": list(takes)}, limit=limit)
 
     def get(self, name: str) -> ActionOut:
         """An action, such as ``iki/protein.compute_properties``: its inputs, params,
@@ -1467,20 +1488,21 @@ class Runs(_Part):
         project: str | Mapping[str, Any] | None = None,
         action: str | None = None,
         status: str | None = None,
+        workflow_run: str | None = None,
+        limit: int = DEFAULT_LIMIT,
     ) -> Results[RunOut]:
-        """Runs you can read, newest first."""
+        """Runs you can read, newest first; a workflow run's steps (``workflow_run``, its ID
+        or HRID) in launch order."""
         client = self._client
         params = {
             "project": client._project_id(project) if project is not None else None,
             "action": action,
             "status": status,
+            "workflow_run": workflow_run,
         }
         from iki import frames
 
-        return Results(
-            lambda c: client.request("GET", "/runs", params={**params, "cursor": c}),
-            frames.runs,
-        )
+        return _pages(client, "/runs", params, limit=limit, frame=frames.runs)
 
     def reproduce(
         self, ref: str | Mapping[str, Any], *, reason: str = "", consent: Iterable[str] = ()
@@ -1498,14 +1520,14 @@ class Runs(_Part):
             ),
         )
 
-    def api_calls(self, ref: str | Mapping[str, Any]) -> Results[ApiCallOut]:
+    def api_calls(
+        self, ref: str | Mapping[str, Any], *, limit: int = DEFAULT_LIMIT
+    ) -> Results[ApiCallOut]:
         """Its calls to outside APIs, and the polls and cancels of jobs it waited on,
         oldest first, as the egress proxy recorded them (ADR 0130): the model and version
         each answer said answered, the declared parameters and usage, SHA-256 hashes of
         what was sent and answered, and the cost."""
-        client = self._client
-        path = _path("/runs/{r}/api-calls", r=_ref(ref))
-        return Results(lambda c: client.request("GET", path, params={"cursor": c}))
+        return _pages(self._client, _path("/runs/{r}/api-calls", r=_ref(ref)), limit=limit)
 
     def cancel(self, ref: str | Mapping[str, Any], *, reason: str = "") -> RunOut:
         """Cancels a run: at once if it hasn't started, else its worker stops it."""
@@ -1516,20 +1538,18 @@ class Runs(_Part):
             ),
         )
 
-    def attempts(self, ref: str | Mapping[str, Any]) -> builtins.list[RunAttemptOut]:
+    def attempts(
+        self, ref: str | Mapping[str, Any], *, limit: int = DEFAULT_LIMIT
+    ) -> Results[RunAttemptOut]:
         """Its attempts, oldest first: where each ran and how it ended."""
-        return cast(
-            "builtins.list[RunAttemptOut]",
-            self._client.request("GET", _path("/runs/{r}/attempts", r=_ref(ref))),
-        )
+        return _pages(self._client, _path("/runs/{r}/attempts", r=_ref(ref)), limit=limit)
 
-    def artifacts(self, ref: str | Mapping[str, Any]) -> builtins.list[RunArtifactOut]:
+    def artifacts(
+        self, ref: str | Mapping[str, Any], *, limit: int = DEFAULT_LIMIT
+    ) -> Results[RunArtifactOut]:
         """Files its command wrote that its action keeps, each attempt's, by attempt then
         path, with when each is deleted (ADR 0068). A deleted one keeps its record."""
-        return cast(
-            "builtins.list[RunArtifactOut]",
-            self._client.request("GET", _path("/runs/{r}/artifacts", r=_ref(ref))),
-        )
+        return _pages(self._client, _path("/runs/{r}/artifacts", r=_ref(ref)), limit=limit)
 
     def download_artifact(
         self,
@@ -1653,7 +1673,7 @@ class Files(_Part):
         self,
         *,
         sort: FileSort = "newest",
-        page_size: int = 100,
+        limit: int = DEFAULT_LIMIT,
         **filters: Unpack[FileFilters],
     ) -> Results[FileRowOut]:
         """Files you can read, a page at a time. ``q`` matches part of the name, or of what
@@ -1665,12 +1685,8 @@ class Files(_Part):
         HRID). ``accepts`` and ``max_size`` narrow results to what a file field takes.
         Sorting by acquisition places unknown dates last.
         """
-        params = {**self._filters(**filters), "sort": sort, "limit": page_size}
-        return Results(
-            lambda cursor: self._client.request(
-                "GET", "/files", params={**params, "cursor": cursor}
-            )
-        )
+        params = {**self._filters(**filters), "sort": sort}
+        return _pages(self._client, "/files", params, limit=limit)
 
     def count(self, **filters: Unpack[FileFilters]) -> FileCountOut:
         """Count files matching the same filters as ``list``. ``total`` stops at 1,000.
@@ -1686,7 +1702,7 @@ class Files(_Part):
         *,
         records_cursor: str | None = None,
         runs_cursor: str | None = None,
-        page_size: int = 100,
+        limit: int = DEFAULT_LIMIT,
     ) -> FileWithUses:
         """Metadata, origin and samples, with the records and runs that use this file.
         ``facts`` gives what the file states of its instrument, serial number, operator,
@@ -1703,10 +1719,10 @@ class Files(_Part):
             {
                 **detail,
                 "records": self._client.request(
-                    "GET", path + "/records", params={"cursor": records_cursor, "limit": page_size}
+                    "GET", path + "/records", params={"cursor": records_cursor, "limit": limit}
                 ),
                 "runs": self._client.request(
-                    "GET", path + "/runs", params={"cursor": runs_cursor, "limit": page_size}
+                    "GET", path + "/runs", params={"cursor": runs_cursor, "limit": limit}
                 ),
             },
         )
@@ -2073,6 +2089,7 @@ class Spreadsheets(_Part):
         *,
         outcome: Sequence[str] = (),
         revision: int | None = None,
+        limit: int = DEFAULT_LIMIT,
     ) -> Results[PreviewRowOut]:
         """What its preview found, row by row: ``outcome`` narrows them (``problem``,
         ``register``, ``add``, ``reuse``, ``same`` or ``create``). Pass the reviewed import or its
@@ -2086,7 +2103,10 @@ class Spreadsheets(_Part):
         )
         return Results(
             lambda c: client.request(
-                "GET", path, params={"outcome": list(outcome) or None, "cursor": c}, headers=headers
+                "GET",
+                path,
+                params={"outcome": list(outcome) or None, "limit": limit, "cursor": c},
+                headers=headers,
             )
         )
 
@@ -2130,18 +2150,15 @@ class Spreadsheets(_Part):
         self,
         project: str | Mapping[str, Any],
         *,
-        type: str | None = None,
-    ) -> builtins.list[SavedMappingOut]:
-        """The project's saved mappings, for ``type`` if given."""
+        type: str | Sequence[str] | None = None,
+        limit: int = DEFAULT_LIMIT,
+    ) -> Results[SavedMappingOut]:
+        """The project's saved mappings, by type and name: into ``type`` (one or several)
+        if given."""
         client = self._client
-        return cast(
-            "builtins.list[SavedMappingOut]",
-            client.request(
-                "GET",
-                _path("/projects/{p}/spreadsheet-mappings", p=client._project_id(project)),
-                params={"type": type},
-            ),
-        )
+        types = [type] if isinstance(type, str) else list(type or ())
+        path = _path("/projects/{p}/spreadsheet-mappings", p=client._project_id(project))
+        return _pages(client, path, {"type": types}, limit=limit)
 
     def save_mapping(
         self,

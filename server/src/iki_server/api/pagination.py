@@ -6,10 +6,13 @@ ordering by ID is ordering by creation), which keeps pages stable while
 items are added. Inboxes (notifications) come newest first instead, and stay
 stable the same way: newer items never push older ones onto the next page. A
 list people browse may also sort otherwise, such as projects by team and name
-(:func:`page_by`): its cursor holds the last item's sort values. Cursors are
+(:func:`page_by`): its cursor holds the last item's sort values. A list held in memory,
+such as what the installed plugins declare, is paged the same way by its sort key
+(:func:`page_sorted`). Every collection is a page, short ones too (ADR 0291). Cursors are
 signed, so they are opaque and can't be forged to skip filters.
 """
 
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from django.core import signing
@@ -70,36 +73,71 @@ def page[M: Model](
 def page_by[M: Model](
     queryset: QuerySet[M], params: PageParams, *, by: tuple[str, ...]
 ) -> dict[str, Any]:
-    """One page of the queryset in the order of ``by``'s fields, each ascending, the last
-    unique: a list sorted by name, say. Its cursor holds the last item's values, so a page
-    starts where the one before ended, however many items there are."""
+    """One page of the queryset in the order of ``by``'s fields, each ascending, or
+    descending when it starts with ``-``, the last unique and none null: a list sorted by
+    name, say. Its cursor holds the last item's values, so a page starts where the one before
+    ended, however many items there are."""
     queryset = queryset.order_by(*by)
     if params.cursor:
-        try:
-            found = signing.Signer(salt=_SALT).unsign_object(params.cursor)
-        except (signing.BadSignature, ValueError):
-            found = None
-        order, values = (found[0], found[1:]) if isinstance(found, list) and found else (None, [])
-        if order != list(by) or len(values) != len(by):
-            raise Problem(
-                422,
-                "Some fields are invalid.",
-                errors=[
-                    {"parameter": "cursor", "detail": "Not a cursor from this list, sorted so."}
-                ],
-            )
+        values = _values_of(params.cursor, by)
         after = Q()
         for i, field in enumerate(by):
-            after |= Q(**dict(zip(by[:i], values[:i], strict=True)), **{f"{field}__gt": values[i]})
+            before = {_name(f): v for f, v in zip(by[:i], values[:i], strict=True)}
+            beyond = "lt" if field.startswith("-") else "gt"
+            after |= Q(**before, **{f"{_name(field)}__{beyond}": values[i]})
         queryset = queryset.filter(after)
     rows = list(queryset[: params.limit + 1])
     more = len(rows) > params.limit
     rows = rows[: params.limit]
     next_cursor = None
     if more and rows:
-        last = [_plain(_value(rows[-1], field)) for field in by]
-        next_cursor = signing.Signer(salt=_SALT).sign_object([list(by), *last], compress=True)
+        next_cursor = _sign_values(by, [_plain(_value(rows[-1], _name(f))) for f in by])
     return {"items": rows, "next_cursor": next_cursor}
+
+
+def page_sorted[T](
+    items: Iterable[T],
+    params: PageParams,
+    *,
+    by: tuple[str, ...],
+    key: Callable[[T], tuple[str | int, ...]],
+) -> dict[str, Any]:
+    """One page of a list held in memory, such as what the installed plugins declare: in
+    the order of ``key``, which gives each item's values for ``by``'s names, unique and
+    ascending. Its cursor holds the last item's values, as :func:`page_by`'s does, so the
+    next page starts after it even if the list changed in between."""
+    ordered = sorted(items, key=key)
+    if params.cursor:
+        after = tuple(_values_of(params.cursor, by))
+        ordered = [item for item in ordered if key(item) > after]
+    rows = ordered[: params.limit + 1]
+    more = len(rows) > params.limit
+    rows = rows[: params.limit]
+    next_cursor = _sign_values(by, list(key(rows[-1]))) if more and rows else None
+    return {"items": rows, "next_cursor": next_cursor}
+
+
+def _name(field: str) -> str:
+    return field.removeprefix("-")
+
+
+def _sign_values(by: tuple[str, ...], values: list[Any]) -> str:
+    return signing.Signer(salt=_SALT).sign_object([list(by), *values], compress=True)
+
+
+def _values_of(cursor: str, by: tuple[str, ...]) -> list[Any]:
+    try:
+        found = signing.Signer(salt=_SALT).unsign_object(cursor)
+    except (signing.BadSignature, ValueError):
+        found = None
+    order, values = (found[0], found[1:]) if isinstance(found, list) and found else (None, [])
+    if order != list(by) or len(values) != len(by):
+        raise Problem(
+            422,
+            "Some fields are invalid.",
+            errors=[{"parameter": "cursor", "detail": "Not a cursor from this list, sorted so."}],
+        )
+    return values
 
 
 def _plain(value: Any) -> Any:  # noqa: ANN401 - a field's value

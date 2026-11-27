@@ -7,7 +7,7 @@
 import { unwrap } from "@ikisci/sdk";
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 
-import { iki } from "./api";
+import { everyPage, iki } from "./api";
 import { ENTITIES } from "./entities";
 
 /** The Audit trail tab's address: ?view=fields&person=<id>&field=<name>. */
@@ -97,9 +97,14 @@ export function entryTrailQuery(entry: string, filter: TrailFilter) {
 export function contributorsQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "contributors", ref.toUpperCase()],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/entities/{ref}/contributors", { params: { path: { ref } }, signal }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/entities/{ref}/contributors", {
+            params: { path: { ref }, query: page },
+            signal,
+          }),
+        ),
       ),
   });
 }

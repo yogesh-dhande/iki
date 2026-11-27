@@ -7,7 +7,7 @@
 import { unwrap, type Schemas } from "@ikisci/sdk";
 import { queryOptions } from "@tanstack/react-query";
 
-import { iki } from "./api";
+import { everyPage, iki } from "./api";
 import type { EntityType } from "./entities";
 
 export type PluginComponent = Schemas["ComponentOut"];
@@ -35,7 +35,10 @@ export interface PlaceInfo {
 /** The installed components: they change only when the deployment does. */
 export const componentsQuery = queryOptions({
   queryKey: ["components"],
-  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/components", { signal: signal })),
+  queryFn: ({ signal }) =>
+    everyPage(async (page) =>
+      unwrap(await iki.GET("/api/v1/components", { params: { query: page }, signal })),
+    ),
   staleTime: 10 * 60_000,
 });
 

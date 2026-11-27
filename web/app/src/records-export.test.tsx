@@ -161,7 +161,7 @@ afterEach(() => {
 /** A Viewer's project: they run nothing and edit nothing, but read and export. */
 function asViewer(types: Schemas["EntityTypeOut"][] = [COLLECTION_TYPE, EXPORTING, STRUCTURE]) {
   withTypes();
-  answer("GET /api/v1/entity-types", types);
+  answer("GET /api/v1/entity-types", page(types));
   const viewing = project({
     my_role: "viewer",
     can: { ...KINASE.can, edit: false, manage: false, run: [] },

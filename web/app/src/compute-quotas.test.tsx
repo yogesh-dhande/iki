@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import { renderApp } from "./entity-fixtures";
 import { usage } from "./pages/compute-quotas";
-import { answer, calls, ME, signedIn } from "./test-server";
+import { answer, calls, ME, page, signedIn } from "./test-server";
 
 const COMPUTE_ADMIN = { ...ME.can, manage_compute: true };
 const NOW = new Date().toISOString();
@@ -34,7 +34,7 @@ function quota(overrides: Partial<Schemas["QuotaOut"]> = {}): Schemas["QuotaOut"
 
 function onQuotas(quotas: Schemas["QuotaOut"][]) {
   signedIn({ can: COMPUTE_ADMIN });
-  answer("GET /api/v1/compute/quotas", () => quotas);
+  answer("GET /api/v1/compute/quotas", () => page(quotas));
 }
 
 function card() {
@@ -72,7 +72,7 @@ describe("Compute → Quotas", () => {
     const quotas: Schemas["QuotaOut"][] = [];
     onQuotas(quotas);
     answer("GET /api/v1/compute/quota-scopes", (r: { query: URLSearchParams }) =>
-      r.query.get("search") === "cryo" ? [{ ...PROJECT, team: "Structural biology" }] : [],
+      page(r.query.get("q") === "cryo" ? [{ ...PROJECT, team: "Structural biology" }] : []),
     );
     answer("POST /api/v1/compute/quotas", () => {
       quotas.push(quota());
@@ -115,10 +115,10 @@ describe("Compute → Quotas", () => {
       release = resolve;
     });
     answer("GET /api/v1/compute/quota-scopes", async (r: { query: URLSearchParams }) => {
-      const search = r.query.get("search") ?? "";
-      if (!search) return teams;
+      const search = r.query.get("q") ?? "";
+      if (!search) return page(teams);
       await held;
-      return teams.filter((t) => t.name.toLowerCase().includes(search));
+      return page(teams.filter((t) => t.name.toLowerCase().includes(search)));
     });
     const { user } = await renderApp("/admin/compute/quotas/");
     await card().findByText(/No quotas/);
@@ -153,10 +153,10 @@ describe("Compute → Quotas", () => {
       release = resolve;
     });
     answer("GET /api/v1/compute/quota-scopes", async (r: { query: URLSearchParams }) => {
-      const search = r.query.get("search") ?? "";
-      if (!search) return [antibodies, biologics];
+      const search = r.query.get("q") ?? "";
+      if (!search) return page([antibodies, biologics]);
       await held;
-      return [antibodies, biologics].filter((t) => t.name.toLowerCase().includes(search));
+      return page([antibodies, biologics].filter((t) => t.name.toLowerCase().includes(search)));
     });
     const saved = quota({ project: null, team: { id: antibodies.id, name: antibodies.name } });
     answer("POST /api/v1/compute/quotas", () => {
@@ -196,7 +196,7 @@ describe("Compute → Quotas", () => {
   it("says when nothing else matches, keeping the chosen project", async () => {
     onQuotas([]);
     answer("GET /api/v1/compute/quota-scopes", (r: { query: URLSearchParams }) =>
-      r.query.get("search") ? [] : [{ ...PROJECT, team: "Structural biology", team_id: null }],
+      page(r.query.get("q") ? [] : [{ ...PROJECT, team: "Structural biology", team_id: null }]),
     );
     const { user } = await renderApp("/admin/compute/quotas/");
     await card().findByText(/No quotas/);

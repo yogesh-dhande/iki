@@ -27,6 +27,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Exists, OuterRef
 from django.http import HttpRequest, HttpResponse
 from ninja import Field, Query, Router, Schema, Status
 from pydantic import ConfigDict
@@ -35,7 +36,7 @@ from iki_server.accounts.models import User
 from iki_server.api import preconditions
 from iki_server.api.common import caller
 from iki_server.api.entities import RefOut, _find, _invalid, _lookup
-from iki_server.api.pagination import PageParams, page
+from iki_server.api.pagination import PageParams, page, page_by
 from iki_server.api.preconditions import IfMatch
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import AgentOut, Page, UserOut, agent_out
@@ -239,22 +240,24 @@ def _occupants(me: User, places: Sequence[Place], shape: Shape | None) -> list[d
     return out
 
 
-@router.get("/storage/places", response=list[PlaceOut], summary="The outermost places")
-def list_places(request: HttpRequest, project: UUID | None = None) -> list[dict[str, Any]]:
+class PlaceFilters(PageParams):
+    project: UUID | None = Field(None, description="Only this project's.")
+
+
+@router.get("/storage/places", response=Page[PlaceOut], summary="The outermost places")
+def list_places(request: HttpRequest, filters: Query[PlaceFilters]) -> dict[str, Any]:
     """The containers you can read that aren't in another you can read: freezers, rooms,
-    shelves. ``project`` narrows them to one project's."""
+    shelves, by HRID. ``project`` narrows them to one project's."""
     me = caller(request)
     types = storage.container_types()
     readable = access.visible(me).filter(type__in=types, archived_at__isnull=True)
-    if project is not None:
-        readable = readable.filter(owner_project_id=project)
-    candidates = list(readable.order_by("hrid")[:500])
-    inside = {
-        p.pk: p.container_id
-        for p in Place.objects.filter(pk__in=[c.pk for c in candidates], container__isnull=False)
-    }
-    seen = set(access.visible(me).filter(pk__in=set(inside.values())).values_list("pk", flat=True))
-    top = [c for c in candidates if inside.get(c.pk) not in seen]
+    if filters.project is not None:
+        readable = readable.filter(owner_project_id=filters.project)
+    inside_readable = Place.objects.filter(
+        pk=OuterRef("pk"), container__in=access.visible(me).values("pk")
+    )
+    found = page_by(readable.exclude(Exists(inside_readable)), filters, by=("hrid", "pk"))
+    top = found["items"]
     refs = _refs(me, [c.pk for c in top])
     kept = storage.shapes([c.pk for c in top])
     counted = storage.counts([c.pk for c in top])
@@ -272,7 +275,7 @@ def list_places(request: HttpRequest, project: UUID | None = None) -> list[dict[
                 "free": shape.size - n if shape is not None else None,
             }
         )
-    return out
+    return {**found, "items": out}
 
 
 @router.get(
@@ -442,7 +445,7 @@ ConfirmationIn = Annotated[str, Field(max_length=200)] | IkiIdConfirmationIn
 
 
 class MovesIn(Schema):
-    items: list[MoveItemIn] = Field(min_length=1, max_length=storage.MAX_MOVES)
+    moves: list[MoveItemIn] = Field(min_length=1, max_length=storage.MAX_MOVES)
     reason: str = Field("", max_length=2000, description="Why: required to change anything.")
     confirmations: dict[str, ConfirmationIn] = Field(
         default_factory=dict,
@@ -469,7 +472,7 @@ class PlannedOut(Schema):
 
 
 class MovesOut(Schema):
-    items: list[PlannedOut]
+    moves: list[PlannedOut]
     done: bool = Field(description="Every move was made. False for a preview.")
     operation: UUID | None = Field(description="The moves' operation, once they're made.")
     plan: str | None = Field(
@@ -493,7 +496,7 @@ def _wanted(me: User, items: Sequence[MoveItemIn | CheckInItemIn]) -> list[stora
         if item.to is not None:
             destination = _destination(boxes, item.to, mode=item.to_mode, choice=item.to_choice)
         elif item.to_choice is not None or item.to_mode != "label":
-            raise _invalid(storage.Wrong({f"items/{i}/to": ["Supply the destination code."]}))
+            raise _invalid(storage.Wrong({f"moves/{i}/to": ["Supply the destination code."]}))
         wanted.append(storage.Wanted(record, destination, item.position))
     return wanted
 
@@ -562,7 +565,7 @@ def move(request: HttpRequest, payload: MovesIn) -> dict[str, Any]:
     refused with 409 ``moves_plan_changed`` and what they'd do now. Needs Editor in the
     project of each container a record goes into or leaves."""
     me = caller(request)
-    wanted = _wanted(me, payload.items)
+    wanted = _wanted(me, payload.moves)
     confirmations = _confirmations(wanted, payload.confirmations)
     if payload.preview:
         return _previewed(me, storage.plan(me, wanted, confirmations=confirmations))
@@ -596,12 +599,12 @@ def move(request: HttpRequest, payload: MovesIn) -> dict[str, Any]:
                 "problems": [],
             }
         )
-    return {"items": items, "done": True, "operation": events[0].operation, "plan": None}
+    return {"moves": items, "done": True, "operation": events[0].operation, "plan": None}
 
 
 def _previewed(me: User, planned: Sequence[storage.Planned]) -> dict[str, Any]:
     return {
-        "items": _planned_out(me, planned),
+        "moves": _planned_out(me, planned),
         "done": False,
         "operation": None,
         "plan": storage.identify(planned),
@@ -627,7 +630,7 @@ class CheckInItemIn(Schema):
 
 
 class CheckInIn(Schema):
-    items: list[CheckInItemIn] = Field(min_length=1, max_length=storage.MAX_MOVES)
+    check_ins: list[CheckInItemIn] = Field(min_length=1, max_length=storage.MAX_MOVES)
     reason: str = Field("", max_length=2000)
     confirmations: dict[str, ConfirmationIn] = Field(default_factory=dict)
 
@@ -686,7 +689,7 @@ def check_in(request: HttpRequest, payload: CheckInIn) -> dict[str, Any]:
     """Each goes back to the position it kept, or to ``to`` and ``position``, in the same
     change."""
     me = caller(request)
-    wanted = _wanted(me, payload.items)
+    wanted = _wanted(me, payload.check_ins)
     try:
         events = storage.check_in(
             me,
@@ -720,7 +723,7 @@ class ScanMatchOut(StepOut):
 
 class ScanOut(Schema):
     code: str
-    items: list[ScanMatchOut] = Field(
+    matches: list[ScanMatchOut] = Field(
         description="Every record the code names that you can read: usually one."
     )
 
@@ -753,7 +756,7 @@ def scan(request: HttpRequest, params: Query[ScanParams]) -> dict[str, Any]:
                 "location": where,
             }
         )
-    return {"code": code, "items": items}
+    return {"code": code, "matches": items}
 
 
 class AwaitingPutAwayOut(RefOut):
@@ -764,19 +767,24 @@ class AwaitingPutAwayOut(RefOut):
 
 @router.get(
     "/storage/awaiting-put-away",
-    response=list[AwaitingPutAwayOut],
+    response=Page[AwaitingPutAwayOut],
     summary="Received material awaiting a storage location",
 )
-def list_awaiting_put_away(request: HttpRequest) -> list[dict[str, Any]]:
-    """Matched and damaged records you can read that are still in custody without a location."""
+def list_awaiting_put_away(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
+    """Matched and damaged records you can read that are still in custody without a
+    location, longest held first."""
     me = caller(request)
-    places = list(receipts.awaiting_put_away(me))
+    found = page_by(receipts.awaiting_put_away(me), params, by=("custody_since", "pk"))
+    places = found["items"]
     refs = _refs(me, [p.pk for p in places])
-    return [
-        {**refs[p.pk], "id": p.pk, "custodian": p.custodian, "custody_since": p.custody_since}
-        for p in places
-        if p.pk in refs
-    ]
+    return {
+        **found,
+        "items": [
+            {**refs[p.pk], "id": p.pk, "custodian": p.custodian, "custody_since": p.custody_since}
+            for p in places
+            if p.pk in refs
+        ],
+    }
 
 
 class CheckedOutOut(StepOut):
@@ -785,28 +793,36 @@ class CheckedOutOut(StepOut):
     location: LocationOut
 
 
+class CheckedOutFilters(PageParams):
+    custodian: UUID | None = Field(None, description="Whose: yours, if left out.")
+
+
 @router.get(
-    "/storage/checked-out", response=list[CheckedOutOut], summary="What someone has checked out"
+    "/storage/checked-out", response=Page[CheckedOutOut], summary="What someone has checked out"
 )
-def list_checked_out(request: HttpRequest, custodian: UUID | None = None) -> list[dict[str, Any]]:
+def list_checked_out(request: HttpRequest, filters: Query[CheckedOutFilters]) -> dict[str, Any]:
     """What ``custodian`` (you, by default) has, of what you can read, longest held first."""
     me = caller(request)
-    who = _person(me, custodian)
-    places = storage.checked_out(me, who)[:500]
+    who = _person(me, filters.custodian)
+    found = page_by(storage.checked_out(me, who), filters, by=("custody_since", "pk"))
+    places = found["items"]
     refs = _refs(me, [p.pk for p in places])
     entities = {e.pk: e for e in Entity.objects.filter(pk__in=[p.pk for p in places])}
-    return [
-        {
-            **refs[p.pk],
-            "id": p.pk,
-            "position": None,
-            "custodian": who,
-            "custody_since": p.custody_since,
-            "location": _location(me, entities[p.pk]),
-        }
-        for p in places
-        if p.pk in refs
-    ]
+    return {
+        **found,
+        "items": [
+            {
+                **refs[p.pk],
+                "id": p.pk,
+                "position": None,
+                "custodian": who,
+                "custody_since": p.custody_since,
+                "location": _location(me, entities[p.pk]),
+            }
+            for p in places
+            if p.pk in refs
+        ],
+    }
 
 
 # --- Observation history ------------------------------------------------------------------------
@@ -1117,7 +1133,7 @@ def get_receipt(request: HttpRequest, receipt_id: UUID, response: HttpResponse) 
 
 
 @router.get(
-    "/receipts/{receipt_id}/history",
+    "/receipts/{receipt_id}/observations",
     response=ObservationEventsOut,
     summary="A receipt's observation history",
 )
@@ -1662,17 +1678,23 @@ def _reconciliation_out(me: User, r: Reconciliation, *, locked: bool = False) ->
 
 @router.get(
     "/storage/containers/{ref}/reconciliations",
-    response=list[ReconciliationOut],
+    response=Page[ReconciliationOut],
     summary="A container's reconciliations",
 )
-def list_reconciliations(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
+def list_reconciliations(
+    request: HttpRequest, ref: str, params: Query[PageParams]
+) -> dict[str, Any]:
     """Newest first."""
     me = caller(request)
     container = _container(me, ref)
-    found = Reconciliation.objects.filter(container=container).select_related(
-        "container", "started_by", "completed_by", "cancelled_by"
+    found = page_by(
+        Reconciliation.objects.filter(container=container).select_related(
+            "container", "started_by", "completed_by", "cancelled_by"
+        ),
+        params,
+        by=("-started_at", "-pk"),
     )
-    return [_reconciliation_out(me, r) for r in found.order_by("-started_at")[:20]]
+    return {**found, "items": [_reconciliation_out(me, r) for r in found["items"]]}
 
 
 @router.post(
@@ -1705,7 +1727,7 @@ def get_reconciliation(
 
 
 @router.get(
-    "/reconciliations/{reconciliation_id}/history",
+    "/reconciliations/{reconciliation_id}/observations",
     response=ObservationEventsOut,
     summary="A reconciliation's observation history",
 )

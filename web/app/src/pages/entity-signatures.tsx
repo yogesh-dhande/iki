@@ -85,7 +85,7 @@ export function EntitySignatures({ entity, signing }: { entity: Entity; signing?
   const ref = apiRef(entity);
   const [verify, setVerify] = useState(false);
   const listed = useQuery(signaturesQuery(ref, verify));
-  const signatures = listed.data?.items ?? [];
+  const signatures = listed.data?.signatures ?? [];
   const missing = listed.data?.missing ?? [];
   const wanted = entity.can.sign;
   const version = `${entity.id}:${String(entity.revision)}:${entity.entry?.id ?? ""}:${String(entity.entry?.revision ?? "")}`;

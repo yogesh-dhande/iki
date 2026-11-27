@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { entity, field, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import fixtures from "./flow-fixtures.json";
-import { answer } from "./test-server";
+import { answer, page } from "./test-server";
 
 const RESULT_ID = "00000000-0000-7000-8000-00000000a001";
 
@@ -56,20 +56,22 @@ function labRoles(): void {
   });
   answer(
     "GET /api/v1/lab-roles",
-    Object.entries(fixtures.roles).map(([name, label]) => ({
-      name,
-      label,
-      description: null,
-      plugin: name.slice(0, name.indexOf(".")),
-      uses: [],
-    })),
+    page(
+      Object.entries(fixtures.roles).map(([name, label]) => ({
+        name,
+        label,
+        description: null,
+        plugin: name.slice(0, name.indexOf(".")),
+        uses: [],
+      })),
+    ),
   );
 }
 
 describe("a type's page", () => {
   it("draws how its records move, who moves them and what they sign", async () => {
     withTypes();
-    answer("GET /api/v1/entity-types", [PROTEIN, RESULT]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, RESULT]));
     labRoles();
     await renderApp("/types/iki/requests.QCDeliverable/");
     const section = await screen.findByRole("region", { name: "How records move" });
@@ -116,7 +118,7 @@ describe("a type's page", () => {
 
   it("moves between states by keyboard, and follows one's arrows when chosen", async () => {
     withTypes();
-    answer("GET /api/v1/entity-types", [PROTEIN, RESULT]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, RESULT]));
     labRoles();
     const { user } = await renderApp("/types/iki/requests.QCDeliverable/");
     const states = await screen.findByRole("list", { name: "Review’s states" });
@@ -137,7 +139,7 @@ describe("a type's page", () => {
 
   it("draws each of its state fields", async () => {
     withTypes();
-    answer("GET /api/v1/entity-types", [PROTEIN, REQUEST]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, REQUEST]));
     labRoles();
     await renderApp("/types/iki/requests.Request/");
     const section = await screen.findByRole("region", { name: "How records move" });
@@ -168,7 +170,7 @@ describe("a type's page", () => {
 describe("a record's page", () => {
   function onResult(): void {
     withTypes();
-    answer("GET /api/v1/entity-types", [PROTEIN, RESULT]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, RESULT]));
     labRoles();
     const result = entity({
       id: RESULT_ID,
@@ -211,7 +213,7 @@ describe("a record's page", () => {
     });
     answer("GET /api/v1/entities/QCD-000001", result);
     answer("GET /api/v1/entities/QCD-000001/provenance", {});
-    answer("GET /api/v1/entities/QCD-000001/projects", []);
+    answer("GET /api/v1/entities/QCD-000001/projects", page([]));
   }
 
   it("shows where it is in its flow, and what's next for the reader, when asked", async () => {
