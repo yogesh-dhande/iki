@@ -27,6 +27,7 @@ fields. A field that uses a list is an ordinary reference to it.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -34,12 +35,12 @@ from typing import Any
 from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
 from django.db.models import Count, Max, Q, QuerySet
-from django.db.models.functions import Lower
+from psycopg import sql
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
-from iki_server.entities import entries, identity, registry, services
-from iki_server.entities.models import Entity, Revision, RevisionKind
+from iki_server.entities import entries, identity, registry, services, unique
+from iki_server.entities.models import LIST_LABEL_INDEX, Entity, Revision, RevisionKind
 from iki_server.entities.values import (
     Invalid,
     Refs,
@@ -71,9 +72,12 @@ __all__ = [
     "change",
     "codes_of",
     "find",
+    "install_label_indexes",
     "is_list",
     "list_type",
+    "lock",
     "names_of",
+    "names_taken",
     "options",
     "reorder",
     "repoint",
@@ -235,8 +239,9 @@ def _curator(user: User, registry_: Registry, type_name: str) -> EntityType:
     return entity_type
 
 
-def _lock(registry_id: Any, type_name: str) -> None:  # noqa: ANN401 - a UUID
-    """Serializes changes to a list's order and options in a registry."""
+def lock(registry_id: Any, type_name: str) -> None:  # noqa: ANN401 - a UUID
+    """Serializes changes to a list's order and options in a registry. Every change to an
+    option takes it before the option's row, so its checks see the list as it is."""
     with connection.cursor() as cursor:
         cursor.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
@@ -251,25 +256,44 @@ def _refs(registry_id: Any) -> Refs:  # noqa: ANN401 - a UUID
     )
 
 
-def label_taken(
+def names_taken(
     form: Shape,
     registry_id: Any,  # noqa: ANN401 - a UUID
-    label: str,
     *,
+    code: str | None = None,
+    label: str | None = None,
     besides: Any = None,  # noqa: ANN401 - a UUID
-) -> str | None:
-    """Which option of the list has this label already, ignoring case: a dropdown lists
-    options by label, so the list has each once."""
+) -> dict[str, list[str]]:
+    """What of an option's code and label another option of its list has already, as its
+    code or its label, in any case. A dropdown lists options by label, and a sheet names
+    one by its code or its label in any case (ADR 0270), so each names one option. Call it
+    holding the list's lock (:func:`lock`)."""
     model = form.entry_model
     assert model is not None  # noqa: S101 - lists' options are entries
-    found = (
-        model._default_manager.filter(registry_id=registry_id, type=form.entity_type.qualified_name)
-        .annotate(lowered=Lower(LIST_LABEL))
-        .filter(lowered=label.lower())
+    rows = model._default_manager.filter(
+        registry_id=registry_id, type=form.entity_type.qualified_name
     )
     if besides is not None:
-        found = found.exclude(pk=besides)
-    return found.values_list(LIST_CODE, flat=True).first()
+        rows = rows.exclude(pk=besides)
+    codes: dict[str, str] = {}
+    labels: dict[str, str] = {}
+    for other, its_label in rows.order_by(LIST_CODE).values_list(LIST_CODE, LIST_LABEL):
+        codes.setdefault(str(other).casefold(), str(other))
+        if its_label:
+            labels.setdefault(str(its_label).casefold(), str(other))
+    errors: dict[str, list[str]] = {}
+    for name, value in ((LIST_CODE, code), (LIST_LABEL, label)):
+        if not value:
+            continue
+        key = value.casefold()
+        if key in labels:
+            errors[name] = [f"is `{labels[key]}`'s label already: the list has each once."]
+        elif key in codes:
+            errors[name] = [
+                f"is `{codes[key]}`'s code: a sheet names an option by its code or its label, "
+                "in any case, so each names one option."
+            ]
+    return errors
 
 
 def _values(
@@ -330,8 +354,8 @@ def add(
     entity_type = _curator(user, registry_, type_name)
     form = shape(type_name)
     given = _values(form, registry_.pk, values, adding=True)
-    with transaction.atomic():
-        _lock(registry_.pk, type_name)
+    with transaction.atomic(), services._unique_values():
+        lock(registry_.pk, type_name)
         entry = _new_option(user, form, registry_, given, reason=reason, via=None)
         log.record(
             "list.option_added",
@@ -357,7 +381,8 @@ def _new_option(
     reason: str,
     via: str | None,
 ) -> Entity:
-    """The option, written last in its list's order. The caller holds the list's lock."""
+    """The option, written last in its list's order. The caller holds the list's lock
+    (:func:`lock`)."""
     type_name = form.entity_type.qualified_name
     model = form.entry_model
     assert model is not None  # noqa: S101 - lists' options are entries
@@ -377,9 +402,9 @@ def _new_option(
             else "in the list already"
         )
         raise Invalid({LIST_CODE: [f"is {hrid}'s code, which is {why}."]})
-    taken = label_taken(form, registry_.pk, given[LIST_LABEL])
-    if taken is not None:
-        raise Invalid({LIST_LABEL: [f"is `{taken}`'s label already: the list has each once."]})
+    taken = names_taken(form, registry_.pk, code=code, label=given[LIST_LABEL])
+    if taken:
+        raise Invalid(taken)
     count = model._default_manager.filter(registry_id=registry_.pk, type=type_name).count()
     if count >= LIST_MAX_OPTIONS:
         raise Refused(f"A list has {LIST_MAX_OPTIONS:,} options at most.")
@@ -433,15 +458,14 @@ def change(
     given = _values(form, registry_.pk, values, adding=False)
     if not reason.strip():
         raise Invalid({"reason": ["Say why: every project in the registry sees the change."]})
-    with transaction.atomic():
-        _lock(registry_.pk, entity_type.qualified_name)
-        return entries.curate(
-            user,
-            entry,
-            {n: to_json(form.entry_fields()[n], v) for n, v in given.items()},
-            reason=reason,
-            expected_revision=expected_revision,
-        )
+    # It takes the list's lock, and checks the label against the list's other options.
+    return entries.curate(
+        user,
+        entry,
+        {n: to_json(form.entry_fields()[n], v) for n, v in given.items()},
+        reason=reason,
+        expected_revision=expected_revision,
+    )
 
 
 def reorder(
@@ -456,7 +480,7 @@ def reorder(
     model = form.entry_model
     assert model is not None  # noqa: S101 - lists' options are entries
     with transaction.atomic():
-        _lock(registry_.pk, type_name)
+        lock(registry_.pk, type_name)
         rows = list(
             model._default_manager.select_for_update()
             .filter(registry_id=registry_.pk, type=type_name)
@@ -519,7 +543,7 @@ def archive(user: User, entry: Entity, *, archived: bool = True, reason: str) ->
     if not reason.strip():
         raise Invalid({"reason": ["Say why: every project in the registry sees the change."]})
     with transaction.atomic():
-        _lock(registry_.pk, entity_type.qualified_name)
+        lock(registry_.pk, entity_type.qualified_name)
         locked = Entity.objects.select_for_update().get(pk=entry.pk)
         if locked.purged_at is not None:
             raise Refused(services.purged(locked))
@@ -651,8 +675,8 @@ def _seed_one(entity_type: EntityType, registry_: Registry) -> list[str]:
     form = shape(type_name)
     model = form.entry_model
     assert model is not None  # noqa: S101 - lists' options are entries
-    with transaction.atomic():
-        _lock(registry_.pk, type_name)
+    with transaction.atomic(), services._unique_values():
+        lock(registry_.pk, type_name)
         have = set(
             model._default_manager.filter(registry_id=registry_.pk, type=type_name).values_list(
                 LIST_CODE, flat=True
@@ -691,8 +715,9 @@ def _seed_one(entity_type: EntityType, registry_: Registry) -> list[str]:
                 kept = (given if isinstance(given, list) else [given]) if item.type == "ref" else []
                 with refs.keeping(kept):
                     values[name] = to_db(f, given, refs)
-            if label_taken(form, registry_.pk, values[LIST_LABEL]) is not None:
-                # A curator's own option has the label: the starting one would read as it.
+            if names_taken(form, registry_.pk, code=values[LIST_CODE], label=values[LIST_LABEL]):
+                # A curator's own option has its label, or its code: the starting one would
+                # read as it.
                 continue
             _new_option(None, form, registry_, values, reason=reason, via="system")
             added.append(str(option[LIST_CODE]))
@@ -716,6 +741,83 @@ def _by_id(f: Any, value: Any, registry_id: Any) -> Any:  # noqa: ANN401 - JSON,
     if isinstance(value, list):
         return [found for found in map(one, value) if found is not None]
     return one(value)
+
+
+# --- Labels, as the database holds them ----------------------------------------------------------
+
+
+def install_label_indexes(cursor: Any, wanted: Iterable[str] | None = None) -> list[str]:  # noqa: ANN401 - Django's cursor
+    """A unique index for each list (``wanted``, by type; every list for None) on its
+    labels as :class:`UniqueValue` holds them, in lower case: so the database refuses a
+    second option of a list in a registry with a label in another case, whoever writes it.
+    Drops those no list needs. Raises :class:`unique.Clash` while a list has one twice:
+    the deploy stops, saying which. Run it once the unique values are kept
+    (:func:`unique.install`)."""
+    needed: dict[str, tuple[str, str]] = {}
+    for type_name in sorted(types() if wanted is None else wanted):
+        model = shape(type_name).entry_model
+        assert model is not None  # noqa: S101 - lists' options are entries
+        key = unique.key(model, LIST_LABEL)
+        needed[_label_index(key)] = (type_name, key)
+    cursor.execute(
+        "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND "
+        "tablename = 'iki_unique_value' AND indexname LIKE %s",
+        [LIST_LABEL_INDEX.replace("_", r"\_") + "%"],
+    )
+    existing = {name for (name,) in cursor.fetchall()}
+    stale = sorted(existing - set(needed))
+    missing = {name: found for name, found in needed.items() if name not in existing}
+    clashes: list[str] = []
+    for type_name, key in missing.values():
+        cursor.execute(
+            "SELECT r.name, array_agg(e.hrid ORDER BY e.hrid), array_agg(u.value ORDER BY "
+            "e.hrid) FROM iki_unique_value u JOIN iki_entity e ON e.id = u.entity_id JOIN "
+            "iki_registry r ON r.id = u.registry_id WHERE u.key = %s GROUP BY r.name, "
+            "lower(u.value) HAVING count(*) > 1 ORDER BY 1, 2 LIMIT 10",
+            [key],
+        )
+        for registry_name, hrids, labels in cursor.fetchall():
+            said = " and ".join(f"“{label}”" for label in labels)
+            clashes.append(f"{', '.join(hrids)} of {type_name} in {registry_name} are {said}")
+    if clashes:
+        raise unique.Clash(
+            "Some lab lists have a label twice in a registry, in different cases, so they "
+            "can't be held once each until they don't: " + "; ".join(clashes) + ". Relabel "
+            "one of each, then deploy again."
+        )
+    if stale or missing:
+        # PostgreSQL won't index a table with foreign key checks queued on it, as the
+        # values written in this transaction (the sync's, or its caller's) have: run them.
+        cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+        cursor.execute("SET CONSTRAINTS ALL DEFERRED")
+    for name in stale:
+        cursor.execute(sql.SQL("DROP INDEX {}").format(sql.Identifier(name)))
+    for name, (type_name, key) in missing.items():
+        cursor.execute(
+            sql.SQL(
+                "CREATE UNIQUE INDEX {name} ON iki_unique_value (registry_id, lower(value)) "
+                "WHERE key = {key}"
+            ).format(name=sql.Identifier(name), key=sql.Literal(key))
+        )
+        cursor.execute(
+            sql.SQL("COMMENT ON INDEX {name} IS {said}").format(
+                name=sql.Identifier(name),
+                said=sql.Literal(
+                    f"Each label of the lab list {type_name} once in a registry, in any case "
+                    "(ADR 0270)."
+                ),
+            )
+        )
+    return [type_name for type_name, _ in needed.values()]
+
+
+def _label_index(key: str) -> str:
+    """A list's label index's name, from its labels' key: within PostgreSQL's 63 bytes."""
+    name = LIST_LABEL_INDEX + key.replace(".", "__")
+    if len(name) <= 63:
+        return name
+    digest = hashlib.sha256(key.encode()).hexdigest()[:10]
+    return f"{name[: 63 - len(digest) - 1]}_{digest}"
 
 
 def names_of(ids: Iterable[Any]) -> dict[Any, tuple[str, str]]:

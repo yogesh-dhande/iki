@@ -143,3 +143,32 @@ A spreadsheet import takes an option's code or its label, in any case.
 - **Webhooks for list changes.** The audit trail and each option's history
   are the record of them; a webhook can follow when an integration needs
   one.
+
+## Amendment of 2026-11-27 — one way to change an option, and each name once
+
+**An option changes on its list.** Its list's endpoints (`/api/v1/lists/…`) add,
+change, reorder, archive, restore and supersede options. The registry's entry
+endpoints read an option, as any entry, and refuse to change or supersede one,
+saying which of the list's endpoints does: so every change to an option has the
+list's checks. Each takes the list's lock before the option, so two curators
+changing a list at once are checked one after the other.
+
+**The database holds each label once.** A unique index for each list, on its
+labels in lower case in each registry, refuses a second option with a label in
+another case, whatever writes it. `sync_plugins` installs them, and stops while a
+list has a label twice, saying where.
+
+**A code or a label names one option.** A sheet takes an option's code or its
+label, in any case, so no option's code or label may be another option's code or
+label, in any case: curators are refused one, a plugin's starting options are
+checked for it, and seeding leaves out a starting option that would read as a
+lab's own. An option's own code may be its label. A sheet's value that names more
+than one option anyway, written past these checks, names none and says which it
+could be; an option's exact code always names it, as downloads give it.
+
+**A replacement is offered.** A superseded option's replacement is what forms
+offer instead, so an archived option replaces none until it's restored.
+
+**Walks read options as everyone does.** The graph's walks check what a person
+reads with the access service's own definition, so a record's options are
+upstream of it and readable, not counted as hidden.

@@ -41033,7 +41033,7 @@
         ]
       },
       "patch": {
-        "description": "Its registry's registrars, with a reason. Audited, and told to every holding project:\nwho, when and why. Its identity and derived values never change: supersede it instead.",
+        "description": "Its registry's registrars, with a reason. Audited, and told to every holding project:\nwho, when and why. Its identity and derived values never change: supersede it instead.\nA lab list's option changes on its list (`/lists/{name}/options/{code}`), not here.",
         "operationId": "iki_server_api_registries_patch_entry",
         "parameters": [
           {
@@ -41322,7 +41322,7 @@
     },
     "/api/v1/entries/{ref}/supersede": {
       "post": {
-        "description": "Its registry's registrars replace a mistaken entry with another of its type in the\nregistry, for good. Each holding project's Admins, and whoever added its record, are\ntold, to move their records to the replacement.",
+        "description": "Its registry's registrars replace a mistaken entry with another of its type in the\nregistry, for good. Each holding project's Admins, and whoever added its record, are\ntold, to move their records to the replacement. A lab list's option is superseded on\nits list (`/lists/{name}/options/{code}/supersede`), not here.",
         "operationId": "iki_server_api_registries_supersede_entry",
         "parameters": [
           {

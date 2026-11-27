@@ -608,3 +608,273 @@ def test_a_sheets_cell_shows_an_option_by_its_label(world: World) -> None:
     assert row["problems"] == [], row
     assert row["shown"]["method"] == "Size exclusion"
     assert row["shown"]["polishing"] == "Dialysis; Protein A affinity"
+
+
+# --- One route for each change, and each name once ------------------------------------------
+
+
+def test_an_option_is_changed_on_its_list_not_as_a_registry_entry(world: World) -> None:
+    """Its list's endpoints change an option, under the list's checks; the registry's entry
+    endpoints read it, and send a change to them."""
+    admin = registrar(world)
+    sec, dialysis = option(admin, None, "sec"), option(admin, None, "dialysis")
+    relabel = problem(
+        admin.patch(
+            f"/entries/{sec['id']}",
+            {"values": {"label": "Gel filtration"}, "reason": "What the lab calls it"},
+            headers={"If-Match": f'"{sec["revision"]}"'},
+        ),
+        409,
+        "refused",
+    )
+    assert f"/lists/{METHOD}/options/sec" in relabel["detail"]
+    superseded = problem(
+        admin.post(
+            f"/entries/{sec['id']}/supersede",
+            {"replacement": dialysis["id"], "reason": "Wrong code"},
+        ),
+        409,
+        "refused",
+    )
+    assert f"/lists/{METHOD}/options/sec/supersede" in superseded["detail"]
+    assert option(admin, None, "sec")["label"] == "Size exclusion"
+    assert option(admin, None, "sec")["superseded_by"] is None
+    assert api_as(world, "editor").get(f"/entries/{sec['id']}").status_code == 200
+
+
+def test_the_database_holds_a_label_once_in_its_list_in_any_case(world: World) -> None:
+    """Whatever writes a label, past the list's own checks, the database refuses a second
+    of it in the list in another case, and a list in another registry may have it."""
+    from django.db import IntegrityError, transaction
+
+    from iki_server.entities.values import shape
+
+    # Its fields are the list's, which the type checker doesn't know.
+    model: Any = shape(METHOD).entry_model
+    assert model is not None
+    dialysis = option(registrar(world), None, "dialysis")
+    with pytest.raises(IntegrityError), transaction.atomic():
+        model._default_manager.filter(pk=dialysis["id"]).update(label="SIZE EXCLUSION")
+    # Another list's options, and another registry's, have their own labels.
+    other = Registry.objects.create(name="Partner registry", all_teams=False)
+    theirs = lists.find(other.pk, METHOD, "sec")
+    assert theirs is not None and theirs.label == "Size exclusion"
+
+
+def test_deploying_stops_while_a_list_has_a_label_twice_in_any_case(world: World) -> None:
+    from django.db import connection
+
+    from iki_server.entities import unique
+    from iki_server.entities.values import shape
+
+    # Its fields are the list's, which the type checker doesn't know.
+    model: Any = shape(METHOD).entry_model
+    assert model is not None
+    dialysis = option(registrar(world), None, "dialysis")
+    with connection.cursor() as cursor:
+        dropped = lists.install_label_indexes(cursor, wanted=[])
+        assert dropped == []
+        model._default_manager.filter(pk=dialysis["id"]).update(label="size exclusion")
+        with pytest.raises(unique.Clash) as stopped:
+            lists.install_label_indexes(cursor)
+    assert "“size exclusion”" in str(stopped.value) and METHOD in str(stopped.value)
+
+
+def test_an_option_is_named_once_by_its_code_and_label_in_any_case(world: World) -> None:
+    """A sheet names an option by its code or its label, in any case, so no other option
+    of the list may have either as its code or label."""
+    admin = registrar(world)
+    added = admin.post(OPTIONS, {"code": "bca", "label": "BCA assay"}, **scope(world))
+    assert added.status_code == 201, added.content
+    # Its own code as its label, in another case, is still the one option.
+    own = admin.post(OPTIONS, {"code": "uf", "label": "UF"}, **scope(world))
+    assert own.status_code == 201, own.content
+    label_is_a_code = problem(
+        admin.post(OPTIONS, {"code": "bca_micro", "label": "BCA"}, **scope(world)),
+        422,
+        "validation_failed",
+    )
+    assert "`bca`'s code" in str(label_is_a_code["errors"]), label_is_a_code
+    code_is_a_label = problem(
+        admin.post(OPTIONS, {"code": "dialysis", "label": "Dialysis again"}, **scope(world)),
+        422,
+        "validation_failed",
+    )
+    assert "in the list already" in str(code_is_a_label["errors"])
+    micro = admin.post(OPTIONS, {"code": "mbca", "label": "MicroBCA"}, **scope(world))
+    assert micro.status_code == 201, micro.content
+    code_is_a_label = problem(
+        admin.post(OPTIONS, {"code": "microbca", "label": "Micro BCA kit"}, **scope(world)),
+        422,
+        "validation_failed",
+    )
+    assert "`mbca`'s label" in str(code_is_a_label["errors"]), code_is_a_label
+    code_in_another_case = problem(
+        admin.post(OPTIONS, {"code": "SEC", "label": "Gel filtration"}, **scope(world)),
+        422,
+        "validation_failed",
+    )
+    assert "`sec`'s code" in str(code_in_another_case["errors"]), code_in_another_case
+    # Nor may a relabel give an option another's code.
+    sec = option(admin, None, "sec")
+    relabelled = problem(
+        admin.patch(
+            f"{OPTIONS}/sec",
+            {"label": "Protein_A", "reason": "Mixed up"},
+            headers={"If-Match": f'"{sec["revision"]}"'},
+            **scope(world),
+        ),
+        422,
+        "validation_failed",
+    )
+    assert "`protein_a`'s code" in str(relabelled["errors"]), relabelled
+
+
+def test_a_sheet_refuses_a_value_that_names_two_options(world: World) -> None:
+    """Options written past the list's checks, one's label another's code: a cell that
+    names both names neither, and says which it could be."""
+    from iki_server.entities.values import shape
+    from iki_server.spreadsheets.services import Resolver
+
+    # Its fields are the list's, which the type checker doesn't know.
+    model: Any = shape(METHOD).entry_model
+    assert model is not None
+    found = {o["code"]: o["id"] for o in options(registrar(world), None)}
+    model._default_manager.filter(pk=found["dialysis"]).update(label="SEC")
+    method = shape(PREP).fields()["method"]
+    resolved = Resolver(world.users["editor"], world.project).find(
+        method, {"sec", "Sec", "SEC", "Protein A affinity"}
+    )
+    # Its exact code is its identity, as a download gives it; in another case, it's either.
+    assert str(resolved["sec"]) == found["sec"]
+    for text in ("Sec", "SEC"):
+        assert resolved[text] == (
+            "names more than one option of Purification methods: `dialysis` by its label and "
+            "`sec` by its code. Give the one you mean by its code, exactly."
+        ), resolved
+    assert str(resolved["Protein A affinity"]) == found["protein_a"]
+
+
+def test_an_archived_option_replaces_none(world: World) -> None:
+    """A replacement is what dropdowns offer instead, so it's one they offer."""
+    admin = registrar(world)
+    admin.post(f"{OPTIONS}/dialysis/archive", {"reason": "We desalt instead"}, **scope(world))
+    refused = problem(
+        admin.post(
+            f"{OPTIONS}/sec/supersede",
+            {"replacement": "dialysis", "reason": "Wrong code"},
+            **scope(world),
+        ),
+        422,
+        "validation_failed",
+    )
+    assert "archived: restore it first" in str(refused["errors"]), refused
+    assert option(admin, None, "sec")["superseded_by"] is None
+    admin.post(f"{OPTIONS}/dialysis/restore", {"reason": "Back in use"}, **scope(world))
+    done = admin.post(
+        f"{OPTIONS}/sec/supersede",
+        {"replacement": "dialysis", "reason": "Wrong code"},
+        **scope(world),
+    )
+    assert done.status_code == 200, done.content
+
+
+def test_what_a_record_names_from_a_list_is_upstream_of_it_and_readable(world: World) -> None:
+    """Every project in the registry reads its lists' options, so a walk upstream from a
+    record reaches the options it names, and counts none as hidden."""
+    editor = api_as(world, "editor")
+    found = {o["code"]: o for o in options(editor, world.project)}
+    made = prep(
+        editor,
+        world.project,
+        {"name": "Prep 4", "method": found["protein_a"]["id"], "polishing": [found["sec"]["id"]]},
+    ).json()
+    up = editor.get(f"/entities/{made['hrid']}/upstream", depth=3)
+    assert up.status_code == 200, up.content
+    assert up.json()["hidden"] == 0, up.json()
+    drawn = editor.get(f"/entities/{made['hrid']}/graph", up=3, down=0)
+    assert drawn.status_code == 200, drawn.content
+    assert drawn.json()["hidden"] == 0
+    shown = {e["id"]: e for e in drawn.json()["entities"]}
+    # The method, and the category the method names, as they read.
+    category = editor.get(f"/lists/{CATEGORY}/options", project=str(world.project.pk)).json()[0]
+    assert {found["protein_a"]["id"], found["sec"]["id"], category["id"]} <= set(shown)
+    assert shown[found["protein_a"]["id"]]["title"] == "Protein A affinity"
+    # Whoever reads only another registry's project reads its options, and not these.
+    from django.db import connection
+
+    from iki_server.graph import queries
+
+    other = Registry.objects.create(name="Partner registry", all_teams=False)
+    other.teams.add(world.team)
+    partner = Project.objects.create(team=world.team, name="Partner work", registry=other)
+    ProjectMembership.objects.create(
+        project=partner, user=world.users["outsider"], role=ProjectRole.EDITOR
+    )
+    theirs = lists.find(other.pk, METHOD, "sec")
+    assert theirs is not None
+    reader = queries.reader(world.users["outsider"])
+    with connection.cursor() as cursor:
+        for entry, readable in ((found["sec"]["id"], False), (theirs.entry.pk, True)):
+            cursor.execute(f"SELECT {reader.readable(queries._uuid(entry))}")
+            assert cursor.fetchone()[0] is readable, entry
+
+
+@pytest.mark.django_db(transaction=True)
+def test_two_curators_at_once_cant_give_two_options_one_label(world: World) -> None:
+    """The second relabel waits for the first, then finds the label taken, whichever way
+    the change comes."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import connection, transaction
+
+    from iki_server.entities import entries
+    from iki_server.entities.values import Invalid
+
+    registrar(world)
+    user = world.users["auditor"]
+    sec = Entity.objects.get(pk=option(api_as(world, "auditor"), None, "sec")["id"])
+    dialysis = Entity.objects.get(pk=option(api_as(world, "auditor"), None, "dialysis")["id"])
+
+    def second() -> Any:
+        try:
+            entries.curate(
+                user,
+                dialysis,
+                {"label": "gel FILTRATION"},
+                reason="What we call it",
+                expected_revision=dialysis.revision,
+            )
+            return None
+        except Invalid as error:
+            return error.errors
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with transaction.atomic():
+            entries.curate(
+                user,
+                sec,
+                {"label": "Gel filtration"},
+                reason="What we call it",
+                expected_revision=sec.revision,
+            )
+            waiting = pool.submit(second)
+            deadline = time.monotonic() + 15
+            with connection.cursor() as cursor:
+                while True:
+                    cursor.execute(
+                        "SELECT EXISTS (SELECT FROM pg_locks WHERE NOT granted "
+                        "AND pg_backend_pid() = ANY(pg_blocking_pids(pid)))"
+                    )
+                    if cursor.fetchone()[0]:
+                        break
+                    assert not waiting.done(), "The second relabel didn't wait for the first."
+                    assert time.monotonic() < deadline, "The second relabel didn't wait."
+                    time.sleep(0.01)
+        errors = waiting.result(timeout=15)
+    assert errors is not None and "`sec`'s label" in str(errors["label"]), errors
+    labels = {o.code: o.label for o in lists.options(Registry.default().pk, METHOD)}
+    assert (labels["sec"], labels["dialysis"]) == ("Gel filtration", "Dialysis")

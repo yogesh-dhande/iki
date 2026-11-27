@@ -113,13 +113,18 @@ def curate(
 ) -> Revision | None:
     """A registrar's change to an entry's facts: set, changed or cleared, with why. Their
     identity and derived values are the identity's, and never change. A lab list's option
-    (ADR 0270) is its list's curators' too: its required values can't be cleared, and its
-    place changes by reordering the list (:mod:`.lists`)."""
+    (ADR 0270) is its list's curators' too: its required values can't be cleared, its
+    place changes by reordering the list, and its label names no other option of the list,
+    under the list's lock (:mod:`.lists`)."""
+    from iki_server.entities import lists
+
     _registrar(user, entry)
     listed = _is_list(entry.type)
     if not reason.strip():
         raise Invalid({"reason": ["Say why: a fact's change is every holder's."]})
     with transaction.atomic(), services._unique_values():
+        if listed:
+            lists.lock(entry.registry_id, entry.type)
         locked = Entity.objects.select_for_update().get(pk=entry.pk)
         if locked.revision != expected_revision:
             raise services.Stale(locked.revision)
@@ -170,11 +175,9 @@ def curate(
         if not errors and new:
             errors = _taken_in_registry(form, locked, new)
         if not errors and listed and isinstance(new.get(LIST_LABEL), str):
-            from iki_server.entities import lists
-
-            taken = lists.label_taken(form, locked.registry_id, new[LIST_LABEL], besides=locked.pk)
-            if taken is not None:
-                errors = {LIST_LABEL: [f"is `{taken}`'s label already: the list has each once."]}
+            errors = lists.names_taken(
+                form, locked.registry_id, label=new[LIST_LABEL], besides=locked.pk
+            )
         if errors:
             raise Invalid(errors)
         if not new:
@@ -263,11 +266,17 @@ def _taken_in_registry(form: Any, entry: Entity, new: Mapping[str, Any]) -> dict
 
 
 def supersede(user: User, entry: Entity, replacement: Entity, *, reason: str) -> Revision:
-    """Replaces a mistaken entry with another, for good, and tells its holders."""
+    """Replaces a mistaken entry with another, for good, and tells its holders. A lab list's
+    option (ADR 0270) is replaced, under the list's lock, by one its dropdowns offer."""
+    from iki_server.entities import lists
+
     found = _registrar(user, entry)
     if not reason.strip():
         raise Invalid({"reason": ["Say why: its holders are told."]})
+    listed = _is_list(entry.type)
     with transaction.atomic():
+        if listed:
+            lists.lock(entry.registry_id, entry.type)
         locked = Entity.objects.select_for_update().get(pk=entry.pk)
         other = Entity.objects.select_for_update().get(pk=replacement.pk)
         if locked.superseded_by_id is not None:
@@ -280,6 +289,15 @@ def supersede(user: User, entry: Entity, replacement: Entity, *, reason: str) ->
             raise Invalid({"replacement": [f"must be a {locked.type}, as {locked.hrid} is."]})
         if other.superseded_by_id is not None:
             raise Invalid({"replacement": [f"{other.hrid} was superseded itself."]})
+        if listed and other.archived_at is not None:
+            raise Invalid(
+                {
+                    "replacement": [
+                        f"`{lists.option_of(other).code}` is archived: restore it first, so "
+                        "dropdowns offer it instead."
+                    ]
+                }
+            )
         if services.frozen(shape(locked.type)) is not None:
             raise Refused(services.frozen(shape(locked.type)) or "")
         locked.superseded_by = other
@@ -296,7 +314,7 @@ def supersede(user: User, entry: Entity, replacement: Entity, *, reason: str) ->
                 "reason": reason.strip(),
             },
         )
-        if _is_list(locked.type):
+        if listed:
             _tell_referrers(user, locked, other, reason.strip())
         else:
             _tell_holders(user, locked, other, reason.strip())
