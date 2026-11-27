@@ -39,9 +39,10 @@ from iki_server.org.models import Project
 
 #: A qualified type name, ``plugin.Type``.
 TYPE_PATTERN = r"^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\.[A-Z][A-Za-z0-9]*$"
-#: The constraint a second entity in a project with a unique field's value breaks.
+#: The constraint a second record in a project breaks with a ``unique`` rule's values
+#: (ADR 0127), a unique field's among them (ADR 0082).
 UNIQUE_CONSTRAINT = "iki_unique_value_once"
-#: The one a second entry in a registry with a unique fact's value breaks (ADR 0115).
+#: The one a second entry in a registry breaks with a ``within: registry`` rule's (ADR 0115).
 UNIQUE_IN_REGISTRY = "iki_unique_value_once_in_registry"
 #: The unique indexes a second option of a lab list in a registry with a label in another
 #: case breaks start with this (ADR 0270), one for each list.
@@ -422,43 +423,49 @@ class ProjectDashboard(models.Model):
 
 
 class UniqueValue(models.Model):
-    """A value of a unique field (ADR 0082), held once per project, or for a registry
-    fact, once per registry (ADR 0115).
+    """A record's values under a ``unique`` rule (ADR 0127), a unique field's among them
+    (ADR 0082): held once per project, or for a ``within: registry`` rule, once per
+    registry (ADR 0115).
 
-    Triggers on the plugin tables keep these rows, so whatever writes a value,
-    a person, a run, a bulk import or SQL, a second entity in the project (or
-    entry in the registry) with the same value is refused by the database.
-    ``iki-server sync_plugins`` installs the triggers and fills in values
-    already there.
+    Triggers on the plugin tables keep these rows, so whatever writes the values, a
+    person, a run, a bulk import or SQL, a second record in the project (or entry in the
+    registry) with the same ones is refused by the database. ``iki-server sync_plugins``
+    installs the triggers and fills in rows for records already there.
     """
 
     id = models.BigAutoField(primary_key=True)
-    #: A record's owner project: values are unique within it.
+    #: A ``within: project`` rule's: the record's owner project, where its values are
+    #: unique. Exactly one of this and ``registry`` is set: the rule's scope.
     project = models.ForeignKey(
         Project, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
-    #: A registry entry's registry: values are unique within it.
+    #: A ``within: registry`` rule's: the entry's registry.
     registry = models.ForeignKey(
         "iki_org.Registry", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
-    #: The field, as ``table.column``, such as ``lims_protein.lims_id``.
+    #: The rule, as ``table:rule``, such as ``lims_protein:lims_id``.
     key = models.CharField(max_length=127)
-    value = models.CharField(max_length=600)
+    #: Its fields' values, as a JSON array of their text, such as ``["LIMS-1"]``.
+    value = models.TextField()
+    #: The SHA-256 of ``value``'s UTF-8, which is what's unique: any length of value fits
+    #: the index.
+    digest = models.BinaryField(max_length=32)
     entity = models.ForeignKey(Entity, on_delete=models.CASCADE, related_name="+")
 
     class Meta:
         db_table = "iki_unique_value"
         db_table_comment = (
-            "Each unique field's values, once per project. Kept by triggers on the plugin tables."
+            "Each record's values under each unique rule, once per project or registry. Kept "
+            "by triggers on the plugin tables."
         )
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
-                fields=["project", "key", "value"],
+                fields=["project", "key", "digest"],
                 condition=Q(project__isnull=False),
                 name=UNIQUE_CONSTRAINT,
             ),
             models.UniqueConstraint(
-                fields=["registry", "key", "value"],
+                fields=["registry", "key", "digest"],
                 condition=Q(registry__isnull=False),
                 name=UNIQUE_IN_REGISTRY,
             ),
@@ -470,7 +477,7 @@ class UniqueValue(models.Model):
             ),
         ]
         indexes: ClassVar[list[models.Index]] = [
-            models.Index(fields=["key", "value"], name="iki_unique_value_lookup"),
+            models.Index(fields=["key", "digest"], name="iki_unique_value_lookup"),
         ]
 
     def __str__(self) -> str:

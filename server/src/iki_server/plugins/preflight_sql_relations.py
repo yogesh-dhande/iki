@@ -43,12 +43,9 @@ class _Constraint:
 
 
 def _changes(before: _Shape, after: _Shape) -> Iterator[_Constraint]:
+    """The rules the database is to hold that are new or read what changes: a unique
+    field's one-field rule among them (ADR 0082)."""
     changed = projected_changes(before.fields, {**after.fields, **after.retired})
-    old_unique = {(t.table, n) for t in before.tables for n, f in t.fields.items() if f.unique}
-    for table in after.tables:
-        for name, field in table.fields.items():
-            if field.unique and ((table.table, name) not in old_unique or name in changed):
-                yield _Constraint(table.table, name, (name,), entry=table.entry)
     for key, rule in after.rules.items():
         if rule.kind != "check" and (
             rule != before.rules.get(key)
@@ -63,6 +60,7 @@ def _changes(before: _Shape, after: _Shape) -> Iterator[_Constraint]:
                 rule.unique or rule.per,
                 endpoints=rule.no_overlap,
                 counted=rule.only_while,
+                entry=rule.within == "registry",
                 inclusive=bool(rule.no_overlap and after.fields[rule.no_overlap[0]].type == "date"),
             )
 

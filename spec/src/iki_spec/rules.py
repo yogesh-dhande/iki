@@ -610,20 +610,32 @@ class _Rules:
             for ancestor in reversed(self.s.ancestors(entity_type))
             for name in ancestor.rules
         }
-        for name in entity_type.rules:
+        for name, rule in entity_type.rules.items():
             if name in inherited:
                 self.add(
                     "rule-shadows-parent",
                     f"`{name}` is already a rule of `{inherited[name].qualified_name}`, which "
-                    "this type extends, and its records keep it.",
+                    "this type extends, and its records keep it"
+                    + (": a unique field is a rule named for it." if rule.from_field else "."),
                     source,
-                    ("rules", name),
+                    ("fields", name, "unique") if rule.from_field else ("rules", name),
                     key=True,
-                    hint="Give this rule another name.",
+                    hint="Give this field another name."
+                    if rule.from_field
+                    else "Give this rule another name.",
                 )
+        self.names_taken(entity_type.rules, source)
         fields = self.fields_of(entity_type)
         own = {n: f for n, f in entity_type.fields.items() if not f.removed}
-        rules = self.rules(entity_type.rules, entity_type, fields, own, source, ("rules",))
+        rules = self.rules(
+            entity_type.rules,
+            entity_type,
+            fields,
+            own,
+            source,
+            ("rules",),
+            identity=entity_type.identity,
+        )
         changed = dict(entity_type.fields)
         for name, f in entity_type.fields.items():
             if f.type == "state" and any(st.guards for st in f.states.values()):
@@ -693,6 +705,7 @@ class _Rules:
         target = self.s.types.get(extension.adds_to)
         if target is None:
             return extension  # The extension's own check says what's wrong.
+        self.names_taken(extension.rules, source)
         fields = self.fields_of(target)
         own = extension.current_fields
         rules = (
@@ -889,6 +902,21 @@ class _Rules:
                     hint="Work one of them out from the values they're worked out from.",
                 )
 
+    def names_taken(self, rules: Mapping[str, Rule], source: Document) -> None:
+        """A declared rule named as a unique field is: the field's rule has the name."""
+        declared = self._raw(source, ("rules",))
+        for name, rule in rules.items():
+            if rule.from_field and name in declared:
+                self.add(
+                    "rule-name-taken",
+                    f"`{name}` is a unique field, which is a rule named for it: this rule "
+                    "needs another name.",
+                    source,
+                    ("rules", name),
+                    key=True,
+                    hint="Give this rule another name.",
+                )
+
     # Rules.
 
     def rules(
@@ -899,12 +927,28 @@ class _Rules:
         own: Mapping[str, Field],
         source: Document,
         path: Path,
+        *,
+        identity: tuple[str, ...] = (),
     ) -> dict[str, Rule]:
         out: dict[str, Rule] = {}
         checks: list[tuple[str, str, Path]] = []
         for name, rule in rules.items():
-            at: Path = (*path, name)
             out[name] = rule
+            if rule.from_field:
+                # A field's `unique: true`: its field's checks say what's wrong with it.
+                self.own_field(
+                    name,
+                    fields,
+                    own,
+                    source,
+                    ("fields", name, "unique"),
+                    UNIQUE_TYPES,
+                    "",
+                    within=rule.within,
+                    identity=identity,
+                )
+                continue
+            at: Path = (*path, name)
             kinds = [k for k in ("check", "unique", "no_overlap") if self._has(rule, k)]
             if len(kinds) != 1:
                 self.add(
@@ -918,6 +962,14 @@ class _Rules:
                 )
                 continue
             raw = self._raw(source, at)
+            if "within" in raw and rule.kind != "unique":
+                self.add(
+                    "rule-kind",
+                    f"`within` is for `unique` rules: a `{rule.kind}` rule holds within a project.",
+                    source,
+                    (*at, "within"),
+                    key=True,
+                )
             if rule.kind == "check":
                 for key in ("while", "per"):
                     if key in raw:
@@ -972,10 +1024,10 @@ class _Rules:
                             key=True,
                         )
                 if rule.kind == "unique":
-                    self.unique(rule, fields, own, source, at)
+                    self.unique(rule, entity_type, fields, own, source, at, identity)
                 else:
                     self.overlap(rule, fields, own, source, at)
-                self.while_(rule, fields, own, source, at)
+                self.while_(rule, fields, own, source, at, identity)
         for _, expression, at in checks:
             self.list_codes(expression, fields, source, at)
         found = self.expressions(
@@ -985,7 +1037,7 @@ class _Rules:
                 *(
                     (n, r.message, MESSAGE, (*path, n, "message"))
                     for n, r in out.items()
-                    if r.message
+                    if r.message and not r.from_field
                 ),
             ],
             source,
@@ -1050,8 +1102,12 @@ class _Rules:
         path: Path,
         allowed: Iterable[str],
         what: str,
+        *,
+        within: str = "project",
+        identity: tuple[str, ...] = (),
     ) -> Field | None:
-        """A field of the rule's own table, of a type ``allowed``, or None, reported."""
+        """A field of the rule's own table, of a type ``allowed``, or None, reported: a
+        project's record's own field, or ``within`` a registry, its entry's."""
         if name not in fields:
             self.unknown_field(name, fields, source, path)
             return None
@@ -1077,13 +1133,28 @@ class _Rules:
                 hint="Name the fields it's worked out from instead.",
             )
             return None
-        if f.registry is not None:
+        entry = in_entry(f, identity)
+        if entry and within != "registry":
+            what_it_is = f"a registry {f.registry}" if f.registry else "its identity's"
             self.add(
                 "rule-field",
-                f"`{name}` is a registry {f.registry}, the same for every project's record of "
-                "an entry (ADR 0115): a rule like this holds within a project, of its own fields.",
+                f"`{name}` is {what_it_is}, the same for every project's record of an entry "
+                "(ADR 0115): a rule like this holds within a project, of its own fields.",
                 source,
                 path,
+                hint="Add `within: registry` for no two entries in a registry to share them."
+                if path[-2:-1] == ("unique",)
+                else None,
+            )
+            return None
+        if not entry and within == "registry":
+            self.add(
+                "rule-within-registry",
+                f"`{name}` is each project's record's own, and `within: registry` holds of "
+                "registry entries' fields (`registry: fact` or `derived`, ADR 0115).",
+                source,
+                path,
+                hint="Leave `within` out for no two of a project's records to share them.",
             )
             return None
         if f.type not in allowed:
@@ -1094,11 +1165,24 @@ class _Rules:
     def unique(
         self,
         rule: Rule,
+        entity_type: EntityType,
         fields: Mapping[str, Field],
         own: Mapping[str, Field],
         source: Document,
         path: Path,
+        identity: tuple[str, ...],
     ) -> None:
+        if rule.within == "registry" and not self.has_entries(entity_type):
+            self.add(
+                "rule-within-registry",
+                f"`{entity_type.name}` has no registry entries: `within: registry` holds of "
+                "the entries of a type with an identity (ADR 0115).",
+                source,
+                (*path, "within"),
+                key=True,
+                hint="Leave `within` out for no two of a project's records to share them.",
+            )
+            return
         for index, name in enumerate(rule.unique):
             self.own_field(
                 name,
@@ -1109,7 +1193,14 @@ class _Rules:
                 UNIQUE_TYPES,
                 "a combination of `unique` fields is of strings, ints, bools, enums, states, "
                 "dates, datetimes, references and people",
+                within=rule.within,
+                identity=identity,
             )
+
+    def has_entries(self, entity_type: EntityType) -> bool:
+        """Whether a type's records are registry entries' (ADR 0115): it or an ancestor has
+        an identity."""
+        return any(t.identity for t in (entity_type, *self.s.ancestors(entity_type)))
 
     def overlap(
         self,
@@ -1178,6 +1269,7 @@ class _Rules:
         own: Mapping[str, Field],
         source: Document,
         path: Path,
+        identity: tuple[str, ...] = (),
     ) -> None:
         for name, values in rule.only_while:
             f = self.own_field(
@@ -1188,6 +1280,8 @@ class _Rules:
                 (*path, "while", "field"),
                 WHILE_TYPES,
                 "`while` names enum, state and bool fields",
+                within=rule.within,
+                identity=identity,
             )
             if f is None:
                 continue

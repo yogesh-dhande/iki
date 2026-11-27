@@ -10,7 +10,7 @@ from test_storage import FREEZER, RACK, TUBE, made, tube
 from test_storage import world as world
 
 from iki_server.audit.models import AuditEvent
-from iki_server.entities import registry, unique
+from iki_server.entities import constraints, registry, unique
 from iki_server.entities.models import UniqueValue
 from iki_server.entities.values import shape
 from iki_server.plugins import sync
@@ -37,9 +37,10 @@ def test_the_database_refuses_reserved_vendor_codes_and_rolls_back_the_whole_wri
                 )
             cursor.execute("SELECT barcode FROM acme__protein_tube ORDER BY barcode")
             assert cursor.fetchall() == [("ORDINARY-1",), ("ORDINARY-2",)]
-    assert set(
-        UniqueValue.objects.filter(key="acme__protein_tube.barcode").values_list("value", flat=True)
-    ) == {"ORDINARY-1", "ORDINARY-2"}
+    held = UniqueValue.objects.filter(key="acme__protein_tube:barcode").values_list(
+        "value", flat=True
+    )
+    assert {unique.text(v) for v in held} == {"ORDINARY-1", "ORDINARY-2"}
 
     freezer = made(api, world.project, FREEZER, {"name": "North"})
     with connection.cursor() as cursor:
@@ -61,19 +62,15 @@ def test_sync_reports_existing_reserved_codes_without_rewriting_records_or_histo
     api = Api(world.browser("editor"))
     record = tube(api, world.project, "VENDOR")
     with connection.cursor() as cursor:
-        # A pre-upgrade deployment installed the two-argument uniqueness trigger.
-        cursor.execute(
-            "CREATE OR REPLACE TRIGGER iki_unique__barcode AFTER INSERT OR UPDATE OF barcode "
-            "ON acme__protein_tube FOR EACH ROW EXECUTE FUNCTION "
-            "iki_unique_value_keep('barcode', 'acme__protein_tube.barcode')"
-        )
+        # As before the field was a vendor barcode: no check of its reserved prefix.
+        cursor.execute("DROP TRIGGER iki_vendor_barcode__barcode ON acme__protein_tube")
         cursor.execute(
             "UPDATE acme__protein_tube SET barcode = ' iki:legacy' WHERE entity_id = %s",
             [record["id"]],
         )
     before = api.get(f"/entities/{record['id']}").json()
     audits = AuditEvent.objects.count()
-    with pytest.raises(unique.Clash) as failure, transaction.atomic():
+    with pytest.raises(constraints.Clash) as failure, transaction.atomic():
         sync.sync()
     assert record["hrid"] in str(failure.value) and "acme__protein_tube.barcode" in str(
         failure.value
@@ -81,7 +78,7 @@ def test_sync_reports_existing_reserved_codes_without_rewriting_records_or_histo
     assert "IKI:" in str(failure.value)
     assert api.get(f"/entities/{record['id']}").json() == before
     assert before["values"]["barcode"] == " iki:legacy" and AuditEvent.objects.count() == audits
-    assert UniqueValue.objects.get(entity_id=record["id"]).value == " iki:legacy"
+    assert unique.text(UniqueValue.objects.get(entity_id=record["id"]).value) == " iki:legacy"
 
 
 def test_a_shared_parent_column_is_guarded_only_on_types_that_use_it_as_their_barcode(

@@ -16350,7 +16350,8 @@ export interface components {
         /**
          * RuleOut
          * @description A rule its records keep at every save (ADR 0127): a CEL `check`, or one the
-         *     database holds (`unique` together, ranges that don't overlap).
+         *     database holds (`unique` together, ranges that don't overlap). A unique field is a
+         *     one-field `unique` rule named for it (ADR 0082).
          */
         RuleOut: {
             /**
@@ -16367,6 +16368,11 @@ export interface components {
             fields: string[];
             /** @description It holds a record that breaks it for review, rather than refuse it: a save that breaks it needs `hold_reason`. */
             hold?: components["schemas"]["HoldRuleOut"] | null;
+            /**
+             * Key Field
+             * @description The field whose `unique: true` this rule is: a key, which lookups and a run's `match_on` use (ADR 0082).
+             */
+            key_field?: string | null;
             /**
              * Kind
              * @enum {string}
@@ -16394,7 +16400,7 @@ export interface components {
             reads: string[];
             /**
              * Unique
-             * @description No two of a project's records share these together.
+             * @description No two of a project's records share these together, or with `within` `registry`, no two entries in a registry.
              */
             unique?: string[];
             /**
@@ -16404,6 +16410,11 @@ export interface components {
             when?: string | null;
             /** @description For `unique` and `no_overlap`: only records whose `field` is in one of these `states` count. */
             while?: components["schemas"]["WhileOut"] | null;
+            /**
+             * Within
+             * @description For `unique`: where no two share the values, a project's records or a registry's entries.
+             */
+            within?: ("project" | "registry") | null;
         };
         /** RunApiOut */
         RunApiOut: {

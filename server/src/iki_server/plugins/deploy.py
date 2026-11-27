@@ -415,13 +415,13 @@ def _could_be_plugin(label: str) -> bool:
 
 # --- The guards on what migrations change -------------------------------------------------------
 
-#: The triggers ``sync_plugins`` makes that name their table's columns: unique fields' and
-#: rules' in ``UPDATE OF`` and their arguments, references' edges' and references' types'
-#: (ADR 0136) in their arguments. The other guards name none: a locked record's and a
-#: request's read only ``entity_id``, and history's refuses any change to a row
-#: (:class:`~iki_server.plugins.operations.AppendOnly`).
+#: The triggers ``sync_plugins`` makes that name their table's columns: rules' (a unique
+#: field's among them) and vendor barcodes' in ``UPDATE OF`` and their arguments,
+#: references' edges' and references' types' (ADR 0136) in their arguments. The other
+#: guards name none: a locked record's and a request's read only ``entity_id``, and
+#: history's refuses any change to a row (:class:`~iki_server.plugins.operations.AppendOnly`).
 COLUMN_TRIGGERS = (
-    unique.TRIGGER_PREFIX,
+    unique.BARCODE_TRIGGER_PREFIX,
     constraints.TRIGGER_PREFIX,
     edges.TRIGGER_PREFIX,
     targets.TRIGGER_PREFIX,

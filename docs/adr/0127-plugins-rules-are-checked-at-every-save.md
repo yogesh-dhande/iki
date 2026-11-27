@@ -1,6 +1,6 @@
 # 0127. Plugins' rules are checked at every save, and a rule can hold a record for review
 
-- Status: Accepted (amended by [0297](0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md): computed values are worked out at every save, before the rules)
+- Status: Accepted (amended by [0297](0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md): computed values are worked out at every save, before the rules; and by the 2026-11-27 amendment of [0082](0082-unique-fields-link-records-in-other-systems.md): unique fields are one-field rules, and `within: registry`)
 - Date: 2026-11-18
 - Refines: [0035](0035-entity-revisions-provenance-and-edit-rules.md),
   [0056](0056-bulk-imports.md),
@@ -52,9 +52,10 @@ There are three kinds:
 `unique` and `no_overlap` take `while: {field: [values]}` (enum, state or
 bool fields) to count only some records, such as stored tubes or bookings
 that aren't cancelled. Their fields are in the declaring manifest's own table,
-not an identity's registry entry. A trigger keeps a row per record
-(`iki_unique_value` under `table:rule`, or `iki_range_value`), as unique
-fields' rows are kept (ADR 0082). So every writer is held to the rule,
+not an identity's registry entry, except a `unique` rule `within: registry`, whose
+fields are all its entries' (amended 2026-11-27, ADR 0082). A trigger keeps a row per
+record (`iki_unique_value` under `table:rule`, or `iki_range_value`); a unique field
+is a one-field rule kept the same way (ADR 0082). So every writer is held to the rule,
 including SQL, and two saves at the same moment can't both get in. Before
 writing, the server finds the record a save would clash with and names it.
 

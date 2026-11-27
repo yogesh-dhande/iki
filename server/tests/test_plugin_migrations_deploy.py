@@ -566,23 +566,24 @@ def test_a_migration_can_change_a_guarded_column(lab: Path, database: str, chang
     else:
         statement, params = probes["unique"]
         probes["unique"] = (statement.replace("lims_id", column), params)
+        # A unique field's values are its one-field rule's, named for it (ADR 0082).
         values = query(
             database,
-            "SELECT key, value FROM iki_unique_value WHERE key NOT LIKE %s ORDER BY 2",
-            "%:%",
+            "SELECT key, value::jsonb ->> 0 FROM iki_unique_value WHERE key = %s ORDER BY 2",
+            f"acme__lab_sample:{column}",
         )
         assert values == [
-            (f"acme__lab_sample.{column}", "LIMS-1"),
-            (f"acme__lab_sample.{column}", "lims-2"),
+            (f"acme__lab_sample:{column}", "LIMS-1"),
+            (f"acme__lab_sample:{column}", "lims-2"),
         ]
     assert write_through(database, probes) == dict.fromkeys(probes, "refused")
     triggers = query(
         database,
         "SELECT tgname FROM pg_trigger WHERE tgrelid = 'acme__lab_sample'::regclass "
         "AND NOT tgisinternal AND starts_with(tgname, %s) ORDER BY 1",
-        "iki_unique__",
+        "iki_rule__lims",
     )
-    assert triggers == ([] if column is None else [(f"iki_unique__{column}",)])
+    assert triggers == ([] if column is None else [(f"iki_rule__{column}",)])
 
 
 def test_a_rollback_can_change_a_guarded_column_back(lab: Path, database: str) -> None:
@@ -612,9 +613,9 @@ def test_a_rollback_can_change_a_guarded_column_back(lab: Path, database: str) -
         database,
         "SELECT tgname FROM pg_trigger WHERE tgrelid = 'acme__lab_sample'::regclass "
         "AND NOT tgisinternal AND starts_with(tgname, %s)",
-        "iki_unique__",
+        "iki_rule__lims",
     )
-    assert triggers == [("iki_unique__lims_id",)]
+    assert triggers == [("iki_rule__lims_id",)]
 
 
 #: A box holds a sample or another box, and keeps one spare: references to two types, which

@@ -183,7 +183,8 @@ class WhileOut(Schema):
 
 class RuleOut(Schema):
     """A rule its records keep at every save (ADR 0127): a CEL `check`, or one the
-    database holds (`unique` together, ranges that don't overlap)."""
+    database holds (`unique` together, ranges that don't overlap). A unique field is a
+    one-field `unique` rule named for it (ADR 0082)."""
 
     name: str = Field(description="Its name; an extension's is `plugin:name`.")
     plugin: str
@@ -204,7 +205,19 @@ class RuleOut(Schema):
         "save that breaks it needs `hold_reason`.",
     )
     unique: list[str] = Field(
-        default_factory=list, description="No two of a project's records share these together."
+        default_factory=list,
+        description="No two of a project's records share these together, or with `within` "
+        "`registry`, no two entries in a registry.",
+    )
+    within: Literal["project", "registry"] | None = Field(
+        None,
+        description="For `unique`: where no two share the values, a project's records or a "
+        "registry's entries.",
+    )
+    key_field: str | None = Field(
+        None,
+        description="The field whose `unique: true` this rule is: a key, which lookups and "
+        "a run's `match_on` use (ADR 0082).",
     )
     no_overlap: OverlapOut | None = None
     while_: WhileOut | None = Field(
@@ -1672,6 +1685,8 @@ def _rule_out(rule: Rule) -> dict[str, Any]:
         "reads": list(rule.reads),
         "hold": {"reviewed_by": list(rule.hold)} if rule.hold else None,
         "unique": list(rule.unique),
+        "within": rule.within if rule.unique else None,
+        "key_field": rule.unique[0] if rule.from_field else None,
         "no_overlap": {
             "from": rule.no_overlap[0],
             "to": rule.no_overlap[1],

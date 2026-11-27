@@ -19,16 +19,16 @@ idempotent, and works from the manifests the build installed
   ``registry``. Lists of references or files appear as arrays. The views use
   ``security_invoker``, so whoever queries one needs the right to read what
   it reads.
-- **Unique fields' triggers** (ADR 0082): each keeps ``iki_unique_value`` in
-  step with a unique column, so the database refuses a second entity in a
-  project with the same value. Values already there are filled in, and if
-  entities already share one, the sync stops, saying which.
+- **Vendor barcodes' triggers** (ADR 0082): each refuses the reserved ``IKI:``
+  prefix in a column a concrete type reads as its vendor barcode; if records
+  already have one, the sync stops, saying which.
 - **References' edges** (ADR 0123): triggers on every table holding
   references, and every list of them, keep ``iki_graph_edge`` in step, so the
   graph across references is whatever the tables hold. Tables whose triggers
   are new are filled in, and edges of fields no longer there are dropped.
 - **Plugins' rules** (ADR 0127): triggers keep the rows the database holds
-  ``unique`` and ``no_overlap`` rules with, filling in records already there; if
+  ``unique`` and ``no_overlap`` rules with, a unique field's one-field rule among
+  them (ADR 0082), filling in records already there; if
   records already break one, the sync stops, saying which. Then each type whose
   checks, or whose plugins' versions, changed has its records checked again: those
   breaking a rule are reported, or for a rule that holds, held for review
@@ -103,7 +103,7 @@ class Report:
     comments: int = 0
     #: What changed about each plugin, such as ``dna detached``.
     plugins: list[str] = field(default_factory=list)
-    unique: list[str] = field(default_factory=list)
+    barcodes: list[str] = field(default_factory=list)
     #: The lab lists whose labels the database holds once in a registry in any case.
     labels: list[str] = field(default_factory=list)
     graph: list[str] = field(default_factory=list)
@@ -140,11 +140,7 @@ def sync(analyst_role: str | None = None) -> Report:
         for statement in _comments():
             cursor.execute(statement)
             report.comments += 1
-        report.unique = unique.install(
-            cursor,
-            unique.columns((model, fields) for _, model, fields, _ in _tables()),
-            _barcode_types(),
-        )
+        report.barcodes = unique.install_barcodes(cursor, _barcode_types())
         report.labels = lists.install_label_indexes(cursor)
         report.graph = edges.install(
             cursor, edges.tables((plugin, model, fields) for plugin, model, fields, _ in _tables())
@@ -168,22 +164,24 @@ def sync(analyst_role: str | None = None) -> Report:
     return report
 
 
-def _barcode_types() -> dict[str, list[str]]:
+def _barcode_types() -> dict[tuple[str, str], list[str]]:
     """The concrete types that designate each physical column as their vendor barcode."""
-    out: dict[str, list[str]] = {}
+    out: dict[tuple[str, str], list[str]] = {}
     for type_name, entity_type in registry.types().items():
         if entity_type.abstract or type_name == naming.ENTITY:
             continue
         form = shape(type_name)
         if name := form.vendor_barcode:
-            out.setdefault(unique.key(form.part_of(name).model, name), []).append(type_name)
+            model = form.part_of(name).model
+            column = str(model._meta.get_field(name).column)  # type: ignore[union-attr]
+            out.setdefault((model._meta.db_table, column), []).append(type_name)
     return out
 
 
 def describe(report: Report) -> list[str]:
     """What a sync made, a line each, as the commands print it."""
     lines = [f"  HRID sequence {name}" for name in report.sequences]
-    lines += [f"  unique {key}" for key in report.unique]
+    lines += [f"  vendor barcode {column}" for column in report.barcodes]
     lines += [f"  labels of {name}, once in any case" for name in report.labels]
     lines += [f"  references of {table}" for table in report.graph]
     lines += [f"  rule {key}" for key in report.rules]

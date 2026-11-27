@@ -52,7 +52,6 @@ from iki_server.audit import log as audit
 from iki_server.entities import access, lists, registry, unique
 from iki_server.entities import services as entities
 from iki_server.entities.identity import hash_of
-from iki_server.entities.models import UniqueValue
 from iki_server.entities.values import Invalid, referable, shape
 from iki_server.files import listing, scan_state, storage
 from iki_server.files import services as files
@@ -1365,13 +1364,15 @@ def _taken(
             if not wanted:
                 continue
             field_key = unique.key(part.model, name)
-            rows = UniqueValue.objects.filter(key=field_key, value__in=set(wanted.values()))
+            rows = unique.rows(field_key, wanted.values())
             rows = (
                 rows.filter(registry_id=registry_of(project))
                 if part.entry
                 else rows.filter(project=project)
             )
-            holders = dict(rows.values_list("value", "entity__hrid"))
+            holders = {
+                unique.text(v): hrid for v, hrid in rows.values_list("value", "entity__hrid")
+            }
             for index, value in wanted.items():
                 if value in holders:
                     whose = holders[value] if not part.entry else "another entry"
@@ -1877,13 +1878,14 @@ def _clashes(imported: SpreadsheetImport) -> list[dict[str, Any]]:
             wanted = {str(u[field_key]): row for row, u in found if u is not None}
             if not wanted:
                 continue
-            taken = UniqueValue.objects.filter(key=field_key, value__in=list(wanted))
+            taken = unique.rows(field_key, wanted)
             taken = (
                 taken.filter(registry_id=registry_of(imported.project))
                 if part.entry
                 else taken.filter(project=imported.project_id)
             )
-            for value, hrid in taken.values_list("value", "entity__hrid"):
+            for stored, hrid in taken.values_list("value", "entity__hrid"):
+                value = unique.text(stored)
                 out.append(
                     {
                         "row": wanted[value],

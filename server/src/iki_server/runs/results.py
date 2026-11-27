@@ -777,11 +777,12 @@ def _external_record(
         if target.entry_id is not None and shape(create.type).part_of(field).entry
         else target.pk
     )
-    other = (
+    held = (
         UniqueValue.objects.filter(entity_id=holder, key=key[0])
         .values_list("value", flat=True)
         .first()
     )
+    other = unique.text(held) if held is not None else None
     if other is None:
         return target
     owner = registry.identity_owner(registry.types()[create.type])

@@ -122,7 +122,10 @@ class _Schema:
             for item in declarations:
                 for rule in item.rules.values():
                     rules[rule.key] = rule
-                    scopes[rule.key] = item.table
+                    # A `within: registry` rule's fields are its entries' (ADR 0115).
+                    scopes[rule.key] = (
+                        naming.entry_table(item.table) if rule.within == "registry" else item.table
+                    )
                 retired.update(
                     {n: f for n, f in item.fields.items() if f.removed and f.type == "state"}
                 )

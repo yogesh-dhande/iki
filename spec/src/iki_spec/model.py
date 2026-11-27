@@ -67,6 +67,7 @@ __all__ = [
     "person_role",
     "plugin_from_dict",
     "plugin_to_dict",
+    "unique_rules",
     "workflow_from_dict",
 ]
 
@@ -142,8 +143,10 @@ class Field:
     #: ``conditions.WORDS_SEARCHED`` characters (ADR 0233). False for machine text, such as
     #: a Molfile, which gets no full-text index.
     searchable: bool = True
-    #: No two entities in a project share a value (ADR 0082); for a registry fact, no two
-    #: entries in a registry.
+    #: A key, such as another system's ID for the record (ADR 0082): it's found by its value,
+    #: a run's create can match on it, and it may link out. Its uniqueness is a one-field
+    #: rule (:func:`unique_rules`): no two records in a project share a value, or for a
+    #: registry's field, no two entries in a registry (ADR 0082).
     unique: bool = False
     #: Where the value leads in another system: a URL with `{value}` (ADR 0082).
     link: str | None = None
@@ -841,6 +844,11 @@ class Rule:
     when: str | None = None
     #: Fields no two of a project's records have the same values of, together.
     unique: tuple[str, ...] = ()
+    #: With ``unique``: where no two records share them, ``project`` (a project's records'
+    #: own fields) or ``registry`` (registry entries' fields, ADR 0115).
+    within: str = "project"
+    #: A field's ``unique: true``, as the rule it is (ADR 0082): named for the field.
+    from_field: bool = False
     #: The fields a range starts and ends at: no two of a project's records' ranges overlap.
     no_overlap: tuple[str, ...] = ()
     #: With ``no_overlap``: records' ranges overlap only if they have the same values of these.
@@ -894,6 +902,7 @@ class Rule:
             reference_revisions=tuple(sorted((data.get("reference_revisions") or {}).items())),
             recheck_before_signing=data.get("recheck_before_signing", False),
             unique=tuple(data.get("unique") or ()),
+            within=str(data.get("within") or "project"),
             no_overlap=(str(overlap.get("from", "")), str(overlap.get("to", "")))
             if isinstance(overlap, dict)
             else (),
@@ -909,6 +918,50 @@ class Rule:
             fields=tuple(data.get("fields") or ()),
             extension=extension,
         )
+
+
+def unique_rules(
+    fields: Mapping[str, Field],
+    plugin: str,
+    *,
+    identity: Collection[str] = (),
+    extension: bool = False,
+) -> dict[str, Rule]:
+    """The rule each field marked ``unique`` is (ADR 0082), named for the field: no two
+    records in a project share its value, or for a registry entry's field, no two entries
+    in a registry. The database holds it as it holds any ``unique`` rule (ADR 0127)."""
+    out = {}
+    for name, f in fields.items():
+        if not f.unique or f.removed:
+            continue
+        what = _lower_first(f.label or name.replace("_", " ").capitalize())
+        registry = in_entry(f, identity)
+        out[name] = Rule(
+            name=name,
+            label=f"Unique {what}",
+            plugin=plugin,
+            message=(
+                f"Each entry in a registry has its own {what}."
+                if registry
+                else f"Each record in a project has its own {what}."
+            ),
+            unique=(name,),
+            within="registry" if registry else "project",
+            from_field=True,
+            fields=(name,),
+            reads=(name,),
+            extension=extension,
+        )
+    return out
+
+
+def _lower_first(label: str) -> str:
+    """A label mid-sentence: ``Barcode`` → ``barcode``, but ``LIMS ID`` and ``ChEMBL ID``
+    as they are: a first word with capitals after its first is a name."""
+    first = label.split(" ", 1)[0]
+    if first[:1].isupper() and first[1:].islower():
+        return label[0].lower() + label[1:]
+    return label
 
 
 @dataclass(frozen=True)

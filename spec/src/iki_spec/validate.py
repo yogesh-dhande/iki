@@ -81,6 +81,7 @@ from iki_spec.model import (
     ReviewProcedure,
     ReviewSpec,
     RowRole,
+    Rule,
     Service,
     State,
     StockCatalogue,
@@ -99,6 +100,7 @@ from iki_spec.model import (
     reference_refinement,
     refinement,
     split_entry,
+    unique_rules,
 )
 from iki_spec.problems import Location, Path, Problem, Severity
 from iki_spec.writers import manifest as writer_manifest
@@ -512,14 +514,15 @@ def _read(root: FilePath) -> _Loaded:
             types[entity_type.qualified_name] = entity_type
             loaded.type_sources[entity_type.qualified_name] = document
         else:
+            added = _fields(body.get("fields", {}), name)
             extensions.append(
                 Extension(
                     plugin=name,
                     adds_to=qualify(body["adds_to"], name),
-                    fields=_fields(body.get("fields", {}), name),
+                    fields=added,
                     description=body.get("description"),
                     file=document.file,
-                    rules=rules.read(body.get("rules"), name, extension=True),
+                    rules=_rules(body, added, name, extension=True),
                 )
             )
             loaded.extension_sources.append(document)
@@ -821,6 +824,23 @@ def _schema_ok(document: Document, checker: _Checker) -> bool:
     return not issues
 
 
+def _rules(
+    body: dict[str, Any],
+    fields: dict[str, Field],
+    plugin: str,
+    *,
+    identity: tuple[str, ...] = (),
+    extension: bool = False,
+) -> dict[str, Rule]:
+    """A type's or extension's rules: those it declares, and the rule each of its unique
+    fields is (ADR 0082). A declared rule with a unique field's name is reported, and the
+    field's kept (``rule-name-taken``)."""
+    return {
+        **rules.read(body.get("rules"), plugin, extension=extension),
+        **unique_rules(fields, plugin, identity=identity, extension=extension),
+    }
+
+
 def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> EntityType:
     hrid = body.get("hrid") or {}
     name = body["name"]
@@ -870,7 +890,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         exports=tuple(_export(x, plugin) for x in body.get("exports") or ()),
         file=document.file,
         due=body.get("due"),
-        rules=rules.read(body.get("rules"), plugin),
+        rules=_rules(body, fields, plugin, identity=identity),
         draws=_draws(body.get("draws"), plugin),
         notifications={
             n: TypeNotification.from_manifest(n, x, plugin=plugin)
@@ -4348,16 +4368,6 @@ class _Semantics:
                 self.index(f, source, path)
             if f.link is not None:
                 self.link(f.link, source, (*path, "link"))
-            if f.unique and not f.indexed:
-                self.add(
-                    "unique-needs-index",
-                    "Unique fields must be indexed, so a value is found, and checked, with one "
-                    "lookup.",
-                    source,
-                    (*path, "unique"),
-                    key=True,
-                    hint="Add `indexed: true` and a `max_length`.",
-                )
         self.options(f, source, path)
         if f.type == "quantity":
             self.quantity(f, source, path)
