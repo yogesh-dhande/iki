@@ -25,7 +25,6 @@ newer than the dictionary, which the run names.
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
@@ -33,6 +32,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import iki_action as iki
 import structures
 
 MKDSSP = "mkdssp"
@@ -196,11 +196,5 @@ def assign(run: dict[str, Any]) -> dict[str, Any]:
     return {"updates": {"structure": updates}, "messages": messages}
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", **assign(run)}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(assign)

@@ -25,6 +25,14 @@ If you change the storage field or the action's location parameter, update
 `actions/assign_storage.yaml`, `scripts/storage.py` and `tests/storage.yaml`
 together.
 
+`scripts/storage.py` reads its run and writes what it changes with
+`scripts/iki_action.py`, Iki's action helper: `run.input("sample")`,
+`run.params`, `out.update(…)`, and `iki.Refused` for a reason the run's page
+shows. Keep the helper unchanged. `iki plugin vendor .` writes the version your
+Iki CLI has, and `iki plugin validate .` refuses a copy that was edited. Compare
+types with `iki.is_a(entity, "iki/protein.Protein")`, which a lab's own subtypes
+pass, never with `entity["type"] ==`.
+
 Use the Iki CLI and worker release that matches your deployment. Set
 `IKI_VERSION` in `.github/workflows/ci.yml` to the same version. Put the worker
 binary for your machine on `PATH`. The local worker runs the action with Python 3

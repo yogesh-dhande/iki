@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-11-15
 - Refines: [0046](0046-how-iki-worker-runs-a-command.md)
+- Extended by: [0287](0287-scripts-read-and-write-runs-with-one-vendored-helper.md),
+  an expected empty list or mapping passes for output that leaves it out
 
 ## Context
 

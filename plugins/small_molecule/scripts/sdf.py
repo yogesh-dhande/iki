@@ -32,6 +32,7 @@ from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import iki_action as iki
 from chemistry import (
     LIMITS,
     MAX_SYNONYMS,
@@ -44,20 +45,17 @@ from chemistry import (
     cas_number,
     compound_values,
     cut,
-    fail,
     from_smiles,
     given_as,
     labelled_salt,
     name_left_out,
     rdkit_messages,
-    run_input,
     standardise,
     stripped,
     unstated_equivalents,
     weight_withheld,
     whole_salts,
     why_not,
-    write_output,
 )
 from rdkit import Chem
 
@@ -609,16 +607,13 @@ def import_file(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    run = run_input()
+def imported(run: iki.Run) -> dict[str, Any]:
     given = run["files"][run["params"]["file"]]
     try:
-        output = import_file(run)
+        return import_file(run)
     except UnreadableError as why:
-        fail(f"{given['name']}: {why}")
-        return
-    write_output(output)
+        raise iki.Refused(f"{given['name']}: {why}") from None
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(imported)

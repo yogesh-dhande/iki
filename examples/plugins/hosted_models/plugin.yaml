@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: acme/hosted_models
-version: 0.2.0
+version: 0.2.1
 title: Hosted model adapter
 description: >-
   Predicts protein structures with a model behind an outside API: each run

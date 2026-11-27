@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/mouse_strains
-version: 0.3.0
+version: 0.3.1
 title: Mouse strains
 description: >-
   Register mouse strains and alleles by MGI accession, or local strains by the

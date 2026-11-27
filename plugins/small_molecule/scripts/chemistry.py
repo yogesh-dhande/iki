@@ -28,7 +28,6 @@ import logging
 import multiprocessing
 import os
 import re
-import sys
 import time
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
@@ -985,23 +984,6 @@ def batch_values(registered: Registered) -> dict[str, Any]:
 
 
 # --- The run's output ----------------------------------------------------------------------------
-
-
-def run_input() -> dict[str, Any]:
-    loaded: dict[str, Any] = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    return loaded
-
-
-def fail(why: str) -> None:
-    print(f"::error {why}", flush=True)
-    sys.exit(1)
-
-
-def write_output(output: dict[str, Any]) -> None:
-    text = json.dumps({"apiVersion": "iki/v1", "kind": "RunOutput", **output})
-    if len(text.encode("utf-8")) > MAX_OUTPUT_BYTES:
-        fail("What it registers is over the 2.5 MB a run's output holds: give it fewer at once.")
-    Path(os.environ["IKI_OUTPUT"]).write_text(text, encoding="utf-8")
 
 
 class Creates:

@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import csv
-import json
 import math
-import os
 import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import iki_action as iki
 from Bio.SeqUtils import molecular_weight
 
 # Average atomic weights: CIAAW abridged standard atomic weights, https://ciaaw.org/abridged-atomic-weights.htm.
@@ -79,7 +78,7 @@ def glycan_mass(composition: dict[str, int], basis: str) -> float:
 
 
 def identity(record: dict[str, Any]) -> str:
-    return str(record.get("entry_id") or record["id"])
+    return str(iki.ref(record))
 
 
 def chains_of(antibody: dict[str, Any]) -> tuple[dict[str, str], int, list[dict[str, Any]]]:
@@ -302,8 +301,6 @@ def result(run: dict[str, Any]) -> dict[str, Any]:
     )
     parents = [row for row in (antibody, adc, lot) if row]
     return {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
         "creates": [
             {
                 "type": "iki/biologics_ms.MSResult",
@@ -332,15 +329,5 @@ def result(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        document = json.dumps(result(run), allow_nan=False)
-    except (ValueError, OSError, csv.Error) as exc:
-        print(f"::error {exc}", flush=True)
-        raise SystemExit(1) from None
-    Path(os.environ["IKI_OUTPUT"]).write_text(document, encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(result, refuse=(ValueError, OSError, csv.Error))

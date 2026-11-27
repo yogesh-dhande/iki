@@ -1,9 +1,8 @@
 """Copy the revisions the worker actually read into an experiment's signed evidence."""
 
-import json
-import os
-from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 
 def capture(run: dict[str, Any]) -> dict[str, Any]:
@@ -42,8 +41,6 @@ def capture(run: dict[str, Any]) -> dict[str, Any]:
             pin.update(entry_id=entry_id, entry_revision=entry_revision)
         pins.append(pin)
     return {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
         "updates": {
             "experiment": [
                 {
@@ -60,15 +57,5 @@ def capture(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        output = capture(run)
-    except ValueError as error:
-        print(f"::error {error}", flush=True)
-        raise SystemExit(1) from error
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(capture, refuse=ValueError)

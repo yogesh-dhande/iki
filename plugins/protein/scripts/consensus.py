@@ -34,14 +34,13 @@ T alphabet.
 
 from __future__ import annotations
 
-import json
-import os
 import re
-import sys
 from collections import Counter
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, NoReturn
+
+import iki_action as iki
 
 #: What each IUPAC base code stands for.
 BASES: dict[str, str] = {
@@ -83,8 +82,7 @@ MAX_CELLS = 100_000_000
 
 
 def fail(why: str) -> NoReturn:
-    print(f"::error {why}", flush=True)
-    sys.exit(1)
+    raise iki.Refused(why)
 
 
 def read_fasta(path: Path) -> list[tuple[str, str]]:
@@ -266,18 +264,10 @@ def consensus(run: dict[str, Any], alphabet: str) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    alphabet = sys.argv[1] if len(sys.argv) > 1 else ""
-    if alphabet not in ("nucleotide", "protein"):
-        fail(f"consensus.py reads nucleotide or protein alignments, not {alphabet!r}.")
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    output = {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
-        **consensus(run, alphabet),
-    }
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(
+        {
+            "nucleotide": lambda run: consensus(run, "nucleotide"),
+            "protein": lambda run: consensus(run, "protein"),
+        }
+    )

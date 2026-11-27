@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import csv
 import gzip
-import json
-import os
 import re
 import sys
 import zlib
@@ -13,6 +11,8 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 PREVIEW_ROWS = 12
 FORMATS = ("vcf", "counts", "airr")
@@ -291,8 +291,6 @@ def result(run: dict[str, Any], artifact: Path, format_: str) -> dict[str, Any]:
             summary = rearrangement_rows(lines, repertoire, writer)
     parents = [row for row in (library, sequencing_run, material) if row]
     return {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
         "creates": [
             {
                 "type": "iki/sequencing_analysis.SequencingAnalysisResult",
@@ -301,7 +299,7 @@ def result(run: dict[str, Any], artifact: Path, format_: str) -> dict[str, Any]:
                     "library": library["id"],
                     "sample": library["values"]["sample"],
                     "run": sequencing_run["id"] if sequencing_run else None,
-                    "material": (material.get("entry_id") or material["id"]) if material else None,
+                    "material": iki.ref(material) if material else None,
                     "report": file_id,
                     "report_sha256": report["sha256"],
                     "format": format_,
@@ -321,17 +319,9 @@ def result(run: dict[str, Any], artifact: Path, format_: str) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    output = Path(os.environ["IKI_OUTPUT"])
-    artifacts = Path(os.environ["IKI_OUT_DIR"])
-    try:
-        document = result(run, artifacts / "selected.tsv", sys.argv[1] if len(sys.argv) > 1 else "")
-    except (ValueError, OSError, EOFError, zlib.error) as error:
-        print(f"::error {error}", flush=True)
-        raise SystemExit(1) from None
-    output.write_text(json.dumps(document, allow_nan=False), encoding="utf-8")
+def import_report(run: iki.Run) -> dict[str, Any]:
+    return result(run, run.out_dir / "selected.tsv", sys.argv[1] if len(sys.argv) > 1 else "")
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(import_report, refuse=(ValueError, OSError, EOFError, zlib.error))

@@ -54,14 +54,12 @@ both a base deleted and that base changed. The rows show them where the aligner 
 from __future__ import annotations
 
 import csv
-import json
-import os
 import re
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NoReturn
 
+import iki_action as iki
 from Bio import Align, SeqIO
 from Bio.Seq import Seq
 
@@ -91,8 +89,7 @@ IUPAC = {
 
 
 def fail(why: str) -> NoReturn:
-    print(f"::error {why}", flush=True)
-    sys.exit(1)
+    raise iki.Refused(why)
 
 
 @dataclass
@@ -861,15 +858,5 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    output = {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
-        **align(run, Path(os.environ["IKI_OUT_DIR"])),
-    }
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(lambda run: align(run, run.out_dir))

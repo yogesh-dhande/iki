@@ -22,7 +22,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from chemistry import Messages, UnreadableError, fail, from_smiles, run_input, write_output
+import iki_action as iki
+from chemistry import Messages, UnreadableError, from_smiles
 from rdkit import Chem
 from rdkit.Chem import rdDistGeom, rdForceFieldHelpers
 
@@ -131,14 +132,12 @@ def generate(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def main() -> None:
+def conformers(run: iki.Run) -> dict[str, Any]:
     try:
-        output = generate(run_input())
+        return generate(run)
     except UnreadableError as why:
-        fail(f"{why}.")
-        return
-    write_output(output)
+        raise iki.Refused(f"{why}.") from None
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(conformers)

@@ -1,8 +1,8 @@
 """`design_guides`: where a CRISPR nuclease can cut a sequence, and how particular each
 place is (ADR 0205).
 
-It reads the run input from $IKI_INPUT, reports progress with `::progress` lines, and
-writes its results to $IKI_OUTPUT, as every action's command does.
+It reads the run and writes its results with Iki's action helper, iki_action.py, and
+reports progress with `::progress` lines.
 
 `scripts/guides.py` is the science: the motifs, the cut sites, what is known to make a
 guide work less well, and the off-target search and its scoring. What this does is the
@@ -11,13 +11,10 @@ run: read the design, give the search the sequences it names, and record the gui
 
 from __future__ import annotations
 
-import json
-import os
-import sys
-from pathlib import Path
 from typing import Any
 
 import guides
+import iki_action as iki
 
 #: Each nuclease's own protospacer length, used where a design doesn't name one.
 DEFAULT_SPACER = {"spcas9": 20, "sacas9": 21, "ascas12a": 23, "fncas12a": 23}
@@ -219,17 +216,5 @@ def run(given: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    given = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        found = run(given)
-    except (Stop, guides.Nothing) as why:
-        print(f"::error {why}", flush=True)
-        sys.exit(1)
-    Path(os.environ["IKI_OUTPUT"]).write_text(
-        json.dumps({"apiVersion": "iki/v1", "kind": "RunOutput", **found}), encoding="utf-8"
-    )
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(run, refuse=(Stop, guides.Nothing))

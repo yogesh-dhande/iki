@@ -4,8 +4,8 @@
 """The protein plugin's sequence calculations: `properties` for proteins, `translate` for
 DNA sequences.
 
-It reads the run input from $IKI_INPUT, reports progress with `::progress` lines, and
-writes its results to $IKI_OUTPUT, as every action's command does.
+It reads the run and writes its results with Iki's action helper, iki_action.py, and
+reports progress with `::progress` lines.
 
 Properties are Biopython's ProtParam, which follows ExPASy's ProtParam tool:
 
@@ -47,14 +47,11 @@ have ended it (an ambiguous one, such as TAR, too), and can't stop at the first 
 
 from __future__ import annotations
 
-import json
-import os
-import sys
 import warnings
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
+import iki_action as iki
 from Bio import BiopythonWarning
 from Bio.Data import CodonTable
 from Bio.Seq import Seq
@@ -205,7 +202,7 @@ def compute_properties(run: dict[str, Any]) -> dict[str, Any]:
             messages.append({"level": "warning", "text": warning, "entity": entity["id"]})
         shown = {k: v for k, v in values.items() if k != "hydropathy"}
         print(f"{entity['hrid']}: {', '.join(f'{k} {v}' for k, v in shown.items())}")
-        print(f"::progress {done / len(entities):.2f} {done} of {len(entities)}", flush=True)
+        iki.progress(done / len(entities), f"{done} of {len(entities)}")
     return {"updates": {"protein": updates}, "messages": messages}
 
 
@@ -304,18 +301,15 @@ def translate(run: dict[str, Any]) -> dict[str, Any]:
     try:
         name = str(code(table).names[0])
     except ValueError as why:
-        print(f"::error {why}", flush=True)
-        sys.exit(1)
+        raise iki.Refused(str(why)) from None
     either = dual(table)
     if either and to_stop:
         shown = ", ".join(f"{c} ({either[c]} or a stop)" for c in sorted(either))
-        print(
-            f"::error In NCBI's genetic code {table}, {shown} can end a protein or code for an "
+        raise iki.Refused(
+            f"In NCBI's genetic code {table}, {shown} can end a protein or code for an "
             "amino acid, by where it is, so it can't stop at the first stop codon: translate "
-            "it as a complete coding sequence, or keep each stop codon.",
-            flush=True,
+            "it as a complete coding sequence, or keep each stop codon."
         )
-        sys.exit(1)
     sign = "+" if strand == "forward" else "-"
     entities = run["inputs"]["sequence"]
     creates = []
@@ -336,7 +330,7 @@ def translate(run: dict[str, Any]) -> dict[str, Any]:
                 }
             )
             print(f"{entity['hrid']}: not a complete coding sequence")
-            print(f"::progress {done / len(entities):.2f} {done} of {len(entities)}", flush=True)
+            iki.progress(done / len(entities), f"{done} of {len(entities)}")
             continue
         if not sequence.replace("*", ""):
             if len(frame_of(bases, strand, frame)) < 3:
@@ -393,17 +387,9 @@ def translate(run: dict[str, Any]) -> dict[str, Any]:
                 {"type": "iki/protein.Protein", "values": values, "derived_from": [entity["id"]]}
             )
             print(f"{entity['hrid']}: {len(sequence.replace('*', '')):,} residues")
-        print(f"::progress {done / len(entities):.2f} {done} of {len(entities)}", flush=True)
+        iki.progress(done / len(entities), f"{done} of {len(entities)}")
     return {"creates": creates, "messages": messages}
 
 
-def main() -> None:
-    kind = sys.argv[1]
-    compute = {"properties": compute_properties, "translate": translate}[kind]
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", **compute(run)}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main({"properties": compute_properties, "translate": translate})

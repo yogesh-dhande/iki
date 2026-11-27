@@ -104,7 +104,7 @@ def test_selected_rows_use_the_worker_artifact_directory(tmp_path, monkeypatch):
     monkeypatch.setenv("IKI_OUT_DIR", str(artifacts))
     monkeypatch.setattr("sys.argv", ["import_result.py", "counts"])
 
-    SCRIPT["main"]()
+    SCRIPT["iki"].main(SCRIPT["import_report"])
 
     assert output.is_file()
     assert (artifacts / "selected.tsv").read_text().splitlines()[1] == "YDL248W\t679"

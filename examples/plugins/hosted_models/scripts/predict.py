@@ -16,6 +16,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+import iki_action as iki
+
 API = os.environ.get("IKI_API_FOLDCLOUD_URL", "")
 
 
@@ -32,7 +34,7 @@ def call(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str
             return found
     except urllib.error.HTTPError as error:
         said = error.read().decode("utf-8", "replace")[:500]
-        raise SystemExit(f"FoldCloud answered {error.code}: {said}") from None
+        raise iki.Refused(f"FoldCloud answered {error.code}: {said}") from None
 
 
 def submit(run: dict[str, Any]) -> dict[str, Any]:
@@ -170,13 +172,9 @@ def finish(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text())
-    output = finish(run) if run.get("resume") else submit(run)
-    Path(os.environ["IKI_OUTPUT"]).write_text(
-        json.dumps({"apiVersion": "iki/v1", "kind": "RunOutput", **output})
-    )
+def predict(run: iki.Run) -> dict[str, Any]:
+    return finish(run) if run.get("resume") else submit(run)
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(predict)

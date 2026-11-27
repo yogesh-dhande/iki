@@ -1,8 +1,8 @@
 """The DNA plugin's sequence calculations: `composition` for DNA sequences, `primers` for
 primers.
 
-It reads the run input from $IKI_INPUT, reports progress with `::progress` lines, and
-writes its results to $IKI_OUTPUT, as every action's command does.
+It reads the run and writes its results with Iki's action helper, iki_action.py, and
+reports progress with `::progress` lines.
 
 GC content counts G, C and S (G or C) among the bases whose pairing is known (A, C,
 G, T, U, S and W); other IUPAC codes, such as N, are left out of it. A sequence with
@@ -25,14 +25,12 @@ with another copy of itself, how firmly its 3' end sits and its longest run of o
 are computed by the packaged checks module (ADR 0201, `oligos.py`), not here.
 """
 
-import json
 import math
-import os
-import sys
 from functools import cache
 from pathlib import Path
 from typing import Any
 
+import iki_action as iki
 import oligos
 import wasmtime
 
@@ -140,24 +138,21 @@ def primers(entities: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def main() -> None:
-    kind = sys.argv[1]
+def compute(kind: str, run: iki.Run) -> iki.Output:
     name = {"composition": "sequence", "primers": "primer"}[kind]
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    entities = run["inputs"][name]
+    entities = run.inputs(name)
     computed = (
         primers(entities)
         if kind == "primers"
         else [composition(entity["values"]["bases"]) for entity in entities]
     )
-    updates = []
+    out = run.output()
     for done, (entity, values) in enumerate(zip(entities, computed, strict=True), start=1):
-        updates.append({"entity": entity["id"], "values": values})
+        out.update(name, entity, values)
         print(f"{entity['hrid']}: {', '.join(f'{k} {v}' for k, v in values.items())}")
-        print(f"::progress {done / len(entities):.2f} {done} of {len(entities)}")
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", "updates": {name: updates}}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
+        iki.progress(done / len(entities), f"{done} of {len(entities)}")
+    return out
 
 
 if __name__ == "__main__":
-    main()
+    iki.main({kind: lambda run, k=kind: compute(k, run) for kind in ("composition", "primers")})

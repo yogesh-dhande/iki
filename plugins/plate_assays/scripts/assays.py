@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-import json
-import os
-import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid5
 
+import iki_action as iki
 from reader import FORMATS, preview_reader
 
 PLUGIN = "iki/plate_assays"
@@ -70,11 +68,7 @@ def reader_output(run: dict[str, Any], *, commit: bool) -> dict[str, Any]:
         "request": values.get("request"),
     }
     updated: dict[str, Any] = {"entity": plate["id"], "require_unchanged": True}
-    output: dict[str, Any] = {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
-        "updates": {"plate": [updated]},
-    }
+    output: dict[str, Any] = {"updates": {"plate": [updated]}}
     if not commit:
         updated["values"] = {"preview": preview}
         return output
@@ -166,7 +160,7 @@ def series(run: dict[str, Any]) -> dict[str, Any]:
     """
     read = run["inputs"]["read"][0]
     sample_record = run["inputs"]["sample"][0]
-    reference_id = sample_record.get("entry_id", sample_record["id"])
+    reference_id = iki.ref(sample_record)
     read_values = read["values"]
     if not read_values.get("import_key"):
         raise ValueError("Choose a plate read created by the reader commit action.")
@@ -273,8 +267,6 @@ def fit_output(run: dict[str, Any]) -> dict[str, Any]:
         result["request"] = request
     read, sample = run["inputs"]["read"][0]["id"], run["inputs"]["sample"][0]["id"]
     return {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
         "creates": [
             {
                 "type": f"{PLUGIN}.{kind}",
@@ -285,19 +277,12 @@ def fit_output(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        action = sys.argv[1]
-        output = (
-            fit_output(run) if action == "fit" else reader_output(run, commit=action == "commit")
-        )
-        rendered = json.dumps(output, allow_nan=False)
-    except (ValueError, OSError) as error:
-        print(f"::error {error}", flush=True)
-        sys.exit(1)
-    Path(os.environ["IKI_OUTPUT"]).write_text(rendered, encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(
+        {
+            "fit": fit_output,
+            "preview": lambda run: reader_output(run, commit=False),
+            "commit": lambda run: reader_output(run, commit=True),
+        },
+        refuse=(ValueError, OSError),
+    )

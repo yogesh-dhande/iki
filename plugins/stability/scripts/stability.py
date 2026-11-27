@@ -8,13 +8,11 @@ start in calendar months, weeks or days (ADR 0243)."""
 from __future__ import annotations
 
 import calendar
-import json
 import math
-import os
-import sys
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 PLUGIN = "iki/stability"
 FLOWS = {"research", "regulated_qc"}
@@ -28,7 +26,7 @@ def anniversary(start: date, months: int) -> date:
 
 
 def output(**effects: object) -> dict[str, Any]:
-    return {"apiVersion": "iki/v1", "kind": "RunOutput", **effects}
+    return dict(effects)
 
 
 def due_date(start: date, interval: int, unit: str) -> date:
@@ -243,16 +241,8 @@ def measure(run: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def main() -> None:
-    args = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        action = {"schedule": schedule, "measure": measure}[sys.argv[1]]
-        rendered = json.dumps(action(args), allow_nan=False)
-    except (ValueError, KeyError, OSError, OverflowError) as error:
-        print(f"::error {error}", flush=True)
-        sys.exit(1)
-    Path(os.environ["IKI_OUTPUT"]).write_text(rendered, encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(
+        {"schedule": schedule, "measure": measure},
+        refuse=(ValueError, KeyError, OSError, OverflowError),
+    )

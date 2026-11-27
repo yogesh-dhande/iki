@@ -6,7 +6,6 @@ import csv
 import gzip
 import json
 import math
-import os
 import re
 import zlib
 from collections import Counter, defaultdict
@@ -14,6 +13,8 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 MISSING = {"", "null", "na", "nan", "n/a"}
 PREVIEW_ROWS = 12
@@ -360,7 +361,7 @@ def mztab_identification(row: dict[str, Any], exclusion: str) -> tuple[str, ...]
 
 
 def identity(record: dict[str, Any]) -> str:
-    return str(record.get("entry_id") or record["id"])
+    return str(iki.ref(record))
 
 
 def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
@@ -445,8 +446,6 @@ def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
             )
     values = dataset["values"]
     return {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
         "creates": [
             {
                 "type": "iki/proteomics.ProteomicsResult",
@@ -481,17 +480,9 @@ def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    output = Path(os.environ["IKI_OUTPUT"])
-    artifacts = Path(os.environ["IKI_OUT_DIR"])
-    try:
-        document = result(run, artifacts / "identifications.jsonl")
-    except (EOFError, OSError, ValueError, zlib.error) as error:
-        print(f"::error {error}", flush=True)
-        raise SystemExit(1) from None
-    output.write_text(json.dumps(document, allow_nan=False), encoding="utf-8")
+def import_report(run: iki.Run) -> dict[str, Any]:
+    return result(run, run.out_dir / "identifications.jsonl")
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(import_report, refuse=(EOFError, OSError, ValueError, zlib.error))

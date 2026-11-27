@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+import iki_action as iki
 from chemistry import (
     LIMITS,
     Creates,
@@ -25,13 +26,10 @@ from chemistry import (
     batch_values,
     compound_values,
     cut,
-    fail,
     from_smiles,
     name_left_out,
-    run_input,
     standardise,
     weight_withheld,
-    write_output,
 )
 
 MAX_LINES = 5_000
@@ -131,14 +129,5 @@ def register(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    try:
-        output = register(run_input())
-    except UnreadableError as why:
-        fail(str(why))
-        return
-    write_output(output)
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(register, refuse=UnreadableError)

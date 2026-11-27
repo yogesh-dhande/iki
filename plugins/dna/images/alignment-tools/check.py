@@ -45,7 +45,9 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         Path(tmp, "input.json").write_text(json.dumps(run), encoding="utf-8")
         done = subprocess.run(
-            [sys.executable, "-I", "/scripts/multiple.py"],
+            # As the worker runs it: its own directory first, where it finds the plugin's
+            # iki_action.py (which -I's safe path would leave out); no environment's paths.
+            [sys.executable, "-E", "-s", "/scripts/multiple.py"],
             env={
                 **os.environ,
                 "IKI_INPUT": f"{tmp}/input.json",

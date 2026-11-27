@@ -1,7 +1,7 @@
 """The protein plugin's imports: reads proteins from a FASTA file.
 
-It reads the run input from $IKI_INPUT and writes the proteins to create, each with
-where it came from, to $IKI_OUTPUT, as every action's command does. A record that
+It reads the run and writes the proteins to create, each with where it came from, with
+Iki's action helper, iki_action.py. A record that
 can't be read fails the whole import with a `::error` line that says which and why,
 so nothing is half imported.
 
@@ -26,10 +26,11 @@ import hashlib
 import json
 import os
 import re
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO
+
+import iki_action as iki
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -271,8 +272,7 @@ def read(path: Path, counted: list[int]) -> Iterator[Record]:
     return fasta(every())
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
+def import_file(run: iki.Run) -> dict[str, Any]:
     file_id = run["params"]["file"]
     given = run["files"][file_id]
     size = max(int(given.get("size") or 0), 1)
@@ -296,12 +296,12 @@ def main() -> None:
             found["sha256"] = hashlib.sha256(record.text.encode("utf-8")).hexdigest()
             return found
 
-        count = finish(records, origin, lambda: done[0] / size)
-        if not count:
+        output = finish(records, origin, lambda: done[0] / size)
+        if not output["metrics"]["records"]:
             raise UnreadableError("It holds no records.")
     except UnreadableError as why:
-        print(f"::error {given['name']}: {why}", flush=True)
-        sys.exit(1)
+        raise iki.Refused(f"{given['name']}: {why}") from None
+    return output
 
 
 class _Creates:
@@ -347,8 +347,8 @@ def finish(
     records: Iterable[Record],
     origin: Callable[[Record], dict[str, Any]],
     progress: Callable[[], float] | None = None,
-) -> int:
-    """Writes the proteins to create, each with where it came from, to $IKI_OUTPUT (or,
+) -> dict[str, Any]:
+    """The run's output: the proteins to create, each with where it came from (or,
     past a thousand, to a creates file it names). Returns how many."""
     creates = _Creates()
     messages: list[dict[str, str]] = []
@@ -380,16 +380,8 @@ def finish(
         )
     if done:
         print(f"::progress 1.00 {done:,} records", flush=True)
-    output = {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
-        **creates.output(),
-        "metrics": {"records": done},
-        "messages": messages,
-    }
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
-    return done
+    return {**creates.output(), "metrics": {"records": done}, "messages": messages}
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(import_file)

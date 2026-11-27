@@ -1,9 +1,9 @@
 """A complex's formula, masses and chain count, from its parts: `compute_composition`.
 
-It reads the run input from $IKI_INPUT and writes its results to $IKI_OUTPUT, as every
-action's command does. A run that can't do what it was asked says why in an `::error`
-line and exits 1; a run of several complexes that can compute some says why it can't
-compute the others in an error about each, which fails that one's run alone (ADR 0055).
+It reads the run and writes its results with Iki's action helper, iki_action.py. A run
+that can't do what it was asked says why in an `::error` line and exits 1; a run of
+several complexes that can compute some says why it can't compute the others in an error
+about each, which fails that one's run alone (ADR 0055).
 
 A complex is its parts, each with its copies (iki/core.Complex, ADR 0161), so its
 formula is theirs, each times its copies:
@@ -62,13 +62,11 @@ everything about its complex, the longest shortened to fit, all of it in the run
 
 from __future__ import annotations
 
-import json
-import os
 import re
-import sys
 from collections import Counter
-from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 #: Each residue's formula in a chain (the amino acid less a water), as C, H, N, O, S, Se.
 RESIDUES: dict[str, dict[str, int]] = {
@@ -154,8 +152,7 @@ MAX_MESSAGES = 100
 CUT = " The rest is in the run's log."
 
 
-class RefusedError(Exception):
-    """What a run can't do, and why."""
+RefusedError = iki.Refused
 
 
 def _label(entity: dict[str, Any]) -> str:
@@ -311,7 +308,7 @@ def _part(part: dict[str, Any]) -> tuple[Counter[str], int, int | None, list[str
         ) from None
     if values.get("chain_count") is not None:
         chains = int(values["chain_count"])
-    elif part.get("type") == "iki/oligo.Duplex" or values.get("strandedness") == "double":
+    elif iki.is_a(part, "iki/oligo.Duplex") or values.get("strandedness") == "double":
         chains = 2
     else:
         # A part with residues is a chain of them: a protein's, a nucleic acid's, an
@@ -560,16 +557,5 @@ def compute(run: dict[str, Any]) -> dict[str, Any]:
     return {"updates": {"complex": updates}, "messages": messages[:MAX_MESSAGES]}
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        result = compute(run)
-    except RefusedError as why:
-        print(f"::error {why}", flush=True)
-        sys.exit(1)
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", **result}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(compute)

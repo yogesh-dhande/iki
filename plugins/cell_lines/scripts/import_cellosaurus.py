@@ -1,11 +1,9 @@
 """Register one Cellosaurus record, with the supplier reference on the material."""
 
 import hashlib
-import json
-import os
 import re
-import sys
-from pathlib import Path
+
+import iki_action as iki
 
 
 def parental_line(data: bytes, supplier: str | None, catalogue_id: str | None) -> dict[str, str]:
@@ -35,42 +33,29 @@ def parental_line(data: bytes, supplier: str | None, catalogue_id: str | None) -
     raise ValueError("The supplier and catalogue ID do not occur together in this record.")
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    params = run["params"]
+def register(run: iki.Run) -> iki.Output:
+    params = run.params
     file_id = params["file"]
-    data = Path(run["files"][file_id]["path"]).read_bytes()
-    try:
-        supplier = (params.get("supplier") or "").strip() or None
-        catalogue_id = (params.get("catalogue_id") or "").strip() or None
-        values = parental_line(data, supplier, catalogue_id)
-    except ValueError as error:
-        print(f"::error {error}", flush=True)
-        sys.exit(1)
+    data = run.file(file_id).read_bytes()
+    supplier = (params.get("supplier") or "").strip() or None
+    catalogue_id = (params.get("catalogue_id") or "").strip() or None
+    values = parental_line(data, supplier, catalogue_id)
     origin = {
         "source": "Cellosaurus",
         "id": values["cellosaurus_id"],
         "file": file_id,
         "sha256": hashlib.sha256(data).hexdigest(),
     }
-    creates = [
-        {"type": "iki/cell_lines.ParentalLine", "key": "line", "values": values, "origin": origin}
-    ]
+    out = run.output()
+    line = out.create("ParentalLine", values, key="line", origin=origin)
     if supplier is not None:
-        creates.append(
-            {
-                "type": "iki/cell_lines.CellLineSource",
-                "values": {
-                    "supplier": supplier,
-                    "catalogue_id": catalogue_id,
-                    "line": {"$create": "line"},
-                },
-                "origin": origin,
-            }
+        out.create(
+            "CellLineSource",
+            {"supplier": supplier, "catalogue_id": catalogue_id, "line": line},
+            origin=origin,
         )
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", "creates": creates}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
+    return out
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(register, refuse=ValueError)

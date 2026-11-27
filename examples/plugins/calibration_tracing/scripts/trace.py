@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import sys
 from bisect import bisect_right
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 SIGNED = frozenset({"signed_off", "released"})
 RFC3339 = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})")
@@ -104,16 +104,5 @@ def trace(run: Record) -> list[Record]:
     return impacts
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        creates = trace(run)
-    except (ValueError, KeyError) as error:
-        sys.stderr.write(f"::error {error}\n")
-        raise SystemExit(1) from None
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", "creates": creates}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(lambda run: {"creates": trace(run)}, refuse=(ValueError, KeyError))

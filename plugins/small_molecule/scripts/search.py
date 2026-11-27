@@ -17,20 +17,17 @@ from __future__ import annotations
 
 import csv
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
+import iki_action as iki
 from chemistry import (
     Messages,
     UnreadableError,
     cut,
-    fail,
     from_smiles,
     rdkit_messages,
-    run_input,
     why_not,
-    write_output,
 )
 from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
@@ -155,15 +152,15 @@ def substructure(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    search = {"similar": similar, "substructure": substructure}[sys.argv[1]]
-    try:
-        output = search(run_input())
-    except UnreadableError as why:
-        fail(f"{why}.")
-        return
-    write_output(output)
+def refusing(search: Any) -> Any:  # noqa: ANN401 - a search, as an action
+    def run_search(run: iki.Run) -> dict[str, Any]:
+        try:
+            return search(run)
+        except UnreadableError as why:
+            raise iki.Refused(f"{why}.") from None
+
+    return run_search
 
 
 if __name__ == "__main__":
-    main()
+    iki.main({"similar": refusing(similar), "substructure": refusing(substructure)})

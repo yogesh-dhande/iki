@@ -21,7 +21,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from http.client import HTTPMessage
-from pathlib import Path
 from typing import IO, Any
 
 ATTEMPTS = 4
@@ -30,11 +29,6 @@ MAX_BYTES = 64 * 1024**2
 
 class LimsError(Exception):
     """Something the run's page should say, as its error."""
-
-
-def run_input() -> dict[str, Any]:
-    data: dict[str, Any] = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    return data
 
 
 def host(run: dict[str, Any]) -> str:

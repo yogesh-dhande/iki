@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import gzip
-import json
-import os
 import re
 import zlib
 from collections.abc import Iterator
@@ -13,6 +11,8 @@ from dataclasses import dataclass
 from itertools import zip_longest
 from pathlib import Path
 from typing import Any, BinaryIO
+
+import iki_action as iki
 
 # Cock et al. (2010), Table 1, Sanger FASTQ, https://doi.org/10.1093/nar/gkp1137.
 PHRED_OFFSET = 33
@@ -142,8 +142,6 @@ def summarize(run: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("the two mate files have identical content.")
     summaries = statistics(*(Path(file["path"]) for file in files))
     return {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
         "creates": [
             {
                 "type": "iki/sequencing.FASTQSummary",
@@ -167,15 +165,12 @@ def summarize(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
+def summary(run: iki.Run) -> dict[str, Any]:
     try:
-        output = summarize(run)
+        return summarize(run)
     except (EOFError, OSError, ValueError, zlib.error) as exc:
-        print(f"::error Cannot summarize FASTQ: {exc}", flush=True)
-        raise SystemExit(1) from None
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
+        raise iki.Refused(f"Cannot summarize FASTQ: {exc}") from None
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(summary)

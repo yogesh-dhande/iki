@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/cell_lines
-version: 0.6.0
+version: 0.6.1
 title: Cell lines
 description: >-
   Registers parental lines, catalogued or the lab's own, and engineered

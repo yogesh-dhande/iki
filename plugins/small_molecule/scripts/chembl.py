@@ -29,6 +29,7 @@ import urllib.parse
 from datetime import UTC, datetime
 from typing import Any
 
+import iki_action as iki
 from chemistry import (
     LIMITS,
     MAX_SYNONYMS,
@@ -37,11 +38,8 @@ from chemistry import (
     UnreadableError,
     compound_values,
     cut,
-    fail,
     from_smiles,
-    run_input,
     standardise,
-    write_output,
 )
 from fetching import ANY_INCHIKEY, NotFound, get_json, identifiers
 
@@ -172,14 +170,5 @@ def fetch(run: dict[str, Any]) -> dict[str, Any]:
     return {**creates.output(), "metrics": {"compounds": len(seen)}, "messages": messages.output()}
 
 
-def main() -> None:
-    try:
-        output = fetch(run_input())
-    except UnreadableError as why:
-        fail(str(why))
-        return
-    write_output(output)
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(fetch, refuse=UnreadableError)

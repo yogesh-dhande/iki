@@ -2,25 +2,23 @@
 codes the `reference` environment's setup wrote to its volume, read-only here."""
 
 import json
-import os
 from pathlib import Path
+
+import iki_action as iki
 
 CODES = Path("/data/storage-codes/codes.json")
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
+def decode(run: iki.Run) -> iki.Output:
     codes = json.loads(CODES.read_text(encoding="utf-8"))
-    samples = run["inputs"]["sample"]
-    updates = []
-    for sample in samples:
-        storage = sample["values"].get("storage") or ""
+    out = run.output()
+    for sample in run.inputs("sample"):
+        storage = sample.values.get("storage") or ""
         wanted = codes.get(storage.strip().lower())
         if wanted and wanted != storage:
-            updates.append({"entity": sample["id"], "values": {"storage": wanted}})
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", "updates": {"sample": updates}}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
+            out.update("sample", sample, {"storage": wanted})
+    return out
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(decode)

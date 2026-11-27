@@ -105,6 +105,8 @@ def test_store_sample(
         }
         interpreter, script = action["command"]
         assert interpreter == "python"
+        # A script imports its plugin's iki_action.py, beside it, as the worker runs it.
+        monkeypatch.syspath_prepend(str((PLUGIN / script).parent))
         spec = importlib.util.spec_from_file_location(action["name"], PLUGIN / script)
         assert spec and spec.loader
         module = importlib.util.module_from_spec(spec)
@@ -119,10 +121,11 @@ def test_store_sample(
         assert schemas.check("run-input", run) == []
         given.write_text(json.dumps(run), encoding="utf-8")
         output.unlink(missing_ok=True)
-        module.main()
+        # As `python scripts/<step>.py` runs it, with the helper reading and writing.
+        module.iki.main(getattr(module, step))
         result = json.loads(output.read_text(encoding="utf-8"))
         assert schemas.check("run-output", result) == []
-        updates = result["updates"]["sample"]
+        updates = result.get("updates", {}).get("sample", [])
         if sample["values"].get("storage") == wanted:
             assert updates == []
         else:

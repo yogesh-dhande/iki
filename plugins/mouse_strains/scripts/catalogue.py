@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import hashlib
-import json
-import os
 from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 
 def read_strain(path: Path, accession: str) -> tuple[str, str]:
@@ -33,11 +33,12 @@ def register(run: dict[str, Any]) -> dict[str, Any]:
     params = run["params"]
     file_id = params["file"]
     accession = params["mgi_id"]
-    name, digest = read_strain(Path(run["files"][file_id]["path"]), accession)
+    try:
+        name, digest = read_strain(Path(run["files"][file_id]["path"]), accession)
+    except ValueError as error:
+        raise iki.Refused(str(error)) from None
     values = {"catalogue": "mgi", "mgi_id": accession, "nomenclature": name}
     return {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
         "creates": [
             {
                 "type": "iki/mouse_strains.MouseStrain",
@@ -54,10 +55,4 @@ def register(run: dict[str, Any]) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        output = register(run)
-    except ValueError as error:
-        print(f"::error {error}", flush=True)
-        raise SystemExit(1) from None
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
+    iki.main(register)

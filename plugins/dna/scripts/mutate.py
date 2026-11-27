@@ -1,8 +1,8 @@
 """`apply_mutagenesis`: the changes a design states, checked against the template, made,
 and the primers that make them designed and registered (ADR 0204).
 
-It reads the run input from $IKI_INPUT, reports progress with `::progress` lines, and
-writes its results to $IKI_OUTPUT, as every action's command does.
+It reads the run and writes its results with Iki's action helper, iki_action.py, and
+reports progress with `::progress` lines.
 
 `scripts/mutations.py` reads the changes and applies them; `scripts/primers.py` designs
 the primers. What this does is the run: check what was asked for, register the mutant as a
@@ -12,12 +12,9 @@ say what the changes do to the protein where the design says where the coding re
 
 from __future__ import annotations
 
-import json
-import os
-import sys
-from pathlib import Path
 from typing import Any
 
+import iki_action as iki
 import mutations
 import primers
 from sequences import reverse_complement
@@ -354,17 +351,5 @@ def _how(protocol: str, rules: primers.Rules) -> str:
     return "; ".join(parts)
 
 
-def main() -> None:
-    given = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        found = run(given)
-    except (Stop, mutations.Refused, primers.Impossible) as why:
-        print(f"::error {why}", flush=True)
-        sys.exit(1)
-    Path(os.environ["IKI_OUTPUT"]).write_text(
-        json.dumps({"apiVersion": "iki/v1", "kind": "RunOutput", **found}), encoding="utf-8"
-    )
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(run, refuse=(Stop, mutations.Refused, primers.Impossible))

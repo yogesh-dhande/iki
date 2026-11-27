@@ -69,8 +69,9 @@ ROLES: dict[str, dict[str, Any]] = {
 
 
 def with_roles(entity: dict[str, Any]) -> dict[str, Any]:
-    """The entity, and those it includes, with their types' roles."""
-    out = {**entity, "roles": ROLES.get(entity.get("type", ""), {})}
+    """The entity, and those it includes, with their types' roles and lineage."""
+    type_ = entity.get("type", "")
+    out = {**entity, "roles": ROLES.get(type_, {}), "types": [type_, "iki/core.Entity"]}
     if "included" in entity:
         out["included"] = {k: [with_roles(e) for e in v] for k, v in entity["included"].items()}
     return out

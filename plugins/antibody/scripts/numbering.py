@@ -1,7 +1,7 @@
 """The antibody plugin's numbering: ANARCI on each chain, in the numbering-tools image.
 
-It reads the run input from $IKI_INPUT, reports progress with `::progress` lines, and
-writes its results to $IKI_OUTPUT, as every action's command does.
+It reads the run and writes its results with Iki's action helper, iki_action.py, and
+reports progress with `::progress` lines.
 
 ANARCI aligns each protein to hidden Markov models of antibody variable domains, with
 HMMER's hmmscan, and numbers the residues of each domain it finds in the scheme asked
@@ -57,11 +57,10 @@ its are IMGT's unless another is chosen.
 
 from __future__ import annotations
 
-import json
 import os
-from pathlib import Path
 from typing import Any
 
+import iki_action as iki
 from anarci import anarci
 from liabilities import OWN_DEFINITION
 
@@ -447,11 +446,5 @@ def _label(entity: dict[str, Any]) -> str:
     return str(entity["values"].get("name") or entity["hrid"])
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", **number(run)}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(number)

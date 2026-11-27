@@ -13,12 +13,12 @@ from __future__ import annotations
 import json
 import os
 import re
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
 
-from lims import Client, LimsError, host, record_url, run_input
+import iki_action as iki
+from lims import Client, LimsError, host, record_url
 
 INLINE = 1000
 CREATES_FILE = "creates.jsonl"
@@ -72,30 +72,27 @@ def create(item: dict[str, Any], lims_host: str, retrieved: str) -> dict[str, An
     return {"type": "iki/protein.Protein", "values": values, "origin": origin}
 
 
-def main() -> None:
-    run = run_input()
+def sync(run: iki.Run) -> dict[str, Any]:
     since = (run.get("run", {}).get("trigger") or {}).get("since")
     creates = Creates()
-    try:
-        lims_host = host(run)
-        retrieved = datetime.now(UTC).isoformat(timespec="seconds")
-        print(
-            f"Asking {lims_host} for proteins changed since {since}"
-            if since
-            else f"Asking {lims_host} for every protein",
-            flush=True,
-        )
-        for item in Client(lims_host).proteins(since):
-            creates.add(create(item, lims_host, retrieved))
-            if creates.count % 1000 == 0:
-                print(f"{creates.count:,} records", flush=True)
-    except LimsError as why:
-        print(f"::error {why}", flush=True)
-        sys.exit(1)
+    lims_host = host(run)
+    retrieved = datetime.now(UTC).isoformat(timespec="seconds")
+    print(
+        f"Asking {lims_host} for proteins changed since {since}"
+        if since
+        else f"Asking {lims_host} for every protein",
+        flush=True,
+    )
+    for item in Client(lims_host).proteins(since):
+        creates.add(create(item, lims_host, retrieved))
+        if creates.count % 1000 == 0:
+            print(f"{creates.count:,} records", flush=True)
     print(f"{creates.count:,} records", flush=True)
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", **creates.output()}
-    output["metrics"] = {"records": creates.count}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
+    return {**creates.output(), "metrics": {"records": creates.count}}
+
+
+def main() -> None:
+    iki.main(sync, refuse=LimsError)
 
 
 if __name__ == "__main__":

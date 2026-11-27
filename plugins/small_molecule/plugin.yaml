@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/small_molecule
-version: 0.3.0
+version: 0.3.1
 title: Small molecule
 description: >-
   Compounds, registered by their standard InChIKey, and their batches, with RDKit's

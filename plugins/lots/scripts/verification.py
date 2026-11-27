@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
-import os
-from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 
 def archive(run: dict[str, Any]) -> dict[str, Any]:
@@ -72,23 +71,11 @@ def archive(run: dict[str, Any]) -> dict[str, Any]:
     if params.get("notes"):
         values["notes"] = params["notes"]
     return {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
         "creates": [
             {"type": "iki/lots.PlasmidVerification", "values": values, "derived_from": derived_from}
         ],
     }
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        result = archive(run)
-    except ValueError as error:
-        print(f"::error {error}", flush=True)
-        raise SystemExit(1) from None
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(result), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(archive, refuse=ValueError)

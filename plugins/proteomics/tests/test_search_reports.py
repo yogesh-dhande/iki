@@ -76,7 +76,7 @@ def test_result_keeps_raw_references_and_the_downloadable_artifact(tmp_path, mon
     monkeypatch.setenv("IKI_OUTPUT", str(output))
     monkeypatch.setenv("IKI_OUT_DIR", str(artifacts))
 
-    SCRIPT["main"]()
+    SCRIPT["iki"].main(SCRIPT["import_report"])
 
     artifact = artifacts / "identifications.jsonl"
     result = json.loads(output.read_text())["creates"][0]

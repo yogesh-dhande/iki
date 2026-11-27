@@ -1,10 +1,9 @@
 """The antibody plugin's sequence liabilities: the motifs a developability screen reports
 in a chain's variable domains, read off the numbering `number_chains` stored.
 
-It reads the run input from $IKI_INPUT, reports progress with `::progress` lines, and
-writes its results to $IKI_OUTPUT, as every action's command does. It's the plugin's own
-code, in pure Python: no third-party tool runs, so the action lists no software
-(ADR 0106).
+It reads the run and writes its results with Iki's action helper, iki_action.py, and
+reports progress with `::progress` lines. It's the plugin's own code, in pure Python: no
+third-party tool runs, so the action lists no software (ADR 0106).
 
 Its one rule set, `developability_v1`, applies the rules published developability screens use,
 with the severities they give them. Each chain records the rule set and the numbering
@@ -53,11 +52,10 @@ needs measuring before it's believed.
 
 from __future__ import annotations
 
-import json
-import os
 from collections import Counter
-from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 #: The two cysteines that make a variable domain's disulphide, by numbering scheme: IMGT 23
 #: and 104; Kabat's, Chothia's and Martin's numbering of the same residues (heavy 22 and
@@ -309,11 +307,5 @@ def screen(run: dict[str, Any]) -> dict[str, Any]:
     return {"updates": {"protein": updates}, "messages": messages}
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", **screen(run)}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(screen)

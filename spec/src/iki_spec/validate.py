@@ -25,6 +25,7 @@ from jsonschema.exceptions import SchemaError
 
 from iki_spec import (
     API_VERSION,
+    action_helper,
     actions,
     apis,
     components,
@@ -1164,6 +1165,8 @@ class _Semantics:
             self.loaded.plugin, components=components.check(self)
         )
         self.unpinned()
+        # Its scripts' copy of Iki's action helper, if they have one (ADR 0287).
+        action_helper.check(self)
 
     # The plugin manifest ------------------------------------------------------------------------
 

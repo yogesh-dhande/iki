@@ -55,7 +55,6 @@ import json
 import math
 import os
 import re
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -65,6 +64,7 @@ from pathlib import Path
 from typing import Any
 
 import gemmi
+import iki_action as iki
 
 DOWNLOAD = "https://files.rcsb.org/download/{}.cif.gz"
 ENTRY = "https://www.rcsb.org/structure/{}"
@@ -847,30 +847,25 @@ def organism_create(taxon: int, name: str) -> dict[str, Any]:
 
 
 def once(made: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Each organism once, where it's first needed: several structures may share one."""
+    """Each keyed create once, where it's first needed: several structures may share an
+    organism, which each names by the same key (an output's keys are its own, each once)."""
     seen: set[str] = set()
     out = []
     for create in made:
-        if create["type"] == "iki/core.Organism":
-            if create["key"] in seen:
+        key = create.get("key")
+        if key is not None:
+            if key in seen:
                 continue
-            seen.add(create["key"])
+            seen.add(key)
         out.append(create)
     return out
 
 
-def write(made: list[dict[str, Any]], notes: list[str], count: int) -> None:
+def output(made: list[dict[str, Any]], notes: list[str], count: int) -> dict[str, Any]:
     messages = [{"level": "info", "text": note[:2000]} for note in notes[:99]]
     if len(notes) > 99:
         messages.append({"level": "info", "text": f"And {len(notes) - 99} more notes."})
-    output = {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
-        "creates": once(made),
-        "metrics": {"structures": count},
-        "messages": messages,
-    }
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
+    return {"creates": once(made), "metrics": {"structures": count}, "messages": messages}
 
 
 def _sha256(path: Path) -> str:
@@ -892,7 +887,7 @@ def _summary(structure: Read) -> str:
 # --- A file --------------------------------------------------------------------------------------
 
 
-def from_file(run: dict[str, Any]) -> None:
+def from_file(run: dict[str, Any]) -> dict[str, Any]:
     file_id = run["params"]["file"]
     given = run["files"][file_id]
     path = Path(given["path"])
@@ -900,8 +895,7 @@ def from_file(run: dict[str, Any]) -> None:
     try:
         structure = read(path, Path(name).stem[:255] or "structure", "")
     except UnreadableError as why:
-        print(f"::error {name}: {why}", flush=True)
-        sys.exit(1)
+        raise iki.Refused(f"{name}: {why}") from None
     print(_summary(structure), flush=True)
     origin = {
         "source": "mmCIF file" if _is_mmcif(path) else "PDB file",
@@ -909,7 +903,7 @@ def from_file(run: dict[str, Any]) -> None:
         "file": file_id,
         "sha256": _sha256(path),
     }
-    write(creates(structure, file_id, origin), structure.notes, 1)
+    return output(creates(structure, file_id, origin), structure.notes, 1)
 
 
 # --- The PDB -------------------------------------------------------------------------------------
@@ -970,7 +964,7 @@ def download(url: str, to: Path, label: str, source: str, missing: str, gunzip: 
     raise AssertionError("unreachable")
 
 
-def fetch(run: dict[str, Any]) -> None:
+def fetch(run: dict[str, Any]) -> dict[str, Any]:
     out_dir = Path(os.environ["IKI_OUT_DIR"])
     made: list[dict[str, Any]] = []
     notes: list[str] = []
@@ -1003,11 +997,10 @@ def fetch(run: dict[str, Any]) -> None:
             made.extend(creates(structure, file, origin))
             notes.extend(structure.notes)
             print(_summary(structure))
-            print(f"::progress {done / len(asked):.2f} {done} of {len(asked)}", flush=True)
+            iki.progress(done / len(asked), f"{done} of {len(asked)}")
     except UnreadableError as why:
-        print(f"::error {why}", flush=True)
-        sys.exit(1)
-    write(made, notes, len(asked))
+        raise iki.Refused(str(why)) from None
+    return output(made, notes, len(asked))
 
 
 # --- AlphaFold DB --------------------------------------------------------------------------------
@@ -1107,7 +1100,7 @@ def _described(model: dict[str, Any], accession: str) -> str:
     return f"{text}, from AlphaFold DB."[: LIMITS["description"]]
 
 
-def fetch_predicted(run: dict[str, Any]) -> None:
+def fetch_predicted(run: dict[str, Any]) -> dict[str, Any]:
     out_dir = Path(os.environ["IKI_OUT_DIR"])
     made: list[dict[str, Any]] = []
     notes: list[str] = []
@@ -1143,17 +1136,14 @@ def fetch_predicted(run: dict[str, Any]) -> None:
                 count += 1
                 plddt = ((structure.made or {}).get("details") or {}).get("mean_plddt")
                 print(_summary(structure) + (f", mean pLDDT {plddt}" if plddt else ""))
-            print(f"::progress {done / len(asked):.2f} {done} of {len(asked)}", flush=True)
+            iki.progress(done / len(asked), f"{done} of {len(asked)}")
     except UnreadableError as why:
-        print(f"::error {why}", flush=True)
-        sys.exit(1)
-    write(made, notes, count)
+        raise iki.Refused(str(why)) from None
+    return output(made, notes, count)
 
 
 def main() -> None:
-    kind = sys.argv[1]
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    {"fetch": fetch, "file": from_file, "alphafold": fetch_predicted}[kind](run)
+    iki.main({"fetch": fetch, "file": from_file, "alphafold": fetch_predicted})
 
 
 if __name__ == "__main__":

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Mapping
 from typing import Any
 
-from registration import Refused, register, run_input, write_output
+import iki_action as iki
+from registration import register
 
 # The sugars a design names, by the library's symbols.
 SUGARS = {
@@ -49,7 +49,7 @@ def design_helm(params: Mapping[str, Any]) -> str:
     """The HELM of a designed oligonucleotide (see the design action's params)."""
     bases = str(params["bases"]).strip().upper()
     if not bases or any(c not in "ACGTU" for c in bases):
-        raise Refused("Its bases are A, C, G, T and U, 5′ to 3′.")
+        raise iki.Refused("Its bases are A, C, G, T and U, 5′ to 3′.")
     sugar = SUGARS[params.get("sugar") or "DNA"]
     wings = (params.get("wings") or "").strip()
     sugars = [sugar] * len(bases)
@@ -57,9 +57,11 @@ def design_helm(params: Mapping[str, Any]) -> str:
         try:
             five, gap, three = (int(x) for x in wings.split("-"))
         except ValueError:
-            raise Refused(f"Its wings are three counts, such as 5-10-5, not “{wings}”.") from None
+            raise iki.Refused(
+                f"Its wings are three counts, such as 5-10-5, not “{wings}”."
+            ) from None
         if five + gap + three != len(bases):
-            raise Refused(
+            raise iki.Refused(
                 f"A {wings} gapmer has {five + gap + three} nucleotides; its bases are "
                 f"{len(bases)}."
             )
@@ -90,11 +92,10 @@ def design_helm(params: Mapping[str, Any]) -> str:
     return "|".join(polymers) + "$" + "|".join(connections) + "$$$V2.0"
 
 
+def design(run: iki.Run) -> dict[str, Any]:
+    run.params["helm"] = design_helm(run.params)
+    return register(run)
+
+
 if __name__ == "__main__":
-    try:
-        run = run_input()
-        params = run["params"]
-        params["helm"] = design_helm(params)
-        write_output(register(run))
-    except Refused as error:
-        sys.exit(f"::error {error}")
+    iki.main(design)
