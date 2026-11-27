@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 from api_client import problem
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from org_world import World
 from test_api_entities import api_as
@@ -273,3 +275,63 @@ def test_the_last_signature_checks_the_guards_again(world: World) -> None:
     assert done.status == Status.FAILED
     assert done.message == "You gave one of its signatures, so someone else gives the other."
     assert status(world, batch["id"]) == "in_testing"
+
+
+# --- A page of records ----------------------------------------------------------------------------
+
+
+def _batches(world: World, start: int, stop: int) -> list[str]:
+    """Batches as a lab has them: some held for review, some in review (sent by either of
+    two people), some edited since, some half certified, some quarantined."""
+    made_ = []
+    for i in range(start, stop):
+        purity, result = ((80.0, "fail"), (95.0, "pass"), (None, None))[i % 3]
+        # Out of its specification, it's saved with why, and held for review.
+        why = {"hold_reason": "As measured on the SEC; retest booked."} if purity == 80.0 else {}
+        ref = made(world, {"name": f"L-{i}", "purity": purity, "result": result}, **why)["id"]
+        if i % 2:
+            set_(world, ("editor", "admin")[i % 4 == 1], ref, "status", "in_review")
+        if i % 5 == 0:
+            assert change(world, ref, {"plate": f"P-{i}"}, **why).status_code == 200
+        if i % 6 == 1:
+            # Half certified: its review signature given, its QA approval to come.
+            signed(world, "editor", ref, "certified", index=0)
+        if i % 7 == 0:
+            set_(world, "admin", ref, "custody", "quarantined")
+        made_.append(ref)
+    return made_
+
+
+def _page_queries(world: World, refs: list[str]) -> int:
+    """Counts the queries a reviewer's page of the batches takes, and checks each row says
+    what the reviewer can do as its own page does, and as a search's page does."""
+    api = api_as(world, "admin")
+    with CaptureQueriesContext(connection) as queries:
+        page = api.get("/entities", type=BATCH, limit=100)
+    # Counted now: a later request clears the connection's log of them.
+    count = len(queries)
+    assert page.status_code == 200, page.content
+    rows = {row["id"]: row for row in page.json()["items"]}
+    assert set(rows) == set(refs)
+    found = api.post("/entities/search", {"type": BATCH}, limit=100)
+    assert found.status_code == 200, found.content
+    for row in found.json()["items"]:
+        assert row["can"] == rows[row["id"]]["can"], row["hrid"]
+    for ref in refs:
+        alone = api.get(f"/entities/{ref}").json()
+        assert rows[ref]["can"] == alone["can"], alone["hrid"]
+    return count
+
+
+def test_a_page_of_guarded_records_takes_as_many_queries_however_long_it_is(
+    world: World,
+) -> None:
+    """Each row's states, holds and guards are worked out for the whole page at once, and
+    each row says what its own page does: which states it may be set to and signed for,
+    and why not."""
+    ready(world)
+    roles(world, editor=(ANALYST, REVIEWER), admin=(ANALYST, REVIEWER, QA))
+    refs = _batches(world, 0, 2)
+    few = _page_queries(world, refs)
+    refs += _batches(world, 2, 50)
+    assert _page_queries(world, refs) == few
