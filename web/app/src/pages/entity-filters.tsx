@@ -28,6 +28,7 @@ import {
   type Showing,
 } from "../entities";
 import { FieldInput } from "../entity-inputs";
+import { listOfItems, useOptionTexts } from "../lab-lists";
 import type { Picked } from "../entity-values";
 import {
   emptyValue,
@@ -214,8 +215,13 @@ function opsHint(field: FieldDef, ops: { label: string }[]): string {
     .join(", ");
 }
 
-/** A filter's value as a chip says it: a state by its label, a quantity with its unit. */
-function valueWords(field: FieldDef, value: unknown): string {
+/** A filter's value as a chip says it: a state by its label, a quantity with its unit, a
+ * lab list's option by its label (`options`, by HRID). */
+function valueWords(
+  field: FieldDef,
+  value: unknown,
+  options?: ReadonlyMap<string, string>,
+): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "object" && !Array.isArray(value)) {
     const given = value as Record<string, unknown>;
@@ -238,12 +244,16 @@ function valueWords(field: FieldDef, value: unknown): string {
   }
   if (field.type === "datetime") return formatDateTime(text);
   if (field.type === "date") return formatDate(text);
-  return text;
+  return options?.get(text) ?? text;
 }
 
 /** What a filter says, as its chip reads: "Direction is forward", "GC content is at
  * least 40 %". One still being filled in ends in an ellipsis. */
-export function filterWords(row: FilterDraft, fields: FieldDef[]): string {
+export function filterWords(
+  row: FilterDraft,
+  fields: FieldDef[],
+  options?: ReadonlyMap<string, string>,
+): string {
   const field = fields.find((f) => f.name === row.field);
   if (!field) return "";
   const op = operators(field).find((o) => o.value === row.op)?.label ?? "";
@@ -253,7 +263,7 @@ export function filterWords(row: FilterDraft, fields: FieldDef[]): string {
   if (!takesValue(row.op)) return said;
   const result = toFilter(row, fields);
   if (!result || !("filter" in result)) return `${said} …`;
-  const value = valueWords(field, result.filter.value);
+  const value = valueWords(field, result.filter.value, options);
   return field.type === "making" ? `${field.label}: ${value}` : `${said} ${value}`;
 }
 
@@ -306,6 +316,17 @@ export function FilterBar({
   }, [address]);
 
   const results = rows.map((row) => toFilter(row, offered));
+  // A lab list's options (ADR 0270) by their labels, though the address names them by HRID.
+  const lists = [
+    ...new Set(
+      rows.flatMap((row) => {
+        const field = offered.find((f) => f.name === row.field);
+        const list = field ? listOfItems(field, types) : undefined;
+        return list ? [list.name] : [];
+      }),
+    ),
+  ];
+  const optionTexts = useOptionTexts(lists, projectId);
   const ready = results.flatMap((r) => (r && "filter" in r ? [r.filter] : []));
   useSettled(
     ready,
@@ -343,7 +364,7 @@ export function FilterBar({
         const n = String(index + 1);
         const result = results[index];
         const error = result && "error" in result ? result.error : undefined;
-        const words = filterWords(row, offered);
+        const words = filterWords(row, offered, optionTexts);
         return (
           <div key={row.key} className={error ? "filter-chip filter-chip-invalid" : "filter-chip"}>
             <DialogTrigger
@@ -579,6 +600,8 @@ function FilterEditor({
             error={error}
             projectId={projectId ?? ""}
             itemLabel={`Filter ${n}: value`}
+            // A lab list's archived options too: records still name them (ADR 0270).
+            everyOption
           />
         </div>
       ) : null}

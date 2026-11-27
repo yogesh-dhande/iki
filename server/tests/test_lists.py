@@ -10,13 +10,19 @@ from typing import Any
 
 import pytest
 from api_client import Api, problem
-from org_world import World, build_world
+from org_world import World, build_world, post
 
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import lists, registry
 from iki_server.entities.models import Entity
 from iki_server.notifications.models import Notification
-from iki_server.org.models import Project, ProjectMembership, ProjectRole, Registry
+from iki_server.org.models import (
+    ListCurator,
+    Project,
+    ProjectMembership,
+    ProjectRole,
+    Registry,
+)
 from iki_spec.model import ListSpec
 
 pytestmark = pytest.mark.django_db
@@ -328,6 +334,54 @@ def test_registrars_and_the_lists_curators_curate_it(world: World) -> None:
     assert AuditEvent.objects.get(action="list.option_added").data["code"] == "hplc"
 
 
+def test_org_admins_appoint_a_lists_curators_on_its_registrys_page(world: World) -> None:
+    admin = world.browser("org_admin")
+    page = f"/admin/registries/{Registry.default().pk}/"
+    shown = admin.get(page).content.decode()
+    assert 'id="list-curators-title"' in shown
+    # Each installed list, by its label, linked to its page in this registry.
+    assert f'href="/types/{METHOD}/?registry={Registry.default().pk}"' in shown
+    assert "No curators of its own: its registrars curate it." in shown
+    lead = world.users["team_member"]
+    appointed = post(
+        admin,
+        page,
+        {"action": "appoint_curator", "curator-list_type": METHOD, "curator-person": lead.email},
+    )
+    assert appointed.status_code == 302, appointed.content.decode()[:2000]
+    assert appointed["Location"].endswith("#list-curators-title")
+    assert ListCurator.objects.filter(list_type=METHOD, user=lead).exists()
+    shown = admin.get(page).content.decode()
+    assert "Remove Team Member as a curator of Purification methods" in shown
+    # A deactivated person is refused, at the field, and the page says why.
+    refused = post(
+        admin,
+        page,
+        {
+            "action": "appoint_curator",
+            "curator-list_type": CATEGORY,
+            "curator-person": world.users["inactive"].email,
+        },
+    )
+    assert refused.status_code == 200
+    assert "is deactivated" in refused.content.decode()
+    # Only a list's a choice.
+    bogus = post(
+        admin,
+        page,
+        {"action": "appoint_curator", "curator-list_type": PREP, "curator-person": lead.email},
+    )
+    assert bogus.status_code == 200 and "Select a valid choice" in bogus.content.decode()
+    dismissed = post(
+        admin, page, {"action": "dismiss_curator", "list": METHOD, "user": str(lead.pk)}
+    )
+    assert dismissed.status_code == 302
+    assert not ListCurator.objects.filter(list_type=METHOD, user=lead).exists()
+    assert AuditEvent.objects.filter(action="registry.list_curator_removed").count() == 1
+    # It's an Org Admin's page: nobody else's.
+    assert world.browser("team_member").get(page).status_code in (302, 403)
+
+
 def test_a_code_is_once_a_lists_and_a_label_once_in_any_case(world: World) -> None:
     admin = registrar(world)
     again = problem(
@@ -459,6 +513,12 @@ def test_a_wrong_code_is_superseded_and_each_project_moves_its_records(
         )
     )
     assert {world.users["admin"].pk, world.users["outsider"].pk} <= told
+    # By the options' labels, opening the option's page with the project, to move them.
+    notice = Notification.objects.get(
+        kind="registry.entry_superseded", recipient=world.users["admin"]
+    )
+    assert notice.title == "Purification method “Protein G (typo)” was superseded by “Protein G”"
+    assert notice.path == f"/entries/{wrong['id']}/?project={world.project.slug}"
     # A record that names it shows it as superseded until its project moves it.
     ref = editor.get(f"/entities/{mine['id']}").json()["refs"][wrong["id"]]
     assert ref["superseded"]
@@ -522,3 +582,29 @@ def test_a_sheet_names_an_option_by_its_code_or_label(world: World) -> None:
     # An archived one is found, and refused as it's saved unless the record has it already.
     assert str(resolved["dialysis"]) == found["dialysis"]
     assert resolved["hplc"] == "is no option of Purification methods: give its code or its label."
+
+
+def test_a_sheets_cell_shows_an_option_by_its_label(world: World) -> None:
+    """The sheet's cell, and what its check says it read, are the option's label: what
+    people pick, which the sheet reads back as it reads the option's code."""
+    editor = api_as(world, "editor")
+    made = prep(editor, world.project, {"name": "Prep 9"}).json()
+    answer = editor.post(
+        f"/projects/{world.project.pk}/sheet-edits/check",
+        {
+            "type": PREP,
+            "rows": [
+                {
+                    "key": made["id"],
+                    "entity": made["id"],
+                    "revision": made["revision"],
+                    "cells": {"method": "sec", "polishing": "dialysis; PROTEIN A AFFINITY"},
+                }
+            ],
+        },
+    )
+    assert answer.status_code == 200, answer.content
+    row = answer.json()["rows"][0]
+    assert row["problems"] == [], row
+    assert row["shown"]["method"] == "Size exclusion"
+    assert row["shown"]["polishing"] == "Dialysis; Protein A affinity"

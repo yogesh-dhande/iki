@@ -33,8 +33,45 @@
       {% csrf_token %}
       <input type="hidden" name="action" value="appoint">
       {% include "web/_field.html" with field=appoint.person %}
-      <button class="button button-primary" type="submit" data-busy-text="Appointing…">Appoint</button>
+      <button class="button button-primary" type="submit" data-busy-text="Appointing…">Appoint registrar</button>
     </form>
+    {% if lab_lists %}
+    <section aria-labelledby="list-curators-title">
+    <h2 class="section-title" id="list-curators-title">List curators</h2>
+    <p class="muted">A lab list's curators add its options, change them, reorder it, and archive and supersede options, each change with a reason every project sees. Appoint them a list at a time: a purification lead for purification methods, a QC lead for deviation categories. Its registrars curate every list. Being an Org Admin doesn't make you one.</p>
+    {% for list in lab_lists %}
+    <h3 class="section-title"><a href="{{ list.app_path }}">{{ list.label }}</a></h3>
+    <ul class="rows" aria-label="Curators of {{ list.label }}">
+      {% for curator in list.curators %}
+      <li class="row">
+        <div class="row-main">
+          <span class="row-title">{{ curator.user.get_full_name }}{% if curator.user == user %} <span class="muted">(you)</span>{% endif %}</span>
+          <span class="row-meta">{{ curator.user.email }}{% if not curator.user.is_active %} · deactivated{% endif %} · appointed {{ curator.appointed_at|date:"Y-m-d" }}{% if curator.appointed_by %} by {{ curator.appointed_by.get_full_name }}{% endif %}</span>
+        </div>
+        <form class="row-actions" method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="dismiss_curator">
+          <input type="hidden" name="list" value="{{ list.type }}">
+          <input type="hidden" name="user" value="{{ curator.user.pk }}">
+          <button class="button button-quiet button-danger" type="submit" aria-label="Remove {{ curator.user.get_full_name }} as a curator of {{ list.label }}">Remove</button>
+        </form>
+      </li>
+      {% empty %}
+      <li class="row"><span class="muted">No curators of its own: its registrars curate it.</span></li>
+      {% endfor %}
+    </ul>
+    {% endfor %}
+    <h2 class="section-title">Appoint a list curator</h2>
+    {% include "web/_errors.html" with form=curate %}
+    <form method="post" data-busy-form novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="action" value="appoint_curator">
+      {% include "web/_field.html" with field=curate.list_type %}
+      {% include "web/_field.html" with field=curate.person %}
+      <button class="button button-primary" type="submit" data-busy-text="Appointing…">Appoint curator</button>
+    </form>
+    </section>
+    {% endif %}
     <h2 class="section-title">Projects in it</h2>
     <ul class="rows" aria-label="Projects in it">
       {% for project in projects %}

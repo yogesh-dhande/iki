@@ -4,7 +4,7 @@
  * (pages/record-sheet.tsx); everything here is plain data, so it's tested on its own.
  *
  * It feels like a plain spreadsheet. A cell holds text, as it would be typed back: a
- * reference's HRID, a person's email, a number in full, a date in ISO 8601, a list's items
+ * reference's HRID (a lab list's option's label), a person's email, a number in full, a date in ISO 8601, a list's items
  * apart by semicolons. A paste fills right and down from the selected cell, in the copied
  * order, with no header matched: each cell's check, by the server, says what's wrong.
  * Nothing is written until Save, and every change until then can be undone.
@@ -154,8 +154,12 @@ export function cellText(field: FieldDef, value: unknown, entity?: Named): strin
       return numberText(value as number);
     case "quantity":
       return numberText(inCellUnit(field, value as number));
-    case "ref":
-      return entity?.refs[value as string]?.hrid ?? (value as string);
+    case "ref": {
+      // A lab list's option (ADR 0270) by its label, which the sheet reads back, as it
+      // does its code.
+      const found = entity?.refs[value as string];
+      return (found?.code ? found.title : found?.hrid) ?? (value as string);
+    }
     case "person":
       return entity?.people?.[value as string]?.email ?? (value as string);
     default:

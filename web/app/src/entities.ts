@@ -569,8 +569,16 @@ export function valueText(
       return formatDate(value as string);
     case "datetime":
       return formatDateTime(value as string);
-    case "ref":
-      return entity?.refs[value as string]?.hrid ?? "An entity you can’t read";
+    case "ref": {
+      const found = entity?.refs[value as string];
+      if (!found) return "An entity you can’t read";
+      // A lab list's option (ADR 0270) by its label, as it's called now.
+      if (found.code) {
+        const retired = found.superseded ? " (superseded)" : found.archived ? " (archived)" : "";
+        return `${found.title}${retired}`;
+      }
+      return found.hrid;
+    }
     case "file":
       return entity?.files[value as string]?.name ?? "A file you can’t read";
     case "person": {

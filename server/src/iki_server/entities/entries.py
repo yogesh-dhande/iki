@@ -339,14 +339,17 @@ def _tell_referrers(user: User, option: Entity, replacement: Entity, reason: str
     from iki_server.notifications.services import notify
 
     label = registry.types()[option.type].label
+    # By their labels, as people pick them; the option's page says the rest.
+    was, now = lists.option_of(option).label, lists.option_of(replacement).label
     for project in lists.referrers(option).select_related("team"):
         notify(
             permissions.members_with(project, ProjectRole.ADMIN),
             kinds.ENTRY_SUPERSEDED,
-            title=f"{label} {option.hrid} was superseded by {replacement.hrid}",
-            body=f"{reason}\n\nMove {project.name}'s records that name it to "
-            f"{replacement.hrid}, so they name the right option.",
-            path=f"/entries/{option.pk}",
+            title=f"{label} “{was}” was superseded by “{now}”",
+            body=f"{reason}\n\nMove {project.name}'s records that name it to “{now}”, so "
+            "they name the right option.",
+            # Its page, where the project's Editors move them, with the project chosen.
+            path=f"/entries/{option.pk}/?project={project.slug}",
             project=project,
             actor=user,
             about=[],
