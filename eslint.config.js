@@ -1,4 +1,7 @@
 // @ts-check
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import js from "@eslint/js";
 import prettier from "eslint-config-prettier";
 import jsxA11y from "eslint-plugin-jsx-a11y";
@@ -25,6 +28,29 @@ const POST_READ = {
     "Property[key.name='queryFn'] CallExpression[callee.object.name='iki'][callee.property.name=/^(POST|PUT|PATCH|DELETE)$/]:not(:has(Property[key.name='fetch'][value.name='fetchPageRead']))",
   message: "A query's read that sends JSON selects fetchPageRead, so it stops with the page.",
 };
+
+// The web app's pages: the modules its router fetches when one is first opened. Nothing imports
+// one, the router included: a page imported from another module loads with that module, and
+// with the first page if the app starts with it. What pages share goes in a module of its own.
+// Importing only a page's types is fine. (`make web` weighs what the app starts with.)
+const ROUTER = "web/app/src/router.tsx";
+const PAGES = [
+  ...readFileSync(join(import.meta.dirname, ROUTER), "utf8").matchAll(
+    /import\("\.\/pages\/([\w-]+)"\)/g,
+  ),
+].map(([, page]) => page);
+if (!PAGES.length) throw new Error(`No pages found in ${ROUTER}`);
+/** @param {string} prefix how a module reaches the pages: `./`, `./pages/` or `../pages/` */
+const PAGE_IMPORTS = (prefix) => ({
+  patterns: [
+    {
+      regex: `^${prefix.replaceAll(".", "\\.")}(${PAGES.join("|")})$`,
+      allowTypeImports: true,
+      message:
+        "A page loads when it's first opened, so nothing imports one: move what's shared into a module of its own.",
+    },
+  ],
+});
 
 export default tseslint.config(
   {
@@ -105,6 +131,21 @@ export default tseslint.config(
     files: ["web/app/**/*.{ts,tsx}"],
     ignores: ["**/*.test.{ts,tsx}"],
     rules: { "no-restricted-syntax": ["error", RAW_HTML, QUERY_SIGNAL, POST_READ] },
+  },
+  {
+    files: ["web/app/src/pages/*.{ts,tsx}"],
+    ignores: ["**/*.test.{ts,tsx}"],
+    rules: { "@typescript-eslint/no-restricted-imports": ["error", PAGE_IMPORTS("./")] },
+  },
+  {
+    files: ["web/app/src/*.{ts,tsx}"],
+    ignores: ["**/*.test.{ts,tsx}"],
+    rules: { "@typescript-eslint/no-restricted-imports": ["error", PAGE_IMPORTS("./pages/")] },
+  },
+  {
+    files: ["web/app/src/*/**/*.{ts,tsx}"],
+    ignores: ["**/*.test.{ts,tsx}", "web/app/src/pages/*"],
+    rules: { "@typescript-eslint/no-restricted-imports": ["error", PAGE_IMPORTS("../pages/")] },
   },
   {
     // Iki's bridge in plugins' components' frames: a module, in the browser (ADR 0084).

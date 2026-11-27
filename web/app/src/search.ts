@@ -11,7 +11,7 @@ import { defaultStringifySearch } from "@tanstack/react-router";
 import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
-import { toAddress } from "./pages/saved-searches";
+import { toAddress } from "./search-address";
 
 export type SearchAnswer = Schemas["SearchEverythingOut"];
 export type SearchGroup = Schemas["SearchGroupOut"];

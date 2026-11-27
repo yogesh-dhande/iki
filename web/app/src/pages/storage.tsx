@@ -305,11 +305,6 @@ export function StoragePage() {
 
 // --- A container --------------------------------------------------------------------------------
 
-export function validateContainerSearch(search: Record<string, unknown>): { at?: string } {
-  const at = typeof search["at"] === "string" ? search["at"].slice(0, 8) : undefined;
-  return at ? { at } : {};
-}
-
 function chosenOf(o: Occupant): Chosen | null {
   if (!o.id || !o.ref) return null;
   return { id: o.id, hrid: o.ref.hrid, title: o.ref.title, type: o.ref.type, code: o.code };

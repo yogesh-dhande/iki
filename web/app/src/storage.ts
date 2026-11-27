@@ -7,7 +7,6 @@ import { unwrap, type Problem, type Schemas } from "@ikisci/sdk";
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
-import type { EntityType } from "./entities";
 
 export type Shape = Schemas["ShapeOut"];
 export type Container = Schemas["ContainerOut"];
@@ -34,7 +33,6 @@ export type Finding = ReconciliationLine["finding"];
 export type Resolution = "moved" | "removed" | "placed" | "kept";
 export type LabelSize = Schemas["LabelSizeOut"];
 export type PreparedLabel = Schemas["LabelOut"];
-export type TypeStorage = Schemas["TypeStorageOut"];
 
 export const STORAGE = ["storage"] as const;
 
@@ -42,6 +40,12 @@ export const placesQuery = queryOptions({
   queryKey: [...STORAGE, "places"],
   queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/storage/places", { signal })),
 });
+
+/** A container's page's address: `?at=A1`, the position it opens on. */
+export function validateContainerSearch(search: Record<string, unknown>): { at?: string } {
+  const at = typeof search["at"] === "string" ? search["at"].slice(0, 8) : undefined;
+  return at ? { at } : {};
+}
 
 export function containerQuery(ref: string) {
   return queryOptions({
@@ -104,19 +108,6 @@ export const awaitingPutAwayQuery = queryOptions({
     unwrap(await iki.GET("/api/v1/storage/awaiting-put-away", { signal })),
 });
 
-export function reconciliationsQuery(ref: string) {
-  return queryOptions({
-    queryKey: [...STORAGE, "reconciliations", ref.toUpperCase()],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/storage/containers/{ref}/reconciliations", {
-          params: { path: { ref } },
-          signal,
-        }),
-      ),
-  });
-}
-
 export const labelSizesQuery = queryOptions({
   queryKey: [...STORAGE, "label-sizes"],
   queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/storage/labels", { signal })),
@@ -143,13 +134,6 @@ export function reconciliationQuery(id: string) {
           signal,
         }),
       ),
-  });
-}
-
-export function receiptQuery(id: string) {
-  return queryOptions({
-    queryKey: [...STORAGE, "receipt", id],
-    queryFn: async ({ signal }) => readReceipt(id, signal),
   });
 }
 
@@ -530,15 +514,6 @@ export {
   positionLabel,
   rowLabel,
 } from "@ikisci/science/box-map";
-
-/** Where its type says its records are kept, or hold others: none, for any other. */
-export function storageOf(type: EntityType | undefined): TypeStorage | null {
-  return type?.storage ?? null;
-}
-
-export function isContainer(type: EntityType | undefined): boolean {
-  return !!type?.storage?.holds.length;
-}
 
 /** A step's name: its title, or its HRID. */
 export function stepName(step: Pick<Step, "hrid" | "title">): string {

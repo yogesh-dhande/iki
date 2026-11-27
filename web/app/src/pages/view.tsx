@@ -30,7 +30,7 @@ import {
   type ViewState,
   type ViewTarget,
 } from "../views";
-import { ViewerBody, type Source } from "./entity-viewer";
+import { ViewerBody, type Source } from "./viewer-body";
 import { StructureScene, type SceneItem } from "./structure-viewer";
 
 type AnyViewer = EntityType["viewers"][number];
