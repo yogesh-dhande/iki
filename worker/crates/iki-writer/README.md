@@ -53,7 +53,7 @@ pub trait Writer: Default {
   change to fit.
 - An `Export` has the `abi`, the `writer`'s and the `format`'s qualified IDs,
   and how many `records` the file will hold.
-- A `Record` has its `id`, `hrid`, `name`, `r#type`, `revision`, `latest` and
+- A `Record` has its `id`, `hrid`, `name`, `r#type`, `revision` and
   `revised_at`, its `roles` and the `withheld` roles. Read roles with
   `text`, `integer`, `number` (integer or float), `boolean`, `quantity`
   (`Quantity { value, unit }`, already in the role's declared unit),
@@ -99,7 +99,6 @@ is Iki's bug, so the module panics: a trap, under `panic = "abort"`.
 {
   "hrid": "TRF-000042",
   "id": "6f1c1b7e-2a6d-4c1e-9b0a-3f6f5f9b2d41",
-  "latest": true,
   "name": "Dose-response, compound 12",
   "revised_at": "2026-11-20T09:14:03Z",
   "revision": 3,

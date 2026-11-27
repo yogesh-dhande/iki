@@ -330,6 +330,30 @@ def test_a_large_export_is_written_in_the_background_from_the_revisions_asked_fo
     assert [e["id"] for e in api.get("/entity-exports").json()["items"]] == [made["id"]]
 
 
+def test_the_same_revisions_are_the_same_genbank_file_after_an_edit(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same records, same revisions, same file (ADR 0229): a GenBank file written in the
+    background after one of its records was edited is the one written at once. Its COMMENT
+    says which record and revision each is, not whether it's still the latest."""
+    picked = [plasmid(world, name="pBefore"), plasmid(world, BASES + "GGATCC", name="pSecond")]
+    api = api_as(world)
+    body = {"format": "genbank", "entities": [p.hrid for p in picked]}
+    at_once = ask(api, body).json()
+    assert at_once["state"] == "ready", at_once
+    monkeypatch.setattr(record_exports, "INLINE", 1)
+    later = ask(api, body).json()
+    assert later["state"] == "queued", later
+    services.update(world.users["editor"], picked[0], {"name": "pAfter"}, expected_revision=1)
+    assert run_tasks() == 1
+    written = api.get(f"/entity-exports/{later['id']}").json()
+    assert written["state"] == "ready", written
+    assert written["sha256"] == at_once["sha256"]
+    text = downloaded(api, written).decode()
+    assert text == downloaded(api, at_once).decode()
+    assert f"Exported from Iki: {picked[0].hrid} (revision 1)." in " ".join(text.split())
+
+
 def test_a_record_its_writer_refuses_fails_the_export_naming_it(world: World) -> None:
     written = compound(world, *COMPOUNDS[0])
     unwritten: Any = services.create(

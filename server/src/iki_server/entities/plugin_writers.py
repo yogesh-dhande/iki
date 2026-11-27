@@ -89,7 +89,6 @@ class PluginRecord:
     hrid: str
     name: str
     revision: int
-    latest: bool
     revised_at: datetime
     request: dict[str, Any] = field(default_factory=dict)
 
@@ -392,7 +391,6 @@ def request_of(
     name: str,
     type_name: str,
     revision: int,
-    latest: bool,
     revised_at: datetime,
     roles: Mapping[str, Any],
     withheld: list[str],
@@ -401,7 +399,6 @@ def request_of(
     return {
         "hrid": hrid,
         "id": str(entity_id),
-        "latest": latest,
         "name": name,
         "revised_at": stamp,
         "revision": revision,
