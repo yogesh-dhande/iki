@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from api_client import Api, seen
+from api_client import Api, problem, seen
 from org_world import World
 from test_storage import box, contents, moved, tube, world
 
@@ -167,7 +167,7 @@ def test_a_shared_label_at_an_unrecorded_position_needs_an_explicit_choice(
     recheck = {"position": "A2", "code": LABEL, "choice": count.second["id"]}
     correction = {"scans": [recheck], "reason": "Rechecked the tube at A2"}
     stale = api.post(f"{path}/scans", correction)
-    assert stale.status_code == 409 and stale.json()["affected_lines"] == [
+    assert problem(stale, 412, "stale")["affected_lines"] == [
         {"line_id": chosen["id"], "revision": chosen["revision"]}
     ]
     assert api.get(path).json() == latest

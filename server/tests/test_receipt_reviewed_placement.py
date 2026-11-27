@@ -45,7 +45,7 @@ def test_empty_and_partial_dispositions_cannot_complete_or_take_custody(lab: Lab
     receipt = change(api, "POST", path + "/scan", code="RC000")["receipt"]
     receipt = change(api, "PATCH", f"{path}/lines/{damaged}", outcome="damaged", note="Bent cap")
     receipt = change(api, "PATCH", path, receipt, handed_over_by="Courier 104")
-    base = {"revision": receipt["revision"], "missing_rest": True}
+    base = {"missing_rest": True}
     place = {"line": matched, "to": incoming["id"], "position": "A1"}
     ids = [tube["id"] for tube in tubes]
     before = custody_state(api, path, ids)
@@ -62,7 +62,9 @@ def test_empty_and_partial_dispositions_cannot_complete_or_take_custody(lab: Lab
         ({"box": incoming["id"], "keep_in_custody": [matched, damaged]}, "#/box"),
     ]
     for fields, pointer in invalid_dispositions:
-        response = api.post(path + "/complete", {**base, **fields})
+        response = api.post(
+            path + "/complete", {**base, **fields}, headers=seen(receipt["revision"])
+        )
         assert pointer in errors(response)
         assert custody_state(api, path, ids) == before
 
@@ -216,18 +218,17 @@ def test_next_free_receipt_placement_requires_the_current_reviewed_plan(lab: Lab
     matched = opened["lines"][0]["id"]
     receipt = change(api, "POST", path + "/scan", code="RC000")["receipt"]
     receipt = change(api, "PATCH", path, receipt, handed_over_by="Courier")
-    body = {
-        "revision": receipt["revision"],
-        "put_away": [{"line": matched, "to": dest["id"]}],
-    }
+    body: dict[str, Any] = {"put_away": [{"line": matched, "to": dest["id"]}]}
+    reviewed = seen(receipt["revision"])
     ids = [tubes[0]["id"]]
     before = custody_state(api, path, ids)
-    preview = api.post(path + "/put-away/preview", body)
+    assert api.post(path + "/put-away/preview", body).status_code == 428
+    preview = api.post(path + "/put-away/preview", body, headers=reviewed)
     assert preview.status_code == 200 and preview.json()["items"][0]["to"]["position"] == "A1"
     assert custody_state(api, path, ids) == before
     for expected in ["A1", "A2"]:
         before = custody_state(api, path, ids)
-        response = api.post(path + "/complete", body)
+        response = api.post(path + "/complete", body, headers=reviewed)
         assert response.status_code == 409, response.content
         current = response.json()["moves"]
         assert current["items"][0]["to"]["position"] == expected
@@ -236,6 +237,6 @@ def test_next_free_receipt_placement_requires_the_current_reviewed_plan(lab: Lab
         if expected == "A1":
             assert body["plan"] == preview.json()["plan"]
             moved(api, (other, dest, "A1"))
-    done = api.post(path + "/complete", body)
+    done = api.post(path + "/complete", body, headers=reviewed)
     assert done.status_code == 200, done.content
     assert done.json()["lines"][0]["put_away"]["position"] == "A2"

@@ -224,9 +224,9 @@ def test_a_removed_extra_can_only_be_restored_explicitly_to_the_same_line(
     )
     assert removed["outcomes"]["extra"] == 0 and all(x["id"] != line for x in removed["lines"])
     assert [x["id"] for x in removed["removed_lines"]] == [line]
-    change(first, "POST", line_path + "/restore", status=422, reason="Check waybill")
+    change(first, "POST", line_path + "/restore", status=428, reason="Check waybill")
     change(
-        first, "POST", line_path + "/restore", row(noted, line), status=409, reason="Check waybill"
+        first, "POST", line_path + "/restore", row(noted, line), status=412, reason="Check waybill"
     )
     again = change(first, "POST", path + "/scan", code="EXTRA-71")
     assert again["found"] == "removed" and again["line"] == line and again["receipt"] == removed
@@ -716,7 +716,7 @@ def test_a_receiver_can_volunteer_a_reason_for_a_first_note_on_a_reviewed_line(
         second,
         "PATCH",
         line_path,
-        status=422,
+        status=428,
         outcome=outcome,
         note="Blue cap",
         reason="Packaging examined",
@@ -754,7 +754,7 @@ def test_first_manual_observation_preserves_a_retained_note(receiving: Receiving
     )
     assert row(cleared, line)["outcome"] is None
     history = timeline(first, path)
-    change(first, "PATCH", line_path, status=422, outcome="matched", note="Different note")
+    change(first, "PATCH", line_path, status=428, outcome="matched", note="Different note")
     assert read(second, path) == cleared and timeline(second, path) == history
     confirmed = first.patch(line_path, {"outcome": "matched"})
     assert confirmed.status_code == 200, confirmed.content
@@ -831,7 +831,7 @@ def test_a_first_condition_note_preserves_the_observer_and_later_corrections_nee
         == checked["checked_by"]["id"]
     )
 
-    change(first, "PATCH", line_path, checked, status=409, outcome=outcome, note="Different cap")
+    change(first, "PATCH", line_path, checked, status=412, outcome=outcome, note="Different cap")
     for attempted in ("Red cap", ""):
         refusal = change(
             first,
@@ -879,16 +879,16 @@ def test_an_explicit_note_clear_needs_its_review_and_reason_but_omission_retains
     assert events[-1]["before"]["note"] == events[-1]["after"]["note"] == "Blue cap"
 
     amendment = {"outcome": "matched", "note": clear}
-    for preconditions in (
-        {},
-        {"reason": "Note was a transcription error"},
-        {"revision": saved["revision"]},
-        {"revision": saved["revision"], "reason": None},
-        {"revision": saved["revision"], "reason": ""},
-        {"revision": saved["revision"], "reason": "   "},
+    for headers, reason, status in (
+        (None, {}, 428),
+        (None, {"reason": "Note was a transcription error"}, 428),
+        (seen(saved["revision"]), {}, 422),
+        (seen(saved["revision"]), {"reason": None}, 422),
+        (seen(saved["revision"]), {"reason": ""}, 422),
+        (seen(saved["revision"]), {"reason": "   "}, 422),
     ):
-        refusal = first.patch(line_path, {**amendment, **preconditions})
-        assert refusal.status_code == 422, refusal.content
+        refusal = first.patch(line_path, {**amendment, **reason}, headers=headers)
+        assert refusal.status_code == status, refusal.content
     assert read(first, path) == reviewed and timeline(second, path, line_id=line) == events
 
     cleared = change(

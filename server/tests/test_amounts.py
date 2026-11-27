@@ -357,7 +357,12 @@ def test_every_movement_is_a_revision_of_the_balance_a_count_is_made_from(world:
         api.post(f"{ref}/draw", {"amount": {"value": 1, "unit": "uL"}}),
         api.post(f"{ref}/transfer", {"to": other["hrid"], "amount": {"value": 2, "unit": "uL"}}),
         api.post(
-            f"/entities/{made['hrid']}/aliquots", {"count": 2, "each": {"value": 3, "unit": "uL"}}
+            f"/entities/{made['hrid']}/aliquots",
+            {
+                "count": 2,
+                "each": {"value": 3, "unit": "uL"},
+                "values": [{"label": "S-1.1"}, {"label": "S-1.2"}],
+            },
         ),
     ]
     assert [s.status_code for s in steps] == [200, 200, 201], [s.content for s in steps]

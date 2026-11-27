@@ -3,7 +3,7 @@
 from typing import Any
 
 import pytest
-from api_client import Api, seen
+from api_client import Api, problem, seen
 from org_world import World
 from test_count_observation_history import history, review
 from test_storage import box, contents, errors, tube, world
@@ -155,8 +155,7 @@ def test_moving_one_of_two_identical_labels_checks_the_named_line_revision_and_r
         refused = editor.post(
             f"{path}/scans", {"scans": [move], "reviewed_lines": bad_review, "reason": why}
         )
-        assert refused.status_code == 409, refused.content
-        assert refused.json()["affected_lines"] == [review(seen)]
+        assert problem(refused, 412, "stale")["affected_lines"] == [review(seen)]
     no_reason = editor.post(f"{path}/scans", {"scans": [move], "reviewed_lines": [review(seen)]})
     assert "#/reason" in errors(no_reason)
     assert snapshot(editor, path) == before
@@ -286,8 +285,7 @@ def test_correcting_an_unregistered_label_preserves_its_slot_line_and_the_other_
     corrected = reading("A1", "CORRECTED-Y")
     why = "Read the label again under better light"
     missing_review = admin.post(f"{path}/scans", {"scans": [corrected], "reason": why})
-    assert missing_review.status_code == 409, missing_review.content
-    assert missing_review.json()["affected_lines"] == [review(old["A1"])]
+    assert problem(missing_review, 412, "stale")["affected_lines"] == [review(old["A1"])]
     payload = {"scans": [corrected], "reviewed_lines": [review(old["A1"])]}
     assert "#/reason" in errors(admin.post(f"{path}/scans", payload))
     assert snapshot(editor, path) == initial

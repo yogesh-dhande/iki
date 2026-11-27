@@ -79,7 +79,6 @@ export interface Problem {
   request_id?: string;
 }
 
-/** True when ``value`` has the shape of a problem the API answered with. */
 /** A record a reassignment named that changed since it was read. */
 export interface StaleRecord {
   id: string;
@@ -96,6 +95,7 @@ export interface StaleOption {
   current_revision: number | null;
 }
 
+/** True when ``value`` has the shape of a problem the API answered with. */
 export function isProblem(value: unknown): value is Problem {
   if (typeof value !== "object" || value === null) {
     return false;

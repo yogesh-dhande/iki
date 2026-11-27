@@ -82,11 +82,11 @@ def test_parent_conflicts_name_each_line_changed_since_review_at_its_latest_revi
         ("POST", path + "/cancel", {"reason": "Check delivery"}),
         ("POST", path + "/complete", {}),
     ):
-        changed = change(second, method, url, reviewed, status=409, **payload)
-        assert changed["code"] == "refused" and changed["affected_lines"] == expected
-        # Only the handoff changed since 'removed'; none of its earlier lines changed again.
-        handoff = change(second, method, url, removed, status=409, **payload)
-        assert handoff["code"] == "refused" and handoff["affected_lines"] == []
+        for since, affected in ((reviewed, expected), (removed, [])):
+            # Only the handoff changed since 'removed'; none of its earlier lines changed again.
+            refused = second.call(method, url, payload, headers=seen(since["revision"]))
+            assert problem(refused, 412, "stale")["affected_lines"] == affected
+            assert refused["ETag"] == f'"{current["revision"]}"'
     assert read(second, path) == current and read(second, path + "/history") == history
 
 
@@ -105,8 +105,8 @@ def test_stale_handoff_waits_for_a_new_line_and_reports_its_committed_revision(
                     {"handed_over_by": "Courier 341"},
                     headers=seen(reviewed["revision"]),
                 ),
-                409,
-                "refused",
+                412,
+                "stale",
             )
         finally:
             connection.close()

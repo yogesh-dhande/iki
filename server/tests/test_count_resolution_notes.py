@@ -3,7 +3,7 @@
 from typing import Any
 
 import pytest
-from api_client import Api, seen
+from api_client import Api, problem, seen
 from browser import Response
 from org_world import World
 from test_count_observation_history import begin, history, review
@@ -117,8 +117,8 @@ def test_explicit_clear_of_an_optional_saved_note_needs_revision_and_reason(
     assert "#/reason" in errors(write(api, path, decision, "removed", note=clear))
     why = "Removed the note after checking the log"
     stale = write(api, path, line, "removed", note=clear, reason=why)
-    assert stale.status_code == 409, stale.content
-    assert stale.json()["affected_lines"] == [review(decision)]
+    assert problem(stale, 412, "stale")["affected_lines"] == [review(decision)]
+    assert stale["ETag"] == f'"{decision["revision"]}"'
     assert api.get(path).json() == unchanged and history(api, path) == entries
 
     cleared = updated(write(api, path, decision, "removed", note=clear, reason=why), line)

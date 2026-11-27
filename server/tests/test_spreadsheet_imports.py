@@ -759,11 +759,10 @@ def test_a_saved_mapping_maps_the_next_sheet_of_its_kind(world: World) -> None:
     assert AuditEvent.objects.filter(action="spreadsheet_mapping.saved").count() == 1
     listed = api.get(f"/projects/{world.project.pk}/spreadsheet-mappings?type={SAMPLE}").json()
     assert [m["name"] for m in listed] == ["Plate reader export"]
-    assert (
-        api_as(world, "viewer").delete(f"/spreadsheet-mappings/{listed[0]['id']}").status_code
-        == 403
-    )
-    assert api.delete(f"/spreadsheet-mappings/{listed[0]['id']}").status_code == 204
+    kept = f"/spreadsheet-mappings/{listed[0]['id']}"
+    assert api_as(world, "viewer").delete(kept, headers=seen(listed[0])).status_code == 403
+    problem(api.delete(kept), 428, "precondition_required")
+    assert api.delete(kept, headers=seen(listed[0])).status_code == 204
 
 
 @pytest.mark.parametrize("explicit_unit", [False, True])
@@ -821,16 +820,16 @@ def test_a_committed_import_keeps_the_mapping_it_applied(world: World) -> None:
         next_ref, {"columns": [{"index": 0, "field": "label"}]}, headers=seen(next_sheet)
     )
     assert changed.status_code == 200, changed.content
-    replacement = colleague.post(
-        f"{next_ref}/mappings",
+    replacement = colleague.put(
+        f"/spreadsheet-mappings/{mapping_id}",
         {
             "name": "Instrument v2",
-            "replace": mapping_id,
-            "target_revision": saved.json()["revision"],
+            "import": next_sheet["id"],
+            "import_revision": changed.json()["revision"],
         },
-        headers=seen(changed.json()),
+        headers=seen(saved.json()),
     )
-    assert replacement.status_code == 201, replacement.content
+    assert replacement.status_code == 200, replacement.content
     assert replacement.json()["columns"] == [{"header": "Label", "field": "label"}]
 
     refreshed = owner.get(ref).json()
@@ -855,7 +854,10 @@ def test_a_committed_import_keeps_the_mapping_it_applied(world: World) -> None:
     late = owner.post(f"{ref}/mappings", {"name": "Saved after the import"}, headers=seen(done))
     assert late.status_code == 201, late.content
     assert late.json()["id"] != mapping_id
-    assert colleague.delete(f"/spreadsheet-mappings/{mapping_id}").status_code == 204
+    deleted = colleague.delete(
+        f"/spreadsheet-mappings/{mapping_id}", headers=seen(replacement.json())
+    )
+    assert deleted.status_code == 204, deleted.content
     history = colleague.get(ref).json()
     assert history["mapping"] == pinned["template"]
     assert history["applied_mapping"] == pinned
@@ -918,8 +920,10 @@ def test_a_change_from_a_revision_it_has_moved_on_from_changes_nothing(world: Wo
     problem(api.post(f"{url}/preview"), 428, "precondition_required")
     problem(api.post(f"{url}/commit", {}), 428, "precondition_required")
     problem(api.post(f"{url}/mappings", {"name": "Core"}), 428, "precondition_required")
-    wrong = api.patch(url, {"header_row": 3}, headers={"If-Match": '"3", "2"'})
-    problem(wrong, 412, "precondition_failed")
+    # Nor from two revisions at once, or from whatever it is.
+    for tags in ('"3", "2"', "*", 'W/"3"'):
+        wrong = api.patch(url, {"header_row": 3}, headers={"If-Match": tags})
+        problem(wrong, 428, "precondition_required")
     assert stored(imported) == before
 
     # From what it is now, it's saved.
@@ -1008,7 +1012,9 @@ def test_a_workbook_that_cant_be_read_fails_with_why(world: World) -> None:
 def test_a_discarded_import_keeps_nothing_of_its_preview(world: World) -> None:
     checked = previewed(world, started(world, xlsx(("Samples", MANIFEST))))
     assert PreviewRow.objects.filter(spreadsheet_import_id=checked["id"]).count() == 3
-    assert api_as(world).delete(f"/spreadsheet-imports/{checked['id']}").status_code == 204
+    url = f"/spreadsheet-imports/{checked['id']}"
+    problem(api_as(world).delete(url), 428, "precondition_required")
+    assert api_as(world).delete(url, headers=seen(checked)).status_code == 204
     settle()
     assert not PreviewRow.objects.filter(spreadsheet_import_id=checked["id"]).exists()
     assert SpreadsheetImport.objects.get(pk=checked["id"]).state == "discarded"

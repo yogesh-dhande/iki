@@ -399,7 +399,7 @@ def test_a_record_changed_since_it_was_read_saves_nothing(world: World) -> None:
 def test_an_existing_record_must_name_the_revision_that_was_read(world: World) -> None:
     kd1 = samples(world)["KD-001"]
     answer = save(world, [{"key": "a", "entity": str(kd1.pk), "values": {"purity": 98.5}}])
-    body = problem(answer, 422, "validation_failed")
+    body = problem(answer, 428, "precondition_required")
     assert body["errors"] == [
         {"pointer": "#/rows/0/revision", "detail": "is required: the revision you read."}
     ]

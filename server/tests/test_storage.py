@@ -7,7 +7,7 @@ from importlib import import_module
 from typing import Any
 
 import pytest
-from api_client import Api, seen
+from api_client import Api, problem, seen
 from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.migrations.state import ProjectState
 from org_world import World, build_world
@@ -510,10 +510,12 @@ def test_receiving_a_request_checks_each_tube_takes_custody_and_reports_back(lab
     ):
         line = next(item for item in receipt["lines"] if item["code"] == code)
         change = {"outcome": outcome, "note": note}
+        # A first check needs no revision; correcting what the scan recorded does.
+        reviewed = None
         if line["outcome"] is not None:
-            change["revision"] = line["revision"]
+            reviewed = seen(line["revision"])
             change["reason"] = "Inspected the unlabelled tube after its barcode was scanned."
-        answer = tech.patch(f"{path}/lines/{lines[code]}", change)
+        answer = tech.patch(f"{path}/lines/{lines[code]}", change, headers=reviewed)
         assert answer.status_code == 200, answer.content
         checked = answer.json()
         assert (checked["found"], checked["line"]) == ("recorded", line["id"])
@@ -532,8 +534,8 @@ def test_receiving_a_request_checks_each_tube_takes_custody_and_reports_back(lab
         headers=seen(receipt["revision"]),
     )
     assert described.status_code == 200, described.content
+    reviewed = seen(described.json()["revision"])
     approval = {
-        "revision": described.json()["revision"],
         "missing_rest": True,
         "put_away": [
             {"line": lines["RC000"], "to": incoming["id"]},
@@ -541,12 +543,12 @@ def test_receiving_a_request_checks_each_tube_takes_custody_and_reports_back(lab
         ],
     }
     proposal = tech.post(
-        f"{path}/put-away/preview",
-        {"put_away": approval["put_away"]},
-        headers=seen(approval["revision"]),
+        f"{path}/put-away/preview", {"put_away": approval["put_away"]}, headers=reviewed
     )
     assert proposal.status_code == 200, proposal.content
-    done = tech.post(f"{path}/complete", {**approval, "plan": proposal.json()["plan"]})
+    done = tech.post(
+        f"{path}/complete", {**approval, "plan": proposal.json()["plan"]}, headers=reviewed
+    )
     assert done.status_code == 200, done.content
     receipt = done.json()
     assert receipt["status"] == "completed"
@@ -998,11 +1000,7 @@ def test_an_editor_cannot_resolve_a_replacement_observation_they_never_saw(world
     line = f"{path}/lines/{opened['lines'][0]['id']}"
     first = a.post(f"{path}/scans", {"scans": [{"position": "A3", "code": "RC-RESOLVE"}]}).json()
     assert first["lines"][0]["found"] == "A3"
-    choice = {
-        "revision": first["lines"][0]["revision"],
-        "resolution": "moved",
-        "note": "Reviewed A3",
-    }
+    choice = {"resolution": "moved", "note": "Reviewed A3"}
     newer = b.post(
         f"{path}/scans",
         {
@@ -1012,13 +1010,14 @@ def test_an_editor_cannot_resolve_a_replacement_observation_they_never_saw(world
         },
     ).json()
     assert newer["lines"][0]["found"] == "A4"
-    refused = a.patch(line, choice)
+    refused = a.patch(line, choice, headers=seen(first["lines"][0]["revision"]))
     after = ReconciliationLine.objects.get(pk=opened["lines"][0]["id"])
-    assert refused.status_code == 409, (after.resolved_position, after.resolved_by, after.note)
+    assert refused.status_code == 412, (after.resolved_position, after.resolved_by, after.note)
     assert (after.resolved_position, after.resolved_by_id, after.note) == (None, None, "")
-    assert "review" in refused.json()["detail"].lower()
-    for invalid in ({}, {"revision": 0}, {"revision": "1"}):
-        assert a.patch(line, {"resolution": "moved", **invalid}).status_code == 422
+    assert "review" in problem(refused, 412, "stale")["detail"].lower()
+    assert refused["ETag"] == f'"{newer["lines"][0]["revision"]}"'
+    for headers, status in ((None, 428), ({"If-Match": "1"}, 428), ({"If-Match": '"0"'}, 412)):
+        assert a.patch(line, {"resolution": "moved"}, headers=headers).status_code == status
     refreshed = a.get(path).json()
     assert refreshed == newer
     assert (
@@ -1060,7 +1059,8 @@ def test_an_editor_cannot_resolve_a_replacement_observation_they_never_saw(world
         },
         headers=seen(a_decision["lines"][0]["revision"]),
     )
-    assert stale_clear.status_code == 409
+    problem(stale_clear, 412, "stale")
+    assert stale_clear["ETag"] == f'"{replacement.json()["lines"][0]["revision"]}"'
     latest = a.get(path).json()
     assert latest == replacement.json() and latest["revision"] > a_decision["revision"]
     saved_choice = latest["lines"][0]
@@ -1121,11 +1121,7 @@ def test_completion_requires_the_reconciliation_plan_the_editor_reviewed(world: 
     )
     shown = a.get(path).json()
     assert shown["lines"][0]["found"] == "A3" and not shown["lines"][0]["resolution_stale"]
-    approved = {
-        "revision": shown["revision"],
-        "missing_rest": False,
-        "note": "Reviewed A3",
-    }
+    approved = {"missing_rest": False, "note": "Reviewed A3"}
 
     # A second editor really saw and approved a positive A4 observation.
     second = b.post(
@@ -1159,11 +1155,11 @@ def test_completion_requires_the_reconciliation_plan_the_editor_reviewed(world: 
     assert current["lines"][0]["found"] == "A4" and not current["lines"][0]["resolution_stale"]
     events, audits = Event.objects.count(), AuditEvent.objects.count()
 
-    refused = a.post(f"{path}/complete", approved)
-    assert refused.status_code == 409, refused.content
-    assert "review" in refused.json()["detail"].lower()
-    for invalid in ({}, {"revision": 0}):
-        assert a.post(f"{path}/complete", invalid).status_code == 422
+    refused = a.post(f"{path}/complete", approved, headers=seen(shown["revision"]))
+    assert "review" in problem(refused, 412, "stale")["detail"].lower()
+    assert refused["ETag"] == f'"{current["revision"]}"'
+    for headers, status in ((None, 428), ({"If-Match": '"0"'}, 412)):
+        assert a.post(f"{path}/complete", approved, headers=headers).status_code == status
     refreshed = a.get(path).json()
     assert refreshed == current and refreshed["status"] == "open" and refreshed["note"] == ""
     assert contents(a, cryo) == {"A2": specimen["hrid"]}

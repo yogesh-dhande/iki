@@ -162,12 +162,12 @@ def test_receiving_can_resolve_a_destination_barcode_and_refuses_unreviewed_dupl
         path, {"handed_over_by": "Courier"}, headers=seen(observed["receipt"]["revision"])
     ).json()
     place = {"line": observed["line"], "to": "INCOMING", "position": "A1"}
-    body = {"revision": reviewed["revision"], "put_away": [place]}
-    refused = receiver.post(path + "/complete", body)
+    body: dict[str, Any] = {"put_away": [place]}
+    refused = receiver.post(path + "/complete", body, headers=seen(reviewed["revision"]))
     assert refused.status_code == 409
     assert receiver.get(path).json() == reviewed
     body["put_away"] = [{**place, "to_choice": target["id"]}]
-    accepted = receiver.post(path + "/complete", body)
+    accepted = receiver.post(path + "/complete", body, headers=seen(reviewed["revision"]))
     assert accepted.status_code == 200, accepted.content
     assert accepted.json()["lines"][0]["put_away"]["id"] == target["id"]
 
@@ -226,9 +226,9 @@ def test_a_destination_vendor_barcode_equal_to_another_box_id_requires_a_choice(
         path, {"handed_over_by": "Courier"}, headers=seen(scanned["receipt"]["revision"])
     ).json()
     item = {"line": scanned["line"], "to": direct["id"], "position": "A1"}
-    approval = {"revision": reviewed["revision"], "put_away": [item]}
+    approval: dict[str, Any] = {"put_away": [item]}
     before = AuditEvent.objects.count()
-    refused = receiver.post(path + "/complete", approval)
+    refused = receiver.post(path + "/complete", approval, headers=seen(reviewed["revision"]))
     assert refused.status_code == 409, refused.content
     assert {candidate["id"] for candidate in refused.json()["candidates"]} == {
         vendor["id"],
@@ -236,7 +236,7 @@ def test_a_destination_vendor_barcode_equal_to_another_box_id_requires_a_choice(
     }
     assert receiver.get(path).json() == reviewed and AuditEvent.objects.count() == before
     approval["put_away"] = [{**item, "to_choice": vendor["id"]}]
-    accepted = receiver.post(path + "/complete", approval)
+    accepted = receiver.post(path + "/complete", approval, headers=seen(reviewed["revision"]))
     assert accepted.status_code == 200, accepted.content
     assert accepted.json()["lines"][0]["put_away"]["id"] == vendor["id"]
     assert receiver.get(f"/storage/containers/{direct['id']}").json()["contents"] == []

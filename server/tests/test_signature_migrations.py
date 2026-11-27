@@ -643,8 +643,11 @@ with TemporaryDirectory() as tmp:
 
 before = {c.name: c.ok for c in signatures.verify(Signature.objects.get(entity_id=wrong.pk))}
 # A registrar supersedes the mistyped entry; Screens moves its record onto the right one.
-entries.supersede(curator, wrong_entry, Entity.objects.get(pk=right.entry_id), reason="Typo")
-entries.move(analyst, Entity.objects.get(pk=wrong.pk), reason="Superseded")
+wrong_entry.refresh_from_db()
+entries.supersede(curator, wrong_entry, Entity.objects.get(pk=right.entry_id),
+                  expected_revision=wrong_entry.revision, reason="Typo")
+held = Entity.objects.get(pk=wrong.pk)
+entries.move(analyst, held, expected_revision=held.revision, reason="Superseded")
 moved = Entity.objects.get(pk=wrong.pk)
 from api_client import Api
 from browser import Browser
