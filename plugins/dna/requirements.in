@@ -9,4 +9,4 @@
 biopython==1.88
 # Runs the modules shipped in the action archive: the fixed-condition melting
 # measurement, and the primer checks (ADR 0201).
-wasmtime==50.0.1
+wasmtime==51.0.0
