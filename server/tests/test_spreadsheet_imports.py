@@ -757,7 +757,7 @@ def test_a_saved_mapping_maps_the_next_sheet_of_its_kind(world: World) -> None:
     }
     assert second["locale"]["dates"] == "day_first"
     assert AuditEvent.objects.filter(action="spreadsheet_mapping.saved").count() == 1
-    listed = api.get(f"/projects/{world.project.pk}/spreadsheet-mappings?type={SAMPLE}").json()
+    listed = api.every(f"/projects/{world.project.pk}/spreadsheet-mappings", type=SAMPLE)
     assert [m["name"] for m in listed] == ["Plate reader export"]
     kept = f"/spreadsheet-mappings/{listed[0]['id']}"
     assert api_as(world, "viewer").delete(kept, headers=seen(listed[0])).status_code == 403

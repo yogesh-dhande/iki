@@ -213,12 +213,12 @@ def test_a_packed_runs_attempt_follows_its_job(world: World) -> None:
     pod.report(job, "logs", offset=0, text="abl1: 12345.6\n")
     viewer = api_as(world, "viewer")
     last = launched["runs"][-1]
-    (attempt,) = viewer.get(f"/runs/{last['hrid']}/attempts").json()
+    (attempt,) = viewer.every(f"/runs/{last['hrid']}/attempts")
     assert (attempt["state"], attempt["worker"]) == ("running", "pod-9")
     assert (attempt["progress"], attempt["progress_message"]) == (0.5, "Weighing")
     assert attempt["log_size"] == 14
     assert attempt["pack"] == {"runs": 3, "reported_as": launched["runs"][0]["hrid"]}
-    (held,) = viewer.get(f"/runs/{launched['runs'][0]['hrid']}/attempts").json()
+    (held,) = viewer.every(f"/runs/{launched['runs'][0]['hrid']}/attempts")
     assert held["pack"] == {"runs": 3, "reported_as": launched["runs"][0]["hrid"]}
     log = viewer.get(f"/runs/{last['hrid']}/attempts/1/log").json()
     assert (log["text"], log["size"], log["ended"]) == ("abl1: 12345.6\n", 14, False)

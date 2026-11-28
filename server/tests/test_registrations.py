@@ -178,9 +178,10 @@ def test_registering_takes_editor_and_registrations_are_their_makers(
     made = register(api_as(world), world, uri).json()
     assert api_as(world, "viewer").get(f"/registrations/{made['id']}").status_code == 404
     assert [r["id"] for r in api_as(world).get("/registrations").json()["items"]] == [made["id"]]
-    assert api_as(world, "viewer").get("/registrations/locations").json() == {
-        "locations": [f"s3://{LAB}/runs/", f"s3://{PLAIN}/"]
-    }
+    assert api_as(world, "viewer").every("/registrations/locations") == [
+        {"uri": f"s3://{LAB}/runs/"},
+        {"uri": f"s3://{PLAIN}/"},
+    ]
 
 
 def test_registration_history_uses_the_tokens_current_projects(

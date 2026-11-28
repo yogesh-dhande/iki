@@ -70,7 +70,7 @@ def shown(world: World, run: str) -> dict[str, Any]:
 
 
 def attempts(world: World, run: str) -> list[dict[str, Any]]:
-    found: list[dict[str, Any]] = api_as(world, "viewer").get(f"/runs/{run}/attempts").json()
+    found: list[dict[str, Any]] = api_as(world, "viewer").every(f"/runs/{run}/attempts")
     return found
 
 

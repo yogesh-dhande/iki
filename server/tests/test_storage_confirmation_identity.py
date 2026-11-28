@@ -102,7 +102,7 @@ def history(api: Api, record: dict[str, Any]) -> list[dict[str, Any]]:
 def test_a_retain_tube_requires_its_own_scan_to_move() -> None:
     tubes = shared_tubes(RETAIN_TUBE)
     api, first, second = tubes.api, tubes.first, tubes.second
-    types = {t["name"]: t for t in api.get("/entity-types").json()}
+    types = {t["name"]: t for t in api.every("/entity-types")}
     assert types[RETAIN_TUBE]["storage"]["confirm"] == ["draw", "move"]
     assert types[RETAIN_TUBE]["amount"]["unit"] == "uL"
     assert types[TUBE]["storage"]["confirm"] == ["draw"]
@@ -152,10 +152,10 @@ def test_confirming_a_selection_rechecks_every_source_box(check_in: bool) -> Non
     if check_in:
         checked_out = api.post("/storage/check-out", {"records": ids})
         assert checked_out.status_code == 200, checked_out.content
-        endpoint = "/storage/check-in"
+        endpoint, listed = "/storage/check-in", "check_ins"
         items = [{"record": record_id} for record_id in ids]
     else:
-        endpoint = "/storage/moves"
+        endpoint, listed = "/storage/moves", "moves"
         items = [
             {"record": target["id"], "to": tubes.source["id"], "position": "B1"},
             {"record": other["id"], "to": tubes.destination["id"], "position": "B1"},
@@ -171,7 +171,7 @@ def test_confirming_a_selection_rechecks_every_source_box(check_in: bool) -> Non
     paths = [f"/entities/{record_id}/location" for record_id in ids]
     locations = [api.get(path).json() for path in paths]
     before = writes()
-    command = {"items": items, "reason": "Return the selected tubes"}
+    command = {listed: items, "reason": "Return the selected tubes"}
     refused = api.post(endpoint, {**command, "confirmations": {target["id"]: VENDOR}})
     assert refused.status_code == 422, refused.content
     assert writes() == before and [api.get(path).json() for path in paths] == locations
@@ -206,7 +206,7 @@ def test_a_single_move_checks_the_other_occupants(
     plan = moves(api, item, preview=True, confirmations=confirmations)
     assert plan.status_code == 200, plan.content
     assert not plan.json()["done"]
-    assert plan.json()["items"][0]["problems"]
+    assert plan.json()["moves"][0]["problems"]
     refused = moves(api, item, confirmations=confirmations)
     assert refused.status_code == 422, refused.content
     if concealed:
@@ -238,7 +238,7 @@ def test_a_single_move_checks_the_other_occupants(
     out = api.post("/storage/check-out", {"records": [first["id"]]})
     assert out.status_code == 200, out.content
     back = api.post(
-        "/storage/check-in", {"items": [{"record": first["id"]}], "confirmations": proof}
+        "/storage/check-in", {"check_ins": [{"record": first["id"]}], "confirmations": proof}
     )
     assert back.status_code == 200, back.content
     returned = history(api, first)[0]
@@ -340,7 +340,9 @@ def test_check_in_requires_a_proof_before_custody_or_position_changes(
     items = [{"record": second["id"]}, item]
     sibling = {second["id"]: link_proof(second)}
     for proof in ({}, {first["id"]: VENDOR}, {first["id"]: link_proof(second)}):
-        refused = api.post("/storage/check-in", {"items": items, "confirmations": sibling | proof})
+        refused = api.post(
+            "/storage/check-in", {"check_ins": items, "confirmations": sibling | proof}
+        )
         assert refused.status_code == 422, refused.content
         assert writes() == before
         location = api.get(f"/entities/{first['id']}/location").json()
@@ -351,7 +353,7 @@ def test_check_in_requires_a_proof_before_custody_or_position_changes(
 
     code = link_proof(first)
     checked = api.post(
-        "/storage/check-in", {"items": items, "confirmations": sibling | {first["id"]: code}}
+        "/storage/check-in", {"check_ins": items, "confirmations": sibling | {first["id"]: code}}
     )
     assert checked.status_code == 200, checked.content
     location = api.get(f"/entities/{first['id']}/location").json()

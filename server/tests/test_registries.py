@@ -304,7 +304,7 @@ def test_a_fixed_fact_is_given_once_and_never_changed(world: World, rival: Proje
         "validation_failed",
     )
     assert "supersedes" in str(changed["errors"])
-    types = {t["name"]: t for t in editor.get("/entity-types").json()}
+    types = {t["name"]: t for t in editor.every("/entity-types")}
     standard = next(f for f in types[PROTEIN]["fields"] if f["name"] == "standard")
     assert (standard["registry"], standard["immutable"]) == ("fact", True)
 

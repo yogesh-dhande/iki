@@ -1138,7 +1138,7 @@ def test_set_a_quota_stays_put_as_the_quotas_arrive(open_as: Any) -> None:
     held: list[Any] = []
 
     def listing(url: str) -> bool:
-        return url.endswith("/api/v1/compute/quotas")
+        return urllib.parse.urlsplit(url).path.endswith("/api/v1/compute/quotas")
 
     def hold(route: Any) -> None:
         held.append(route)
@@ -1407,7 +1407,7 @@ def test_a_projects_tabs_stay_put_as_their_counts_and_tabs_arrive(
     page.set_viewport_size({"width": 390, "height": 844})
     held: list[Route] = []
     counts = re.compile(rf"/api/v1/entities/counts\?project={world.project.id}$")
-    types = re.compile(r"/api/v1/entity-types$")
+    types = re.compile(r"/api/v1/entity-types(\?[^/]*)?$")
     page.route(counts, lambda route: held.append(route))
     page.route(types, lambda route: held.append(route))
     page.reload()
@@ -1497,7 +1497,7 @@ def test_a_records_tabs_stay_put_as_its_links_and_apps_arrive(
     held: list[Route] = []
     # By its HRID, or its ID if it's a registry entry's record.
     graph = re.compile(r"/api/v1/entities/[^/?]+/graph\?up=1&down=1$")
-    apps = re.compile(r"/api/v1/entities/[^/?]+/apps$")
+    apps = re.compile(r"/api/v1/entities/[^/?]+/apps(\?[^/]*)?$")
     page.route(graph, lambda route: held.append(route))
     page.route(apps, lambda route: held.append(route))
     page.reload()
@@ -1505,7 +1505,8 @@ def test_a_records_tabs_stay_put_as_its_links_and_apps_arrive(
     while len(held) < 2 and time.monotonic() < deadline:
         page.wait_for_timeout(50)
     assert sorted(r.request.url.rsplit("/", 1)[-1] for r in held) == [
-        "apps",
+        # The tabs' first page of apps (APP_TABS_SHOWN in web/app/src/apps.ts).
+        "apps?limit=20",
         "graph?up=1&down=1",
     ], [r.request.url for r in held]
 
@@ -2926,13 +2927,14 @@ def test_dna_feature_library_workflow_in_the_sequence_viewer(
     def with_library_field(route: Route) -> None:
         response = route.fetch()
         types = response.json()
-        sequence = next(t for t in types if t["name"] == type_name)
-        original = next(f for f in sequence["fields"] if f["name"] == "features")
-        sequence["fields"].append({**original, "name": "library_features", "computed": True})
+        # The installed types come a page at a time (ADR 0291): the plasmid's is on one.
+        for sequence in (t for t in types["items"] if t["name"] == type_name):
+            original = next(f for f in sequence["fields"] if f["name"] == "features")
+            sequence["fields"].append({**original, "name": "library_features", "computed": True})
         route.fulfill(response=response, json=types)
 
     def with_library_action(route: Route) -> None:
-        route.fulfill(json=[action_out])
+        route.fulfill(json={"items": [action_out], "next_cursor": None})
 
     def with_library_result(route: Route) -> None:
         response = route.fetch()
@@ -2945,7 +2947,7 @@ def test_dna_feature_library_workflow_in_the_sequence_viewer(
         )
         route.fulfill(response=response, json=entity)
 
-    page.route(re.compile(r"/api/v1/entity-types$"), with_library_field)
+    page.route(re.compile(r"/api/v1/entity-types(\?[^/]*)?$"), with_library_field)
     page.route(re.compile(r"/api/v1/actions\?takes="), with_library_action)
     page.route(re.compile(rf"/api/v1/entities/{hrid}(?:\?.*)?$"), with_library_result)
     page.set_viewport_size({"width": 390, "height": 844})
@@ -5024,9 +5026,9 @@ def _starter_api(page: Page) -> dict[str, Any]:
     }
     state: dict[str, Any] = {"applied": None, "sent": [], "held": set()}
 
-    def starters() -> list[dict[str, Any]]:
+    def starters() -> dict[str, Any]:
         required = list(roles)
-        return [
+        items = [
             {
                 "id": "dose-response",
                 "version": "2.0.0",
@@ -5054,6 +5056,7 @@ def _starter_api(page: Page) -> dict[str, Any]:
                 "applied": state["applied"],
             }
         ]
+        return {"items": items, "next_cursor": None}
 
     def flow_of(route: Any) -> None:
         name = urllib.parse.unquote(route.request.url.split("/entity-types/")[1]).removesuffix(
@@ -5063,9 +5066,9 @@ def _starter_api(page: Page) -> dict[str, Any]:
 
     def lab_roles(route: Any) -> None:
         served = route.fetch().json()
-        route.fulfill(
-            json=served
-            + [
+        if served["next_cursor"] is None:
+            # The last page of the installed roles (ADR 0291) is where the starter's go.
+            served["items"] += [
                 {
                     "name": r,
                     "label": label,
@@ -5075,7 +5078,7 @@ def _starter_api(page: Page) -> dict[str, Any]:
                 }
                 for r, (label, _) in roles.items()
             ]
-        )
+        route.fulfill(json=served)
 
     def setup(route: Any) -> None:
         sent = route.request.post_data_json
@@ -5120,7 +5123,7 @@ def _starter_api(page: Page) -> dict[str, Any]:
 
     page.route(re.compile(r"/api/v1/starters(\?.*)?$"), lambda r: r.fulfill(json=starters()))
     page.route(re.compile(r"/api/v1/entity-types/.*(?:Research|QC)AssayResult/flow$"), flow_of)
-    page.route(re.compile(r"/api/v1/lab-roles$"), lab_roles)
+    page.route(re.compile(r"/api/v1/lab-roles(\?[^/]*)?$"), lab_roles)
     page.route(re.compile(r"/api/v1/starters/dose-response/(preview|apply)$"), setup)
     page.reload()
     return state

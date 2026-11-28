@@ -1417,7 +1417,7 @@ async def test_agents_read_and_verify_signatures_but_cant_give_them(world: World
     hrid, unsigned = await sync_to_async(_signed_lot)(world)
     token = await token_for(world, "viewer")
     listed = data(await tool(token, "get_signatures", ref=hrid, verify=True))
-    [signature] = listed["items"]
+    [signature] = listed["signatures"]
     assert signature["manifestation"].startswith("Authored by Editor on ")
     assert signature["verification"]["valid"] is True
     checked = data(await tool(token, "verify_signature", signature=signature["id"]))

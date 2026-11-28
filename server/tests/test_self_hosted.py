@@ -339,11 +339,11 @@ def test_admins_find_projects_of_the_teams_they_chose(world: World) -> None:
     second_project(world)
     Project.objects.create(team=world.other_team, name="Assays")
     admin = api_as(world, "compute_admin")
-    found = admin.get(
-        f"/compute/quota-scopes?kind=project&team={world.team.pk}&team={world.other_team.pk}"
-    ).json()
+    found = admin.every(
+        "/compute/quota-scopes", kind="project", team=[str(world.team.pk), str(world.other_team.pk)]
+    )
     assert [p["name"] for p in found] == ["Assays", "Kinase Atlas", "Screens"]
-    only = admin.get(f"/compute/quota-scopes?kind=project&team={world.other_team.pk}").json()
+    only = admin.every("/compute/quota-scopes", kind="project", team=str(world.other_team.pk))
     assert [p["name"] for p in only] == ["Assays"]
 
 
@@ -368,7 +368,7 @@ def test_a_run_goes_only_to_a_machine_with_every_label_it_needs(world: World) ->
     job = Job.objects.get(run_id=run["id"])
     assert job.worker_labels == ["chromeleon", "gpu", "lab-3"]
     editor = api_as(world, "editor")
-    (attempt,) = editor.get(f"/runs/{run['id']}/attempts").json()
+    (attempt,) = editor.every(f"/runs/{run['id']}/attempts")
     assert (attempt["worker"], attempt["worker_labels"]) == (
         "hplc-pc-2",
         ["chromeleon", "gpu", "lab-3"],

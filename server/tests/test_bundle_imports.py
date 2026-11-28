@@ -453,7 +453,7 @@ def test_applying_makes_its_entities_with_their_history_files_and_authors(
     # Its page says where it's from.
     origins = api.get(f"/entities/{kinase.hrid}/bundles")
     assert origins.status_code == 200, origins.content
-    (origin,) = origins.json()
+    (origin,) = origins.json()["items"]
     assert origin["deployment"] == "test" and origin["hrid"] == kinase.hrid
     assert origin["action"] == "new" and origin["revisions"] == 2
     assert origin["bundle_import"] == made["id"]
@@ -592,7 +592,7 @@ def test_applying_renumbers_taken_hrids_and_adds_later_revisions(
     assert api.get(f"/entities/{here.hrid}").json()["values"]["name"] == "changed there"
     moved = Entity.objects.get(pk=renumbered["id"])
     assert moved.hrid != renumbered["hrid"]
-    (origin,) = api.get(f"/entities/{moved.hrid}/bundles").json()
+    (origin,) = api.every(f"/entities/{moved.hrid}/bundles")
     assert origin["hrid"] == renumbered["hrid"]
     rows = {r["id"]: r for r in entities_of(api, done)}
     assert rows[renumbered["id"]]["hrid_here"] == moved.hrid

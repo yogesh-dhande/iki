@@ -196,7 +196,7 @@ def test_imported_entities_keep_where_they_came_from(world: World) -> None:
     (effect,) = body["effects"]
     assert effect["kind"] == "created"
     file_id = run["params"]["file"]
-    origins = api_as(world, "viewer").get(f"/entities/{effect['hrid']}/origins").json()
+    origins = api_as(world, "viewer").every(f"/entities/{effect['hrid']}/origins")
     assert origins == [
         {
             "source": "FASTA file",
@@ -216,7 +216,7 @@ def test_imported_entities_keep_where_they_came_from(world: World) -> None:
     # Imported again, it's the same protein, found again: that's kept too.
     _, again = imported(world, sequence)
     assert again["run_status"] == "succeeded", again
-    later, first = api_as(world).get(f"/entities/{effect['hrid']}/origins").json()
+    later, first = api_as(world).every(f"/entities/{effect['hrid']}/origins")
     assert (later["revision"], first["revision"]) == (None, 1)
     assert ExternalOrigin.objects.count() == 2
 
@@ -244,7 +244,7 @@ def test_one_molecule_from_several_records_keeps_where_each_came_from(world: Wor
     run, answer = imported(world, calm1, calm2)
     assert answer["run_status"] == "succeeded", answer
     (effect,) = api_as(world).get(f"/runs/{run['id']}").json()["effects"]
-    origins = api_as(world, "viewer").get(f"/entities/{effect['hrid']}/origins").json()
+    origins = api_as(world, "viewer").every(f"/entities/{effect['hrid']}/origins")
     assert sorted((o["id"], o["revision"]) for o in origins) == [("P0DP23", 1), ("P0DP24", None)]
     assert {o["run"]["id"] for o in origins} == {run["id"]}
 
@@ -309,7 +309,7 @@ def test_origins_dont_show_runs_or_files_the_reader_cant(world: World) -> None:
     outsider = world.users["team_member"]
     ProjectMembership.objects.create(project=elsewhere, user=outsider, role=ProjectRole.VIEWER)
     ProjectLink.objects.create(entity=entity, project=elsewhere)
-    (seen,) = api_as(world, "team_member").get(f"/entities/{entity.hrid}/origins").json()
+    (seen,) = api_as(world, "team_member").every(f"/entities/{entity.hrid}/origins")
     assert (seen["source"], seen["id"]) == ("FASTA file", "ABL1")
     assert seen["run"] is None
     assert seen["file"] is None
@@ -476,7 +476,7 @@ def test_a_record_that_comes_again_updates_its_entity(world: World) -> None:
     )
     revisions = api_as(world).get(f"/entities/{made['hrid']}/revisions").json()["items"]
     assert (revisions[0]["number"], revisions[0]["via"]) == (2, "run")
-    later, first = api_as(world).get(f"/entities/{made['hrid']}/origins").json()
+    later, first = api_as(world).every(f"/entities/{made['hrid']}/origins")
     assert (later["revision"], later["run"]["id"], first["revision"]) == (2, again["id"], 1)
 
     # Unchanged, it's found again, as a reused duplicate is: no new revision.

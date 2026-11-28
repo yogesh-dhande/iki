@@ -66,7 +66,7 @@ def test_a_receipt_requires_a_choice_between_matching_checklist_lines(lab: Lab) 
     result = accepted.json()
     assert set(result) == {"found", "line", "receipt"} and result["found"] == "matched"
     assert str(ReceiptLine.objects.get(pk=result["line"]).entity_id) == second["id"]
-    (event,) = receiver.get(path + "/history").json()["items"]
+    (event,) = receiver.get(path + "/observations").json()["items"]
     assert event["after"]["scan"] == {
         "code": "SAME",
         "identity_basis": "vendor",
@@ -74,7 +74,7 @@ def test_a_receipt_requires_a_choice_between_matching_checklist_lines(lab: Lab) 
         "chosen": True,
     }
     assert receiver.post(path + "/scan", {"code": "SAME"}).status_code == 409
-    assert receiver.get(path + "/history").json()["items"] == [event]
+    assert receiver.get(path + "/observations").json()["items"] == [event]
     explicit = receiver.post(path + "/scan", {"code": first["hrid"], "mode": "iki_id"})
     assert explicit.status_code == 200 and explicit.json()["receipt"]["outcomes"]["matched"] == 2
 
@@ -98,7 +98,7 @@ def test_unexpected_ambiguous_receipt_label_is_saved_without_an_identity(lab: La
         assert saved["outcome"] == "extra" and saved["code"] == code and saved["entity"] == entity
         again = receiver.post(path + "/scan", {"code": code})
         assert again.json() == {**result, "found": "again"}
-        (event,) = receiver.get(path + "/history", line_id=result["line"]).json()["items"]
+        (event,) = receiver.get(path + "/observations", line_id=result["line"]).json()["items"]
         if entity is None:
             assert "entity_id" not in event["after"]
         else:
@@ -144,7 +144,7 @@ def test_unrecognized_explicit_identity_never_creates_an_extra(lab: Lab) -> None
     assert answers[0].json()["detail"] == answers[1].json()["detail"]
     assert (
         receiver.get(path).json() == before
-        and receiver.get(path + "/history").json()["items"] == []
+        and receiver.get(path + "/observations").json()["items"] == []
     )
 
 
@@ -260,7 +260,7 @@ def test_receipt_history_preserves_the_input_and_matching_path_without_relabelli
         reply = receiver.post(path + "/scan", {"code": code, "mode": mode})
         assert reply.status_code == 200 and reply.json()["found"] == "matched"
         found = reply.json()
-        event = receiver.get(path + "/history").json()["items"][0]
+        event = receiver.get(path + "/observations").json()["items"][0]
         assert event["line_id"] == found["line"]
         assert event["after"]["scan"] == {
             "code": code,
@@ -279,7 +279,7 @@ def test_receipt_history_preserves_the_input_and_matching_path_without_relabelli
             headers=seen(found["receipt"]["lines"][0]["revision"]),
         )
         assert cleared.status_code == 200, cleared.content
-        amendment = receiver.get(path + "/history").json()["items"][0]
+        amendment = receiver.get(path + "/observations").json()["items"][0]
         assert amendment["before"] == event["after"] and "scan" not in amendment["after"]
         assert "entity_id" not in amendment["after"]
 
@@ -292,17 +292,17 @@ def test_receipt_history_preserves_the_input_and_matching_path_without_relabelli
     )
     assert updated.status_code == 200, updated.content
     assert receiver.post(path + "/scan", {"code": specimen["hrid"]}).json()["found"] == "matched"
-    events = receiver.get(path + "/history").json()["items"]
+    events = receiver.get(path + "/observations").json()["items"]
     assert events[0]["after"]["scan"]["identity_basis"] == "hrid_and_vendor"
     assert events[-1]["after"]["scan"]["code"] == scans[0][0]
 
     # The historical link gates both halves of every amendment, even following a purge.
     ProjectLink.objects.filter(entity_id=specimen["id"], project=lab.core).delete()
-    hidden = receiver.get(path + "/history").json()["items"]
+    hidden = receiver.get(path + "/observations").json()["items"]
     assert len(hidden) == len(events)
     for event in hidden:
         for state in (event["before"], event["after"]):
             assert state["code"] == "" and "scan" not in state and "entity_id" not in state
     assert canonical not in str(hidden) and specimen["id"] not in str(hidden)
     Entity.objects.filter(pk=specimen["id"]).update(purged_at=datetime.now(UTC))
-    assert receiver.get(path + "/history").json()["items"] == hidden
+    assert receiver.get(path + "/observations").json()["items"] == hidden

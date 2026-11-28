@@ -215,7 +215,7 @@ def test_a_projects_files_stay_quick(files: int) -> None:
     took["the count"], counted = _timed(client, {"project": project}, "/files/count")
     assert counted == {"total": 1000, "more_than_total": True}
     took["the formats"], formats = _timed(client, {"project": project}, "/files/formats")
-    assert {f["media_type"] for f in formats} >= {"application/x-abi", "image/tiff"}
+    assert {f["media_type"] for f in formats["items"]} >= {"application/x-abi", "image/tiff"}
     for name, seconds in took.items():
         print(f"{name}: {seconds * 1000:.0f} ms")  # noqa: T201 - the load test's report
 

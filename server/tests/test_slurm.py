@@ -487,7 +487,7 @@ def test_the_worker_says_what_slurm_reports_and_the_run_page_shows_it(world: Wor
     assert "submitted as Slurm job 4242" in other["detail"]
     bad = node.report(payload, "slurm", state="EXPLODED")
     assert bad.status_code == 422
-    attempts = api_as(world, "viewer").get(f"/runs/{run['id']}/attempts").json()
+    attempts = api_as(world, "viewer").every(f"/runs/{run['id']}/attempts")
     shown = attempts[0]["slurm"]
     assert attempts[0]["state"] == "pending"
     assert (shown["slurm_id"], shown["state"], shown["reason"]) == ("4242", "PENDING", "Priority")
@@ -583,7 +583,7 @@ def test_compute_admins_see_clusters_and_set_projects_accounts(world: World) -> 
     admin = api_as(world, "compute_admin")
     login_node(world)
     queue_run(world)
-    (cluster,) = admin.get("/compute/slurm").json()
+    (cluster,) = admin.every("/compute/slurm-clusters")
     assert cluster["name"] == "hpc1"
     assert cluster["workers_online"] == 1
     (template,) = cluster["templates"]
@@ -593,14 +593,14 @@ def test_compute_admins_see_clusters_and_set_projects_accounts(world: World) -> 
         2,
     )
     assert template["price"]["per_gpu_hour"] == 1.10
-    path = f"/compute/slurm/hpc1/accounts/{world.project.pk}"
+    path = f"/compute/slurm-clusters/hpc1/accounts/{world.project.pk}"
     bad = admin.put(path, {"account": "rd proteins; rm"})
     assert bad.status_code == 422
     given = admin.put(path, {"account": "rd-proteins"})
     assert given.status_code == 200, given.content
     assert given.json()["account"] == "rd-proteins"
     assert admin.put(path, {"account": "rd-structure"}).status_code == 200
-    (listed,) = admin.get("/compute/slurm/hpc1/accounts").json()["items"]
+    (listed,) = admin.get("/compute/slurm-clusters/hpc1/accounts").json()["items"]
     assert listed["project"]["id"] == str(world.project.pk)
     assert admin.delete(path).status_code == 204
     events = AuditEvent.objects.filter(action="slurm_account.changed").order_by("id")
@@ -609,9 +609,9 @@ def test_compute_admins_see_clusters_and_set_projects_accounts(world: World) -> 
         ("rd-proteins", "rd-structure"),
         ("rd-structure", None),
     ]
-    assert admin.get("/compute/slurm/hpc9/accounts").status_code == 404
+    assert admin.get("/compute/slurm-clusters/hpc9/accounts").status_code == 404
     # Only Compute admins.
-    assert api_as(world, "runner").get("/compute/slurm").status_code == 403
+    assert api_as(world, "runner").get("/compute/slurm-clusters").status_code == 403
     assert api_as(world, "runner").put(path, {"account": "mine"}).status_code == 403
 
 

@@ -236,7 +236,7 @@ def test_a_compute_admin_asks_and_another_approves(world: World) -> None:
 def test_the_environments_volumes_say_what_runs_wait_for(world: World) -> None:
     (found,) = [
         e
-        for e in api_as(world, "compute_admin").get("/compute/volumes").json()
+        for e in api_as(world, "compute_admin").every("/compute/volumes")
         if e["environment"] == ALPHAFOLD
     ]
     assert found["volumes"] == [
@@ -417,7 +417,7 @@ def test_runs_read_a_copy_of_the_newest_version_and_record_it(world: World) -> N
         1,
         "AlphaFold DBs 2026-10",
     )
-    (attempt,) = api_as(world, "runner").get(f"/runs/{run['hrid']}/attempts").json()
+    (attempt,) = api_as(world, "runner").every(f"/runs/{run['hrid']}/attempts")
     assert attempt["volumes"]["af-db"]["hrid"] == first
     assert ActionRun.objects.get(pk=run["id"]).status == RunStatus.RUNNING
 

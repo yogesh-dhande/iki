@@ -656,7 +656,7 @@ browser.force_login(analyst)
 api = Api(browser)
 shown = api.get(f"/entities/{moved.pk}/signatures", verify=True)
 assert shown.status_code == 200, shown.content
-[item] = shown.json()["items"]
+[item] = shown.json()["signatures"]
 assert item["verification"]["valid"] and item["document"] is None
 assert str(wrong_entry.pk).encode() not in shown.content
 result = {

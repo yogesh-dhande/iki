@@ -720,7 +720,7 @@ def test_team_grants_say_how_many_people_they_cover(world: World) -> None:
 
 
 def test_project_roles_are_described_lowest_first(world: World) -> None:
-    roles = api_as(world, "viewer").get("/project-roles").json()
+    roles = api_as(world, "viewer").every("/project-roles")
     assert [r["name"] for r in roles] == ["viewer", "editor", "runner", "admin"]
     assert roles[0] == {
         "name": "viewer",

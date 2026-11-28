@@ -222,14 +222,14 @@ def test_a_launch_waits_for_an_org_admin_to_approve_the_api(world: World) -> Non
     }
     assert hosted(world, consent=[API]).status_code == 201
 
-    listed = api_as(world, "org_admin").get("/outside-apis").json()
+    listed = api_as(world, "org_admin").every("/outside-apis")
     (fold,) = [a for a in listed if a["api"] == API]
     assert fold["credential"]["set"] is True
     assert fold["price"] == {"per_call": 0.02, "usage": {"gpu_seconds": 0.001}, "currency": "USD"}
     assert [a["project_name"] for a in fold["approvals"]] == [world.project.name]
     assert fold["approvals"][0]["current"] is True
     problem(api_as(world, "viewer").get("/outside-apis"), 403, "forbidden")
-    mine = api_as(world, "viewer").get(f"/projects/{world.project.pk}/outside-apis").json()
+    mine = api_as(world, "viewer").every(f"/projects/{world.project.pk}/outside-apis")
     assert [a["approvals"][0]["current"] for a in mine if a["api"] == API] == [True]
 
 
@@ -636,7 +636,7 @@ def test_a_run_calls_the_api_through_the_proxy_parks_and_resumes(
     assert kept == {1: parking, 2: results}
     assert [
         (a["attempt"], a["state"])
-        for a in api_as(world).get(f"/runs/{made.json()['hrid']}/attempts").json()
+        for a in api_as(world).every(f"/runs/{made.json()['hrid']}/attempts")
     ] == [(1, "parked"), (2, "succeeded")]
 
 

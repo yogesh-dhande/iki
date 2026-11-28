@@ -479,7 +479,7 @@ def test_compounds_are_one_sdf_with_their_fields_as_data(world: World, tmp_path:
         compound(world, *COMPOUNDS[2], supplier=str(supplier.pk), stereochemistry="absolute"),
     ]
     api = api_as(world)
-    types = {t["name"]: t for t in api.get("/entity-types").json()}
+    types = {t["name"]: t for t in api.every("/entity-types")}
     (declared,) = types["acme/protein.Compound"]["exports"]
     assert declared["export"] == "compound"
     assert declared["structure"] == "molfile"

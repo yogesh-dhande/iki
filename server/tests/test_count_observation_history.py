@@ -31,7 +31,7 @@ def review(line: dict[str, Any]) -> dict[str, Any]:
 
 
 def history(api: Api, path: str) -> list[dict[str, Any]]:
-    answer = api.get(f"{path}/history")
+    answer = api.get(f"{path}/observations")
     assert answer.status_code == 200, answer.content
     return list(reversed(answer.json()["items"]))
 
@@ -118,9 +118,9 @@ def test_decisions_review_the_physical_empty_observation_and_keep_its_original_n
         world.users["editor"].pk
     )
     assert physical["scanned_at"] and expected["reviewed_observation"] is None
-    assert a.get(f"{path}/history", line_id=expected["id"]).json()["items"] == []
+    assert a.get(f"{path}/observations", line_id=expected["id"]).json()["items"] == []
     assert (
-        a.get(f"{path}/history", line_id=physical["line_id"]).json()["items"][0]["id"]
+        a.get(f"{path}/observations", line_id=physical["line_id"]).json()["items"][0]["id"]
         == physical["id"]
     )
     assert expected["revision"] > opened["lines"][0]["revision"]
@@ -423,7 +423,7 @@ def test_removing_an_unexpected_line_keeps_its_scan_choice_and_clear_by_line_id(
     assert clear.status_code == 200 and unknown["id"] not in {
         x["id"] for x in clear.json()["lines"]
     }
-    only = a.get(f"{path}/history", line_id=unknown["id"]).json()["items"]
+    only = a.get(f"{path}/observations", line_id=unknown["id"]).json()["items"]
     assert [x["kind"] for x in only] == ["resolution", "scan", "resolution", "scan"]
     assert (
         only[0]["before"]["note"] == "Label read; no registered tube" and only[0]["after"] is None
@@ -460,7 +460,7 @@ def test_rack_swap_keeps_the_original_positive_observation_ids(world: World) -> 
     changed = {x["code"]: x for x in saved.json()["lines"] if x["found"]}
     for code, slot in (("RED", "A3"), ("BLUE", "A2")):
         assert changed[code]["id"] == prior[code]["id"] and changed[code]["found"] == slot
-        entries = b.get(f"{path}/history", line_id=prior[code]["id"]).json()["items"]
+        entries = b.get(f"{path}/observations", line_id=prior[code]["id"]).json()["items"]
         recent, old = entries
         assert recent["before"] == old["after"] and recent["after"]["position"] == slot
 

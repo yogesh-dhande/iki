@@ -125,7 +125,7 @@ def configure_empty_project() -> None:
     api = Api(world.browser("admin"))
     listed = api.get("/starters", project=str(project.pk))
     assert listed.status_code == 200, listed.content
-    [recipe] = [s for s in listed.json() if s["id"] == "dose-response"]
+    [recipe] = [s for s in listed.json()["items"] if s["id"] == "dose-response"]
     assert recipe["version"] == "2.0.0"
     roles = {
         PREFIX + "analyst": [project.memberships.get(user=world.users["editor"]).pk],
@@ -395,7 +395,7 @@ def _run_example(world: World, flow: str, directory: Path, adapter: SdkApi) -> N
 
     waiting = api.get("/storage/awaiting-put-away")
     assert waiting.status_code == 200, waiting.content
-    held = {item["id"]: item for item in waiting.json()}
+    held = {item["id"]: item for item in waiting.json()["items"]}
     assert all(
         held[t]["custodian"]["id"] == str(admin.pk) and held[t]["custody_since"] for t in tube_ids
     )

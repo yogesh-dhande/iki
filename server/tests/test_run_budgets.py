@@ -134,7 +134,7 @@ def test_compute_admins_set_budgets_in_the_deployments_currency(priced: World) -
         "refused",
     )
     # Auditors and Org Admins see them, but only Compute Admins set them.
-    listed = api_as(priced, "auditor").get("/compute/budgets").json()
+    listed = api_as(priced, "auditor").every("/compute/budgets")
     assert [b["id"] for b in listed] == [org["id"], project["id"]]
     problem(api_as(priced, "org_admin").post("/compute/budgets", {"amount": "1"}), 403, "forbidden")
     event = AuditEvent.objects.get(action="budget.created", project=priced.project)

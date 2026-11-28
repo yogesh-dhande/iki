@@ -108,7 +108,7 @@ def test_a_registry_starts_with_the_plugins_options_in_order(world: World) -> No
     editor = api_as(world, "editor")
     listed = editor.get("/lists", project=str(world.project.pk))
     assert listed.status_code == 200, listed.content
-    by_type = {item["type"]: item for item in listed.json()}
+    by_type = {item["type"]: item for item in listed.json()["items"]}
     assert by_type[METHOD]["options"] == 3 and by_type[CATEGORY]["options"] == 1
     assert by_type[METHOD]["label_plural"] == "Purification methods"
     assert not by_type[METHOD]["can"]["curate"]
@@ -120,13 +120,13 @@ def test_a_registry_starts_with_the_plugins_options_in_order(world: World) -> No
     ]
     assert found[0]["description"].startswith("Captured on a Protein A column")
     # A starting option's reference to another list names that list's option by its ID.
-    category = editor.get(f"/lists/{CATEGORY}/options", project=str(world.project.pk)).json()
+    category = editor.every(f"/lists/{CATEGORY}/options", project=str(world.project.pk))
     assert found[0]["values"]["category"] == category[0]["id"]
     assert found[2]["values"].get("category") is None
     # Members don't see how often each is used: that's for its curators.
     assert all(o["uses"] is None for o in found)
     # The entity types say it's a list, for forms to show a dropdown.
-    types = {t["name"]: t for t in editor.get("/entity-types").json()}
+    types = {t["name"]: t for t in editor.every("/entity-types")}
     assert types[METHOD]["lab_list"] and not types[PREP]["lab_list"]
     # Each starting option's first revision says where it came from.
     first = editor.get(f"/entries/{found[0]['id']}/revisions").json()["items"][-1]
@@ -343,13 +343,13 @@ def test_registrars_and_the_lists_curators_curate_it(world: World) -> None:
     body = added.json()
     assert (body["position"], body["values"]["sop"]) == (4, "https://sop.example/12")
     # They see how often each option is used, and curate only their own list.
-    assert all(o["uses"] == 0 for o in lead.get(OPTIONS, **scope(world)).json())
+    assert all(o["uses"] == 0 for o in lead.every(OPTIONS, **scope(world)))
     problem(
         lead.post(f"/lists/{CATEGORY}/options", {"code": "x", "label": "X"}, **scope(world)),
         403,
         "forbidden",
     )
-    listed = lead.get("/lists", **scope(world)).json()
+    listed = lead.every("/lists", **scope(world))
     assert {i["type"]: i["can"]["curate"] for i in listed} == {METHOD: True, CATEGORY: False}
     curators = org_admin.get(f"/registries/{Registry.default().pk}/list-curators").json()
     assert [(c["list"], c["user"]["id"]) for c in curators] == [

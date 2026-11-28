@@ -8,7 +8,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
-from django.db.models import Case, Q, Value, When
+from django.db.models import Case, CharField, Q, Value, When
 from django.db.models.functions import Coalesce, Collate, Lower, NullIf
 from django.http import HttpRequest, HttpResponse
 from ninja import Field, Query, Router, Schema
@@ -90,7 +90,10 @@ def nameable(
     ranked = candidates.only("pk", "name", "email").annotate(
         match_rank=rank,
         # By name as shown, in code point order, as the picker's own sort compares them.
-        shown_name=Collate(Lower(Coalesce(NullIf("name", Value("")), "email")), "C"),
+        # A name is a CharField and an email an EmailField: what's shown is text either way.
+        shown_name=Collate(
+            Lower(Coalesce(NullIf("name", Value("")), "email", output_field=CharField())), "C"
+        ),
     )
     paged = page_by(ranked, filters, by=("match_rank", "shown_name", "pk"))
     return {

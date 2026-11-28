@@ -101,7 +101,8 @@ async def test_find_files_matches_the_files_list_and_counts(world: World) -> Non
     count = await browser("/files/count", **filters)
     assert count == {"total": 2, "more_than_total": False}
     assert {key: first[key] for key in count} == count
-    assert first["formats"] == await browser("/files/formats", **filters)
+    formats = await browser("/files/formats", **filters, limit=100)
+    assert formats["next_cursor"] is None and first["formats"] == formats["items"]
     assert {"id": "iki/core.csv", "label": "CSV", "media_type": "text/csv", "count": 1} in first[
         "formats"
     ]

@@ -65,7 +65,7 @@ def test_a_run_gets_the_secrets_it_declares_and_keeps_only_their_names(
     job = worker(world).lease().json()
     assert job["job"]["secrets"] == {"LAB_TOKEN": "s3cr3t"}
     assert Job.objects.get(pk=job["job"]["id"]).secrets == ["LAB_TOKEN"]
-    (attempt,) = api_as(world).get(f"/runs/{run['id']}/attempts").json()
+    (attempt,) = api_as(world).every(f"/runs/{run['id']}/attempts")
     assert attempt["secrets"] == ["LAB_TOKEN"]
     assert "s3cr3t" not in str(api_as(world).get(f"/runs/{run['id']}").json())
 

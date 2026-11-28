@@ -142,8 +142,8 @@ def standing(world: World, ref: str, who: str = "viewer") -> list[dict[str, Any]
     assert answer.status_code == 200, answer.content
     body: dict[str, Any] = answer.json()
     assert body["missing"] == []
-    items: list[dict[str, Any]] = body["items"]
-    return items
+    signatures: list[dict[str, Any]] = body["signatures"]
+    return signatures
 
 
 def offered(world: World, who: str, ref: str) -> dict[str, dict[str, Any]]:
@@ -256,7 +256,7 @@ def test_a_type_says_which_states_are_signed_for(world: World) -> None:
     ]
     assert by_name["open"]["signatures"] == []
     # What each lab role lets its holders sign is listed with it.
-    listed = {r["name"]: r["uses"] for r in api_as(world, "viewer").get("/lab-roles").json()}
+    listed = {r["name"]: r["uses"] for r in api_as(world, "viewer").every("/lab-roles")}
     assert {
         "kind": "signature",
         "owner": LOT,
@@ -821,7 +821,7 @@ def _failed(ref: str, world: World) -> dict[str, str]:
     body = api_as(world, "viewer").get(f"/entities/{ref}/signatures", verify="true").json()
     return {
         c["name"]: c["detail"]
-        for s in body["items"]
+        for s in body["signatures"]
         for c in s["verification"]["checks"]
         if not c["ok"]
     }

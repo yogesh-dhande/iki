@@ -316,7 +316,7 @@ def test_a_detached_plugins_actions_cant_be_launched(
     refused = launch(editor, world.project, {"protein": abl["id"]})
     assert refused.status_code == 409, refused.content
     assert "The acme/protein plugin is detached" in refused.json()["detail"]
-    listed = {a["name"]: a for a in editor.get("/actions").json()}
+    listed = {a["name"]: a for a in editor.every("/actions")}
     assert listed[COMPUTE]["available"] is False
 
 

@@ -4973,7 +4973,7 @@ def equipment_calibration(
         disposition["status"] != "signed"
         or not disposition["set"]
         or original["revision"] != result["revision"]
-        or not proofs["items"][0]["verification"]["valid"]
+        or not proofs["signatures"][0]["verification"]["valid"]
     ):
         fail(f"{impact['hrid']} did not preserve {result['hrid']}'s signed revision")
     ok(f"{use['hrid']} pins the calibration; {impact['hrid']} keeps QA's repeat decision")
@@ -5714,7 +5714,7 @@ def pubchem(alice: requests.Session, project: dict[str, Any]) -> dict[str, Any]:
     run = launch(alice, project, action, {}, {"identifiers": "caffeine"}, within=300)
     if run["network"] != ["pubchem.ncbi.nlm.nih.gov"]:
         fail(f"{run['hrid']} may reach {run['network']}, not PubChem alone")
-    attempt = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()[-1]
+    attempt = every(alice, f"/runs/{run['id']}/attempts")[-1]
     reached = {(e["host"], e["port"], e["refused"]) for e in attempt["network"]}
     if reached != {("pubchem.ncbi.nlm.nih.gov", 443, None)}:
         fail(f"{run['hrid']} reached {reached}, not PubChem alone")
@@ -5731,7 +5731,7 @@ def pubchem(alice: requests.Session, project: dict[str, Any]) -> dict[str, Any]:
     }
     if {k: values.get(k) for k in expected} != expected:
         fail(f"{run['hrid']} registered caffeine as {values}")
-    origins = api_call(alice, "GET", f"/entities/{compound['id']}/origins").json()
+    origins = every(alice, f"/entities/{compound['id']}/origins")
     if not any(
         o["source"] == "PubChem"
         and o["id"] == "2519"
@@ -5823,7 +5823,7 @@ def aligned(alice: requests.Session, project: dict[str, Any]) -> list[dict[str, 
         or metrics.get("length") != 149
     ):
         fail(f"{run['hrid']} measured {metrics}, not 65/149 identical columns (43.6%)")
-    kept = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
+    kept = every(alice, f"/runs/{run['hrid']}/artifacts")
     if sorted((k["path"], k["state"]) for k in kept) != [
         ("alignment.fasta", "kept"),
         ("alignment.txt", "kept"),
@@ -6060,7 +6060,7 @@ def dashboard(alice: requests.Session, project: dict[str, Any], relatives: str) 
     """The project's page opens with Globins (ADR 0090), which Alice, its Admin, chooses.
     An app about one protein can't be the dashboard: it's a tab on their pages."""
     path = f"/projects/{project['id']}/dashboard"
-    choices = {a["name"]: a["hrid"] for a in api_call(alice, "GET", f"{path}/choices").json()}
+    choices = {a["name"]: a["hrid"] for a in every(alice, f"{path}/choices")}
     if "Globins" not in choices or "Relatives" in choices:
         fail(f"the dashboard's choices are {sorted(choices)}, not Globins and no Relatives")
     refused = api_call(alice, "PUT", path, {"app": relatives})
@@ -6183,7 +6183,7 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
         run = launch(
             alice, project, "iki/antibody.number_chains", {"protein": chain["id"]}, within=900
         )
-        (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+        (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
         if attempt["environment_build"] != NUMBERING_TOOLS.rpartition("@")[2]:
             fail(f"{run['hrid']} didn't run in the numbering-tools image: {attempt}")
         if attempt["template"] != "container-numbering":
@@ -6461,7 +6461,7 @@ def predicted(
         {"antibody": antibody},
         within=1800,
     )
-    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
     if attempt["environment_build"] != IMMUNEBUILDER_TOOLS.rpartition("@")[2]:
         fail(f"{run['hrid']} didn't run in the ImmuneBuilder structure-tools image: {attempt}")
     if attempt["template"] != "container-antibody-structures":
@@ -6529,7 +6529,7 @@ def aligned_many(
         {"proteins": [beta["id"], myoglobin["id"]], "reference": alpha["id"]},
         within=900,
     )
-    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
     if attempt["environment_build"] != ALIGNMENT_TOOLS.rpartition("@")[2]:
         fail(f"{run['hrid']} didn't run in the alignment-tools image: {attempt}")
     if attempt["template"] != "container-alignments":
@@ -6544,7 +6544,7 @@ def aligned_many(
         or not values["method"].startswith("MAFFT v7.505")
     ):
         fail(f"{created[0]['hrid']} is {values}")
-    (kept,) = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
+    (kept,) = every(alice, f"/runs/{run['hrid']}/artifacts")
     stored = api_call(alice, "GET", f"/files/{values['aligned']}/content-url").json()
     if kept["path"] != "alignment.fasta" or stored["sha256"] != kept["sha256"]:
         fail(f"{created[0]['hrid']}'s file isn't the alignment.fasta {run['hrid']} kept")
@@ -6709,7 +6709,7 @@ def alphafold(alice: requests.Session, project: dict[str, Any]) -> None:
     run = launch(alice, project, action, {}, {"accessions": "P01542"}, within=300)
     if run["network"] != ["alphafold.ebi.ac.uk"]:
         fail(f"{run['hrid']} may reach {run['network']}, not AlphaFold DB alone")
-    attempt = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()[-1]
+    attempt = every(alice, f"/runs/{run['id']}/attempts")[-1]
     reached = {(e["host"], e["port"], e["refused"]) for e in attempt["network"]}
     if reached != {("alphafold.ebi.ac.uk", 443, None)}:
         fail(f"{run['hrid']} reached {reached}, not AlphaFold DB alone")
@@ -6774,7 +6774,7 @@ def secondary(alice: requests.Session, project: dict[str, Any], structure: dict[
     action = "iki/protein.assign_secondary_structure"
     # A pod of its own pulls the image (about 1 GB) first.
     run = launch(alice, project, action, {"structure": structure["id"]}, within=900)
-    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
     if attempt["environment_build"] != STRUCTURE_TOOLS.rpartition("@")[2]:
         fail(f"{run['hrid']} didn't run in the structure-tools image: {attempt}")
     if attempt["template"] != "container-structures" or not attempt["worker"].startswith(
@@ -6864,7 +6864,7 @@ def _contained(
     if run["status"] != "succeeded":
         fail(f"{run['hrid']} ({action}) {run['status']}: {run['error']}")
     got = api_call(alice, "GET", f"/entities/{sample['id']}").json()["values"]
-    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
     if attempt["environment_build"] != TOOLS_IMAGE.rpartition("@")[2]:
         fail(f"{run['hrid']} didn't record its image: {attempt}")
     if not attempt["worker"].startswith("iki-run-"):
@@ -6876,7 +6876,7 @@ def containers(alice: requests.Session, project: dict[str, Any]) -> None:
     """The execution fixture's actions on the container tier (ADR 0061, 0062): the provisioner
     starts a pod of its own in iki-runs for one, running the environment's image with
     iki-worker copied in; the other, persistent, runs one after another on a warm pod."""
-    listed = {a["name"]: a for a in api_call(alice, "GET", "/actions").json()}
+    listed = {a["name"]: a for a in every(alice, "/actions")}
     for action in (
         "fixtures/worker_execution.assign_storage",
         "fixtures/worker_execution.tidy_storage",

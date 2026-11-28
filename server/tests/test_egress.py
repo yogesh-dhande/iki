@@ -50,7 +50,7 @@ def authorization(job: dict[str, Any]) -> str:
 
 @pytest.mark.django_db
 def test_actions_that_reach_the_internet_cant_run_without_the_proxy(world: World) -> None:
-    (action,) = [a for a in api_as(world).get("/actions").json() if a["name"] == FETCH]
+    (action,) = [a for a in api_as(world).every("/actions") if a["name"] == FETCH]
     assert action["network"] == [HOST]
     assert action["available"] is False
     assert action["unavailable_reason"] == (

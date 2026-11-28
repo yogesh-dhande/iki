@@ -226,6 +226,6 @@ def test_nobody_else_sees_or_reads_the_quarantine(open_as: Any, world: World) ->
         expect(page.get_by_role("heading", level=1).filter(has_text="Not found")).to_be_visible()
         expect(page.get_by_role("link", name="Quarantine", exact=True)).to_have_count(0)
         expect(page.get_by_text(EXPORT)).to_have_count(0)
-        status = page.evaluate("() => fetch('/api/v1/quarantine').then((r) => r.status)")
+        status = page.evaluate("() => fetch('/api/v1/quarantine-decisions').then((r) => r.status)")
         assert status == 403, principal
         page.context.close()

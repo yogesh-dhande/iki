@@ -60,7 +60,7 @@ def exported(api: Api, ref: str, **params: Any) -> Any:
 
 def test_a_type_says_which_files_it_exports(world: World) -> None:
     api = api_as(world, "viewer")
-    types = {t["name"]: t for t in api.get("/entity-types").json()}
+    types = {t["name"]: t for t in api.every("/entity-types")}
     assert types["acme/dna.Plasmid"]["exports"] == [
         {
             "export": "sequence",
