@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/biologics_ms
-version: 0.3.1
+version: 0.4.0
 title: Biologics mass spectrometry
 description: Check deconvoluted mass and peptide maps against registered antibodies, ADCs and their lots.
 license: Apache-2.0

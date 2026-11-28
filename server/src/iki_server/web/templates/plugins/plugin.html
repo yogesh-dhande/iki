@@ -11,6 +11,7 @@
     {% if plugin.sha %}<dt>Commit</dt><dd><code>{{ plugin.sha }}</code></dd>{% endif %}
     {% if plugin.git %}<dt>Repository</dt><dd><code>{{ plugin.git }}</code></dd>{% endif %}
     {% if plugin.fetched_from and plugin.fetched_from != plugin.git %}<dt>Fetched from</dt><dd><code>{{ plugin.fetched_from }}</code></dd>{% endif %}
+    {% for name, value in plugin.annotations %}<dt><code>{{ name }}</code></dt><dd class="preserve-lines">{{ value }}</dd>{% endfor %}
     <dt>State</dt><dd>{% if purged %}Purged on {{ purged.done_at|date:"Y-m-d" }}: its tables were dropped, and its entities keep only their tombstones.{% elif plugin.state == "purged" %}Purged: its tables were dropped.{% elif detached %}Detached: its data is kept and can be read, but nothing changes it.{% else %}Active{% endif %}</dd>
   </dl>
 </section>

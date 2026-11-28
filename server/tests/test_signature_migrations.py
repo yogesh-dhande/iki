@@ -36,6 +36,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+iki: ">=0.1"
 roles:
   analyst: { label: Analyst }
 """
@@ -98,7 +99,7 @@ from iki_server.entities import entries
 from iki_server.entities import services as entities
 from iki_server.entities.models import Entity
 from iki_server.org.models import (
-    LabRoleGrant, OrgRole, OrgRoleAssignment, ProjectMembership, ProjectRole, Registrar,
+    LabRoleGrant, OrgRole, OrgRoleAssignment, ProjectMembership, ProjectRole, RegistryRole,
 )
 from iki_server.signatures import services as signatures
 
@@ -503,7 +504,7 @@ from iki_server.signatures.models import Signature, Signing
 
 analyst = person("analyst", project)
 curator = person("curator")
-Registrar.objects.create(registry=project.registry, user=curator)
+RegistryRole.objects.create(registry=project.registry, user=curator, role="registrar")
 record = entities.create(
     analyst, "acme/lab.Reagent", project, {"code": "NACL-01", "cas": "7647-14-5"},
 ).entity
@@ -606,7 +607,7 @@ from iki_server.org.models import Project
 screens = Project.objects.create(team=team, name="Screens")
 analyst = person("analyst", project, screens)
 curator = person("curator")
-Registrar.objects.create(registry=project.registry, user=curator)
+RegistryRole.objects.create(registry=project.registry, user=curator, role="registrar")
 # Screens registers a reagent by a mistyped code, and signs its record into review.
 wrong = entities.create(
     analyst, "acme/lab.Reagent", screens,

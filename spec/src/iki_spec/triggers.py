@@ -51,6 +51,7 @@ def read_trigger(plugin: str, body: dict[str, Any], document: Document) -> Trigg
     return Trigger(
         plugin=plugin,
         name=name,
+        annotations=dict(body.get("annotations") or {}),
         label=body.get("label") or name.replace("_", " ").capitalize(),
         description=body.get("description"),
         on=body["on"],
@@ -675,4 +676,4 @@ def _changes(f: Field, owner: EntityType) -> bool:
     one of its values, and setting it is no edit."""
     if f.removed or f.type == "state":
         return False
-    return not (f.immutable and (f.required or owner.is_list))
+    return not (f.immutable and (f.required or owner.is_lab_list))

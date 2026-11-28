@@ -44,7 +44,15 @@ from typing import Any
 
 from iki_spec import naming
 from iki_spec.conditions import WORDS_SEARCHED
-from iki_spec.model import FORMATS, EntityType, Extension, Field, Plugin, split_entry
+from iki_spec.model import (
+    FORMATS,
+    EntityType,
+    Extension,
+    Field,
+    Plugin,
+    split_entry,
+    stored_in_list_table,
+)
 
 __all__ = ["render_models"]
 
@@ -368,7 +376,7 @@ def _with_fields(
     for f in fields.values():
         if f.removed:
             continue
-        if _is_list_table(f):
+        if stored_in_list_table(f):
             lists.append(_list_model(model, owner, f, plugin, types))
             continue
         model.fields.append(
@@ -436,14 +444,6 @@ def _list_model(
 
 
 # --- Columns -----------------------------------------------------------------------------------
-
-
-def _is_list_table(f: Field) -> bool:
-    return f.type == "list" and f.items is not None and f.items.type in LIST_TABLES
-
-
-#: Lists of these get a table of their own.
-LIST_TABLES = ("ref", "file", "person", "row")
 
 
 def _column(

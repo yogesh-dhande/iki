@@ -11,11 +11,11 @@ from django.db.migrations.operations.base import Operation
 from psycopg import sql
 
 from iki_server.entities import registry
-from iki_server.entities.values import Part, is_list_table, row_columns, shape
+from iki_server.entities.values import Part, row_columns, shape
 from iki_server.plugins.operations import MigrateValues
 from iki_server.plugins.preflight_records import lineage
 from iki_spec import naming
-from iki_spec.model import Field, Plugin
+from iki_spec.model import Field, Plugin, stored_in_list_table
 
 
 def shadowed_history(before: Mapping[str, Plugin], after: Mapping[str, Plugin]) -> Iterable[str]:
@@ -45,7 +45,7 @@ def differences(operations: list[Operation]) -> Iterable[str]:
         models = [part.model, part.history] + [
             part.list_model(f.name)
             for f in part.fields.values()
-            if not f.removed and is_list_table(f)
+            if not f.removed and stored_in_list_table(f)
         ]
         if any(
             op.references_model(model.__name__, model._meta.app_label)
@@ -101,7 +101,7 @@ def _column(model: type[models.Model], name: str, alias: str) -> sql.Identifier:
 
 def _values(part: Part, field: Field) -> tuple[sql.Composable, sql.Composable]:
     kept = _column(part.history, field.name, "h")
-    if not is_list_table(field):
+    if not stored_in_list_table(field):
         live = _column(part.model, field.name, "t")
         return sql.SQL("to_jsonb({})").format(live), sql.SQL("to_jsonb({})").format(kept)
     model = part.list_model(field.name)

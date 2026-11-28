@@ -69,7 +69,6 @@ from iki_server.entities.services import (
     quietly,
 )
 from iki_server.entities.values import Shape, shape
-from iki_server.entities.values import is_list_table as _is_list
 from iki_server.files import metadata as stated
 from iki_server.files import services as file_services
 from iki_server.files import storage
@@ -100,7 +99,7 @@ from iki_server.runs.models import (
 from iki_server.tasks import task
 from iki_server.tasks.backend import Retry
 from iki_spec import schemas
-from iki_spec.model import LIST_CODE, Field
+from iki_spec.model import LIST_CODE, Field, stored_in_list_table
 
 logger = structlog.get_logger("iki.bundles")
 
@@ -429,7 +428,7 @@ class _Writer:
         for row in planned.values():
             # A record of an existing entry already has its entry's local number.
             if row.action == EntityPlan.NEW and (row.registers or row.entry_id is None):
-                note(types[row.type].hrid_prefix, row.hrid_here)
+                note(types[row.type].numbering_prefix, row.hrid_here)
         for run in self.made.plan["members"]["runs"].values():
             if run["action"] == "keep_hrid":
                 note(HRID_PREFIX, run["label"])
@@ -614,7 +613,7 @@ class _Writer:
                     by, form, project, values, reason, False, pk=row.entry_id, hrid=row.hrid_here
                 )
                 if row.hrid_here:
-                    self._keep(form.entity_type.hrid_prefix, entry.hrid)
+                    self._keep(form.entity_type.numbering_prefix, entry.hrid)
                 else:
                     row.hrid_here = entry.hrid
                     row.save(update_fields=["hrid_here"])
@@ -637,7 +636,7 @@ class _Writer:
         conflict, so the rest are here."""
         registry_id = self.made.project.registry_id
         for line in lines:
-            if not lists.is_list(line["type"]):
+            if not registry.is_lab_list(line["type"]):
                 continue
             found = lists.find(registry_id, line["type"], str(line["values"].get(LIST_CODE)))
             if found is not None and found.entry.pk != uuid.UUID(line["id"]):
@@ -727,7 +726,7 @@ class _Writer:
         if row.entry_id is not None:
             pass  # Its HRID is its entry's, kept as that was.
         elif row.hrid_here:
-            self._keep(form.entity_type.hrid_prefix, instance.hrid)
+            self._keep(form.entity_type.numbering_prefix, instance.hrid)
         else:
             row.hrid_here = instance.hrid
             row.save(update_fields=["hrid_here"])
@@ -776,7 +775,7 @@ class _Writer:
             if part.extension or part.entry:
                 continue
             for name, f in part.fields.items():
-                if name in values and not _is_list(f) and not f.removed:
+                if name in values and not stored_in_list_table(f) and not f.removed:
                     _set(instance, f, values[name])
 
     @staticmethod
@@ -790,11 +789,11 @@ class _Writer:
                 ext = part.model._default_manager.filter(entity_id=entity_id).first()
                 ext = ext or part.model(entity_id=entity_id)
                 for name, f in part.fields.items():
-                    if name in values and not _is_list(f) and not f.removed:
+                    if name in values and not stored_in_list_table(f) and not f.removed:
                         _set(ext, f, values[name])
                 ext.save()
             for name, f in part.fields.items():
-                if not _is_list(f) or f.removed:
+                if not stored_in_list_table(f) or f.removed:
                     continue
                 if not fresh:
                     part.list_model(name)._default_manager.filter(entity_id=entity_id).delete()

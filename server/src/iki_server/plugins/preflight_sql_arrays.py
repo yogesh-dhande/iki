@@ -7,12 +7,11 @@ from collections.abc import Iterable
 from django.core.management.base import CommandError
 from psycopg import sql
 
-from iki_server.entities.values import is_list_table
 from iki_server.plugins.makemigrations import linear_conversion
 from iki_server.plugins.preflight_projection import fill_default, project, sql_type, typed_default
 from iki_server.plugins.preflight_sql import Scope
 from iki_server.plugins.preflight_sql_fields import Check, invalid_value
-from iki_spec.model import Field
+from iki_spec.model import Field, stored_in_list_table
 from iki_spec.units import UnitError
 
 ITEM = sql.SQL("item")
@@ -127,8 +126,8 @@ def _checks(scope: Scope, name: str, old: Field | None, new: Field) -> Iterable[
 def array_checks(scope: Scope, old: dict[str, Field], new: dict[str, Field]) -> Iterable[Check]:
     for name in sorted(new):
         field, before = new[name], old.get(name)
-        if field == before or field.removed or field.type != "list" or is_list_table(field):
+        if field == before or field.removed or field.type != "list" or stored_in_list_table(field):
             continue
-        if before and (before.type == "state" or is_list_table(before)):
+        if before and (before.type == "state" or stored_in_list_table(before)):
             continue
         yield from _checks(scope, name, before, field)

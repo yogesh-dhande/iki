@@ -23,14 +23,13 @@ from iki_server.oauth.scopes import SCOPES
 from iki_server.org import permissions
 from iki_server.org.models import (
     LabRoleGrant,
-    ListCurator,
     OrgRole,
     OrgRoleAssignment,
     Project,
     ProjectMembership,
     ProjectRole,
-    Registrar,
     Registry,
+    RegistryRole,
     Team,
     TeamMembership,
 )
@@ -209,7 +208,9 @@ GRANTS: dict[str, tuple[Grant, Grant | None, list[Check]]] = {
         ],
     ),
     "registrar": (
-        lambda lab, user: Registrar.objects.create(registry=lab.registry, user=user),
+        lambda lab, user: RegistryRole.objects.create(
+            registry=lab.registry, user=user, role=RegistryRole.Role.REGISTRAR
+        ),
         None,
         [
             _allowed(Action.REGISTRY_CURATE, _registry_target),
@@ -221,8 +222,8 @@ GRANTS: dict[str, tuple[Grant, Grant | None, list[Check]]] = {
         ],
     ),
     "list_curator": (
-        lambda lab, user: ListCurator.objects.create(
-            registry=lab.registry, list_type=LIST, user=user
+        lambda lab, user: RegistryRole.objects.create(
+            registry=lab.registry, user=user, role=RegistryRole.Role.LIST_CURATOR, list_type=LIST
         ),
         None,
         [
@@ -290,8 +291,12 @@ def test_every_public_predicate_is_checked_with_one_side_only() -> None:
 def test_a_registrar_and_a_lists_curator_together_curate_only_that_list(lab: Lab) -> None:
     # Each could curate the list alone, so a token from the two may curate it, and only it:
     # the person's registrarship doesn't stretch the agent's single list.
-    Registrar.objects.create(registry=lab.registry, user=lab.person)
-    ListCurator.objects.create(registry=lab.registry, list_type=LIST, user=lab.agent)
+    RegistryRole.objects.create(
+        registry=lab.registry, user=lab.person, role=RegistryRole.Role.REGISTRAR
+    )
+    RegistryRole.objects.create(
+        registry=lab.registry, user=lab.agent, role=RegistryRole.Role.LIST_CURATOR, list_type=LIST
+    )
     request = lab.request()
     assert permissions.can(request, Action.LISTS_CURATE, lab.registry)
     assert permissions.can_curate_list(request, lab.registry, LIST)

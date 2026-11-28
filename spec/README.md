@@ -2,7 +2,7 @@
 
 The versioned specs for Iki plugins, and the Python package that reads and
 checks them. Version `iki/v1` covers plugins, entity types, extensions,
-fields, units, settings, actions, environments and workflows; the run
+lab lists, fields, units, settings, actions, environments and workflows; the run
 protocol, triggers and components arrive in later versions of this document
 as they land.
 
@@ -24,7 +24,7 @@ A plugin is a git repository (or a directory in one):
 
 ```text
 plugin.yaml          # kind: Plugin — exactly one, at the root
-types/               # kind: EntityType and EntityTypeExtension
+types/               # kind: EntityType, EntityTypeExtension and List
   protein.yaml       # any number of files, each with one or more documents (---)
   structure.yaml
 actions/             # kind: Action
@@ -48,7 +48,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/proteins # namespace/name; types are acme/proteins.Name, tables acme__proteins_name
 version: 3.0.0 # semantic version, for people (deployments pin the git commit)
-iki: ">=0.1,<0.3" # the Iki releases it works with: others refuse it
+iki: ">=0.1,<0.3" # required: the Iki releases it works with; others refuse it
 title: Proteins
 license: Apache-2.0
 homepage: https://github.com/acme/iki-proteins # https only: where to read about it
@@ -1200,22 +1200,21 @@ the declared project lab roles once per low-stock episode.
 
 ### Lab lists
 
-A type marked `list` is a list the lab curates, such as purification
-methods or deviation categories (ADR 0270). Its entities are the list's
-options, and a field that refers to it is an ordinary reference, which forms
-show as a dropdown of its options:
+A list is a vocabulary the lab curates, such as purification methods or
+deviation categories (ADR 0270). It's a manifest of its own kind,
+`kind: List` (ADR 0295), in `types/`. Its entities are the list's options,
+and a field that refers to it is an ordinary reference, which forms show as
+a dropdown of its options:
 
 ```yaml
 apiVersion: iki/v1
-kind: EntityType
+kind: List
 name: PurificationMethod
 label: Purification method
 schema_version: 1
-hrid: { prefix: PUM }
-list:
-  options: # each registry starts with these, in this order
-    - { code: protein_a, label: Protein A, description: Affinity capture on protein A. }
-    - { code: imac, label: IMAC, category: chromatography }
+options: # each registry starts with these, in this order
+  - { code: protein_a, label: Protein A, description: Affinity capture on protein A. }
+  - { code: imac, label: IMAC, category: chromatography }
 fields:
   category: { type: ref, to: MethodCategory } # another list
   sop: { type: string, format: uri }
@@ -1224,36 +1223,59 @@ fields:
 method: { type: ref, to: PurificationMethod }
 ```
 
-`list: true` makes a list with no starting options.
+| Key                     | Meaning                                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------------------- |
+| `name`                  | PascalCase. A field refers to the list by it, as `to: PurificationMethod` or `to: iki/lots.PurityMethod`. |
+| `label`, `label_plural` | What people call an option, and the list. Default: the name split into words, and that plus "s".          |
+| `description`           | What the list is for, shown on its page.                                                                  |
+| `schema_version`        | A whole number from 1, increased whenever the fields change, as a type's is.                              |
+| `fields`                | Its options' facts besides their own four, such as a method's SOP. See below.                             |
+| `options`               | The options each registry starts with, in order. Without it, the list starts empty.                       |
+
+A list has those keys and no others. It has no `hrid`, `identity`,
+`extends`, `abstract`, `display` or any of a record type's keys, because its
+options are registry entries its curators keep, never records a project
+works on. A key that isn't a list's is the schema's problem.
 
 - Every option has four fields of its own: `code`, its identity in the list,
   which never changes (exports and the API give it); `label`, what people
-  see and pick, once in the list; `description`; and `position`, its place in
-  the list's order. A type can't declare fields with those names
-  (`list-field-reserved`). Its other fields are its options' facts too, such
-  as a method's SOP. A reference among them names another list, never a
-  record (`list-refers-to-entry`).
+  see and pick, once in the list, and the option's title wherever it's
+  shown; `description`; and `position`, its place in the list's order. A
+  list can't declare fields with those names (`list-field-reserved`).
+- Its `fields` are its options' facts, which its curators give. A fact is a
+  string, number, quantity, Boolean, enum, date or time, a reference, or a
+  list of them; never a state, a person, free text, JSON or a file. It takes
+  a field's `label`, `description`, `required`, `immutable` (a fixed fact,
+  ADR 0143), `indexed`, `unique`, `link`, `removed` and `default`, and its
+  kind's value options, but not `computed` or `registry`: each of a list's
+  fields is a fact already. A fact keeps a registry fact's rules, such as a
+  string needing a `pattern` or `format` (`registry-fact-free-text`). A
+  reference among them names another list, never a record
+  (`list-refers-to-entry`).
 - Options are registry entries (ADR 0115): every project in a registry picks
   from the same options. The registry's registrars, and the curators Org
   Admins appoint for a list, add options, relabel them, change their facts,
   reorder, archive and restore them, and supersede a wrong code, each with
   a reason. Each change is a revision of the option and an audit event.
+- An option's HRID, which its page's address uses, comes from one sequence
+  every list's options share: `OPTION-000123`. Iki reserves the prefix
+  (`reserved-hrid-prefix`), so a list spends none of the prefixes types
+  share. Pages show an option by its label, and exports, the API and
+  bundles name it by its code.
 - A form offers the active options, in order. An archived or superseded
   option isn't offered for a new value. A record that names one already
   keeps it, and it stays in search, filters, exports and the API.
 - Starting options give a `code` and a `label`, and may give a `description`
-  and values for the type's other fields. A reference names the other
+  and values for the list's other fields. A reference names the other
   list's starting option by its code (`list-option-unknown`). Codes and
   labels are each the list's once (`list-option-twice`, `list-label-twice`),
   and a required field needs a value (`list-option-incomplete`). Installing
   the plugin adds them to every registry, and to one made later. An upgrade
   adds those a registry hasn't got, by code, at the end of its list. It never
   changes, reorders or restores the options a registry has.
-- A list isn't a record type: it has no states, rules, identity, computed
-  fields, amounts, viewers or other record keys (`list-key`, `list-state`,
-  `list-computed`). An extension of a list adds facts only
-  (`list-extension-record-field`). A reference to a list names that list
-  alone (`list-among-types`).
+- Nothing extends a list (`extends-list`). An extension of a list adds facts
+  only (`list-extension-record-field`). A reference to a list names that
+  list alone (`list-among-types`).
 - Only descriptive vocabulary is a list. A value that a state, guard, rule,
   signature or calculation reads stays an `enum`, because a curator's change
   to a list mustn't change what a plugin's logic does. A rule or guard that
@@ -2475,10 +2497,58 @@ before serving it.
 `iki:` lists the Iki releases a plugin works with, as comparisons with
 release numbers, such as `">=0.1,<0.3"`
 ([ADR 0095](../docs/adr/0095-a-plugin-says-which-iki-it-works-with-and-versions-its-changes.md)).
+Every plugin says it: leaving it out is an error (`missing-iki`,
+[ADR 0293](../docs/adr/0293-a-plugin-made-for-one-iki-release-keeps-working-on-the-next.md)).
 On any other release, `iki plugin validate`, `build` and `deploy` refuse it
 (`iki-version`), and so does the deployment's migrate Job, before it
 migrates anything. A build of Iki counts as its release: `0.2.0.dev3` is
-`0.2.0`. Leaving `iki:` out says nothing either way.
+`0.2.0`. A plugin made for a later Iki is told so first, and a key this Iki
+doesn't have is reported as one the plugin's release may have, not as a
+typo.
+
+### When each key came, and when it goes
+
+The published schemas say how each key is versioned, and the validator
+checks a plugin's keys against its `iki:`:
+
+- **`x-iki-since`.** A key added after its kind's first release says the
+  release it came in, such as `x-iki-since: "0.3"`. A plugin that uses it
+  while `iki:` admits an earlier release is refused (`iki-range`): it says
+  it loads on an Iki that doesn't know the key. Raise `iki:` to start at
+  the key's release.
+- **`deprecated`.** A deprecated key has `deprecated: true`, the release
+  that deprecated it (`x-iki-deprecated-since`) and what to write instead
+  (`x-iki-use`). It works for one more minor release, and using it is a
+  warning (`deprecated-key`) that names the replacement. Editors that read
+  the schemas strike it through.
+- **`x-iki-provisional`.** A provisional key may change shape in a minor
+  release, with a codemod and a release note, before a second plugin has
+  tried it. A lab plugin that uses one is warned (`provisional-key`). They
+  are an entity type's `stock_catalogue`, `work_item` and `draw_purposes`.
+
+Nothing in `iki/v1` is deprecated yet, and no provisional key may change,
+until `iki plugin upgrade` can rewrite a plugin's manifests for it. A REST
+operation that's deprecated says so in the OpenAPI document and in its
+`Deprecation` and `Sunset` response headers.
+
+### Annotations and `x-` keys
+
+Every kind of manifest takes `annotations:`, a lab's own metadata about it,
+by name: lower-case letters, digits, `.`, `_` and `-`, with an optional
+`domain/` before, to text of up to 2,000 characters.
+
+```yaml
+annotations:
+  acme.com/owner: Protein sciences
+  gxp_classification: GAMP 5 category 4
+  validation_status: Validated 2026-10-01 (VAL-0142)
+```
+
+Iki keeps them in the build, shows a plugin's and an entity type's on
+their pages, and returns them in the API, but never acts on them, so
+changing one isn't a change to the type. Beside them, a top-level key
+starting `x-`, such as `x-acme-reviewed: 2026-11-01`, is for your own
+tools: the validator ignores it, and the build drops it.
 
 ## Dependencies
 
@@ -3348,11 +3418,12 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `file-too-large`, `not-utf8`, `unreadable-file`, `symlink`, `not-a-mapping`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | The file                        |
 | `missing-plugin-manifest`, `duplicate-plugin-manifest`, `wrong-file`, `not-a-directory`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Where manifests are             |
 | `missing-api-version`, `unsupported-api-version`, `missing-kind`, `unknown-kind`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | A manifest's header             |
+| `missing-iki`, `iki-version`, `iki-range`; `deprecated-key`, `provisional-key` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | The Iki it works with           |
 | `schema`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Anything the JSON Schemas catch |
 | `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Names                           |
 | `unknown-role`; `duplicate-role-label` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Lab roles                       |
 | `unknown-starter` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Starters                        |
-| `list-key`, `list-state`, `list-computed`, `list-field-reserved`, `list-refers-to-entry`, `list-among-types`, `list-extension-record-field`, `list-option-twice`, `list-label-twice`, `list-option-incomplete`, `list-option-unknown`, `list-option-value`, `reads-curated-fact`, `include-curated-fact`; `list-code-in-expression` (warning)                                                                                                                                                                                                                                                                                                         | Lab lists                       |
+| `extends-list`, `list-field-reserved`, `list-refers-to-entry`, `list-among-types`, `list-extension-record-field`, `list-option-twice`, `list-label-twice`, `list-option-incomplete`, `list-option-unknown`, `list-option-value`, `reads-curated-fact`, `include-curated-fact`; `list-code-in-expression` (warning)                                                                                                                                                                                                                                                                                                                                    | Lab lists                       |
 | `row-role-not-enum`, `row-role-optional`, `unknown-row-role`, `unknown-row-field`, `row-role-not-reference`, `row-role-type-not-allowed`, `row-id-field`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Lists of rows                   |
 | `state-initial`, `state-removed`, `unknown-state`, `state-unreachable`, `state-signatures`, `state-on-edit`, `state-field-in-extension`, `state-field-in-list`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | States                          |
 | `rule-kind`, `rule-field`, `rule-while`, `rule-shadows-parent`, `invalid-expression`, `expressions-unchecked`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Rules and guards                |
@@ -3370,7 +3441,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `writer-memory`, `writer-format-dependency`, `writer-active-format`, `writer-format-extension`, `writer-module`, `writer-digest`, `writer-rejected`, `writer-dependency`, `unknown-writer`, `unknown-role`, `export-field`, `export-role-missing`                                                                                                                                                                                                                                                                                                                                                                                                     | Writers and their exports       |
 | `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Files, JSON fields and titles   |
 | `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Extensions                      |
-| `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Dependencies                    |
+| `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Dependencies                    |
 | `setting-policy`, `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`, `setting-needed` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Settings                        |
 | `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `test-only-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`, `hrid-override-core`, `hrid-override-unlisted`                                                                                                                                                                                                                                                                                     | Lockfiles                       |
 | `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`, `from-project-one`                                                                                                                                                                                                                                                                                                                                                                                               | Actions                         |

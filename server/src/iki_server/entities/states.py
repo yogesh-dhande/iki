@@ -47,7 +47,7 @@ from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 from iki_server.signatures import entries
-from iki_spec.model import Field, State
+from iki_spec.model import Field, State, stored_in_list_table
 
 __all__ = [
     "CorrectionReason",
@@ -690,7 +690,7 @@ def write(
 def guarded_tables() -> list[tuple[str, str]]:
     """Every table holding values of records with state fields, with its column naming the
     record: (table, column)."""
-    from iki_server.entities.values import is_list_table, shape
+    from iki_server.entities.values import shape
 
     out: dict[str, str] = {}
     for entity_type in registry.types().values():
@@ -701,7 +701,7 @@ def guarded_tables() -> list[tuple[str, str]]:
                 continue
             out[part.model._meta.db_table] = "entity_id"
             for f in part.fields.values():
-                if not f.removed and is_list_table(f):
+                if not f.removed and stored_in_list_table(f):
                     out[part.list_model(f.name)._meta.db_table] = "entity_id"
     return sorted(out.items())
 

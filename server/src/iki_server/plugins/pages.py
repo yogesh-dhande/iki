@@ -41,6 +41,7 @@ def _installed() -> list[dict[str, Any]]:
                 "title": plugin.title,
                 "version": plugin.version,
                 "iki": (plugin.iki or "").strip(),
+                "annotations": sorted(plugin.annotations.items()),
                 "sha": entry.get("sha") or "",
                 "git": entry.get("git") or "",
                 "fetched_from": entry.get("fetched_from") or "",
