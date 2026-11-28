@@ -28,7 +28,7 @@ import {
   type Span,
   type TargetState,
 } from "../views";
-import type { Source } from "./entity-viewer";
+import type { Source } from "./viewer-body";
 
 type Viewer = Schemas["StructureViewerOut"];
 

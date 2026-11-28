@@ -373,6 +373,54 @@ def test_a_proteins_consensus_writes_b_z_and_j_or_x(tmp_path: Path) -> None:
     assert made(output)["sequence"] == "MXXXXW"
 
 
+def test_an_x_its_header_narrows_counts_as_what_it_could_be(tmp_path: Path) -> None:
+    """The protein plugin's read mapper writes AAN (K or N) as X, saying so in its row's
+    header: two such rows and a K are two-thirds K, which passes 50%. Counted as any of
+    the twenty, the two Xs would leave K at 37% and the column X."""
+    fasta = ">r1 forward possible=2:KN\nMX\n>r2 forward possible=2:KN\nMX\n>r3 forward\nMK\n"
+    _, output = consensus(tmp_path, fasta, alphabet="protein")
+    assert made(output)["sequence"] == "MK"
+    assert output is not None
+    assert output["metrics"]["ambiguous"] == 0
+    # Without the headers, it's the twentieths it always was.
+    plain = ">r1\nMX\n>r2\nMX\n>r3\nMK\n"
+    _, output = consensus(tmp_path, plain, alphabet="protein")
+    assert made(output)["sequence"] == "MX"
+    # K or N twice, and N once: N is two-thirds.
+    fasta = ">r1 possible=2:KN\nMX\n>r2 possible=2:KN\nMX\n>r3\nMN\n"
+    _, output = consensus(tmp_path, fasta, alphabet="protein")
+    assert made(output)["sequence"] == "MN"
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        # It names a column whose residue isn't X.
+        "r1 possible=1:KN",
+        # It names a column past the row's end.
+        "r1 possible=9:KN",
+        # It isn't the header's last word.
+        "r1 possible=2:KN, from a FASTA",
+        # It names a letter that stands for more than one residue.
+        "r1 possible=2:BK",
+    ],
+)
+def test_a_header_that_doesnt_narrow_its_x_leaves_it_any_residue(
+    tmp_path: Path, header: str
+) -> None:
+    fasta = f">{header}\nMX\n>r2 possible=2:KN\nMX\n>r3\nMK\n"
+    _, output = consensus(tmp_path, fasta, alphabet="protein")
+    # r2's X is half a K, r1's a twentieth: K has 1.55 of 3 rows, past 50%.
+    assert made(output)["sequence"] == "MK"
+    fasta = f">{header}\nMX\n>r3\nMK\n"
+    _, output = consensus(tmp_path, fasta, alphabet="protein")
+    # K has 1.05 of 2: past 50% by a twentieth of r1's X, as without the header.
+    assert made(output)["sequence"] == "MK"
+    fasta = f">{header}\nMX\n>r2\nMX\n>r3\nMK\n"
+    _, output = consensus(tmp_path, fasta, alphabet="protein")
+    assert made(output)["sequence"] == "MX"
+
+
 def test_haemoglobins_aligned_by_the_protein_plugin_give_their_consensus(tmp_path: Path) -> None:
     """Human haemoglobin's alpha and beta chains (UniProt P69905, P68871), aligned as
     needle aligns them by the protein plugin: where they agree, their consensus is their

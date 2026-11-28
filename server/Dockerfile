@@ -107,6 +107,8 @@ COPY web/packages/ui/package.json web/packages/ui/
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter "@ikisci/app..."
 COPY web web
+# Weighs what the built app loads first against its budget (web/app/package.json).
+COPY scripts/check-web-app-size.js scripts/
 # The header's navigation, which the server's pages render too (iki_server.web.navigation).
 COPY server/src/iki_server/web/navigation.json server/src/iki_server/web/
 COPY --from=verified-wasm /artifacts/iki_wasm.wasm web/packages/science/wasm/
@@ -174,9 +176,10 @@ COPY --from=verified-wasm /artifacts/plasmid-tools.wasm /artifacts/oligo-checks.
 # And the plugin runtime's wheel, which `iki deploy build` installs into the environments
 # that declare it (ADR 0288).
 COPY --from=plugin-runtime /artifacts/ spec/src/iki_spec/plugin_runtime/
-# And the iki-writer SDK, which `iki deploy build` gives plugins' writers to build against
-# in the plugin image (ADR 0230).
-COPY worker/crates/iki-writer/Cargo.toml worker/crates/iki-writer/README.md worker/crates/iki-writer/build-writer.sh spec/src/iki_spec/writers/sdk/iki-writer/
+# And the iki-writer SDK (ADR 0230): the build script `iki deploy build` gives the plugin
+# image's writer builder, and this Iki's iki-writer, which writers pinned to it build
+# against.
+COPY worker/crates/iki-writer/Cargo.toml worker/crates/iki-writer/Cargo.lock worker/crates/iki-writer/README.md worker/crates/iki-writer/build-writer.sh worker/crates/iki-writer/iki-writer.crate.sha256 spec/src/iki_spec/writers/sdk/iki-writer/
 COPY worker/crates/iki-writer/src spec/src/iki_spec/writers/sdk/iki-writer/src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-editable \

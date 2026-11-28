@@ -1,6 +1,7 @@
 """Check report ambiguity and association handling with synthetic rows."""
 
 import csv
+import gzip
 import io
 import json
 import runpy
@@ -108,3 +109,94 @@ def test_selected_rows_use_the_worker_artifact_directory(tmp_path, monkeypatch):
 
     assert output.is_file()
     assert (artifacts / "selected.tsv").read_text().splitlines()[1] == "YDL248W\t679"
+
+
+DATA = Path(__file__).parent / "data"
+
+
+def report_of(path, read, selector=""):
+    """A report read as the action reads it: through the plugin runtime's open_text, so a
+    gzip or BGZF file is decompressed by the same code as on a worker."""
+    output = io.StringIO()
+    with SCRIPT["text"].open_text(path) as lines:
+        report = read(lines, selector, csv.writer(output, delimiter="\t"))
+    return report, list(csv.reader(io.StringIO(output.getvalue()), delimiter="\t"))
+
+
+def test_giabs_benchmark_bgzipped_keeps_its_heterozygous_and_multiallelic_calls():
+    """HG002's GIAB v4.2.1 benchmark is distributed bgzipped, and so is this excerpt: the
+    file's header and seven of its first calls, of each genotype it has (1/1, 0/1, 1/0,
+    1/2, 2/1)."""
+    path = DATA / "HG002-GIAB-v4.2.1.vcf.gz"
+    assert path.read_bytes()[:4] == b"\x1f\x8b\x08\x04"  # BGZF: gzip with an extra field
+    report, rows = report_of(path, SCRIPT["variant_rows"], "HG002")
+    assert report["metrics"] == {"VCF sites": 7, "Variant sites": 7, "Sites without a call": 0}
+    assert [(row["Position"], row["Alternate alleles"], row["Genotype"]) for row in
+            report["preview"]] == [
+        ("602113", "TGCCCA", "1/1"),
+        ("814327", "G", "0/1"),
+        ("814843", "C", "0/1"),
+        ("1732412", "C", "1/0"),
+        ("1735008", "GGTTT,GTTTT", "1/2"),
+        ("1769969", "CAAAACA,C", "2/1"),
+        ("1866635", "TA,TAAA", "1/2"),
+    ]  # fmt: skip
+    assert len(rows) == 8
+
+
+def test_a_deepvariant_gvcf_leaves_out_its_reference_blocks():
+    """DeepVariant 1.10's golden gVCF for NA12878 on chr20: 228 records, of which 151
+    are 0/0 reference blocks or sites, 6 are no-calls (./.) and 71 call an allele other
+    than <*>, counted independently of the importer."""
+    report, rows = report_of(
+        DATA / "NA12878-chr20-DeepVariant-1.10.g.vcf", SCRIPT["variant_rows"], "NA12878"
+    )
+    assert report["metrics"] == {
+        "VCF sites": 228,
+        "Variant sites": 71,
+        "Sites without a call": 6,
+    }
+    assert all(row[4] != "<*>" for row in rows[1:])
+    assert {row[-1].split(":")[0] for row in rows[1:]} == {"0/1", "1/1", "1/2"}
+
+
+def test_a_haploid_chromosome_ys_calls_in_a_cohort_vcf():
+    """1000 Genomes phase 3's chrY calls, one allele per male: HG00101 calls the
+    alternate at two of these four sites. The cohort's 1,233 samples need a choice."""
+    path = DATA / "1000G-phase3-chrY.vcf"
+    with pytest.raises(ValueError, match="Choose a VCF sample heading"):
+        report_of(path, SCRIPT["variant_rows"])
+    report, rows = report_of(path, SCRIPT["variant_rows"], "HG00101")
+    assert report["metrics"] == {"VCF sites": 4, "Variant sites": 2, "Sites without a call": 0}
+    assert [(row["Position"], row["Genotype"]) for row in report["preview"]] == [
+        ("2659347", "1"),
+        ("2663712", "1"),
+    ]
+    assert rows[0][-1] == "HG00101" and all(len(row) == 10 for row in rows)
+
+
+@pytest.mark.parametrize(("sample", "positions"), [("NA1", ["20"]), ("NA2", ["14"])])
+def test_a_spanning_deletion_is_no_variant_of_its_own(sample, positions):
+    """GATK's spanning deletion test VCF: NA2's homozygous deletion at 14 spans 20, where
+    its genotype calls only the * allele, which the deletion's own site already counts."""
+    report, _ = report_of(DATA / "gatk-spanning-deletion.vcf", SCRIPT["variant_rows"], sample)
+    assert [row["Position"] for row in report["preview"]] == positions
+    assert report["metrics"]["Variant sites"] == 1
+
+
+def test_a_gzipped_featurecounts_table_skips_its_program_line(tmp_path):
+    path = tmp_path / "counts.txt.gz"
+    path.write_bytes(gzip.compress((DATA / "featureCounts-2.0.1-tiny.txt").read_bytes()))
+    report, rows = report_of(path, SCRIPT["count_rows"])
+    assert report["selector"] == "reads.bam"
+    assert report["metrics"] == {"Genes": 3, "Total raw count": 14}
+    assert rows[1:] == [["feature_1", "7"], ["feature_2", "7"], ["second_half", "0"]]
+
+
+def test_a_gzipped_airr_file_reads_as_the_plain_one(tmp_path):
+    plain = DATA / "pbmc-b-airr.tsv"
+    path = tmp_path / "airr.tsv.gz"
+    path.write_bytes(gzip.compress(plain.read_bytes()))
+    assert report_of(path, SCRIPT["rearrangement_rows"]) == report_of(
+        plain, SCRIPT["rearrangement_rows"]
+    )

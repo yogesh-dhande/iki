@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from contextlib import ExitStack
 from dataclasses import dataclass
 from itertools import zip_longest
@@ -46,14 +47,45 @@ class Summary:
         }
 
 
+#: Where a FASTQ title says which mate a read is:
+#: - a token ending /1 or /2: the first, in Illumina's titles before CASAVA 1.8
+#:   (`@HWUSI-EAS100R:6:73:941:1973#0/1`), or a later one, where ENA keeps the
+#:   instrument's title after the run's own read name
+#:   (`@SRR8690267.1 HWI-D00733:25:C6KC4ANXX:8:1101:1458:2222/1`);
+#: - CASAVA 1.8's second token, `1:N:0:ATCACG`: mate, filtered, control bits, index
+#:   (Illumina, "FASTQ files explained");
+#: - SRA's `fastq-dump --readids`, which appends the read to the spot as
+#:   `accession.spot.read` (`@SRR001666.1.2`).
+#: A title with none of them, such as `fastq-dump`'s default `@SRR001666.1`, says nothing.
+SLASH_MATE = re.compile(rb".*/([12])")
+CASAVA_MATE = re.compile(rb"([12]):[YN]:\d+:.*")
+SRA_READ_ID = re.compile(rb"([^.\s]+\.\d+)\.([12])")
+
+
 def mate_id(title: bytes, mate: int) -> bytes:
-    identifier, *rest = title.split(maxsplit=1)
-    suffix = b"/1" if mate == 1 else b"/2"
-    if identifier.endswith((b"/1", b"/2")) and not identifier.endswith(suffix):
-        raise ValueError("a read identifier has the wrong mate suffix.")
-    if rest and rest[0].startswith((b"1:", b"2:")) and not rest[0].startswith(suffix[1:] + b":"):
-        raise ValueError("an Illumina read identifier has the wrong mate number.")
-    return identifier.removesuffix(suffix)
+    """The read's identifier, without its mate, refusing a title that names the other
+    mate: the files would be swapped, and each mate's quality reported as the other's."""
+    identifier, *rest = title.split()
+    named: set[int] = set()
+    if slash := SLASH_MATE.fullmatch(identifier):
+        named.add(int(slash[1]))
+        identifier = identifier[:-2]
+    elif sra := SRA_READ_ID.fullmatch(identifier):
+        named.add(int(sra[2]))
+        identifier = sra[1]
+    for position, token in enumerate(rest):
+        if slash := SLASH_MATE.fullmatch(token):
+            named.add(int(slash[1]))
+        elif position == 0 and (casava := CASAVA_MATE.fullmatch(token)):
+            named.add(int(casava[1]))
+    if len(named) > 1:
+        raise ValueError("a read's title names both mates.")
+    if named and named != {mate}:
+        raise ValueError(
+            f"read {mate}'s file has a read whose title marks it mate {3 - mate}: "
+            "the two files may be swapped."
+        )
+    return identifier
 
 
 def statistics(*paths: Path) -> list[dict[str, int | float]]:

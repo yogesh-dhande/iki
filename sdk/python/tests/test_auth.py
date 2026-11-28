@@ -1,5 +1,6 @@
 """Signing in with the device flow, and keeping and renewing the sign-in."""
 
+import dataclasses
 import json
 import os
 import stat
@@ -59,6 +60,16 @@ def credentials(**changes: Any) -> auth.Credentials:
         "scope": "read",
     }
     return auth.Credentials(**{**base, **changes})
+
+
+def test_a_sign_in_shown_names_no_token() -> None:
+    signed = credentials(access_token="iki_at_secret", refresh_token="iki_rt_secret")
+    for shown in (repr(signed), str(signed), f"{signed}", repr([signed]), repr({"s": signed})):
+        assert "iki_at_secret" not in shown and "iki_rt_secret" not in shown, shown
+        assert "Credentials(" in shown and signed.url in shown
+    # It's still all there, to keep and to use.
+    assert signed.access_token == "iki_at_secret"
+    assert dataclasses.asdict(signed)["refresh_token"] == "iki_rt_secret"
 
 
 def test_sign_ins_go_in_the_system_keychain(config: Path, keychain: MemoryKeychain) -> None:

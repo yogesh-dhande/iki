@@ -96,6 +96,7 @@ def insulin_with_its_antibody(n: int) -> dict[str, Any]:
         "id": uuid(10 * n),
         "hrid": f"PCX-{n:06d}",
         "type": "iki/complex.ProteinComplex",
+        "types": ["iki/complex.ProteinComplex", "iki/core.Complex", "iki/core.Entity"],
         "values": {
             "name": f"insulin with a Fab and a heme, number {n} of a long run of them",
             "components": [{"part": p, "copies": 1} for p in (a, b, fab, heme)],
@@ -107,16 +108,19 @@ def insulin_with_its_antibody(n: int) -> dict[str, Any]:
                 {
                     "id": a,
                     "type": "iki/protein.Protein",
+                    "types": ["iki/protein.Protein", "iki/core.Sequence", "iki/core.Entity"],
                     "values": {"name": "A chain", "sequence": INSULIN_A},
                 },
                 {
                     "id": b,
                     "type": "iki/protein.Protein",
+                    "types": ["iki/protein.Protein", "iki/core.Sequence", "iki/core.Entity"],
                     "values": {"name": "B chain", "sequence": INSULIN_B},
                 },
                 {
                     "id": fab,
                     "type": "iki/antibody.Antibody",
+                    "types": ["iki/antibody.Antibody", "iki/core.Complex", "iki/core.Entity"],
                     "values": {
                         "name": "an anti-insulin Fab",
                         "components": [],
@@ -129,6 +133,7 @@ def insulin_with_its_antibody(n: int) -> dict[str, Any]:
                 {
                     "id": heme,
                     "type": "iki/small_molecule.Compound",
+                    "types": ["iki/small_molecule.Compound", "iki/core.Entity"],
                     "values": {"name": "heme b", "molecular_formula": "C34H32FeN4O4"},
                 },
             ]
@@ -282,11 +287,13 @@ def test_an_isotope_labelled_formula_as_the_oligo_plugin_keeps_it_is_weighed() -
     chain = {
         "id": uuid(2),
         "type": "iki/protein.Protein",
+        "types": ["iki/protein.Protein", "iki/core.Sequence", "iki/core.Entity"],
         "values": {"name": "A chain", "sequence": INSULIN_A},
     }
     labelled = {
         "id": uuid(3),
         "type": "iki/oligo.Oligonucleotide",
+        "types": ["iki/oligo.Oligonucleotide", "iki/core.Sequence", "iki/core.Entity"],
         "values": {"name": "13C5-uridine", "molecular_formula": formula},
     }
     made = composition.composition(
@@ -294,6 +301,7 @@ def test_an_isotope_labelled_formula_as_the_oligo_plugin_keeps_it_is_weighed() -
             {
                 "id": uuid(1),
                 "type": "iki/complex.ProteinComplex",
+                "types": ["iki/complex.ProteinComplex", "iki/core.Complex", "iki/core.Entity"],
                 "values": {
                     "name": "A chain with a labelled uridine",
                     "components": [{"part": p["id"], "copies": 1} for p in (chain, labelled)],
@@ -314,3 +322,39 @@ def test_an_isotope_labelled_formula_as_the_oligo_plugin_keeps_it_is_weighed() -
         + Calc.CalcExactMolWt(mol),
         abs=1e-3,
     )
+
+
+def test_a_labs_own_kind_of_protein_is_weighed_by_its_sequence() -> None:
+    """The complex's parts may be of a lab's type that extends Protein, which has its
+    sequence and no formula: it's weighed as the protein is, not refused for want of a
+    formula no action computes for it."""
+
+    def insulin(type_name: str, *extends: str) -> dict[str, Any]:
+        chains = [
+            {
+                "id": uuid(n),
+                "type": type_name,
+                "types": [type_name, *extends, "iki/core.Sequence", "iki/core.Entity"],
+                "values": {"name": name, "sequence": sequence},
+            }
+            for n, name, sequence in ((2, "A chain", INSULIN_A), (3, "B chain", INSULIN_B))
+        ]
+        made: dict[str, Any] = composition.composition(
+            {
+                "id": uuid(1),
+                "type": "iki/complex.ProteinComplex",
+                "types": ["iki/complex.ProteinComplex", "iki/core.Complex", "iki/core.Entity"],
+                "values": {
+                    "name": "human insulin",
+                    "components": [{"part": c["id"], "copies": 1} for c in chains],
+                    "bonds": [],
+                },
+                "included": {"components.part": chains},
+            }
+        )
+        return made
+
+    registered = insulin("iki/protein.Protein")
+    labs = insulin("acme/hormones.Hormone", "iki/protein.Protein")
+    assert labs["update"]["values"] == registered["update"]["values"]
+    assert registered["update"]["values"]["chain_count"] == 2

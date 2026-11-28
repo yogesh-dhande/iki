@@ -1049,6 +1049,7 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         )
     features = features_of(values, plasmid["values"])
     listed: list[dict[str, Any]] = []
+    alleles: list[tuple[str, str]] = []
     for change in comparison.changes:
         was = stretch(reference, change.start, change.stop)
         if change.stop > change.start:
@@ -1065,6 +1066,8 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             "end": last_base % size + 1,
             "reference": was[:MAX_SHOWN],
             "observed": change.bases[:MAX_SHOWN],
+            "reference_length": len(was),
+            "observed_length": len(change.bases),
             "length_change": len(change.bases) - len(was),
             "homopolymer": homopolymer(reference, change, circular),
             "features": falls_in(features, first_base, last_base, size),
@@ -1080,6 +1083,8 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
                 fraction=round(call.support / call.depth, 3) if call.depth else 0.0,
             )
         listed.append(row)
+        # The download has each allele whole; the record, its first MAX_SHOWN bases.
+        alleles.append((was, change.bases))
 
     unplaced = [
         {"start": a + 1, "end": b, "bases": b - a, "why": why} for a, b, why in comparison.unplaced
@@ -1122,14 +1127,15 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
                 [k + 1, reference[k], depths[k], comparison.before[k] + comparison.aligned[k]]
             )
     with (out_dir / "differences.tsv").open("w", encoding="utf-8", newline="") as handle:
-        columns = ["hgvs", "kind", "start", "end", "reference", "observed", "length_change"]
-        columns += ["homopolymer"]
+        columns = ["hgvs", "kind", "start", "end", "reference", "observed"]
+        columns += ["reference_length", "observed_length", "length_change", "homopolymer"]
         if source == "reads":
             columns += ["depth", "support", "forward", "reverse", "fraction"]
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
         writer.writerow([*columns, "features"])
-        for row in listed:
-            writer.writerow([*(row[c] for c in columns), "; ".join(row["features"])])
+        for row, (was, now) in zip(listed, alleles, strict=True):
+            whole = {**row, "reference": was, "observed": now}
+            writer.writerow([*(whole[c] for c in columns), "; ".join(row["features"])])
 
     if listed or unplaced:
         verdict = "differs"

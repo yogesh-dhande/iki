@@ -51,7 +51,9 @@ concentration, so they're asymmetric.
 
 Otherwise the result is `unreportable` and gives the reason. A midpoint
 outside the tested concentrations is qualified `above_range` or
-`below_range`.
+`below_range`. The range runs from the lowest positive concentration to the
+highest: zero-dose wells fix the curve's zero-dose plateau, so a midpoint
+below the lowest positive concentration is `below_range` with them too.
 
 **Not supported.** Fixed or constrained plateaus, a fixed Hill slope, three-
 or five-parameter models, weighted fits, normalization to plate controls,

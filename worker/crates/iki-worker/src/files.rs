@@ -17,8 +17,9 @@
 
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::io::{Read, Write};
+use std::os::unix::fs::FileExt;
+use std::path::{Component, Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -41,6 +42,39 @@ pub fn open_regular(path: &Path) -> std::io::Result<File> {
         OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK,
         Mode::empty(),
     )?);
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::other("expected a regular file"));
+    }
+    Ok(file)
+}
+
+/// Opens the directory `relative` in `root`, each step from the one before and none
+/// through a link. A command, or a process it left running, can rename what's in its
+/// directories while the worker reads them; it can't make the worker read anything else.
+pub fn open_dir_in(root: &Path, relative: &Path) -> std::io::Result<File> {
+    use rustix::fs::{Mode, OFlags, open, openat};
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let mut dir = open(root, flags, Mode::empty())?;
+    for component in relative.components() {
+        let Component::Normal(name) = component else {
+            return Err(std::io::ErrorKind::InvalidInput.into());
+        };
+        dir = openat(&dir, name, flags, Mode::empty())?;
+    }
+    Ok(File::from(dir))
+}
+
+/// Opens the regular file `relative` in `root`, none of the way through a link (see
+/// [`open_dir_in`]). Everything the worker reads of a command's file comes from this one
+/// descriptor, so what it hashes is what it sends.
+pub fn open_in(root: &Path, relative: &Path) -> std::io::Result<File> {
+    use rustix::fs::{Mode, OFlags, openat};
+    let parent = open_dir_in(root, relative.parent().unwrap_or(Path::new("")))?;
+    let Some(Component::Normal(name)) = relative.components().next_back() else {
+        return Err(std::io::ErrorKind::InvalidInput.into());
+    };
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    let file = File::from(openat(&parent, name, flags, Mode::empty())?);
     if !file.metadata()?.is_file() {
         return Err(std::io::Error::other("expected a regular file"));
     }
@@ -114,12 +148,20 @@ pub fn hex(bytes: &[u8]) -> String {
 
 /// Size and SHA-256 of a file, reading it once.
 pub fn digest(path: &Path) -> std::io::Result<(u64, String)> {
-    let mut file = File::open(path)?;
+    digest_file(&File::open(path)?)
+}
+
+/// Size and SHA-256 of an open file, from its start, wherever its offset is.
+pub fn digest_file(file: &File) -> std::io::Result<(u64, String)> {
     let mut hasher = Sha256::new();
     let mut buffer = vec![0; 1 << 20];
     let mut size = 0u64;
     loop {
-        let read = file.read(&mut buffer)?;
+        let read = match file.read_at(&mut buffer, size) {
+            Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
         if read == 0 {
             return Ok((size, hex(&hasher.finalize())));
         }
@@ -244,16 +286,42 @@ fn local_media_type(name: &str) -> &'static str {
         .map_or(OCTET_STREAM, |(_, media_type)| media_type)
 }
 
-/// A `$file` reference in output.json, once checked.
+/// A `$file` reference in output.json, once checked: the file it names, open.
 struct Made {
-    path: PathBuf,
+    file: File,
     /// Its path in `IKI_OUT_DIR`.
-    relative: String,
+    relative: PathBuf,
     name: String,
     media_type: Option<String>,
 }
 
-/// What a `{"$file": …}` value names, if it's a file in `out_dir`.
+/// Where in `out_dir` a `$file` path is: relative, or absolute under `out_dir`, with no
+/// `..`. `None` for anywhere else.
+fn inside(given: &str, out_dir: &Path) -> Option<PathBuf> {
+    let given = Path::new(given);
+    let given = if given.is_absolute() {
+        let root = out_dir.canonicalize().ok();
+        given
+            .strip_prefix(out_dir)
+            .ok()
+            .or_else(|| given.strip_prefix(root.as_deref()?).ok())?
+            .to_path_buf()
+    } else {
+        given.to_path_buf()
+    };
+    let mut relative = PathBuf::new();
+    for component in given.components() {
+        match component {
+            Component::Normal(part) => relative.push(part),
+            Component::CurDir => {}
+            _ => return None,
+        }
+    }
+    (!relative.as_os_str().is_empty()).then_some(relative)
+}
+
+/// What a `{"$file": …}` value names, if it's a regular file in `out_dir`, opened without
+/// following a link anywhere along its path.
 fn resolve(
     value: &serde_json::Map<String, serde_json::Value>,
     out_dir: &Path,
@@ -262,17 +330,14 @@ fn resolve(
         .get("$file")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
-    let outside =
-        || format!("output.json names the file {given:?}, which isn't a file in IKI_OUT_DIR.");
-    if !out_dir.symlink_metadata().is_ok_and(|meta| meta.is_dir()) {
-        return Err(outside());
-    }
-    let root = out_dir.canonicalize().map_err(|_| outside())?;
-    let path = root.join(given).canonicalize().map_err(|_| outside())?;
-    // Canonical paths resolve `..` and symlinks, so this can't reach outside.
-    if !path.starts_with(&root) || !path.is_file() {
-        return Err(outside());
-    }
+    let outside = || {
+        format!(
+            "output.json names the file {given:?}, which isn't a regular file in IKI_OUT_DIR \
+             (links aren't followed)."
+        )
+    };
+    let relative = inside(given, out_dir).ok_or_else(outside)?;
+    let file = open_in(out_dir, &relative).map_err(|_| outside())?;
     let text = |key: &str| {
         value
             .get(key)
@@ -280,15 +345,15 @@ fn resolve(
             .map(str::to_owned)
     };
     let name = text("name")
-        .or_else(|| path.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .or_else(|| {
+            relative
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+        })
         .unwrap_or_else(|| "file".to_owned());
     let media_type = text("media_type");
-    let relative = path
-        .strip_prefix(&root)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default();
     Ok(Made {
-        path,
+        file,
         relative,
         name,
         media_type,
@@ -337,11 +402,11 @@ fn replace_file_refs(
     let mut put = |slot: &mut serde_json::Value| -> Result<(), Failed> {
         let reference = slot.as_object().cloned().unwrap_or_default();
         let made = resolve(&reference, out_dir).map_err(Failed::Job)?;
-        let value = if let Some(value) = placed.get(&made.path) {
+        let value = if let Some(value) = placed.get(&made.relative) {
             value.clone()
         } else {
             let value = place(&made)?;
-            placed.insert(made.path.clone(), value.clone());
+            placed.insert(made.relative.clone(), value.clone());
             value
         };
         *slot = value;
@@ -392,15 +457,16 @@ pub fn describe_results(
     output: &mut serde_json::Map<String, serde_json::Value>,
 ) -> Result<usize, Failed> {
     replace_file_refs(out_dir, output, |made| {
-        let (size, sha256) = digest(&made.path)
-            .map_err(|e| Failed::Job(format!("Couldn't read {}: {e}.", made.relative)))?;
+        let shown = made.relative.to_string_lossy();
+        let (size, sha256) = digest_file(&made.file)
+            .map_err(|e| Failed::Job(format!("Couldn't read {shown}: {e}.")))?;
         Ok(serde_json::json!({
-            "$file": made.relative,
+            "$file": shown,
             "name": made.name,
             "media_type": made.media_type.as_deref().unwrap_or_else(|| local_media_type(&made.name)),
             "size": size,
             "sha256": sha256,
-            "path": made.path.to_string_lossy(),
+            "path": out_dir.join(&made.relative).to_string_lossy(),
         }))
     })
 }
@@ -482,7 +548,8 @@ fn upload(
     deadline: Instant,
 ) -> Result<String, Failed> {
     let what = format!("Couldn't upload {}", made.name);
-    let (size, sha256) = digest(&made.path).map_err(|e| Failed::Job(format!("{what}: {e}")))?;
+    let (size, sha256) =
+        digest_file(&made.file).map_err(|e| Failed::Job(format!("{what}: {e}")))?;
     let body = UploadIn {
         lease_token: lease.token.to_owned(),
         name: made.name.clone(),
@@ -501,16 +568,16 @@ fn upload(
             .ok_or_else(|| Error::Transient("The server's answer was empty.".into()))
     })
     .map_err(|e| failed(&what, e))?;
-    send(lease, storage, &made.path, &what, &started, deadline)?
+    send(lease, storage, &made.file, &what, &started, deadline)?
         .ok_or_else(|| Failed::Job(format!("{what}: the server made no file of it")))
 }
 
-/// Sends a started upload's parts, then finishes it until the server has checked it.
-/// Returns its file's ID; an artifact has none.
+/// Sends a started upload's parts from `file`, then finishes it until the server has
+/// checked it. Returns its file's ID; an artifact has none.
 fn send(
     lease: &Lease,
     storage: &Agent,
-    path: &Path,
+    file: &File,
     what: &str,
     started: &StartedOut,
     deadline: Instant,
@@ -519,7 +586,7 @@ fn send(
     parts.sort_by_key(|p| p.number);
     let mut offset = 0u64;
     for part in &parts {
-        put_part(lease, storage, &started.id, path, offset, part, deadline)
+        put_part(lease, storage, &started.id, file, offset, part, deadline)
             .map_err(|e| failed(what, e))?;
         offset += u64::try_from(part.size).unwrap_or_default();
     }
@@ -561,35 +628,43 @@ fn send(
 /// Artifacts one attempt keeps, at most, as the server allows.
 pub const MAX_ARTIFACTS: usize = 1000;
 
-/// The files in `out_dir` one of `patterns` matches, by their paths in it, sorted. Symbolic
-/// links aren't followed or kept: an artifact is a file the command wrote. Also says how
-/// many more there were than an attempt keeps.
-pub fn find_artifacts(out_dir: &Path, patterns: &[String]) -> (Vec<(String, PathBuf)>, usize) {
+/// The regular files in `out_dir` one of `patterns` matches, by their paths in it, sorted.
+/// Symbolic links aren't followed or kept: an artifact is a file the command wrote. Each
+/// directory is read from the one above it, never through a link. Also says how many
+/// more there were than an attempt keeps.
+pub fn find_artifacts(out_dir: &Path, patterns: &[String]) -> (Vec<String>, usize) {
+    use rustix::fs::{AtFlags, Dir, FileType, statat};
     let mut found = Vec::new();
-    if !out_dir.symlink_metadata().is_ok_and(|meta| meta.is_dir()) {
-        return (found, 0);
-    }
-    let mut pending = vec![(out_dir.to_path_buf(), String::new())];
-    while let Some((dir, prefix)) = pending.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
+    let mut pending = vec![String::new()];
+    while let Some(prefix) = pending.pop() {
+        let Ok(dir) = open_dir_in(out_dir, Path::new(&prefix)) else {
+            continue;
+        };
+        let Ok(entries) = Dir::read_from(&dir) else {
             continue;
         };
         for entry in entries.flatten() {
-            let Ok(kind) = entry.file_type() else {
-                continue;
-            };
-            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            let name = entry.file_name();
+            let Ok(text) = name.to_str() else {
                 continue; // a name that isn't UTF-8 can't be named in a pattern
             };
-            let relative = if prefix.is_empty() {
-                name
-            } else {
-                format!("{prefix}/{name}")
+            if matches!(text, "." | "..") {
+                continue;
+            }
+            let Ok(stat) = statat(&dir, name, AtFlags::SYMLINK_NOFOLLOW) else {
+                continue;
             };
-            if kind.is_dir() {
-                pending.push((entry.path(), relative));
-            } else if kind.is_file() && patterns.iter().any(|p| globs::matches(p, &relative)) {
-                found.push((relative, entry.path()));
+            let relative = if prefix.is_empty() {
+                text.to_owned()
+            } else {
+                format!("{prefix}/{text}")
+            };
+            match FileType::from_raw_mode(stat.st_mode) {
+                FileType::Directory => pending.push(relative),
+                FileType::RegularFile if patterns.iter().any(|p| globs::matches(p, &relative)) => {
+                    found.push(relative);
+                }
+                _ => {}
             }
         }
     }
@@ -599,16 +674,17 @@ pub fn find_artifacts(out_dir: &Path, patterns: &[String]) -> (Vec<(String, Path
     (found, over)
 }
 
-/// Uploads one artifact: a file the command wrote that its action keeps.
+/// Uploads one artifact: a file the command wrote that its action keeps, opened by
+/// [`open_in`].
 pub fn upload_artifact(
     lease: &Lease,
     storage: &Agent,
     relative: &str,
-    path: &Path,
+    file: &File,
 ) -> Result<(), Failed> {
     let deadline = Instant::now() + TRANSFERS_FOR;
     let what = format!("Couldn't keep {relative}");
-    let (size, sha256) = digest(path).map_err(|e| Failed::Job(format!("{what}: {e}")))?;
+    let (size, sha256) = digest_file(file).map_err(|e| Failed::Job(format!("{what}: {e}")))?;
     let body = ArtifactIn {
         lease_token: lease.token.to_owned(),
         path: relative.to_owned(),
@@ -623,7 +699,7 @@ pub fn upload_artifact(
             .ok_or_else(|| Error::Transient("The server's answer was empty.".into()))
     })
     .map_err(|e| failed(&what, e))?;
-    send(lease, storage, path, &what, &started, deadline).map(|_| ())
+    send(lease, storage, file, &what, &started, deadline).map(|_| ())
 }
 
 /// Uploads a packed checkpoint (ADR 0069), and finishes it until the server has checked it.
@@ -634,6 +710,7 @@ pub fn upload_checkpoint(
 ) -> Result<(), Failed> {
     let deadline = Instant::now() + TRANSFERS_FOR;
     let what = "Couldn't save a checkpoint";
+    let file = open_regular(&packed.path).map_err(|e| Failed::Job(format!("{what}: {e}")))?;
     let body = CheckpointIn {
         lease_token: lease.token.to_owned(),
         size: i64::try_from(packed.size).unwrap_or(i64::MAX),
@@ -646,7 +723,7 @@ pub fn upload_checkpoint(
             .ok_or_else(|| Error::Transient("The server's answer was empty.".into()))
     })
     .map_err(|e| failed(what, e))?;
-    send(lease, storage, &packed.path, what, &started, deadline).map(|_| ())
+    send(lease, storage, &file, what, &started, deadline).map(|_| ())
 }
 
 /// Downloads the checkpoint an earlier attempt saved into `target`, checked.
@@ -687,21 +764,20 @@ pub fn restored_checkpoint(lease: &Lease, id: &str) -> Result<(), Failed> {
     .map_err(|e| failed("Couldn't record it", e))
 }
 
-/// PUTs one part's bytes, signing its URL again if it ran out.
+/// PUTs one part's bytes, read from `file` at `offset`, signing its URL again if it ran
+/// out.
 fn put_part(
     lease: &Lease,
     storage: &Agent,
     upload_id: &str,
-    path: &Path,
+    file: &File,
     offset: u64,
     part: &PartOut,
     deadline: Instant,
 ) -> Result<(), Error> {
     let size = usize::try_from(part.size).unwrap_or_default();
     let mut bytes = vec![0; size];
-    let mut file = File::open(path).map_err(|e| Error::Transient(e.to_string()))?;
-    file.seek(SeekFrom::Start(offset))
-        .and_then(|_| file.read_exact(&mut bytes))
+    file.read_exact_at(&mut bytes, offset)
         .map_err(|e| Error::Refused {
             status: 0,
             code: "file_changed".into(),
@@ -777,11 +853,11 @@ mod tests {
         }
         std::os::unix::fs::symlink("/etc/passwd", dir.join("msas/passwd")).unwrap();
         let patterns = ["alignment.*".to_owned(), "msas/**".to_owned()];
+        // A linked directory isn't walked either.
+        std::os::unix::fs::symlink(dir.join("msas"), dir.join("msas/again")).unwrap();
         let (found, over) = find_artifacts(&dir, &patterns);
-        let paths: Vec<&str> = found.iter().map(|(p, _)| p.as_str()).collect();
-        assert_eq!(paths, ["alignment.txt", "msas/a.a3m", "msas/deep/b.a3m"]);
+        assert_eq!(found, ["alignment.txt", "msas/a.a3m", "msas/deep/b.a3m"]);
         assert_eq!(over, 0);
-        assert_eq!(found[0].1, dir.join("alignment.txt"));
     }
 
     #[test]
@@ -792,7 +868,7 @@ mod tests {
         }
         let (found, over) = find_artifacts(&dir, &["*.log".to_owned()]);
         assert_eq!((found.len(), over), (MAX_ARTIFACTS, 3));
-        assert_eq!(found[0].0, "00000.log");
+        assert_eq!(found[0], "00000.log");
     }
 
     #[test]
@@ -832,11 +908,20 @@ mod tests {
         assert!(resolve(&reference("sub"), &out).is_err());
         assert!(resolve(&reference("missing.pdb"), &out).is_err());
         assert!(resolve(&reference(dir.join("secret").to_str().unwrap()), &out).is_err());
-        #[cfg(unix)]
-        {
-            std::os::unix::fs::symlink(dir.join("secret"), out.join("link")).unwrap();
-            assert!(resolve(&reference("link"), &out).is_err());
-        }
+        assert!(resolve(&reference("sub/../sub/model.pdb"), &out).is_err());
+        // A link isn't followed, even to a file in the out dir, nor a linked directory.
+        std::os::unix::fs::symlink(dir.join("secret"), out.join("link")).unwrap();
+        assert!(resolve(&reference("link"), &out).is_err());
+        std::os::unix::fs::symlink(out.join("sub/model.pdb"), out.join("alias.pdb")).unwrap();
+        assert!(resolve(&reference("alias.pdb"), &out).is_err());
+        std::os::unix::fs::symlink(out.join("sub"), out.join("linked")).unwrap();
+        assert!(resolve(&reference("linked/model.pdb"), &out).is_err());
+        // An absolute path in the out dir is the same file.
+        let absolute = out.join("sub/model.pdb");
+        let made = resolve(&reference(absolute.to_str().unwrap()), &out).unwrap();
+        assert_eq!(made.relative, Path::new("sub/model.pdb"));
+        let made = resolve(&reference("./sub/model.pdb"), &out).unwrap();
+        assert_eq!(made.relative, Path::new("sub/model.pdb"));
         let named = serde_json::json!({"$file": "sub/model.pdb", "name": "a.cif", "media_type": "chemical/x-mmcif"});
         let made = resolve(named.as_object().unwrap(), &out).unwrap();
         assert_eq!(
@@ -886,7 +971,9 @@ mod tests {
         let mut placed = 0;
         let count = replace_file_refs(&out, output.as_object_mut().unwrap(), |made| {
             placed += 1;
-            Ok(serde_json::Value::String(made.relative.clone()))
+            Ok(serde_json::Value::String(
+                made.relative.to_string_lossy().into_owned(),
+            ))
         })
         .unwrap();
         assert_eq!((count, placed), (1, 1));
@@ -899,6 +986,91 @@ mod tests {
             ))
             .is_err()
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A file only the worker should read: on Linux, the worker's own environment, which
+    /// holds its tokens; elsewhere, a stand-in.
+    fn the_workers_secret(dir: &Path) -> PathBuf {
+        if cfg!(target_os = "linux") {
+            PathBuf::from("/proc/self/environ")
+        } else {
+            let secret = dir.join("secret");
+            std::fs::write(&secret, b"IKI_REGISTRATION_TOKEN=iki_wreg_x").unwrap();
+            secret
+        }
+    }
+
+    fn swap_for_a_link(path: &Path, target: &Path) {
+        let partial = path.with_extension("partial");
+        std::os::unix::fs::symlink(target, &partial).unwrap();
+        std::fs::rename(&partial, path).unwrap();
+    }
+
+    #[test]
+    fn an_artifact_swapped_for_a_link_after_it_was_listed_is_not_read() {
+        let dir = scratch("artifact-swap");
+        let out = dir.join("out");
+        std::fs::create_dir_all(out.join("logs")).unwrap();
+        std::fs::write(out.join("a.bin"), b"large").unwrap();
+        std::fs::write(out.join("z.txt"), b"the command's").unwrap();
+        std::fs::write(out.join("logs/run.log"), b"the command's").unwrap();
+        let secret = the_workers_secret(&dir);
+        let (found, _) = find_artifacts(&out, &["**".to_owned()]);
+        assert_eq!(found, ["a.bin", "logs/run.log", "z.txt"]);
+        // A process the command left running swaps a listed file, and a listed file's
+        // directory, for links to what only the worker can read.
+        swap_for_a_link(&out.join("z.txt"), &secret);
+        let elsewhere = dir.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("run.log"), b"not the command's").unwrap();
+        std::fs::rename(out.join("logs"), dir.join("logs-moved")).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, out.join("logs")).unwrap();
+        assert!(open_in(&out, Path::new("z.txt")).is_err());
+        assert!(open_in(&out, Path::new("logs/run.log")).is_err());
+        assert!(open_in(&out, Path::new("a.bin")).is_ok());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn what_is_hashed_and_sent_is_the_file_the_command_wrote() {
+        let dir = scratch("one-descriptor");
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(out.join("model.pdb"), b"ATOM 1").unwrap();
+        let secret = the_workers_secret(&dir);
+        let reference = serde_json::json!({"$file": "model.pdb"});
+        let made = resolve(reference.as_object().unwrap(), &out).unwrap();
+        // Swapped once it was checked: the upload still reads the file it opened.
+        swap_for_a_link(&out.join("model.pdb"), &secret);
+        assert_eq!(
+            digest_file(&made.file).unwrap(),
+            (6, hex(&Sha256::digest(b"ATOM 1")))
+        );
+        let mut part = vec![0; 4];
+        made.file.read_exact_at(&mut part, 2).unwrap();
+        assert_eq!(part, b"OM 1");
+        // And named again, it's refused.
+        assert!(resolve(reference.as_object().unwrap(), &out).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn only_regular_files_are_outputs() {
+        let dir = scratch("regular");
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let made = std::process::Command::new("mkfifo")
+            .arg(out.join("pipe"))
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let (found, _) = find_artifacts(&out, &["*".to_owned()]);
+        assert!(found.is_empty());
+        // Opening a pipe nobody writes to doesn't hang the worker, and is refused.
+        assert!(open_in(&out, Path::new("pipe")).is_err());
+        let reference = serde_json::json!({"$file": "pipe"});
+        assert!(resolve(reference.as_object().unwrap(), &out).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -422,7 +422,7 @@
           "type": "array",
           "description": "Its type, then each type it extends, nearest first, ending with `iki/core.Entity` (ADR 0284): a record is one of a type's when the type is here. A lab's subtype of the type an action takes is listed, then the action's. Compare with this, never `type`.",
           "items": { "type": "string" },
-          "minItems": 1,
+          "minItems": 2,
           "uniqueItems": true
         },
         "schema_version": { "type": "integer", "minimum": 1 },

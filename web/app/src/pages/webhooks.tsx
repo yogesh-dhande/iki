@@ -46,7 +46,7 @@ import {
   Time,
   useMessages,
 } from "../ui";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
 
 /** As many as the server allows in one place. */
 export const MAX_WEBHOOKS = 20;

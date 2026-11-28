@@ -31,8 +31,8 @@ import { useReadableProjects } from "../lists";
 import { useMedia } from "../media";
 import { FilePreviewSection } from "../previews/preview-places";
 import { heldBecause, reviewHref } from "../quarantine";
-import { useProject } from "./project-overview";
-import { StatusBadge } from "./runs";
+import { useProject } from "../project";
+import { StatusBadge } from "./run-text";
 import {
   Button,
   buttonClass,

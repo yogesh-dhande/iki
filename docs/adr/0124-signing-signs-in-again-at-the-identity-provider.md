@@ -64,7 +64,11 @@ wrong `nonce`, an old `auth_time`, a bad signature) fails the signing, is in
 the audit log, and tells Org Admins at once. Three within fifteen minutes
 lock the person's signing, end their sessions and revoke their tokens, and
 tell them and Org Admins; an Org Admin unlocks it in Settings → Signatures,
-once they know who it was. Cancelling at the provider, or its own refusal to
+once they know who it was, and says so: the reason is in the audit log
+(`signature.unlocked`). Nobody unlocks their own signing, since someone may
+have been trying to sign as them, so another Org Admin does; and, as signing
+is, unlocking is a person's act, signed in to Iki's web app: no token, app or
+AI agent unlocks anyone's, whatever its scopes. Cancelling at the provider, or its own refusal to
 sign someone in, fails the signing without counting.
 
 ## Consequences

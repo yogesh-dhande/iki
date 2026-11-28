@@ -521,7 +521,9 @@ class Entities(_Part):
     def move(self, ref: str, *, reason: str) -> EntityOut:
         """Moves a record of a superseded registry entry to the entry that replaced it,
         with its data, history and runs; the project's records that refer to the old
-        entry then refer to the new one, each with the reason."""
+        entry then refer to the new one, each with the reason. To an entry of another
+        type (ADR 0165) it returns the project's new record of it, with the values the
+        two types' records share, and archives this one."""
         return cast(
             "EntityOut",
             self._client.request(
@@ -1138,16 +1140,32 @@ class Entries(_Part):
             ),
         )
 
-    def supersede(self, ref: str, *, replacement: str, reason: str) -> EntryOut:
-        """For its registry's registrars: replaces a mistaken entry with `replacement`, for
-        good. Its holding projects are told, to move their records."""
+    def supersede(
+        self,
+        ref: str,
+        *,
+        reason: str,
+        replacement: str | None = None,
+        type: str | None = None,
+        values: Mapping[str, Any] | None = None,
+    ) -> EntryOut:
+        """For its registry's registrars: replaces a mistaken entry, for good, with
+        `replacement`, an entry registered already, or with a new entry of its identity as
+        `type`, another type of it (ADR 0165), such as a protein complex's chains as the
+        antibody they are. `values` are the new entry's: those its `can.supersede_as` names
+        for the type. Its holding projects are told, to move their records."""
+        if (replacement is None) == (type is None):
+            raise ValueError("Give the replacement's ID, or the type to register it as.")
+        if values is not None and type is None:
+            raise ValueError("Values are for a new entry: give its type.")
+        body: dict[str, Any] = {"reason": reason}
+        if type is None:
+            body["replacement"] = replacement
+        else:
+            body.update(type=type, values=dict(values or {}))
         return cast(
             "EntryOut",
-            self._client.request(
-                "POST",
-                _path("/entries/{ref}/supersede", ref=ref),
-                json={"replacement": replacement, "reason": reason},
-            ),
+            self._client.request("POST", _path("/entries/{ref}/supersede", ref=ref), json=body),
         )
 
 
@@ -1897,9 +1915,11 @@ class Spreadsheets(_Part):
     ) -> SheetEditSaveOut:
         """Saves rows as :meth:`check_edits` returned them (or as ``{"entity",
         "revision", "values"}`` and, for a new record, ``location`` and ``amount``), each
-        change a revision with ``reason``, all of them or none. A record changed since its
-        revision raises ``iki.Conflict``, and any row's problem ``iki.ApiError`` with each
-        problem, and nothing is saved."""
+        change a revision with ``reason``, all of them or none. A new record's
+        ``location`` names its container and the exact ``position`` its check found (None
+        only for a container without positions). A record changed since its revision, or
+        a position another placement took since the check, raises ``iki.Conflict``, and
+        any row's problem ``iki.ApiError`` with each problem, and nothing is saved."""
         client = self._client
         body: dict[str, Any] = {
             "type": type,

@@ -396,7 +396,7 @@ def _run_example(world: World, flow: str, directory: Path, adapter: SdkApi) -> N
 
     waiting = api.get("/storage/awaiting-put-away")
     assert waiting.status_code == 200, waiting.content
-    held = {item["id"]: item for item in waiting.json()}
+    held = {item["id"]: item for item in waiting.json()["items"]}
     assert all(
         held[t]["custodian"]["id"] == str(admin.pk) and held[t]["custody_since"] for t in tube_ids
     )

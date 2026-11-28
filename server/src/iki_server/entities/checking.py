@@ -379,12 +379,20 @@ def _applies(rule: Rule, changed: frozenset[str] | None) -> bool:
 
 
 def broken(
-    type_name: str, savings: Sequence[Saving], *, before_signing: bool = False
+    type_name: str,
+    savings: Sequence[Saving],
+    *,
+    before_signing: bool = False,
+    reading: frozenset[str] | None = None,
 ) -> list[list[Broken]]:
     """The checks each record about to be saved breaks: false, or not worked out for a
-    reason other than an empty value. Each record's are in its rules' order."""
+    reason other than an empty value. Each record's are in its rules' order. With
+    ``reading``, only the checks that read those fields and no others: a registry entry's,
+    of its entry fields, which a registrar registers with no record (ADR 0165)."""
     groups: dict[tuple[tuple[str, str], ...], list[Rule]] = {}
-    checks = checks_of(type_name)
+    checks = tuple(
+        r for r in checks_of(type_name) if reading is None or (r.reads and set(r.reads) <= reading)
+    )
     for rule in checks:
         if not before_signing or rule.recheck_before_signing:
             groups.setdefault(rule.reference_revisions, []).append(rule)

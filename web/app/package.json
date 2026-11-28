@@ -9,7 +9,7 @@
     "dev": "pnpm build:wasm && vite",
     "build": "pnpm build:wasm && pnpm build:web",
     "build:wasm": "../../scripts/build-wasm.sh",
-    "build:web": "vite build && vite build -c vite.structure.config.ts",
+    "build:web": "vite build && node ../../scripts/check-web-app-size.js && vite build -c vite.structure.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "fonts": "cp node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2 node_modules/@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2 node_modules/@fontsource-variable/inter/files/inter-greek-wght-normal.woff2 ../../server/src/iki_server/web/static/iki/fonts/ && cp node_modules/@fontsource-variable/inter/LICENSE ../../server/src/iki_server/web/static/iki/fonts/inter-LICENSE.txt"
@@ -40,5 +40,9 @@
     "@vitejs/plugin-react": "^6.3.0",
     "jsdom": "^31.0.1",
     "vite": "^8.3.8"
+  },
+  "ikiSizeBudgets": {
+    "src/main.tsx": 245760,
+    "src/search-entry.tsx": 184320
   }
 }
