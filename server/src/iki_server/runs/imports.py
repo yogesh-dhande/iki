@@ -52,6 +52,7 @@ from iki_server.api.problems import Problem
 from iki_server.audit import log as audit
 from iki_server.entities import (
     access,
+    breaches,
     checking,
     computing,
     constraints,
@@ -1906,6 +1907,9 @@ class _Filling:
         """Compares a batch of lines with their entries, locked, in line order, and writes
         what they fill."""
         ids = sorted({entry_id for _, _, _, entry_id, _ in batch})
+        if any(breaches.rechecked(t, shape(t).entry_fields()) for t in {line[1] for line in batch}):
+            # Their records before them, as an edit locks its record before its entry.
+            breaches.lock_holders(ids)
         locked = {
             e.pk: e for e in Entity.objects.select_for_update().filter(pk__in=ids).order_by("pk")
         }
