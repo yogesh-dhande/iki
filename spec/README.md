@@ -836,6 +836,15 @@ review:
   these states.
 - `independent_of` adds people to every state that declares independence.
   `guards` add conditions `on` named states, `signed` or `final`.
+  `statements` give what its signers attest to at a signed state it needs, in
+  its own words, by state, such as a deliverable's `released`: “I release the
+  independently reviewed deliverable to the requesting project.” The
+  procedure's statement is used for the others.
+- A request type that opens review (`opens: true`) is pinned as it's sent to a
+  service, from the service project's choice for the type, not where it's made
+  ([ADR 0305](../docs/adr/0305-a-type-is-a-kind-of-work-not-a-review-procedure.md)).
+  A service that hasn't chosen can't receive it (409 `procedure_not_chosen`),
+  and its deliverables follow the procedure it was sent under.
 - `derived: true` re-issues a record already reviewed under the same flow,
   such as a certificate of analysis: its route is the flow's first and final
   states.
@@ -855,7 +864,7 @@ declares it in `starters/`, for its own types or a dependency's:
 ```yaml
 apiVersion: iki/v1
 kind: Starter
-name: proteomics_search_review
+name: search_review
 version: 1.0.0
 label: Proteomics search results
 description: Choose how newly imported search results are reviewed, and who signs them.
@@ -871,7 +880,7 @@ slots:
   qa: { minimum: viewer }
 ```
 
-- It's `plugin.name` elsewhere: `iki/proteomics.proteomics_search_review`.
+- It's `plugin.name` elsewhere: `iki/proteomics.search_review`.
   Its semver `version` is what setup previews and applies.
 - `governs` is a reviewed type that's pinned at create, or that opens work
   (`opens: true`). The procedure must fit it and every type that follows it
@@ -1053,7 +1062,7 @@ A lab's own request type adds what its service keeps of each request:
 
 ```yaml
 # types/sequencing_request.yaml
-extends: iki/requests.PlainRequest
+extends: iki/requests.Request
 request:
   service_fields: [project_rank] # the service's, besides its parent's
 fields:
@@ -1505,7 +1514,7 @@ rules and guards read what they have. The column, its search and its graph edges
 the declaring type's.
 
 ```yaml
-extends: iki/requests.QCDeliverable
+extends: iki/requests.Deliverable
 refines:
   request: { to: AnalyticalRequest } # so a rule can read record.request.analyses
 ```

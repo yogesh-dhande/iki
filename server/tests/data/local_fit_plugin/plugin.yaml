@@ -8,4 +8,4 @@ iki: ">=0.1"
 license: Apache-2.0
 dependencies:
   iki/plate_assays:
-    types: { PlateRead: ">=4", ResearchAssayResult: ">=1", QCAssayResult: ">=1" }
+    types: { PlateRead: ">=4", AssayResult: ">=4" }

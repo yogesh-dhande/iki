@@ -30303,7 +30303,7 @@
             "type": "string"
           },
           "id": {
-            "description": "A plugin's starter, qualified (`iki/proteomics.proteomics_search_review`), or one of the server's own recipes (`dose-response`).",
+            "description": "A plugin's starter, qualified (`iki/plate_assays.dose_response`), or one of the server's own recipes (`experiment-review`).",
             "title": "Id",
             "type": "string"
           },
@@ -32338,11 +32338,17 @@
             ],
             "description": "The reference whose record's procedure it follows, if it's pinned by one.",
             "title": "Follows"
+          },
+          "on_send": {
+            "description": "Its procedure is chosen by the project it's sent to, such as a request's by the service, and pinned as it's sent, not when it's made (ADR 0305).",
+            "title": "On Send",
+            "type": "boolean"
           }
         },
         "required": [
           "field",
           "follows",
+          "on_send",
           "flows"
         ],
         "title": "TypeReviewOut",

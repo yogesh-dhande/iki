@@ -1142,12 +1142,14 @@ def test_an_import_checks_again_when_a_plugin_changes_before_its_written(
 def test_a_staged_import_checks_the_projects_flow_at_commit(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Use the fixture deployment's importer and its real worker/COPY path.
+    from test_starter_applications import RECIPE
+
     from iki_server.setup import starters
     from iki_server.setup.models import StarterApplication
 
-    # Use the fixture deployment's importer and its real worker/COPY path.
     assay = dataclasses.replace(
-        starters.DOSE_RESPONSE,
+        RECIPE,
         result_base="acme/dna.Sequence",
         flows={"research": "acme/protein.Protein", "regulated_qc": "acme/dna.DNASequence"},
     )

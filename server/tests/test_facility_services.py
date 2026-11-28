@@ -9,8 +9,10 @@ from first_party_dependencies import PLUGINS, ROOT, build_order, withs
 from org_world import World
 from test_core_facility import (
     EXAMPLES,
+    REGULATED,
     REQUESTER,
     REQUESTS,
+    RESEARCH,
     _facility,
     _make,
     _report,
@@ -111,14 +113,14 @@ def _production(world: World, asking: Project) -> None:
     request = _make(
         world, REQUESTER, kind, asking, **asked, records=[str(protein.pk)], requested_mass=1
     )
-    _send(world, request)
+    _send(world, request, RESEARCH)
 
     report_path = EXAMPLES / "P00330-production.txt"
     report = _report(world.project, report_path.name, report_path.read_bytes())
     fields = {"request": str(request.pk), "outcome": "fulfilled", "report": report}
-    # The Research deliverable its type extends doesn't answer a production request.
+    # The deliverable its type extends doesn't answer a production request.
     with pytest.raises(Invalid, match="record a Production deliverable for it"):
-        _make(world, "editor", REQUESTS + "ResearchDeliverable", world.project, **fields)
+        _make(world, "editor", REQUESTS + "Deliverable", world.project, **fields)
     delivered = PRODUCTION + "ProductionDeliverable"
     fields["protein"] = str(protein.pk)
     with pytest.raises(Invalid, match="lot number and a positive delivered mass"):
@@ -161,7 +163,7 @@ def _sequencing(world: World, asking: Project) -> None:
     with pytest.raises(Invalid, match="Name the tubes"):
         _make(world, REQUESTER, kind, asking, **asked)
     request = _make(world, REQUESTER, kind, asking, **asked, tubes=[str(tube.pk)])
-    _send(world, request)
+    _send(world, request, REGULATED)
 
     report_path = EXAMPLES / "ERR13376132-delivery.txt"
     report = _report(world.project, report_path.name, report_path.read_bytes())
@@ -172,7 +174,7 @@ def _sequencing(world: World, asking: Project) -> None:
         "report": report,
     }
     with pytest.raises(Invalid, match="record a Sequencing deliverable for it"):
-        _make(world, "editor", REQUESTS + "QCDeliverable", world.project, **fields)
+        _make(world, "editor", REQUESTS + "Deliverable", world.project, **fields)
     delivered = SEQUENCING + "SequencingDeliverable"
     with pytest.raises(Invalid, match="Attach the read files or give a public run accession"):
         _make(world, "editor", delivered, world.project, **fields)
@@ -213,7 +215,7 @@ def _analysis(world: World, asking: Project) -> None:
     with pytest.raises(Invalid, match="Choose what the core should measure"):
         _make(world, REQUESTER, kind, asking, **asked)
     request = _make(world, REQUESTER, kind, asking, **asked, analyses=["sec_purity"])
-    _send(world, request)
+    _send(world, request, REGULATED)
 
     report = _report(world.project, "sec-purity.txt", b"SEC-HPLC, main peak 98.5 %")
     fields = {
@@ -223,7 +225,7 @@ def _analysis(world: World, asking: Project) -> None:
         "report": report,
     }
     with pytest.raises(Invalid, match="record an Analytical result for it"):
-        _make(world, "editor", REQUESTS + "QCDeliverable", world.project, **fields)
+        _make(world, "editor", REQUESTS + "Deliverable", world.project, **fields)
     fields["result"] = "pass"
     measured = ANALYTICAL + "AnalyticalResult"
     with pytest.raises(Invalid, match="Measure one of the analyses the request asks for"):

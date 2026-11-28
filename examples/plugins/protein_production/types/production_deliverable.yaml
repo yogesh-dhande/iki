@@ -1,13 +1,13 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 #
-# What the core returns for a production request: a Research deliverable, with
-# the lot it made. Its checks run as it's saved, and again as a reviewer signs it
+# What the core returns for a production request: a deliverable with the lot it
+# made, reviewed under its request's procedure. Its checks run as it's saved, and again as a reviewer signs it
 # off, so a request changed since can't be signed off with an old answer.
 apiVersion: iki/v1
 kind: EntityType
 name: ProductionDeliverable
 label: Production deliverable
-extends: iki/requests.ResearchDeliverable
+extends: iki/requests.Deliverable
 schema_version: 1
 hrid: { prefix: PPD }
 description: The lot of protein a production request returns, or why none was made.

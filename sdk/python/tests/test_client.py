@@ -416,10 +416,10 @@ def test_requests_go_to_a_service_and_come_back_with_results(fake: FakeIki, clie
     project, core = "0190d5a4-0000-7000-8000-000000000001", "0190d5a4-0000-7000-8000-000000000002"
     listed: Any = [{"project": {"id": core, "name": "Core"}, "description": "", "types": []}]
     fake.on("GET", f"/api/v1/projects/{project}/services", listed)
-    services = client.projects.services(project, type="iki/requests.PlainRequest")
+    services = client.projects.services(project, type="iki/requests.Request")
     assert services == listed
     assert fake.sent("GET", f"/api/v1/projects/{project}/services")[0].url.params["type"] == (
-        "iki/requests.PlainRequest"
+        "iki/requests.Request"
     )
     submitted = "/api/v1/entities/REQ-000001/submit"
     fake.on("POST", submitted, entity("REQ-000001", title="Lot 12"))
@@ -433,9 +433,9 @@ def test_requests_go_to_a_service_and_come_back_with_results(fake: FakeIki, clie
     # A service's Admin chooses what it takes.
     intake = {"types": [], "from_registry": True, "projects": []}
     fake.on("PUT", f"/api/v1/projects/{core}/intake", intake)
-    client.projects.set_intake(core, types=["iki/requests.PlainRequest"], projects=[project])
+    client.projects.set_intake(core, types=["iki/requests.Request"], projects=[project])
     assert fake.body("PUT", f"/api/v1/projects/{core}/intake") == {
-        "types": ["iki/requests.PlainRequest"],
+        "types": ["iki/requests.Request"],
         "from_registry": False,
         "projects": [project],
     }

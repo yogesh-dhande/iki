@@ -3,9 +3,12 @@ apiVersion: iki/v1
 kind: EntityType
 name: Request
 label: Request
-abstract: true
-schema_version: 2
+schema_version: 3
+hrid: { prefix: REQ }
 description: A project's specification of work to be done by another team.
+# Its deliverables are reviewed under the procedure its service chose, pinned on it as
+# it's sent there (ADR 0305).
+review: { opens: true }
 request:
   service_fields: [status, priority, scheduled_on, analyst, service_notes]
   sends: [records, materials, tubes]

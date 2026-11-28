@@ -59,7 +59,7 @@ def test_a_token_needs_write_scope_in_the_selected_project(world: World) -> None
     ("field", "value"),
     [
         ("project", "somewhere"),
-        ("role_assignments", {"iki/plate_assays.reviewer": ["a name"]}),
+        ("role_assignments", {"iki/lab_roles.reviewer": ["a name"]}),
         ("requester_project", "removed"),
         ("undeclared", True),
     ],

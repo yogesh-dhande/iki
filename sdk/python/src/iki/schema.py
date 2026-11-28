@@ -6605,7 +6605,7 @@ class StarterOut(TypedDict):
     flows: list[StarterFlowOut]
     #: The records the project's choice applies to from now on, such as `release cases`. Those already opened keep the flow they were opened with.
     governs: str
-    #: A plugin's starter, qualified (`iki/proteomics.proteomics_search_review`), or one of the server's own recipes (`dose-response`).
+    #: A plugin's starter, qualified (`iki/plate_assays.dose_response`), or one of the server's own recipes (`experiment-review`).
     id: str
     label: str
     #: The review procedure it applies, as `plugin.name@version` (ADR 0303).
@@ -7071,6 +7071,8 @@ class TypeReviewOut(TypedDict):
     flows: list[ReviewFlowOut]
     #: The reference whose record's procedure it follows, if it's pinned by one.
     follows: str | None
+    #: Its procedure is chosen by the project it's sent to, such as a request's by the service, and pinned as it's sent, not when it's made (ADR 0305).
+    on_send: bool
 
 
 class TypeStorageOut(TypedDict):

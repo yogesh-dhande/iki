@@ -1,9 +1,9 @@
 apiVersion: iki/v1
 kind: EntityType
 name: AssayResult
-abstract: true
-schema_version: 3
+schema_version: 4
 label: Assay result
+hrid: { prefix: AR }
 description: >-
   A dose-response result: an IC50 or EC50 fitted to one sample's committed readings by a
   named method, recorded in fit_version. Other analyses of a plate read are their own types.
@@ -43,6 +43,17 @@ fields:
   qualifier:
     { type: enum, computed: true, values: [within_range, above_range, below_range, unavailable] }
   point_count: { type: int, computed: true, min: 0 }
-  review_flow: { type: enum, values: [research, regulated_qc], computed: true, immutable: true }
   notes: { type: text, description: Interpretation and review notes. }
+# Reviewed under the procedure its project chose, pinned as the fit is recorded (ADR 0302).
+review:
+  needs:
+    final: [signed_off, released]
+    locks: signed
+  guards:
+    recorded_fit:
+      on: [signed]
+      check: record.fit_status != null && record.fit_version != null
+      message: Sign a recorded fit, with its method.
+  statements:
+    signed_off: I checked the measurements, exclusions and reported fit.
 display: { title: "{{ endpoint_kind or hrid }} · {{ fit_status or 'recorded' }}" }

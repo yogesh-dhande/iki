@@ -117,10 +117,10 @@ def committed_read(actions):
 
 
 @pytest.mark.parametrize(
-    ("flow", "request_id", "kind"),
-    [("research", None, "ResearchAssayResult"), ("regulated_qc", uid(7), "RequestedQCAssayResult")],
+    ("request_id", "kind"),
+    [(None, "AssayResult"), (uid(7), "RequestedAssayResult")],
 )
-def test_fit_from_committed_measurements(actions, flow, request_id, kind):
+def test_fit_from_committed_measurements(actions, request_id, kind):
     read = committed_read(actions)
     read["values"]["request"] = request_id
     read["included"]["request"] = (
@@ -129,7 +129,6 @@ def test_fit_from_committed_measurements(actions, flow, request_id, kind):
     run = {
         "run": {"requested_by": uid(8)},
         "inputs": {"read": [read], "sample": [{"id": uid(6), "entry_id": uid(5)}]},
-        "settings": {"review_flow": flow},
         "params": {"exclusions": "A2: bubble"},
     }
     (fit,) = actions.fit_output(run)["creates"]
@@ -139,7 +138,8 @@ def test_fit_from_committed_measurements(actions, flow, request_id, kind):
     assert (evidence["procedure"], evidence["procedure_revision"]) == ("SOP-A", "2")
     assert evidence["fit_status"] == "fitted"
     assert evidence["ci_low"] < evidence["endpoint_value"] < evidence["ci_high"]
-    assert evidence["review_flow"] == flow
+    # The server pins its review: the action doesn't choose it (ADR 0302).
+    assert "review_flow" not in evidence
     assert evidence["normalization"] == "none"
     assert evidence["point_count"] == 7 and len(evidence["points"]) == 8
     (excluded,) = [point for point in evidence["points"] if point["excluded_by"]]
@@ -166,7 +166,6 @@ def fit_run(read, **params):
     return {
         "run": {"requested_by": uid(8)},
         "inputs": {"read": [read], "sample": [{"id": uid(6), "entry_id": uid(5)}]},
-        "settings": {"review_flow": "research"},
         "params": params,
     }
 
@@ -180,7 +179,7 @@ def test_a_fit_names_its_method_and_version(actions):
         actions.fit_output(fit_run(read, method="5PL-WLS"))
 
 
-def test_the_result_class_is_the_flow_s_whatever_the_method(actions, monkeypatch):
+def test_the_result_type_is_the_same_whatever_the_method(actions, monkeypatch):
     read = committed_read(actions)
     seen = []
 
@@ -190,7 +189,7 @@ def test_the_result_class_is_the_flow_s_whatever_the_method(actions, monkeypatch
 
     monkeypatch.setattr(actions, "methods", lambda: {"local": local})
     (made,) = actions.fit_output(fit_run(read, method="local", endpoint_kind="EC50"))["creates"]
-    assert made["type"] == "iki/plate_assays.ResearchAssayResult"
+    assert made["type"] == "iki/plate_assays.AssayResult"
     assert seen == [(8, "EC50")]
     assert made["values"]["fit_version"] == "local/1"
     assert len(made["values"]["points"]) == 8

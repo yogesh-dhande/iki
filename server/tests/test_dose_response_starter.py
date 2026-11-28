@@ -51,11 +51,12 @@ from iki_server.org.models import (
     TeamMembership,
 )
 from iki_server.org.services import Refused
+from iki_server.reviews import pins
+from iki_server.reviews.models import Choice
 from iki_server.runs import catalog, queue, results
 from iki_server.runs import services as runs
 from iki_server.runs.models import ActionRun, Job
-from iki_server.setup import starters
-from iki_server.setup.models import StarterApplication
+from iki_server.setup import declared_starters
 from iki_server.signatures.services import verify
 from iki_server.storage import receipts
 from iki_spec.compute import Binding
@@ -63,6 +64,8 @@ from iki_spec.compute import Binding
 __all__ = ["database"]
 PLUGIN = PLUGINS / "plate_assays"
 PREFIX = "iki/plate_assays."
+LAB = "iki/lab_roles."
+STARTER = PREFIX + "dose_response"
 
 
 def test_tutorial_plate_preserves_the_deposited_activity_values() -> None:
@@ -94,9 +97,6 @@ def _installed_test(
     build = tmp_path / "build"
     built = iki("plugin", "build", *build_order(PLUGIN, *plugins), "--output", build, cwd=PLUGINS)
     assert built.returncode == 0, built.stdout + built.stderr
-    (build / "iki_plugin_iki__plate_assays" / "settings.json").write_text(
-        '{"review_flow":"research"}'
-    )
     migrate(build, database)
     sync(build, database)
     result = django(
@@ -125,14 +125,14 @@ def configure_empty_project() -> None:
     api = Api(world.browser("admin"))
     listed = api.get("/starters", project=str(project.pk))
     assert listed.status_code == 200, listed.content
-    [recipe] = [s for s in listed.json() if s["id"] == "dose-response"]
-    assert recipe["version"] == "2.0.0"
+    [starter] = [s for s in listed.json() if s["id"] == STARTER]
+    assert starter["version"] == "1.0.0"
     roles = {
-        PREFIX + "analyst": [project.memberships.get(user=world.users["editor"]).pk],
-        PREFIX + "reviewer": [project.memberships.get(user=world.users["runner"]).pk],
+        LAB + "analyst": [project.memberships.get(user=world.users["editor"]).pk],
+        LAB + "reviewer": [project.memberships.get(user=world.users["runner"]).pk],
     }
     body = {
-        "version": recipe["version"],
+        "version": starter["version"],
         "project": str(project.pk),
         "flow": "research",
         "role_assignments": {role: list(map(str, members)) for role, members in roles.items()},
@@ -145,36 +145,37 @@ def configure_empty_project() -> None:
         assert not Intake.objects.exists()
 
     with override_settings(IKI_FILES_BUCKET=""):
-        preview = api.post("/starters/dose-response/preview", body)
+        preview = api.post(f"/starters/{STARTER}/preview", body)
         assert preview.status_code == 200, preview.content
         assert preview.json()["changed"]
-        assert not StarterApplication.objects.exists() and not LabRoleGrant.objects.exists()
+        assert not Choice.objects.exists() and not LabRoleGrant.objects.exists()
         empty_assay()
         # A save failure must undo the grants that the administrator just approved.
         with (
-            patch.object(StarterApplication, "save", side_effect=RuntimeError("failed to save")),
+            patch.object(Choice, "save", side_effect=RuntimeError("failed to save")),
             pytest.raises(RuntimeError, match="failed to save"),
         ):
-            starters.apply(
+            declared_starters.apply(
                 project,
-                "dose-response",
-                recipe["version"],
+                STARTER,
+                starter["version"],
                 "research",
                 roles,
                 by=admin,
                 plan=preview.json()["plan"],
             )
-        assert not StarterApplication.objects.exists() and not LabRoleGrant.objects.exists()
+        assert not Choice.objects.exists() and not LabRoleGrant.objects.exists()
         empty_assay()
 
         body["plan"] = preview.json()["plan"]
-        applied = api.post("/starters/dose-response/apply", body)
+        applied = api.post(f"/starters/{STARTER}/apply", body)
         assert applied.status_code == 200, applied.content
         assert applied.json()["changed"]
-        assert starters.effective_flow(project, "dose-response") == "research"
+        chosen = pins.chosen(project, PREFIX + "AssayResult")
+        assert chosen is not None and chosen.flow == "research"
         assert LabRoleGrant.objects.count() == len(roles)
         empty_assay()
-        replay = api.post("/starters/dose-response/apply", body)
+        replay = api.post(f"/starters/{STARTER}/apply", body)
         assert replay.status_code == 200, replay.content
         assert not replay.json()["changed"]
         assert AuditEvent.objects.filter(action="starter.applied", project=project).count() == 1
@@ -314,7 +315,10 @@ def _run_example(world: World, flow: str, directory: Path, adapter: SdkApi) -> N
     assert project.pk != asker.pk
     assert not Entity.objects.filter(owner_project=world.project).exists()
     world = replace(world, project=project)
-    assert starters.effective_flow(project, "dose-response") == flow
+    # The training project chose the flow for its fits and its requests' deliverables.
+    for kind in (PREFIX + "AssayResult", "iki/requests.Request"):
+        chosen = pins.chosen(project, kind)
+        assert chosen is not None and chosen.flow == flow
     assert AuditEvent.objects.filter(
         project=project, action="starter.applied", actor=admin, agent__isnull=False
     ).exists()
@@ -343,9 +347,9 @@ def _run_example(world: World, flow: str, directory: Path, adapter: SdkApi) -> N
     assert reader_path.read_bytes() == (PLUGIN / "tests/data/aid-1224835-activity.csv").read_bytes()
     assert hashlib.sha256(reader_path.read_bytes()).hexdigest() == source.blob.sha256
     request = Entity.objects.get(pk=ids["request"], owner_project=asker)
-    assert request.type == (
-        "iki/requests.ResearchRequest" if flow == "research" else "iki/requests.QCRequest"
-    )
+    assert request.type == "iki/requests.Request"
+    # Pinned to the service's choice as it arrived (ADR 0305).
+    assert pins.pin_of(request) == pins.Pin("iki/core.result_review@1", flow)
     assert requests.accepts(project, asker, request.type)
     target_sample = Entity.objects.get(pk=ids["sample"], owner_project=project)
     sample_values = services.current_values_of([target_sample])[target_sample.pk]
@@ -441,7 +445,7 @@ def _run_example(world: World, flow: str, directory: Path, adapter: SdkApi) -> N
             str(sample),
             "unreadable",
         )
-        name = "RequestedResearchAssayResult" if flow == "research" else "RequestedQCAssayResult"
+        name = "RequestedAssayResult"
         candidates = list(Entity.objects.filter(owner_project=project, type=PREFIX + name))
         evidence = services.current_values_of(candidates)
         [result] = [r for r in candidates if str(evidence[r.pk]["sample"]) == str(sample)]
@@ -504,7 +508,7 @@ def _check_derivative_results(
     source_tube = Entity.objects.get(pk=split_source.entity.pk)
     created = services.create(
         admin,
-        ("iki/requests.ResearchRequest" if flow == "research" else "iki/requests.QCRequest"),
+        "iki/requests.Request",
         asker,
         {"title": "Assay the tube derivative", "tubes": [str(source_tube.pk)]},
     )
@@ -560,7 +564,7 @@ def _check_derivative_results(
     reads = list(Entity.objects.filter(owner_project=project, type=PREFIX + "PlateRead"))
     values = services.current_values_of(reads)
     [read] = [r for r in reads if values[r.pk]["plate"] == clone.pk]
-    name = "RequestedResearchAssayResult" if flow == "research" else "RequestedQCAssayResult"
+    name = "RequestedAssayResult"
     assert (
         requests.check_result(
             project, PREFIX + name, {"request": second_request.pk, "sample": unrelated.pk}
@@ -571,7 +575,7 @@ def _check_derivative_results(
         project, PREFIX + name, {"request": request.pk, "sample": unrelated.pk}
     )
     steps = (
-        [("runner", "signed")]
+        [("runner", "signed_off")]
         if flow == "research"
         else [("editor", "submitted"), ("runner", "reviewed"), ("viewer", "released")]
     )
@@ -608,7 +612,7 @@ def _check_release(
     asker: Project,
 ) -> None:
     steps = (
-        [("runner", "signed")]
+        [("runner", "signed_off")]
         if flow == "research"
         else [("editor", "submitted"), ("runner", "reviewed"), ("viewer", "released")]
     )

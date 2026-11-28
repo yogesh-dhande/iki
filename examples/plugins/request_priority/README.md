@@ -20,7 +20,7 @@ coordinators set each request's `priority`.
   served first) and why. Anyone in the core can propose a rank. A coordinator
   agrees it, which locks the record. Changing an agreed rank takes the record
   back to Proposed, and only a coordinator can do that. Only agreed ranks count.
-- **Sequencing request** (`SequencingRequest`, `SEQ-`) extends Plain request
+- **Sequencing request** (`SequencingRequest`, `SEQ-`) extends Request
   with `project_rank`, one of the service's fields. The asking project never
   sets it.
 - **Rank requests by project** (`rank_requests`) gives each request it's given

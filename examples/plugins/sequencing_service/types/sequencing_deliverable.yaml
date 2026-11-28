@@ -1,12 +1,12 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 #
-# What the core returns for each tube: a QC deliverable with the reads. Its checks
-# run as it's saved, and again at each signature.
+# What the core returns for each tube: a deliverable with the reads, reviewed under
+# its request's procedure. Its checks run as it's saved, and again at each signature.
 apiVersion: iki/v1
 kind: EntityType
 name: SequencingDeliverable
 label: Sequencing deliverable
-extends: iki/requests.QCDeliverable
+extends: iki/requests.Deliverable
 schema_version: 1
 hrid: { prefix: SQD }
 description: The reads for one tube a sequencing request sent, or why there are none.

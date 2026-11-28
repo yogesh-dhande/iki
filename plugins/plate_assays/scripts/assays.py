@@ -240,14 +240,12 @@ def series(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def result_type(run: dict[str, Any], flow: str) -> tuple[str, str | None]:
-    """The result class for the review flow, and for a requested sample, the request.
+def result_type(run: dict[str, Any]) -> tuple[str, str | None]:
+    """The result type, and for a requested sample, the request it answers.
 
-    Which class a result is doesn't depend on its fit method.
+    Neither depends on the fit method or on how the result is reviewed: the server pins
+    the review its project chose (ADR 0302).
     """
-    result_types = {"research": "ResearchAssayResult", "regulated_qc": "QCAssayResult"}
-    if flow not in result_types:
-        raise ValueError("Choose research or regulated_qc in the assay review settings.")
     read = run["inputs"]["read"][0]
     sample = run["inputs"]["sample"][0]["id"]
     request = read["values"].get("request")
@@ -255,8 +253,8 @@ def result_type(run: dict[str, Any], flow: str) -> tuple[str, str | None]:
         item["id"] == request and sample in item.get("covered_materials", [])
         for item in read.get("included", {}).get("request", [])
     ):
-        return f"Requested{result_types[flow]}", request
-    return result_types[flow], None
+        return "RequestedAssayResult", request
+    return "AssayResult", None
 
 
 def fit_output(run: dict[str, Any]) -> dict[str, Any]:
@@ -264,11 +262,10 @@ def fit_output(run: dict[str, Any]) -> dict[str, Any]:
     fit = methods().get(method)
     if fit is None:
         raise ValueError(f"Choose a fit method this plugin ships: {', '.join(methods())}.")
-    flow = run.get("settings", {}).get("review_flow", "research")
-    kind, request = result_type(run, flow)
+    kind, request = result_type(run)
     measured = series(run)
     fitted = fit(measured["included"], run["params"].get("endpoint_kind", "IC50"))
-    result = {**fitted, **measured["values"], "review_flow": flow}
+    result = {**fitted, **measured["values"]}
     if request:
         result["request"] = request
     read, sample = run["inputs"]["read"][0]["id"], run["inputs"]["sample"][0]["id"]

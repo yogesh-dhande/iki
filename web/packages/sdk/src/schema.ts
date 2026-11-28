@@ -19831,7 +19831,7 @@ export interface components {
             governs: string;
             /**
              * Id
-             * @description A plugin's starter, qualified (`iki/proteomics.proteomics_search_review`), or one of the server's own recipes (`dose-response`).
+             * @description A plugin's starter, qualified (`iki/plate_assays.dose_response`), or one of the server's own recipes (`experiment-review`).
              */
             id: string;
             /** Label */
@@ -20835,6 +20835,11 @@ export interface components {
              * @description The reference whose record's procedure it follows, if it's pinned by one.
              */
             follows: string | null;
+            /**
+             * On Send
+             * @description Its procedure is chosen by the project it's sent to, such as a request's by the service, and pinned as it's sent, not when it's made (ADR 0305).
+             */
+            on_send: boolean;
         };
         /**
          * TypeStorageOut

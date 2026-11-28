@@ -53,9 +53,8 @@ expect: { error: Resolve the preview issues before committing }
 apiVersion: iki/v1
 kind: ActionTest
 name: qc_fit_with_attributable_exclusion
-description: Synthetic collection with two readings. Keep the unsuccessful fit and the excluded well so QA can review why it has no endpoint.
+description: Synthetic collection with two readings. Keep the unsuccessful fit and the excluded well so its reviewers see why it has no endpoint.
 action: fit_curve
-settings: { review_flow: regulated_qc }
 params: { endpoint_kind: EC50, exclusions: "A2: bubble in well" }
 files: { raw: tests/data/mars-96-series.csv }
 inputs:
@@ -93,9 +92,8 @@ inputs:
 expect:
   output:
     creates:
-      - type: iki/plate_assays.QCAssayResult
+      - type: iki/plate_assays.AssayResult
         values:
-          review_flow: regulated_qc
           endpoint_kind: EC50
           fit_status: unreportable
           point_count: 1

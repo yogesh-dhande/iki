@@ -60,7 +60,7 @@ from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
-from iki_spec.model import RequestSpec, ResultSpec, WorkItemSpec
+from iki_spec.model import Field, RequestSpec, ResultSpec, WorkItemSpec
 
 __all__ = [
     "ASKER",
@@ -473,6 +473,10 @@ def submit(
         refused = [r for r in records if r not in may]
         if refused:
             raise Refused(_unsendable(user, refused, service))
+        from iki_server.reviews import pins
+
+        # Its deliverables are reviewed as the service chose, for its life (ADR 0305).
+        pin = pins.pin_sent(locked, service) if pins.at_send(locked.type) else None
         request = Request.objects.create(
             entity=locked,
             service=service,
@@ -490,6 +494,8 @@ def submit(
             "sent": [str(r) for r in records],
             "reason": reason.strip(),
         }
+        if pin is not None:
+            data["review"] = {"procedure": pin.procedure, "flow": pin.flow}
         log.record("request.submitted", actor=user, target=locked, project=asking, data=data)
         log.record("request.received", actor=user, target=locked, project=service, data=data)
         # Linked into the service first, so its people can read what they're told of.
@@ -743,10 +749,17 @@ def result_rows(request: Entity) -> Iterator[tuple[str, ResultSpec, QuerySet[Any
             )
 
 
+def _signed(spec: ResultSpec, field: Field) -> set[str]:
+    """The states ``spec`` releases in that need signatures, as ``field`` has them: a
+    reviewed result's are its pinned flow's (ADR 0301)."""
+    return {s for s in spec.released_states if s in field.states and field.states[s].signatures}
+
+
 def delivery_refusal(request: Entity) -> str | None:
     """Every result has been returned as its type requires, covering each expected subject."""
     from iki_server.entities import services
     from iki_server.entities.values import to_json
+    from iki_server.reviews import pins
     from iki_spec import titles
 
     owner = request.owner_project_id
@@ -757,9 +770,9 @@ def delivery_refusal(request: Entity) -> str | None:
     pending = False
     for name, spec, rows in result_rows(request):
         release = shape(name).fields()[spec.released_field]
-        signed_states = {
-            state for state in spec.released_states if release.states[state].signatures
-        }
+        found = pins.review_of(name)
+        pinned = found is not None and found[1].field == spec.released_field
+        signed: dict[tuple[str, str] | None, set[str]] = {}
         links = ProjectLink.objects.filter(
             entity_id=OuterRef("pk"), project_id=owner, via_request=request
         )
@@ -770,15 +783,21 @@ def delivery_refusal(request: Entity) -> str | None:
         ).order_by("-number")
         signatures = Subquery(last_transition.values("signatures")[:1])
         material_field = [spec.material] if spec.material else []
-        for state, returned, evidence, *material in rows.values_list(
-            spec.released_field, Exists(links), signatures, *material_field
+        pin_fields = ["review_procedure", "review_flow"] if pinned else []
+        for state, returned, evidence, *rest in rows.values_list(
+            spec.released_field, Exists(links), signatures, *pin_fields, *material_field
         ).iterator():
             any_result = True
+            pin = (rest[0], rest[1]) if pinned else None
+            material = rest[2:] if pinned else rest
+            if pin not in signed:
+                field = pins.flow_field(name, pins.Pin(*pin)) if pin else release
+                signed[pin] = _signed(spec, field)
             if (
                 state not in spec.released_states
                 or not returned
                 or evidence is None
-                or (state in signed_states and not evidence)
+                or (state in signed[pin] and not evidence)
             ):
                 pending = True
             elif missing and material:

@@ -1,13 +1,13 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 #
-# The core's request type: a QC request naming the measurements wanted. Change
+# The core's request type, naming the measurements wanted. Change
 # `analyses` to your core's own panel, and the measurement fields of
 # AnalyticalResult with it.
 apiVersion: iki/v1
 kind: EntityType
 name: AnalyticalRequest
 label: Analytical request
-extends: iki/requests.QCRequest
+extends: iki/requests.Request
 schema_version: 1
 hrid: { prefix: ANR }
 description: Material sent to the analytical core, and what to measure in it.

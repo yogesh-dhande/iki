@@ -11,14 +11,14 @@ shares. This plugin adds one core's own fields and checks to them
 
 ## What it adds
 
-- **Production request** (`ProductionRequest`, `PPR-`) extends Research request. It
+- **Production request** (`ProductionRequest`, `PPR-`) extends Request. It
   sends exactly one protein, a registered `iki/protein.Protein`, in its records, and a
   positive requested mass in mg. The asking project fills both in.
-- **Production deliverable** (`ProductionDeliverable`, `PPD-`) extends Research
-  deliverable. It names the protein produced, which must be the one the request sent.
+- **Production deliverable** (`ProductionDeliverable`, `PPD-`) extends
+  Deliverable. It names the protein produced, which must be the one the request sent.
   A fulfilled production also gives the lot number and a positive delivered mass. An
   unsuccessful one gives neither, and its report says why. It answers production
-  requests only, and a production request takes no plain Research deliverable.
+  requests only, and a production request takes no other deliverable.
 
 The deliverable's checks run as it's saved and again as the reviewer signs it off, so a
 request changed in the meantime can't be signed off with the old answer.
@@ -29,7 +29,9 @@ request changed in the meantime can't be signed off with the old answer.
    `iki/inventory`, `iki/lab_roles` and `iki/dna`.
 2. In the core's project, under **Settings → Request intake**, accept Production
    requests from the projects it serves.
-3. Give the core's people their lab roles in its project: Coordinators accept and
+3. Under **Settings → Starters**, apply **Service deliverables** with Research. Each
+   request is pinned to it as it arrives, and its deliverables follow it.
+4. Give the core's people their lab roles in its project: Coordinators accept and
    decline requests, Analysts do the work, and Reviewers sign off deliverables.
 
 ## Adapt it for your core
@@ -39,7 +41,7 @@ request changed in the meantime can't be signed off with the old answer.
   fulfilled lot must have. Give a rule `recheck_before_signing: true` when it reads the
   request, so the sign-off checks the request as it is then.
 - For production under QC, with an analyst's submission, an independent review and QA's
-  release, extend `iki/requests.QCRequest` and `iki/requests.QCDeliverable` instead.
+  release, choose Regulated QC in the starter. The same types serve both.
 - Choose HRID prefixes unique to your deployment.
 
 ## Test and deploy it

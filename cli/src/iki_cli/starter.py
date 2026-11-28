@@ -77,7 +77,7 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
             parser.add_argument(
                 "starter",
                 help="The installed starter's ID from 'iki starter list', such as "
-                "dose-response or iki/proteomics.result_review.",
+                "experiment-review or iki/plate_assays.dose_response.",
             )
         if name in ("preview", "apply", "default"):
             parser.add_argument("--version", required=True, help="The starter version to apply.")

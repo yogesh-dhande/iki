@@ -14,12 +14,12 @@ disposition stays with [`iki/lots`](../../../plugins/lots/README.md) and its QA.
 
 ## What it adds
 
-- **Analytical request** (`AnalyticalRequest`, `ANR-`) extends QC request. It names at
+- **Analytical request** (`AnalyticalRequest`, `ANR-`) extends Request. It names at
   least one analysis to run on the materials or tubes it sends.
-- **Analytical result** (`AnalyticalResult`, `ANT-`) extends QC deliverable. It names
+- **Analytical result** (`AnalyticalResult`, `ANT-`) extends Deliverable. It names
   the sample measured, one analysis the request asks for, that analysis's own
   measurement and whether it passed. Another analysis's value can't stand in for it. It
-  answers analytical requests only, and an analytical request takes no plain QC
+  answers analytical requests only, and an analytical request takes no other
   deliverable.
 
 The result's checks run as it's saved and again at each signature, so a request whose
@@ -31,7 +31,9 @@ analyses changed after the measurement can't be signed with the old answer.
    `iki/lab_roles`.
 2. In the core's project, under **Settings → Request intake**, accept Analytical
    requests from the projects it serves.
-3. Give the core's people their lab roles in its project: Coordinators accept requests,
+3. Under **Settings → Starters**, apply **Service deliverables** with Regulated QC. Each
+   request is pinned to it as it arrives, and its results follow it.
+4. Give the core's people their lab roles in its project: Coordinators accept requests,
    Analysts submit results, Reviewers review them and QA releases them.
 
 ## Adapt it for your core

@@ -1,6 +1,6 @@
 # Splitting the example LIMS before M1
 
-The connector from this pre-M1 split now lives in the [LIMS connector author example](../examples/plugins/lims_connector/README.md) as `acme/lims_connector`. The mapping below records the names used at the original cutover.
+The connector from this pre-M1 split now lives in the [LIMS connector author example](../examples/plugins/lims_connector/README.md) as `acme/lims_connector`. The mapping below records the names used at the original cutover. Since then, the Plain, Research and QC request and deliverable types are one Request and one Deliverable, reviewed under the procedure the service chose ([ADR 0305](adr/0305-a-type-is-a-kind-of-work-not-a-review-procedure.md)).
 
 Phase 1 mapped the `a794df0f` tree for [ADR 0211](adr/0211-lots-inventory-samples-and-requests.md). The split carries forward example LIMS **0.10.0** from `231cd950`, including the private WorkItem and plain deliverable introduced in 0.9.0.
 

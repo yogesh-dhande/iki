@@ -1,6 +1,6 @@
-"""Work sent to a core facility: its private work items, and each kind of deliverable's
-return. The facility examples' own request and deliverable types are tested in
-test_facility_services.py."""
+"""Work sent to a core facility: its private work items, and a deliverable's return under
+each flow its service can choose (ADR 0305). The facility examples' own request and
+deliverable types are tested in test_facility_services.py."""
 
 import hashlib
 import json
@@ -13,6 +13,7 @@ from django.core.exceptions import PermissionDenied
 from first_party_dependencies import PLUGINS, ROOT, build_order
 from org_world import World, build_world
 from scan_fixtures import clean_blob
+from service_reviews import CORE, serve
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, ready, signed
 
@@ -24,6 +25,7 @@ from iki_server.entities.values import Invalid
 from iki_server.files.models import File
 from iki_server.org.models import LabRoleGrant, Project, ProjectMembership, ProjectRole
 from iki_server.org.services import Refused
+from iki_server.reviews import pins
 from iki_server.signatures.models import Signature
 from iki_server.signatures.services import verify
 from iki_server.storage import receipts
@@ -34,13 +36,12 @@ __all__ = ["database"]
 PLUGIN = PLUGINS / "requests"
 EXAMPLES = ROOT / "examples" / "core-facility-requests"
 REQUESTS = "iki/requests."
-PLAIN = REQUESTS + "PlainRequest"
-RESEARCH = REQUESTS + "ResearchRequest"
-REGULATED = REQUESTS + "QCRequest"
-RESEARCH_DELIVERY = REQUESTS + "ResearchDeliverable"
-REGULATED_DELIVERY = REQUESTS + "QCDeliverable"
-BASIC_DELIVERY = REQUESTS + "PlainDeliverable"
+REQUEST = REQUESTS + "Request"
+DELIVERY = REQUESTS + "Deliverable"
 WORK = REQUESTS + "WorkItem"
+#: The flows of core's result review a service can return deliverables under.
+PLAIN, RESEARCH, REGULATED = "accepted", "research", "regulated_qc"
+SOMEONE_ELSE = "It must be signed by someone other than"
 REQUESTER = "outsider"
 
 
@@ -68,19 +69,15 @@ def test_a_core_keeps_its_work_and_returns_each_kind_of_deliverable(
 
 
 @pytest.mark.parametrize(
-    ("request_type", "delivery_type"),
-    [(PLAIN, BASIC_DELIVERY), (RESEARCH, RESEARCH_DELIVERY), (REGULATED, REGULATED_DELIVERY)],
-    ids=["plain-tube", "research-lot", "qc-nested-aliquot"],
+    "flow", [PLAIN, RESEARCH, REGULATED], ids=["plain-tube", "research-lot", "qc-nested-aliquot"]
 )
-def test_returned_sample_covers_its_draw(
-    tmp_path: Path, database: str, request_type: str, delivery_type: str
-) -> None:
+def test_returned_sample_covers_its_draw(tmp_path: Path, database: str, flow: str) -> None:
     exercise = django(
         _facility_build(tmp_path, database, PLUGINS / "samples"),
         database,
         "-c",
         "import django; django.setup(); from test_core_facility import exercise_sample_delivery; "
-        f"exercise_sample_delivery({request_type!r}, {delivery_type!r})",
+        f"exercise_sample_delivery({flow!r})",
     )
     assert exercise.returncode == 0, exercise.stdout + exercise.stderr
 
@@ -104,6 +101,14 @@ def _sign(world: World, person: str, entity: Entity, target: str, reason: str = 
     return signature
 
 
+def _accept(world: World, result: Entity, person: str = "admin") -> None:
+    """Delivers ``result`` without a signature, as Accept without sign-off does."""
+    states.set_state(
+        world.users[person], result, "review", "accepted", expected_revision=result.revision
+    )
+    result.refresh_from_db()
+
+
 def _status(world: World, request: Entity, person: str, state: str) -> None:
     states.set_state(
         world.users[person], request, "status", state, expected_revision=request.revision
@@ -111,11 +116,15 @@ def _status(world: World, request: Entity, person: str, state: str) -> None:
     request.refresh_from_db()
 
 
-def _send(world: World, request: Entity, *, receive_code: str | None = None) -> None:
+def _send(world: World, request: Entity, flow: str, *, receive_code: str | None = None) -> None:
+    """Sends ``request`` to the core, which has chosen to review its deliverables under
+    ``flow``: the request is pinned to that as it arrives."""
+    serve(world.users["admin"], world.project, flow)
     requests.submit(
         world.users[REQUESTER], request, world.project, expected_revision=request.revision
     )
     request.refresh_from_db()
+    assert pins.pin_of(request) == pins.Pin(CORE, flow)
     coordinator = world.users["admin"]
     _status(world, request, "admin", "accepted")
     services.update(
@@ -162,6 +171,7 @@ def _make(
 
 
 def _facility(*request_types: str) -> tuple[World, Project]:
+    """A core taking ``request_types`` (any request, by default) from its asking project."""
     world = build_world()
     ready(world)
     core = world.project
@@ -179,7 +189,7 @@ def _facility(*request_types: str) -> tuple[World, Project]:
             LabRoleGrant.objects.create(membership=membership, role="iki/lab_roles." + role)
     requests.set_intake(
         core,
-        types=request_types,
+        types=list(request_types) or [REQUEST],
         from_registry=False,
         sources=[asking],
         by=world.users["admin"],
@@ -188,21 +198,21 @@ def _facility(*request_types: str) -> tuple[World, Project]:
 
 
 def exercise_core_requests() -> None:
-    world, asking = _facility(RESEARCH, PLAIN)
+    world, asking = _facility()
     _research_sign_off(world, asking)
     _plain_delivery_coverage(world, asking)
     _qc_tube_delivery(world, asking, Api(world.browser(REQUESTER)))
 
 
-def exercise_sample_delivery(request_type: str, delivery_type: str) -> None:
-    world, asking = _facility(request_type)
+def exercise_sample_delivery(flow: str) -> None:
+    world, asking = _facility()
     core = world.project
     analyst = world.users["editor"]
     membership = ProjectMembership.objects.create(
         project=asking, user=analyst, role=ProjectRole.EDITOR
     )
     stock = _make(world, REQUESTER, "iki/core.Collection", asking, name="Reference material")
-    if request_type == RESEARCH:
+    if flow == RESEARCH:
         subject = _make(
             world,
             REQUESTER,
@@ -223,10 +233,10 @@ def exercise_sample_delivery(request_type: str, delivery_type: str) -> None:
             amount={"value": 10, "unit": "uL"},
         )
         scope = {"tubes": [str(subject.pk)]}
-    request = _make(world, REQUESTER, request_type, asking, title="Sample report", **scope)
-    _send(world, request)
+    request = _make(world, REQUESTER, REQUEST, asking, title="Sample report", **scope)
+    _send(world, request, flow)
     source = subject
-    if request_type == REGULATED:
+    if flow == REGULATED:
         for aliquot_volume in (4, 2):
             (source,) = amounts.split(
                 analyst, source, 1, amounts.Given.of({"value": aliquot_volume, "unit": "uL"})
@@ -237,7 +247,7 @@ def exercise_sample_delivery(request_type: str, delivery_type: str) -> None:
         return _make(
             world,
             "editor",
-            "iki/samples." + ("ReviewedSample" if request_type == REGULATED else "PlainSample"),
+            "iki/samples." + ("ReviewedSample" if flow == REGULATED else "PlainSample"),
             core,
             source=str(source.pk),
             purpose=str(request.pk),
@@ -250,7 +260,7 @@ def exercise_sample_delivery(request_type: str, delivery_type: str) -> None:
     }
 
     def report_on(material: Entity) -> Entity:
-        return _make(world, "editor", delivery_type, core, **fields, material=str(material.pk))
+        return _make(world, "editor", DELIVERY, core, **fields, material=str(material.pk))
 
     sample = pending_sample(source)
     with pytest.raises(Refused, match="has no returned result yet"):
@@ -258,7 +268,7 @@ def exercise_sample_delivery(request_type: str, delivery_type: str) -> None:
     with pytest.raises(Invalid, match="Choose a sample or tube on this request"):
         report_on(sample)
 
-    if request_type == RESEARCH:
+    if flow == RESEARCH:
         # Drawing from a tube containing the requested lot debits the tube's own balance.
         tube = _make(
             world,
@@ -288,7 +298,7 @@ def exercise_sample_delivery(request_type: str, delivery_type: str) -> None:
         )
     else:
         volume = amounts.Given.of({"value": 1, "unit": "uL"})
-        if request_type == PLAIN:
+        if flow == PLAIN:
             work = _make(world, "editor", "iki/core.Collection", core, name="Assay measurements")
             amounts.draw(analyst, source, volume, used_in=work, confirm=source.hrid)
             with pytest.raises(Invalid, match="Choose a sample or tube on this request"):
@@ -297,9 +307,9 @@ def exercise_sample_delivery(request_type: str, delivery_type: str) -> None:
     result = report_on(sample)
     with pytest.raises(Refused, match="has no returned result yet"):
         _status(world, request, "admin", "delivered")
-    if request_type == PLAIN:
-        _status(world, result, "admin", "delivered")
-    elif request_type == RESEARCH:
+    if flow == PLAIN:
+        _accept(world, result)
+    elif flow == RESEARCH:
         _sign(world, "admin", result, "signed_off")
     else:
         _sign(world, "editor", result, "submitted")
@@ -318,25 +328,24 @@ def _research_sign_off(world: World, asking: Project) -> None:
     research = _make(
         world,
         REQUESTER,
-        RESEARCH,
+        REQUEST,
         asking,
         title="Training: ADH1 production",
         records=[str(construct.pk)],
     )
     with pytest.raises(Invalid, match="isn't a request sent to"):
         _make(world, REQUESTER, WORK, asking, request=str(research.pk))
-    _send(world, research)
+    _send(world, research, RESEARCH)
     with pytest.raises(Refused, match="returned"):
         _status(world, research, "admin", "delivered")
     report_path = EXAMPLES / "P00330-production.txt"
     report = _report(world.project, report_path.name, report_path.read_bytes())
     fields = {"request": str(research.pk), "outcome": "fulfilled", "report": report}
-    # A deliverable answers only its own kind of request: a QC deliverable's signatures
-    # don't answer a research request, nor a plain delivery's absence of them.
-    for weaker_or_other in (REGULATED_DELIVERY, BASIC_DELIVERY):
-        with pytest.raises(Invalid):
-            _make(world, "editor", weaker_or_other, world.project, **fields)
-    deliverable = _make(world, "editor", RESEARCH_DELIVERY, world.project, **fields)
+    # The core now chooses Regulated QC. The request sent under Research keeps it, and so
+    # does its deliverable: it's signed off once, as the request was sent (ADR 0305).
+    serve(world.users["admin"], world.project, REGULATED)
+    deliverable = _make(world, "editor", DELIVERY, world.project, **fields)
+    assert pins.pin_of(deliverable) == pins.Pin(CORE, RESEARCH)
     assert not ProjectLink.objects.filter(entity=deliverable, project=asking).exists()
     with pytest.raises(Refused, match="returned"):
         _status(world, research, "admin", "delivered")
@@ -344,8 +353,8 @@ def _research_sign_off(world: World, asking: Project) -> None:
     assert Signature.objects.filter(entity=deliverable).count() == 1
     assert json.loads(review.content)["values"]["report"] == report
     assert ProjectLink.objects.get(entity=deliverable, project=asking).via_request_id == research.pk
-    plain = _make(world, REQUESTER, PLAIN, asking, title="Training bench work")
-    _send(world, plain)
+    plain = _make(world, REQUESTER, REQUEST, asking, title="Training bench work")
+    _send(world, plain, PLAIN)
     _private_work_and_basic_deliveries(
         world, asking, plain, {"request": str(plain.pk), "outcome": "fulfilled", "report": report}
     )
@@ -394,11 +403,11 @@ def _private_work_and_basic_deliveries(
     cancelled.refresh_from_db()
     assert states.values_of(cancelled)["status"] == "cancelled"
 
-    recorded = _make(world, "editor", BASIC_DELIVERY, core, **fields)
-    delivered = _make(world, "editor", BASIC_DELIVERY, core, **fields)
+    recorded = _make(world, "editor", DELIVERY, core, **fields)
+    delivered = _make(world, "editor", DELIVERY, core, **fields)
     with pytest.raises(PermissionDenied):
-        _status(world, delivered, "viewer", "delivered")
-    _status(world, delivered, "admin", "delivered")
+        _accept(world, delivered, "viewer")
+    _accept(world, delivered)
     assert not Signature.objects.filter(entity=delivered).exists()
     assert ProjectLink.objects.get(entity=delivered, project=asking).via_request_id == request.pk
     assert not ProjectLink.objects.filter(
@@ -438,7 +447,7 @@ def _private_work_and_basic_deliveries(
 
     with pytest.raises(Refused, match="Every recorded deliverable"):
         _status(world, request, "admin", "delivered")
-    _status(world, recorded, "admin", "delivered")
+    _accept(world, recorded)
 
 
 def _plain_delivery_coverage(world: World, asking: Project) -> None:
@@ -452,37 +461,37 @@ def _plain_delivery_coverage(world: World, asking: Project) -> None:
     request = _make(
         world,
         REQUESTER,
-        PLAIN,
+        REQUEST,
         asking,
         title="Two tube reports",
         tubes=subjects,
     )
-    _send(world, request)
+    _send(world, request, PLAIN)
     fields = {
         "request": str(request.pk),
         "outcome": "unsuccessful",
         "report": _report(core, "service-report.txt", b"Service could not complete the work."),
     }
     with pytest.raises(Invalid, match="Choose a sample or tube on this request"):
-        _make(world, "editor", BASIC_DELIVERY, core, **fields, material=str(unrequested.pk))
+        _make(world, "editor", DELIVERY, core, **fields, material=str(unrequested.pk))
     for _ in range(2):
-        result = _make(world, "editor", BASIC_DELIVERY, core, **fields, material=str(first.pk))
-        _status(world, result, "admin", "delivered")
+        result = _make(world, "editor", DELIVERY, core, **fields, material=str(first.pk))
+        _accept(world, result)
     with pytest.raises(Refused, match="Second tube has no returned result"):
         _status(world, request, "admin", "delivered")
-    last = _make(world, "editor", BASIC_DELIVERY, core, **fields, material=str(second.pk))
+    last = _make(world, "editor", DELIVERY, core, **fields, material=str(second.pk))
     services.update(
         world.users[REQUESTER], request, {"tubes": subjects[:1]}, expected_revision=request.revision
     )
     request.refresh_from_db()
     # The delivery's own guard refuses it before Iki's release check would.
     with pytest.raises(Refused, match="must still be on the request"):
-        _status(world, last, "admin", "delivered")
+        _accept(world, last)
     services.update(
         world.users[REQUESTER], request, {"tubes": subjects}, expected_revision=request.revision
     )
     request.refresh_from_db()
-    _status(world, last, "admin", "delivered")
+    _accept(world, last)
     assert not Signature.objects.filter(entity=last).exists()
     _status(world, request, "admin", "delivered")
 
@@ -508,17 +517,32 @@ def _qc_tube_delivery(world: World, asking: Project, api: Api) -> None:
         world, REQUESTER, "iki/inventory.Tube", asking, name="Another project tube"
     )
     fields = {"title": "Training: long-read sequencing", "tubes": [str(tube.pk)]}
-    qc = _make(world, REQUESTER, REGULATED, asking, **fields)
+    qc = _make(world, REQUESTER, REQUEST, asking, **fields)
+    # A service that hasn't chosen how its deliverables are reviewed can't take it, and
+    # the request stays unsent and unpinned (ADR 0305).
+    elsewhere = Project.objects.create(team=world.team, name="Sequencing Core")
+    ProjectMembership.objects.create(
+        project=elsewhere, user=world.users["admin"], role=ProjectRole.ADMIN
+    )
+    requests.set_intake(
+        elsewhere, types=[REQUEST], from_registry=False, sources=[asking], by=world.users["admin"]
+    )
+    with pytest.raises(pins.ProcedureNotChosen, match="hasn't chosen how the deliverables"):
+        requests.submit(world.users[REQUESTER], qc, elsewhere, expected_revision=qc.revision)
+    assert requests.of(qc) is None and pins.pin_of(qc) is None
+    requests.set_intake(
+        world.project, types=[], from_registry=False, sources=[asking], by=world.users["admin"]
+    )
     with pytest.raises(requests.NoSuchService):
         requests.submit(world.users[REQUESTER], qc, world.project, expected_revision=qc.revision)
     requests.set_intake(
         world.project,
-        types=[REGULATED],
+        types=[REQUEST],
         from_registry=False,
         sources=[asking],
         by=world.users["admin"],
     )
-    _send(world, qc, receive_code="TRAINING-CEY652")
+    _send(world, qc, REGULATED, receive_code="TRAINING-CEY652")
     assert ProjectLink.objects.get(entity=tube, project=world.project).via_request_id == qc.pk
     assert not ProjectLink.objects.filter(entity=private_tube, project=world.project).exists()
 
@@ -531,21 +555,18 @@ def _qc_tube_delivery(world: World, asking: Project, api: Api) -> None:
         "material": str(portion.pk),
         "report": report,
     }
-    for type_name in (RESEARCH_DELIVERY, BASIC_DELIVERY):
-        with pytest.raises(Invalid):
-            _make(world, "editor", type_name, world.project, **fields)
     duplicate_tube = _make(world, "editor", "iki/inventory.Tube", world.project, name="Unsent tube")
     with pytest.raises(Invalid, match="Choose a sample or tube on this request"):
         _make(
             world,
             "editor",
-            REGULATED_DELIVERY,
+            DELIVERY,
             world.project,
             **{**fields, "material": str(duplicate_tube.pk)},
         )
-    deliverable = _make(world, "editor", REGULATED_DELIVERY, world.project, **fields)
+    deliverable = _make(world, "editor", DELIVERY, world.project, **fields)
     _sign(world, "editor", deliverable, "submitted")
-    with pytest.raises(Refused, match="did not create, submit or edit"):
+    with pytest.raises(Refused, match=SOMEONE_ELSE):
         begin(world, "editor", str(deliverable.pk), "reviewed", field="review")
     first = _sign(world, "admin", deliverable, "reviewed")
     assert api.get(f"/entities/{deliverable.pk}").status_code == 404
@@ -567,7 +588,7 @@ def _qc_tube_delivery(world: World, asking: Project, api: Api) -> None:
         begin(world, "viewer", str(deliverable.pk), "released", field="review")
     _sign(world, "editor", deliverable, "submitted")
     review = _sign(world, "admin", deliverable, "reviewed", "Review the corrected report")
-    with pytest.raises(Refused, match="did not create, submit, edit or review"):
+    with pytest.raises(Refused, match=SOMEONE_ELSE):
         begin(world, "admin", str(deliverable.pk), "released", field="review")
 
     requester = world.users[REQUESTER]
@@ -605,14 +626,14 @@ def _qc_tube_delivery(world: World, asking: Project, api: Api) -> None:
         result = _make(
             world,
             "editor",
-            REGULATED_DELIVERY,
+            DELIVERY,
             world.project,
             **{**fields, "material": str(material.pk), "outcome": outcome},
         )
         _sign(world, "editor", result, "submitted")
         _sign(world, "admin", result, "reviewed")
         _sign(world, "viewer", result, "released")
-    draft = _make(world, "editor", REGULATED_DELIVERY, world.project, **fields)
+    draft = _make(world, "editor", DELIVERY, world.project, **fields)
     with pytest.raises(Refused, match="Every recorded deliverable"):
         _status(world, qc, "admin", "delivered")
     _sign(world, "editor", draft, "submitted")
@@ -620,4 +641,4 @@ def _qc_tube_delivery(world: World, asking: Project, api: Api) -> None:
     _sign(world, "viewer", draft, "released")
     _status(world, qc, "admin", "delivered")
     with pytest.raises(Invalid, match="already been delivered"):
-        _make(world, "editor", REGULATED_DELIVERY, world.project, **fields)
+        _make(world, "editor", DELIVERY, world.project, **fields)

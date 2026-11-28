@@ -6,24 +6,27 @@ The `iki` command-line tool for plugin authors and deployments: the
 
 ## `iki starter`
 
-Use `iki starter list --project "$SERVICE"` to see the installed recipes and the
-service project's current selection. The dose-response starter configures the
-assay review flow and grants the roles needed to run it. Supply the service
-project UUID and a membership UUID from that project for each role. Repeat
-`--role` to assign a role to more than one member.
+Use `iki starter list --project "$SERVICE"` to see the installed starters and the
+service project's current selection. The plate assay plugin's dose-response
+starter chooses how the project's fits are reviewed, under core's result review,
+and grants the shared lab roles that play its parts. Supply the service project
+UUID and a membership UUID from that project for each role. Repeat `--role` to
+assign a role to more than one member.
 
 ```sh
-iki starter preview dose-response --version 2.0.0 --flow regulated_qc \
+iki starter preview iki/plate_assays.dose_response --version 1.0.0 --flow regulated_qc \
   --project "$SERVICE" \
-  --role "iki/plate_assays.analyst=$ANALYST" \
-  --role "iki/plate_assays.reviewer=$REVIEWER" \
-  --role "iki/plate_assays.qa=$QA"
+  --role "iki/lab_roles.analyst=$ANALYST" \
+  --role "iki/lab_roles.reviewer=$REVIEWER" \
+  --role "iki/lab_roles.qa=$QA"
 ```
 
-When the preview lists changes, review the result type and proposed grants.
-Run `iki starter apply` with the same arguments and `--plan` set to the printed
-plan ID. If the plan changes, the CLI prints the current plan for review. If
-preview reports `Already applied`, setup is complete.
+When the preview lists changes, review the proposed grants. Run
+`iki starter apply` with the same arguments and `--plan` set to the printed plan
+ID. If the plan changes, the CLI prints the current plan for review. If preview
+reports `Already applied`, setup is complete. A service that takes requests also
+applies `iki/requests.delivery_review`, which chooses how what it delivers is
+reviewed: it can't receive a request until it has.
 
 The experiment-review starter sets how a project's experiment records are
 signed: `author_signed`, `research` or `regulated_qc`. Author sign-off needs

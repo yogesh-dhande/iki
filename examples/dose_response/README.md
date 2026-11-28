@@ -37,8 +37,10 @@ projects in the selected team.
 | Research     | Research plate assays | Research plate assay requester |
 | Regulated QC | QC plate assays       | QC plate assay requester       |
 
-The command applies starter version 2.0.0 to the training service, grants the coordinator
-role, and configures intake from its training requester. It registers the two compound lots
+The command applies the **Dose-response plate assay** and **Service deliverables** starters
+(version 1.0.0) to the training service with the chosen flow, so its fits and what it returns
+are reviewed under it. It grants the coordinator role and configures intake from its training
+requester. It registers the two compound lots
 and tubes, sends the request, uploads the source file, maps the plate, and records a single
 10 µL practice draw from a 100 µL luciferase stock. The printed JSON identifies both
 projects, the request, tubes, plate and input file so you can open the exact records.

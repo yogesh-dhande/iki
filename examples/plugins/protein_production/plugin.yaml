@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: acme/protein_production
-version: 0.1.0
+version: 0.2.0
 title: Protein production
 description: >-
   A protein production core's own request and deliverable: the protein a
@@ -10,5 +10,5 @@ description: >-
 license: Apache-2.0
 iki: ">=0.1"
 dependencies:
-  iki/requests: { types: { ResearchRequest: ">=2", ResearchDeliverable: ">=2" } }
+  iki/requests: { types: { Request: ">=3", Deliverable: ">=3" } }
   iki/protein: { types: { Protein: ">=3" } }

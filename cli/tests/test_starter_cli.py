@@ -12,11 +12,11 @@ from iki_cli.main import main
 PROJECT = str(UUID(int=1))
 FIRST = str(UUID(int=3))
 SECOND = str(UUID(int=4))
-REVIEWER = "iki/plate_assays.reviewer"
+REVIEWER = "acme/plate_recipe.reviewer"
 RESULTS = {
     "author_signed": "iki/experiments.Experiment",
-    "research": "iki/plate_assays.ResearchAssayResult",
-    "regulated_qc": "iki/plate_assays.QCAssayResult",
+    "research": "acme/plate_recipe.ResearchResult",
+    "regulated_qc": "acme/plate_recipe.QCResult",
 }
 PLAN = "3f" * 32
 STARTER = {

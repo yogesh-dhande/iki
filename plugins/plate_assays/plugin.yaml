@@ -1,25 +1,12 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/plate_assays
-version: 0.10.1
+version: 0.11.0
 title: Plate assays
-description: Read endpoint plate reader files in named formats onto a plate layout, fit the measured response and sign the result.
+description: Read endpoint plate reader files in named formats onto a plate layout, fit the measured response and review the result.
 license: Apache-2.0
 iki: ">=0.1"
-starters: { dose-response: "2.0.0" }
 dependencies:
   iki/inventory: { types: { Tube: ">=1" } }
-  iki/requests: { types: { Request: ">=1", ResearchRequest: ">=1", QCRequest: ">=1" } }
-settings:
-  review_flow:
-    type: enum
-    label: Assay result review
-    values: [research, regulated_qc]
-    default: research
-    description: >-
-      Research requires one signature. Regulated QC requires signed submission,
-      independent review and QA release. Each fit keeps the flow used to create it.
-roles:
-  analyst: { label: Assay analyst, description: Records a fit and submits it for review. }
-  reviewer: { label: Assay reviewer, description: Checks the measurements and signs their result. }
-  qa: { label: Assay QA, description: Releases an independently reviewed assay result. }
+  iki/requests: { types: { Request: ">=3" } }
+  iki/lab_roles: {}

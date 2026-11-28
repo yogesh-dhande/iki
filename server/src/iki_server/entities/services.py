@@ -815,9 +815,6 @@ def prepare(
         if f.required and given.get(name) is None and not _wrong(errors, name):
             errors[name] = ["is required."]
     if not errors:
-        # The procedure its project chose, stamped for the record's life (ADR 0302).
-        given.update(pins.stamp(project, type_name, given))
-    if not errors:
         from iki_server.amounts import stock
 
         errors = stock.check_item(type_name, project, given)
@@ -825,6 +822,10 @@ def prepare(
         errors = requests.check_work_item(project, type_name, given)
     if not errors and not defer_result_check:
         errors = requests.check_result(project, type_name, given)
+    if not errors:
+        # The procedure its project chose, stamped for the record's life (ADR 0302): after
+        # the request checks, so a result for a request not sent here says so first.
+        given.update(pins.stamp(project, type_name, given))
     if not errors:
         errors = rules.check(user, entity_type, project, given.get)
     if errors:

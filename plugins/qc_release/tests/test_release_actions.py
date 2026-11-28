@@ -13,6 +13,8 @@ from typing import Any
 import pytest
 
 PLUGIN = Path(__file__).resolve().parents[1]
+#: The procedure plate assays are reviewed under (ADR 0305).
+CORE = "iki/core.result_review@1"
 
 
 @pytest.fixture
@@ -240,6 +242,7 @@ def test_a_release_test_counts_a_fit_by_the_method_its_specification_names(
             "assay1",
             4,
             review="released",
+            review_procedure=CORE,
             review_flow="regulated_qc",
             sample="lot1",
             fit_status="fitted",
@@ -273,6 +276,7 @@ def test_plate_fit_cannot_be_transcribed_to_a_different_physical_lot(
         "assay1",
         4,
         review="released",
+        review_procedure=CORE,
         review_flow="regulated_qc",
         sample="lot2",
         fit_status="fitted",

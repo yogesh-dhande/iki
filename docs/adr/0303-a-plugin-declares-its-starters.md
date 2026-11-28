@@ -30,7 +30,7 @@ policy is a reviewed plugin change, holds better when the starter is in the plug
 ```yaml
 apiVersion: iki/v1
 kind: Starter
-name: proteomics_search_review
+name: search_review
 version: 1.0.0
 label: Proteomics search results
 description: Choose how newly imported search results are reviewed, and who signs them.
@@ -53,7 +53,7 @@ slots:
 - `slots` gives each slot the flows use a minimum project role and, optionally, a
   `role` other than the default (ADR 0304).
 
-It's referred to by qualified name, `iki/proteomics.proteomics_search_review`, and its
+It's referred to by qualified name, `iki/proteomics.search_review`, and its
 semver `version` is what preview and apply name, as before. Any plugin can declare one,
 for its own types or another plugin's it depends on, so a lab can offer its SOP's
 procedure for Iki's types.

@@ -3,9 +3,10 @@
 
 Creating a record of a reviewed type stamps ``review_procedure`` and ``review_flow``:
 from the project's choice for the type or an ancestor, else the deployment's default,
-else, for ``pinned: {by: field}``, from the record that field names. Neither is a
-refusal, :class:`ProcedureNotChosen`: a record is never made under a procedure no one
-chose. The stamp never changes.
+else, for ``pinned: {by: field}``, from the record that field names. A request is pinned
+as it's sent instead, from its service's choice (ADR 0305). Neither is a refusal,
+:class:`ProcedureNotChosen`: a record is never made under a procedure no one chose. The
+stamp never changes.
 
 A record's review field is its type's, with the states, guards, roles and signatures of
 its pinned flow compiled from the procedure version installed here, the procedure's
@@ -41,12 +42,14 @@ if TYPE_CHECKING:
 __all__ = [
     "Pin",
     "ProcedureNotChosen",
+    "at_send",
     "binding",
     "chosen",
     "field_of",
     "flow_field",
     "installed",
     "pin_of",
+    "pin_sent",
     "review_of",
     "stamp",
 ]
@@ -118,7 +121,7 @@ def stamp(project: Project, type_name: str, given: Mapping[str, Any]) -> dict[st
     from iki_server.entities.models import Entity
 
     found = review_of(type_name)
-    if found is None:
+    if found is None or at_send(type_name):
         return {}
     _, review = found
     if review.by is not None:
@@ -139,6 +142,36 @@ def stamp(project: Project, type_name: str, given: Mapping[str, Any]) -> dict[st
     if not review.opens:
         out[review.field] = installed(pin.procedure).flows[pin.flow].open
     return out
+
+
+def at_send(type_name: str) -> bool:
+    """Whether ``type_name``'s records are pinned as they're sent to a service, from its
+    choice, rather than as they're created: a request's (ADR 0305)."""
+    found = review_of(type_name)
+    return (
+        found is not None and found[1].opens and registry.effective(type_name).request is not None
+    )
+
+
+def pin_sent(entity: Entity, service: Project) -> Pin:
+    """Pins a request as it's sent to ``service``, from the service's choice for its type:
+    the service owns how its work is reviewed. Raises :class:`ProcedureNotChosen`."""
+    from iki_server.entities.values import shape
+
+    choice = chosen(service, entity.type)
+    if choice is None:
+        t = registry.types()[entity.type]
+        raise ProcedureNotChosen(
+            f"{service.name} hasn't chosen how the deliverables of its "
+            f"{(t.label_plural or t.label).lower()} are reviewed, so it can't take this one "
+            "yet. Its Admin chooses in Project settings → Starters."
+        )
+    pin = Pin(choice.procedure_id, choice.flow)
+    part = shape(entity.type).part_of("review_procedure")
+    part.model._default_manager.filter(pk=entity.pk, review_procedure__isnull=True).update(
+        review_procedure=pin.procedure, review_flow=pin.flow
+    )
+    return pin
 
 
 def pin_of(entity: Entity) -> Pin | None:

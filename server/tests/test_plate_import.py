@@ -15,6 +15,7 @@ from django.db import connection, transaction
 from django.utils import timezone
 from first_party_dependencies import PLUGINS, ROOT, build_order
 from scan_fixtures import clean_blob
+from service_reviews import serve
 from test_plugin_migrations import database, iki, migrate, orm, sync
 
 from iki_server.accounts.models import User
@@ -35,10 +36,6 @@ def test_each_export_commits_once_as_a_read_of_the_plate(tmp_path: Path, databas
     build = tmp_path / "build"
     built = iki("plugin", "build", *build_order(PLATES), "--output", build, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
-    # The build fixture supplies the site's setting as a deployment build would.
-    (build / "iki_plugin_iki__plate_assays" / "settings.json").write_text(
-        '{"review_flow":"research"}'
-    )
     migrate(build, database)
     sync(build, database)
     orm(
@@ -60,6 +57,10 @@ def exercise_import(project: Project) -> None:
     )
     analyst = User.objects.create_user("analyst@example.com")
     ProjectMembership.objects.create(project=project, user=analyst, role=ProjectRole.EDITOR)
+    # Its Admin chose how the project's fits are reviewed (ADR 0302).
+    admin = User.objects.create_user("admin@example.com")
+    ProjectMembership.objects.create(project=project, user=admin, role=ProjectRole.ADMIN)
+    serve(admin, project, "research", "iki/plate_assays.AssayResult")
     env = "iki/plate_assays.assay-tools"
     catalog.compute().bindings[env] = Binding(environment=env, templates=(("backend-small", 0),))
     reference = entities.create(
@@ -182,7 +183,7 @@ def exercise_import(project: Project) -> None:
 
     fit, doc = start("fit_curve", {"read": [read.pk], "sample": [sample.pk]})
     apply(fit, assay.fit_output(doc))
-    result = Entity.objects.get(type="iki/plate_assays.ResearchAssayResult")
+    result = Entity.objects.get(type="iki/plate_assays.AssayResult")
     stored = entities.current_values_of([result])[result.pk]
     assert stored["fit_status"] == "fitted" and stored["fit_reason"] is None
     assert stored["point_count"] == len(stored["measurements"]) == 8

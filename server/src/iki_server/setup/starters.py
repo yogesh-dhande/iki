@@ -36,8 +36,8 @@ class Starter:
     roles: dict[str, ProjectRole]
     required_roles: dict[str, tuple[str, ...]]
     independent_roles: dict[str, tuple[str, ...]]
-    #: What the project's choice governs, as in "New dose-response fits use Research".
-    governs: str = "dose-response fits"
+    #: What the project's choice governs, as in "New release cases use Research".
+    governs: str = "results"
     #: The type whose records pin the flow when an action opens them (ADR 0240). Records
     #: made under one, such as a release case's certificate, follow its pinned flow, not
     #: the project's current choice. Without one, new results must be the chosen flow's
@@ -57,8 +57,6 @@ class Starter:
         return (self.result_base, *self.flows.values())
 
 
-PLATE = "iki/plate_assays."
-ANALYST, REVIEWER, QA = PLATE + "analyst", PLATE + "reviewer", PLATE + "qa"
 FLOW_LABELS = {
     "author_signed": "Author sign-off",
     "research": "Research",
@@ -76,27 +74,6 @@ FLOW_SUMMARIES = {
     "record_only": "A result is kept as evidence, as it was recorded, and no one signs it. "
     "For work whose review happens elsewhere, or not at all.",
 }
-
-DOSE_RESPONSE = Starter(
-    id="dose-response",
-    version="2.0.0",
-    label="Dose-response plate assay",
-    description="Choose the review flow for new dose-response fits and assign the assay roles.",
-    plugin="iki/plate_assays",
-    setting="review_flow",
-    result_base=PLATE + "AssayResult",
-    flows={"research": PLATE + "ResearchAssayResult", "regulated_qc": PLATE + "QCAssayResult"},
-    roles={
-        ANALYST: ProjectRole.EDITOR,
-        REVIEWER: ProjectRole.VIEWER,
-        QA: ProjectRole.VIEWER,
-    },
-    required_roles={
-        "research": (ANALYST, REVIEWER),
-        "regulated_qc": (ANALYST, REVIEWER, QA),
-    },
-    independent_roles={"regulated_qc": (ANALYST, REVIEWER, QA)},
-)
 
 # Release testing, stability and prep verification pin their flow on the record an action
 # opens: a case, a scheduled study, a verification (ADR 0240). A later choice governs only
@@ -248,7 +225,6 @@ EXPERIMENT_REVIEW = Starter(
     pinned_by=EXPERIMENT + "Experiment",
 )
 CATALOG = (
-    DOSE_RESPONSE,
     LOT_RELEASE_TESTING,
     STABILITY_STUDY,
     PREP_VERIFICATION,

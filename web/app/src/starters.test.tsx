@@ -1,6 +1,6 @@
 /**
- * A project's starters (ADR 0198): choosing a review flow, drawn from plate assays' real
- * result types (flow-fixtures.json), and who holds each lab role;
+ * A project's starters (ADR 0198): choosing a review flow, drawn from the plugins' real
+ * flows (flow-fixtures.json), and who holds each lab role;
  * previewing what applying changes; applying it. Against a fake API.
  */
 
@@ -22,7 +22,10 @@ const SERVICE = project({
   name: "Assay Core",
   slug: "assay-core",
 });
-const PLATE = "iki/plate_assays.";
+/** A server recipe's (ADR 0198), each flow with a result type of its own: drawn as the plate
+ * assay result's review is under core's flows of the same name. */
+const PLATE = "acme/plate_recipe.";
+const ASSAY = "iki/plate_assays.AssayResult";
 const [ANALYST, REVIEWER, QA] = [`${PLATE}analyst`, `${PLATE}reviewer`, `${PLATE}qa`];
 
 function starter(more: Partial<Schemas["StarterOut"]> = {}): Schemas["StarterOut"] {
@@ -36,7 +39,7 @@ function starter(more: Partial<Schemas["StarterOut"]> = {}): Schemas["StarterOut
       {
         id: "research",
         label: "Research",
-        result_type: `${PLATE}ResearchAssayResult`,
+        result_type: `${PLATE}ResearchResult`,
         steps: [],
         apart: [],
         required_roles: [ANALYST, REVIEWER],
@@ -47,7 +50,7 @@ function starter(more: Partial<Schemas["StarterOut"]> = {}): Schemas["StarterOut
       {
         id: "regulated_qc",
         label: "Regulated QC",
-        result_type: `${PLATE}QCAssayResult`,
+        result_type: `${PLATE}QCResult`,
         steps: [],
         apart: [],
         required_roles: [ANALYST, REVIEWER, QA],
@@ -132,6 +135,16 @@ function withDefault(name: string, flow: string): Schemas["TypeFlowOut"] {
   };
 }
 
+/** A recipe flow's result type, with the plate assay result's review under that flow as
+ * its own state field. */
+function recipeFlow(flow: string): Schemas["TypeFlowOut"] {
+  const field = flowOf(ASSAY).review?.flows.find((f) => f.flow === flow)?.field;
+  if (!field) throw new Error(flow);
+  // Its steps played by the recipe's own roles, as a recipe's are.
+  const own = JSON.parse(JSON.stringify(field).replaceAll("iki/lab_roles.", PLATE)) as typeof field;
+  return { type: `${PLATE}${flow}`, label: "Assay result", fields: [own], review: null };
+}
+
 /** The states a drawn flow lists, by label. */
 function stateNames(list: HTMLElement): string[] {
   return within(list)
@@ -152,7 +165,12 @@ function onStarters(
   answer(`GET /api/v1/projects/${service.id}/members`, page(members));
   answer(
     "GET /api/v1/lab-roles",
-    Object.entries(fixtures.roles).map(([name, label]) => ({
+    Object.entries({
+      ...fixtures.roles,
+      [ANALYST]: "Assay analyst",
+      [REVIEWER]: "Assay reviewer",
+      [QA]: "Assay QA",
+    }).map(([name, label]) => ({
       name,
       label,
       description: null,
@@ -160,13 +178,12 @@ function onStarters(
       uses: [],
     })),
   );
-  for (const type of [
-    `${PLATE}ResearchAssayResult`,
-    `${PLATE}QCAssayResult`,
-    "iki/experiments.Experiment",
-  ]) {
-    answer(`GET /api/v1/entity-types/${type}/flow`, flowOf(type));
-  }
+  answer(`GET /api/v1/entity-types/${PLATE}ResearchResult/flow`, recipeFlow("research"));
+  answer(`GET /api/v1/entity-types/${PLATE}QCResult/flow`, recipeFlow("regulated_qc"));
+  answer(
+    "GET /api/v1/entity-types/iki/experiments.Experiment/flow",
+    flowOf("iki/experiments.Experiment"),
+  );
 }
 
 async function renderApp(path: string) {
@@ -404,7 +421,7 @@ describe("a project's starters", () => {
       version: "2.0.0",
       project: SERVICE.id,
       flow: "regulated_qc",
-      result_type: `${PLATE}QCAssayResult`,
+      result_type: `${PLATE}QCResult`,
       changed: true,
       role_assignments: {},
       grants_to_add: { [ANALYST]: ["m2"], [REVIEWER]: ["m3"], [QA]: ["m4"] },
@@ -460,7 +477,7 @@ describe("a project's starters", () => {
       version: "2.0.0",
       project: SERVICE.id,
       flow: "research" as const,
-      result_type: `${PLATE}ResearchAssayResult`,
+      result_type: `${PLATE}ResearchResult`,
       changed: true,
       role_assignments: {},
       grants_to_add: {},
@@ -531,7 +548,7 @@ describe("a project's starters", () => {
       version: "2.0.0",
       project: SERVICE.id,
       flow: "regulated_qc",
-      result_type: `${PLATE}QCAssayResult`,
+      result_type: `${PLATE}QCResult`,
       changed: true,
       role_assignments: {},
       grants_to_add: { [QA]: ["m2"] },
@@ -579,7 +596,7 @@ describe("a project's starters", () => {
       version: "2.0.0",
       project: SERVICE.id,
       flow: "research",
-      result_type: `${PLATE}ResearchAssayResult`,
+      result_type: `${PLATE}ResearchResult`,
       changed: false,
       role_assignments: { [ANALYST]: [ADA.id], [REVIEWER]: [CARL.id] },
       grants_to_add: {},

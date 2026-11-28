@@ -31,10 +31,8 @@ params:
     description: "One excluded well and its reason per line, for example A4: bubble noted at acquisition. The run records who made each exclusion."
 effects:
   creates:
-    - { type: ResearchAssayResult, cardinality: many, derived_from: [read, sample] }
-    - { type: QCAssayResult, cardinality: many, derived_from: [read, sample] }
-    - { type: RequestedResearchAssayResult, cardinality: many, derived_from: [read, sample] }
-    - { type: RequestedQCAssayResult, cardinality: many, derived_from: [read, sample] }
+    - { type: AssayResult, cardinality: many, derived_from: [read, sample] }
+    - { type: RequestedAssayResult, cardinality: many, derived_from: [read, sample] }
 runs_on: { tier: backend, environment: assay-tools }
 command: [python, ./scripts/assays.py, fit]
 timeout: 5m

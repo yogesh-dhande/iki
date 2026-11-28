@@ -2717,7 +2717,7 @@ def signatures(alice: requests.Session, project: dict[str, Any]) -> None:
         {"name": "Signature demonstration", "contents": protein["id"]},
         {"value": 10, "unit": "uL"},
     )
-    work = created(alice, project, "iki/requests.PlainRequest", {"title": "Training measurement"})
+    work = created(alice, project, "iki/requests.Request", {"title": "Training measurement"})
     sample = created(
         alice, project, "iki/samples.ReviewedSample", {"source": tube["id"], "purpose": work["id"]}
     )
@@ -2854,9 +2854,12 @@ def analytical_core(
 
 
 def start_service_work(
-    analyst: requests.Session, core: dict[str, Any], request: dict[str, Any]
+    analyst: requests.Session, core: dict[str, Any], request: dict[str, Any], flow: str
 ) -> str:
-    """Send a request to the service and move it into the analyst's queue."""
+    """Send a request to the service, which reviews its deliverables under ``flow``, and
+    move it into the analyst's queue. The core chooses before it's sent: a request is
+    pinned to its service's choice as it arrives (ADR 0305)."""
+    choose_review(analyst, core, "iki/requests.Request", flow)
     path = f"/entities/{request['id']}"
     sent = api_call(
         analyst,
@@ -2895,10 +2898,10 @@ def analysis_result(
     request = created(
         analyst,
         asking,
-        "iki/requests.QCRequest",
+        "iki/requests.Request",
         {"title": "SEC purity", "materials": [sample["id"]]},
     )
-    path = start_service_work(analyst, core, request)
+    path = start_service_work(analyst, core, request, "regulated_qc")
     report = upload(
         analyst, core, "measurement.txt", b"Synthetic training measurement.", "text/plain"
     )
@@ -2909,7 +2912,7 @@ def analysis_result(
     result = created(
         analyst,
         core,
-        "iki/requests.QCDeliverable",
+        "iki/requests.Deliverable",
         {"request": request["id"], "report": report, "outcome": "fulfilled", **measurement},
     )
     result_path = f"/entities/{result['hrid']}"
@@ -2953,8 +2956,8 @@ def analysis_result(
         fail(
             f"editing reviewed {result['hrid']} answered HTTP {edit.status_code}: {edit.text[:300]}"
         )
-    qa_states = record(qa, result["id"])["can"]["states"]["review"]
-    if next(st for st in qa_states if st["name"] == "released")["allowed"]:
+    qa_signs = record(qa, result["id"])["can"]["sign"]
+    if next(st for st in qa_signs if st["to"] == "released")["allowed"]:
         fail(f"QA could release {result['hrid']} before the correction was reviewed")
     reviewed = submit_and_review("Reviewed the corrected measured purity")
     signed = signing(qa, result, "released", "carol", field="review")
@@ -3039,16 +3042,16 @@ def core_facility_requests(
     # The tube handoff is simulated; the public ENA run is for yeast isolate CEY652.
     tube = created(analyst, asking, INVENTORY + "Tube", {"name": "Training CEY652"})
     requester = cli_read_token(analyst, project=asking["id"])
-    for prefix, filename, values, evidence, steps in (
+    for flow, filename, values, evidence, steps in (
         (
-            "Research",
+            "research",
             "P00330-production.txt",
             {"title": "Training: ADH1 production, 1 mg", "records": [protein["id"]]},
             {},
             ((reviewer, "bob", "signed_off"),),
         ),
         (
-            "QC",
+            "regulated_qc",
             "ERR13376132-delivery.txt",
             {"title": "Training: long-read sequencing", "tubes": [tube["id"]]},
             {"material": tube["id"]},
@@ -3059,13 +3062,13 @@ def core_facility_requests(
             ),
         ),
     ):
-        request = created(analyst, asking, f"iki/requests.{prefix}Request", values)
-        path = start_service_work(analyst, core, request)
+        request = created(analyst, asking, "iki/requests.Request", values)
+        path = start_service_work(analyst, core, request, flow)
         report = upload(analyst, core, filename, (example / filename).read_bytes(), "text/plain")
         delivery = created(
             analyst,
             core,
-            f"iki/requests.{prefix}Deliverable",
+            "iki/requests.Deliverable",
             {"request": request["id"], "report": report, "outcome": "fulfilled", **evidence},
         )
         if bearer_call(requester, "GET", f"/files/{report}").status_code != 404:
@@ -3083,13 +3086,11 @@ def core_facility_requests(
             f"{request['hrid']}: {delivery['hrid']} returned its report "
             f"with {len(steps)} signatures"
         )
-        if prefix == "QC":
+        if flow == "regulated_qc":
             booked_for_the_analyst(analyst, reviewer, core, request)
-        if prefix == "Research":
-            plain = created(
-                analyst, asking, "iki/requests.PlainRequest", {"title": "Training handoff"}
-            )
-            start_service_work(analyst, core, plain)
+        if flow == "research":
+            plain = created(analyst, asking, "iki/requests.Request", {"title": "Training handoff"})
+            start_service_work(analyst, core, plain, "accepted")
             work_and_deliverable(analyst, reviewer, requester, core, plain, report)
 
 
@@ -3180,7 +3181,7 @@ def work_and_deliverable(
     result = created(
         analyst,
         service,
-        "iki/requests.PlainDeliverable",
+        "iki/requests.Deliverable",
         {"request": request["id"], "report": report, "outcome": "fulfilled"},
     )
     path = f"/entities/{result['id']}"
@@ -3188,7 +3189,7 @@ def work_and_deliverable(
         fail(f"{result['hrid']} was visible before it was delivered")
     etag = api_call(reviewer, "GET", path).headers["ETag"]
     delivered = api_call(
-        reviewer, "POST", f"{path}/states/status", {"state": "delivered"}, {"If-Match": etag}
+        reviewer, "POST", f"{path}/states/review", {"state": "accepted"}, {"If-Match": etag}
     )
     if delivered.status_code != 200:
         fail(
@@ -3315,9 +3316,7 @@ def bench_material(
         fail(f"a taken position answered {clash.status_code}, one outside {outside.status_code}")
     ok(f"{tubes[2]['hrid']} is in freezer 3, shelf 2, rack slot 3, at A3, where nothing else goes")
     # A draw scans the tube, and names what it went into.
-    experiment = created(
-        alice, project, "iki/requests.PlainRequest", {"title": "Kinase SEC, run 12"}
-    )
+    experiment = created(alice, project, "iki/requests.Request", {"title": "Kinase SEC, run 12"})
     draw = f"/entities/{tubes[0]['id']}/amount/draw"
     body = {"amount": {"value": 20, "unit": "uL"}, "reason": "SEC", "used_in": experiment["id"]}
     unscanned = api_call(alice, "POST", draw, body)
@@ -3385,9 +3384,10 @@ def receive_at_core(
     request = created(
         alice,
         project,
-        "iki/requests.PlainRequest",
+        "iki/requests.Request",
         {"title": "Kinase intact mass", "tubes": [t["id"] for t in tubes]},
     )
+    choose_review(alice, core, "iki/requests.Request", "accepted")
     path = f"/entities/{request['id']}"
     sent = api_call(
         alice,
@@ -4234,7 +4234,11 @@ def matching_records(
 def plate_assay(alice: requests.Session, project: dict[str, Any]) -> None:
     """Import the public Tox21 matrix and sign the research fits."""
     prefix = "iki/plate_assays."
-    give_lab_roles(alice, project, prefix + "analyst", prefix + "reviewer")
+    give_lab_roles(alice, project, "iki/lab_roles.analyst")
+    # Research's sign-off is someone's who didn't fit it (ADR 0301): bob reviews.
+    bob = sign_in_as("bob")
+    assign_reviewer(alice, bob, project, "iki/lab_roles.reviewer")
+    choose_review(alice, project, prefix + "AssayResult")
     compounds = {
         key: created(
             alice, project, "iki/small_molecule.Compound", public_plate.compound_values(key)
@@ -4265,7 +4269,7 @@ def plate_assay(alice: requests.Session, project: dict[str, Any]) -> None:
     fits = fit_assay_plate(alice, project, plate, compounds)
     for entity in fits.values():
         if entity["values"]["review"] == "recorded":
-            signature = signing(alice, entity, "signed", "alice", field="review")
+            signature = signing(bob, entity, "signed_off", "bob", field="review")
             if signature["status"] != "signed" or not signature["set"]:
                 fail(f"signing the plate result {entity['hrid']} gave {signature}")
         proofs = api_call(alice, "GET", f"/entities/{entity['id']}/signatures?verify=true").json()
@@ -4433,7 +4437,7 @@ def sign_tutorial_result(
 ) -> None:
     flow = result["values"]["review_flow"]
     steps = (
-        [("signed", bob, "bob")]
+        [("signed_off", bob, "bob")]
         if flow == "research"
         else [
             ("submitted", alice, "alice"),

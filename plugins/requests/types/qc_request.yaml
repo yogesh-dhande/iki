@@ -1,7 +1,0 @@
-apiVersion: iki/v1
-kind: EntityType
-name: QCRequest
-label: QC request
-extends: Request
-schema_version: 2
-hrid: { prefix: QCR }

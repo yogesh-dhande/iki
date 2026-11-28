@@ -431,6 +431,12 @@ def default_binding(procedure: ReviewProcedure, roles: Collection[str]) -> dict[
     }
 
 
+def _signature(signature: Signature, review: ReviewSpec | None, state: str) -> Signature:
+    """A state's signature, attesting to what the type says its signers do, if it says."""
+    own = review.statements.get(state) if review is not None else None
+    return replace(signature, statement=own) if own else signature
+
+
 def compile_flow(
     procedure: ReviewProcedure,
     flow_name: str,
@@ -495,7 +501,9 @@ def compile_flow(
             locks=st.locks,
             reason=st.reason if reentered else None,
             on_edit=st.on_edit if st.on_edit in names else None,
-            signatures=(st.signature,) if st.signature is not None else (),
+            signatures=(_signature(st.signature, review, name),)
+            if st.signature is not None
+            else (),
             guards=guards,
             maker=maker,
             independent_of=independence,

@@ -293,6 +293,10 @@ class TypeReviewOut(Schema):
     follows: str | None = Field(
         description="The reference whose record's procedure it follows, if it's pinned by one."
     )
+    on_send: bool = Field(
+        description="Its procedure is chosen by the project it's sent to, such as a request's "
+        "by the service, and pinned as it's sent, not when it's made (ADR 0305)."
+    )
     flows: list[ReviewFlowOut] = Field(
         description="Each flow a record could be pinned to: offered by an installed starter, "
         "the project's choice, the deployment's default, or the pin asked for."
@@ -1897,6 +1901,7 @@ def get_type_flow(
         else {
             "field": review.field,
             "follows": review.follows,
+            "on_send": review.on_send,
             "flows": [
                 {
                     **{k: v for k, v in vars(f).items() if k != "field"},
