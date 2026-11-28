@@ -840,6 +840,10 @@ jobs:
         run: |
           kubectl --context kind-iki get pods -A -o wide || true
           kubectl --context kind-iki -n iki get events --sort-by=.lastTimestamp | tail -50 || true
+          # Run pods, and what the node has left for them: a run that stays queued is often
+          # a pod the scheduler can't place.
+          kubectl --context kind-iki -n iki-runs get events --sort-by=.lastTimestamp | tail -30 || true
+          kubectl --context kind-iki describe nodes | sed -n '/^Allocatable:/,/^System Info:/p;/^Allocated resources:/,/^Events:/p' || true
           for d in iki-web iki-tasks iki-clamd keycloak seaweedfs otel-lgtm; do
             echo "--- logs: $d"; kubectl --context kind-iki -n iki logs "deploy/$d" --all-containers --tail=100 || true
           done
