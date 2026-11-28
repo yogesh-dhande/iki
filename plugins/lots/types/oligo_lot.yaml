@@ -5,7 +5,7 @@ name: OligoLot
 label: Oligonucleotide lot
 label_plural: Oligonucleotide lots
 extends: Lot
-schema_version: 4
+schema_version: 5
 description: >-
   A synthesis lot of an oligonucleotide: its scale and purification, its yield in OD
   and in nmol, its purity, and its mass by ESI-MS checked against the one its HELM
@@ -85,7 +85,7 @@ fields:
     description: Its full-length product's share of the peak area, such as by IP-RP HPLC or CE.
   purity_method:
     type: ref
-    to: OligoPurityMethod
+    to: PurityMethod
     label: Purity by
     description: >-
       How its purity was measured, from the lab's list, such as ion-pair reversed-phase

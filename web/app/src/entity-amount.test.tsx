@@ -8,6 +8,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest";
 
 import { entity, field, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
+import { queryClient } from "./api";
 import { answer, calls, ME, page, problem, respond, stale } from "./test-server";
 
 const SAMPLE_ID = "00000000-0000-7000-8000-00000000a501";
@@ -544,7 +545,7 @@ describe("a record's amount", () => {
     expect(sent?.headers.get("If-Match")).toBeNull();
   });
 
-  it("shows what changed a stale count, keeps it, and records it only once recounted", async () => {
+  it("shows what changed a stale count, keeps it, and records it against the balance now", async () => {
     // Ines drew 20 uL after this count began, within the same millisecond as the balance
     // it began from: its revision, not the time, tells them apart.
     const now = amount("230", { revision: 3, updated_at: "2026-11-18T10:00:00.000Z" });
@@ -569,7 +570,11 @@ describe("a record's amount", () => {
       ]),
       refs: {},
     });
-    answer(ADJUST, stale(3));
+    // Refused as stale: the page reads the record again, with the balance as it is now.
+    answer(ADJUST, () => {
+      answer("GET /api/v1/entities/SMP-000001", sample({ amount: now }));
+      return stale(3);
+    });
     const count = within(dialog).getByRole("textbox", { name: "It has" });
     await user.type(count, "245");
     await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "Recount");
@@ -582,22 +587,16 @@ describe("a record's amount", () => {
     expect(
       await within(said).findByText("It has 230 uL now, not the 250 uL you started from."),
     ).toBeInTheDocument();
-    const since = within(said).getByRole("list", { name: "Changed since you started" });
+    const since = await within(said).findByRole("list", { name: "Changed since you started" });
     expect(within(since).getAllByRole("listitem")).toHaveLength(1);
     expect(within(since).getByRole("listitem")).toHaveTextContent(
       /^Drawn: −20 uL, by Ines, .+ \(“Western blot”\)\.$/,
     );
-    expect(count).toHaveValue("245");
-    expect(within(dialog).getByRole("button", { name: "Adjust" })).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
-
-    await user.click(within(said).getByRole("button", { name: "Recount" }));
-    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+    // What they entered stays, selected, to keep or recount against the balance now.
     expect(dialog).toHaveTextContent("It had 230 uL when this count began.");
     expect(count).toHaveFocus();
     expect(count).toHaveValue("245");
+    expect(within(dialog).getByRole("textbox", { name: "Reason" })).toHaveValue("Recount");
     expect(calls("POST", `/api/v1/entities/${SAMPLE_ID}/amount/adjust`)).toHaveLength(1);
 
     answer(ADJUST, { amount: amount("228"), movement: movement("adjusted", "-2", "228") });
@@ -608,6 +607,48 @@ describe("a record's amount", () => {
     const adjusts = calls("POST", `/api/v1/entities/${SAMPLE_ID}/amount/adjust`);
     expect(adjusts.map((c) => c.headers.get("If-Match"))).toEqual(['"2"', '"3"']);
     expect(adjusts[1]?.body).toEqual({ amount: { value: "228", unit: "uL" }, reason: "Recount" });
+  });
+
+  it("records nothing against a balance a refetch brought in while counting, and says so", async () => {
+    onSample(sample({ amount: amount("250", { revision: 2 }) }));
+    const { user } = await renderApp("/entities/SMP-000001/");
+    const card = await screen.findByRole("region", { name: "Volume" });
+    await user.click(within(card).getByRole("button", { name: "Adjust" }));
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Adjust SMP-000001’s volume",
+    });
+    const count = within(dialog).getByRole("textbox", { name: "It has" });
+    await user.type(count, "245");
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "Recount");
+    // Someone drew 20 uL meanwhile, and the page read it in the background.
+    const now = amount("230", { revision: 3 });
+    answer("GET /api/v1/entities/SMP-000001", sample({ amount: now }));
+    answer(`GET /api/v1/entities/${SAMPLE_ID}/amount`, now);
+    answer(`GET /api/v1/entities/${SAMPLE_ID}/amount/movements`, {
+      ...page([movement("drawn", "-20", "230", { user: { ...ME, name: "Ines" } })]),
+      refs: {},
+    });
+    await queryClient.refetchQueries();
+    await within(card).findAllByText("230 uL");
+    // The dialog still counts against the 250 it showed: nothing is sent from 230 unseen.
+    expect(dialog).toHaveTextContent("It had 250 uL when this count began.");
+    await user.click(within(dialog).getByRole("button", { name: "Adjust" }));
+    expect(
+      await within(dialog).findByText("It has 230 uL now, not the 250 uL you started from."),
+    ).toBeVisible();
+    expect(calls("POST", `/api/v1/entities/${SAMPLE_ID}/amount/adjust`)).toEqual([]);
+    expect(count).toHaveValue("245");
+
+    answer(ADJUST, { amount: amount("230"), movement: movement("adjusted", "0", "230") });
+    await user.clear(count);
+    await user.type(count, "230");
+    await user.click(within(dialog).getByRole("button", { name: "Adjust" }));
+    expect(await screen.findByText("SMP-000001 has 230 uL now.")).toBeInTheDocument();
+    expect(
+      calls("POST", `/api/v1/entities/${SAMPLE_ID}/amount/adjust`).map((c) =>
+        c.headers.get("If-Match"),
+      ),
+    ).toEqual(['"3"']);
   });
 
   it("holds Draw still while its box's map comes above it, and draws the map once it's let go", async () => {

@@ -79,10 +79,22 @@ def exercise_history() -> None:
     }
     line = make("ParentalLine", **catalogue)
     assert make("ParentalLine", **catalogue).pk == line.pk
-    atcc = {"supplier": "ATCC", "catalogue_id": "CCL-75", "line": str(line.pk)}
+    # The suppliers are the registry's, by the names Cellosaurus gives them.
+    suppliers = {
+        name: Entity.objects.get(
+            pk=services.create(
+                editor, "iki/inventory.Supplier", world.project, {"name": name}
+            ).entity.pk
+        )
+        for name in ("ATCC", "Coriell")
+    }
+    atcc = {"supplier": str(suppliers["ATCC"].pk), "catalogue_id": "CCL-75", "line": str(line.pk)}
     source = make("CellLineSource", **atcc)
     other_source = make(
-        "CellLineSource", supplier="Coriell", catalogue_id="AG06814-J", line=str(line.pk)
+        "CellLineSource",
+        supplier=str(suppliers["Coriell"].pk),
+        catalogue_id="AG06814-J",
+        line=str(line.pk),
     )
     assert other_source.pk != source.pk
     assert make("CellLineSource", **atcc).pk == source.pk
@@ -268,6 +280,8 @@ def exercise_history() -> None:
             mycoplasma,
             clone,
             source,
+            # The catalogue source's supplier, the registry's.
+            suppliers["ATCC"],
             line,
         )
     }

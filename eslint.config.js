@@ -29,6 +29,14 @@ const POST_READ = {
   message: "A query's read that sends JSON selects fetchPageRead, so it stops with the page.",
 };
 
+// A change is made from the revision the person read (ADR 0035), through useRevisioned, which
+// keeps it as it was when the dialog or form opened, or the SDK's ifMatch for a request that
+// isn't one. A hand-built header is how a dialog came to send whatever a refetch brought in.
+const RAW_IF_MATCH = {
+  selector: "Literal[value=/^If-(None-)?Match$/i]",
+  message:
+    "Make the change from the revision read: useRevisioned in a dialog or form, else ifMatch.",
+};
 // The web app's pages: the modules its router fetches when one is first opened. Nothing imports
 // one, the router included: a page imported from another module loads with that module, and
 // with the first page if the app starts with it. What pages share goes in a module of its own.
@@ -125,6 +133,11 @@ export default tseslint.config(
   {
     files: ["web/app/**/*.{ts,tsx}"],
     ignores: ["**/*.test.{ts,tsx}"],
+    rules: { "no-restricted-syntax": ["error", RAW_HTML, QUERY_SIGNAL, POST_READ, RAW_IF_MATCH] },
+  },
+  {
+    // The tests' fake API reads the header a change was sent with; it never sends one.
+    files: ["web/app/src/test-server.ts"],
     rules: { "no-restricted-syntax": ["error", RAW_HTML, QUERY_SIGNAL, POST_READ] },
   },
   {
@@ -173,8 +186,13 @@ export default tseslint.config(
     },
   },
   {
-    // Plugins' components: Web Components that run in a sandboxed frame (ADR 0084).
-    files: ["plugins/*/web/src/**/*.js", "examples/plugins/*/web/src/**/*.js"],
+    // Plugins' components: Web Components that run in a sandboxed frame (ADR 0084). The
+    // spec tests' plugins write theirs as they run, unbuilt.
+    files: [
+      "plugins/*/web/src/**/*.js",
+      "examples/plugins/*/web/src/**/*.js",
+      "spec/tests/plugins/*/components/*.js",
+    ],
     languageOptions: {
       globals: {
         CustomEvent: "readonly",

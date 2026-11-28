@@ -3,6 +3,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import type { UserEvent } from "@testing-library/user-event";
 import { expect, it } from "vitest";
 
+import { queryClient } from "./api";
 import { PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import type { ObservationEvent, Receipt, ReceiptLine } from "./storage";
 import { answer, calls, made, ME, page, problem, type Sent } from "./test-server";
@@ -349,13 +350,6 @@ it("clears an outcome only with a reason", async () => {
 it("shows who changed a line first, keeps the reason, and sends again only when asked", async () => {
   const first = tube(1, { outcome: "matched", checked_by: ME });
   const { user } = await openReceipt(receipt(2, [first]));
-  // The server names the line that changed, at its version now.
-  answer(
-    `PATCH ${api}/lines/${first.id}`,
-    problem(412, "stale", "This receipt line changed.", undefined, {
-      affected_lines: [{ line_id: first.id, revision: 2 }],
-    }),
-  );
   const theirs = {
     ...first,
     outcome: "rejected" as const,
@@ -364,7 +358,18 @@ it("shows who changed a line first, keeps the reason, and sends again only when 
     checked_by: ADA,
     checked_at: "2026-01-12T09:30:00Z",
   };
-  answer(`GET ${api}`, receipt(3, [theirs]));
+  // Refused as stale, naming the line that changed: the page reads the receipt again.
+  answer(`PATCH ${api}/lines/${first.id}`, () => {
+    answer(`GET /api/v1/entities/${ask}/receipts`, {
+      receipts: [receipt(3, [theirs])],
+      expected: 1,
+      can_receive: true,
+      why_not: null,
+    });
+    return problem(412, "stale", "This receipt line changed.", undefined, {
+      affected_lines: [{ line_id: first.id, revision: 2 }],
+    });
+  });
   await user.click(line("TUB-000001").getByRole("button", { name: "Missing" }));
   const dialog = await why(user, "Not in the box after all", "Save the change");
   const alert = await dialog.findByText(/^TUB-000001 changed while you were looking at it/);
@@ -375,6 +380,8 @@ it("shows who changed a line first, keeps the reason, and sends again only when 
   );
   expect(calls("GET", `${api}/observations`)).toHaveLength(0);
   expect(dialog.getByText("Rejected")).toBeVisible();
+  // Said once, in the note: not again as the refusal's own words.
+  expect(dialog.queryByText("This receipt line changed.")).toBeNull();
   expect(dialog.getByRole("textbox", { name: "Why are you changing this?" })).toHaveValue(
     "Not in the box after all",
   );
@@ -388,6 +395,56 @@ it("shows who changed a line first, keeps the reason, and sends again only when 
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   expect(calls("PATCH").map(made)).toEqual([
     { outcome: "missing", "If-Match": '"1"', reason: "Not in the box after all" },
+    { outcome: "missing", "If-Match": '"2"', reason: "Not in the box after all" },
+  ]);
+});
+
+it("sends nothing from a line a refetch changed while its reason was asked, and says so", async () => {
+  const first = tube(1, { outcome: "matched", checked_by: ME });
+  const { user } = await openReceipt(receipt(2, [first]));
+  await user.click(line("TUB-000001").getByRole("button", { name: "Missing" }));
+  const dialog = within(await screen.findByRole("dialog"));
+  expect(dialog.getByText("Matched")).toBeVisible();
+  await user.type(
+    dialog.getByRole("textbox", { name: "Why are you changing this?" }),
+    "Not in the box after all",
+  );
+  // Ada rejected it meanwhile, and the page read it in the background.
+  const theirs = {
+    ...first,
+    outcome: "rejected" as const,
+    note: "Thawed",
+    revision: 2,
+    checked_by: ADA,
+    checked_at: "2026-01-12T09:30:00Z",
+  };
+  answer(`GET /api/v1/entities/${ask}/receipts`, {
+    receipts: [receipt(3, [theirs])],
+    expected: 1,
+    can_receive: true,
+    why_not: null,
+  });
+  await act(async () => {
+    await queryClient.refetchQueries();
+  });
+  // The dialog still shows what was asked about: nothing is sent from what it didn't show.
+  expect(dialog.getByText("Matched")).toBeVisible();
+  await user.click(dialog.getByRole("button", { name: "Save the change" }));
+  const alert = await dialog.findByText(/^TUB-000001 changed while you were looking at it/);
+  expect(alert.closest("[role=alert]")).toHaveTextContent("TUB-000001: Now rejected");
+  expect(dialog.getByText("Rejected")).toBeVisible();
+  expect(calls("PATCH")).toEqual([]);
+  expect(dialog.getByRole("textbox", { name: "Why are you changing this?" })).toHaveValue(
+    "Not in the box after all",
+  );
+  answer(`PATCH ${api}/lines/${first.id}`, {
+    found: "recorded",
+    line: first.id,
+    receipt: receipt(4, [{ ...theirs, outcome: "missing", revision: 3 }]),
+  });
+  await user.click(dialog.getByRole("button", { name: "Save the change" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(calls("PATCH").map(made)).toEqual([
     { outcome: "missing", "If-Match": '"2"', reason: "Not in the box after all" },
   ]);
 });

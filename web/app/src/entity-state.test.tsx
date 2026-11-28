@@ -426,7 +426,7 @@ describe("a record's state fields", () => {
 });
 
 describe("setting a state while someone else changes the record", () => {
-  it("sends the revision the dialog opened at, and after a refusal the one shown", async () => {
+  it("sends nothing from a revision a refetch brought in while it was open, and says so", async () => {
     onSample();
     const { user } = await renderApp("/entities/SMP-000001/");
     const states = await screen.findByRole("region", { name: "States" });
@@ -439,24 +439,26 @@ describe("setting a state while someone else changes the record", () => {
     answer("GET /api/v1/entities/SMP-000001", changed);
     await queryClient.refetchQueries();
     await screen.findAllByText("Lot 8");
-    answer(POST, problem(412, "stale", "It changed since you read it."));
     await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "Wrong lot");
     await user.click(within(dialog).getByRole("button", { name: "Set Status" }));
+    // Not sent from revision 2, nor from 3, which the reviewer hasn't been told of.
     expect(await within(dialog).findByText(/Someone changed it while this was open/)).toBeVisible();
-    // Trying again, they've seen the change: it's made from the revision now shown.
+    expect(calls("POST", `/api/v1/entities/${SAMPLE_ID}/states/status`)).toEqual([]);
+    expect(within(dialog).getByRole("textbox", { name: "Reason" })).toHaveValue("Wrong lot");
+    // Confirming again, they've seen the change: it's made from the revision now shown.
     answer(
       POST,
       respond(200, sample({ revision: 4, values: { ...changed.values, status: "received" } })),
     );
     await user.click(within(dialog).getByRole("button", { name: "Set Status" }));
     await waitFor(() => {
-      expect(calls("POST", `/api/v1/entities/${SAMPLE_ID}/states/status`)).toHaveLength(2);
+      expect(calls("POST", `/api/v1/entities/${SAMPLE_ID}/states/status`)).toHaveLength(1);
     });
     expect(
       calls("POST", `/api/v1/entities/${SAMPLE_ID}/states/status`).map((c) =>
         c.headers.get("If-Match"),
       ),
-    ).toEqual(['"2"', '"3"']);
+    ).toEqual(['"3"']);
   });
 });
 

@@ -242,6 +242,30 @@ def test_rules_that_dont_fit_their_type(tmp_path: Path, body: str, code: str) ->
     assert codes(make(tmp_path, rules(body), ROLES)) == [code]
 
 
+def test_a_rule_and_a_guard_on_the_same_check_are_told_they_read_empty_values_oppositely(
+    tmp_path: Path,
+) -> None:
+    """A rule passes when a value it reads is empty and a guard refuses (ADRs 0127, 0128),
+    so the same expression in both is worth a second look: a warning, as both may be meant.
+    Spacing doesn't hide it, and a check only one of them has isn't flagged."""
+    # The guard `passed` checks the same result, spaced differently.
+    guard = FIELDS.replace(
+        'check: record.result == "pass" && "qa" in actor.roles', 'check: record.result == "pass"'
+    )
+    body = TYPE + guard + 'rules:\n  passed_at_save:\n    check: record.result  ==  "pass"\n'
+    body += "    message: It passed.\n"
+    result = make(tmp_path, body, ROLES)
+    assert result.plugin is not None
+    message = only(result, "same-condition-rule-and-guard")
+    assert "`passed_at_save`" in message and "`passed` on status's released state" in message
+    warning = result.problems[0]
+    assert not warning.is_error
+    assert warning.path == ("fields", "status", "states", "released", "guards", "passed", "check")
+    # A rule of its own, and the guards alone, say nothing.
+    other = body.replace('check: record.result  ==  "pass"', "check: record.purity >= 95.0")
+    assert make(tmp_path, other, ROLES).problems == []
+
+
 def test_a_hold_names_lab_roles(tmp_path: Path) -> None:
     body = (
         "  x:\n    check: record.purity > 1.0\n    hold: { reviewed_by: [nobody] }\n"

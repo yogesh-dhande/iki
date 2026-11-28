@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Amended by [0292](0292-a-registry-role-is-one-grant-scoped-to-the-registry-or-a-list.md) for how list curators are stored and granted
+- Amended 2026-11-27: every kind of lot names its purity method from one list
 - Date: 2026-11-26
 - Amended by [0295](0295-a-lab-list-is-a-manifest-kind-of-its-own.md): a list is
   `kind: List`, not an entity type marked `list`
@@ -188,3 +189,13 @@ offer instead, so an archived option replaces none until it's restored.
 **Walks read options as everyone does.** The graph's walks check what a person
 reads with the access service's own definition, so a record's options are
 upstream of it and readable, not counted as hidden.
+
+## Amendment of 2026-11-27: one purity method list
+
+Every kind of lot that records a purity names how it was measured from one list,
+`iki/lots.PurityMethod`: the biologic, oligonucleotide and generic lots alike, where the
+generic lots had free text and oligonucleotide lots a list of their own. A search for
+lots whose purity is by RP-HPLC finds each kind. The list starts with the separations
+each kind had (SEC-HPLC, CE-SDS, RP-HPLC, SDS-PAGE densitometry, IP-RP-HPLC, AEX-HPLC,
+capillary electrophoresis, LC-MS) and the two the generic lots' examples named (GC-FID,
+quantitative NMR). How a lot was purified stays a list of its own.
