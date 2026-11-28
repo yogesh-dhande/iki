@@ -12,9 +12,12 @@ SHA-256 into their build digests, so a worker installs only the bytes this relea
 built, and an upgrade that changes them rebuilds those environments.
 
 An environment that declares ``iki_runtime: { helm: true }`` gets iki-wasm's module too,
-for ``iki_runtime.helm``: the copy iki-spec carries (``iki_spec/iki_wasm.wasm``), which
-is checked against the SHA-256 Iki pins (``server/iki_wasm.wasm.sha256``, which iki-spec
-carries beside it), and whose SHA-256 joins the environment's build digest.
+for ``iki_runtime.helm``: the copy iki-spec carries (``iki_spec/iki_wasm.wasm``), whose
+SHA-256 joins the environment's build digest. The server image's iki-spec carries the
+module its wasm stage verified against ``server/iki_wasm.wasm.sha256``, with that pin
+beside it, and is checked against it again. A checkout's is cargo's build on its own
+host, whose bytes differ from the pin's by the paths cargo builds them in (even on Linux
+x86-64), so it has no pin to be checked against: it goes by its digest alone.
 """
 
 from __future__ import annotations
@@ -34,11 +37,6 @@ DIRECTORY = Path(__file__).parent
 _FILE = re.compile(r"iki_plugin_runtime-(?P<version>[^-]+)-py3-none-any\.whl")
 #: iki-wasm's module, which iki-spec carries, and ``iki_runtime.helm`` reads HELM with.
 WASM = DIRECTORY.parent / "iki_wasm.wasm"
-#: The SHA-256 Iki pins for it: carried beside it, or a checkout's own.
-_PINS = (
-    WASM.with_name(WASM.name + ".sha256"),
-    DIRECTORY.parents[3] / "server" / "iki_wasm.wasm.sha256",
-)
 
 
 class UnavailableError(RuntimeError):
@@ -84,8 +82,8 @@ def wheel() -> Wheel:
 
 @dataclass(frozen=True)
 class Module:
-    """iki-wasm's module: where it is, its bytes' SHA-256, and the one Iki pins, if this
-    iki-spec has the pin."""
+    """iki-wasm's module: where it is, its bytes' SHA-256, and the one Iki pins, if it's
+    the server image's verified copy, which carries its pin beside it."""
 
     path: Path
     sha256: str
@@ -109,12 +107,8 @@ def wasm() -> Module:
             "repository (make test-wasm runs it), or install an iki-spec built there."
         )
     info = WASM.stat()
-    pinned = next(
-        (
-            p.read_text("ascii").split()[0]
-            for p in _PINS
-            if p.is_file() and p.read_text("ascii").split()
-        ),
-        None,
+    pin = WASM.with_name(WASM.name + ".sha256")
+    words = pin.read_text("ascii").split() if pin.is_file() else []
+    return Module(
+        WASM, _read_module(WASM, info.st_size, info.st_mtime_ns), words[0] if words else None
     )
-    return Module(WASM, _read_module(WASM, info.st_size, info.st_mtime_ns), pinned)

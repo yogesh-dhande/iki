@@ -272,39 +272,52 @@ def test_a_bundle_carries_iki_wasm_for_the_worker_to_put_in_place(
         assert member.read() == carried.path.read_bytes()
 
 
-def test_iki_wasm_that_isnt_the_module_iki_pins_is_refused(
+def test_iki_wasm_that_isnt_the_module_its_pin_names_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, carried: plugin_runtime.Module
 ) -> None:
-    """A pinned build, and any build on Linux x86-64, the platform the pin is of, refuses
-    other bytes; a pinned build refuses a module it has no pin to check."""
+    """The server image's iki-spec carries the module its wasm stage verified, with the pin
+    beside it: other bytes there are refused, by any build, on any platform."""
     item = _protein(tmp_path, WASMTIME, helm=True)
     out = tmp_path / "protein.tar.gz"
     other = plugin_runtime.Module(carried.path, carried.sha256, "c" * 64)
     monkeypatch.setattr(plugin_runtime, "wasm", lambda: other)
-    monkeypatch.setattr(workers, "_digests_hold_here", lambda: False)
-    with pytest.raises(ValueError, match="isn't the module Iki pins"):
-        workers.bundle("acme/protein", item.directory, out, helm=True, pinned=True)
-    # A local plugin's build on another platform has that platform's module.
-    workers.bundle("acme/protein", item.directory, out, helm=True)
-    monkeypatch.setattr(workers, "_digests_hold_here", lambda: True)
-    with pytest.raises(ValueError, match="isn't the module Iki pins"):
-        workers.bundle("acme/protein", item.directory, out, helm=True)
+    for pinned in (True, False):
+        with pytest.raises(ValueError, match="isn't the module Iki pins"):
+            workers.bundle("acme/protein", item.directory, out, helm=True, pinned=pinned)
     with pytest.raises(ValueError, match="isn't the module Iki pins"):
         workers.write([item], tmp_path / "bundle")
-    unpinned = plugin_runtime.Module(carried.path, carried.sha256, None)
-    monkeypatch.setattr(plugin_runtime, "wasm", lambda: unpinned)
-    with pytest.raises(ValueError, match="not the digest Iki pins"):
-        workers.bundle("acme/protein", item.directory, out, helm=True, pinned=True)
 
 
-@pytest.mark.skipif(
-    platform.system() != "Linux" or platform.machine().lower() not in {"x86_64", "amd64"},
-    reason="Iki pins iki-wasm's Linux x86-64 build, which the release and CI build",
-)
-def test_iki_spec_carries_the_iki_wasm_iki_pins() -> None:
-    module = plugin_runtime.wasm()
-    assert module.pinned is not None
-    assert module.sha256 == module.pinned
+def test_a_checkouts_iki_wasm_goes_by_its_digest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, carried: plugin_runtime.Module
+) -> None:
+    """A checkout's module is cargo's build on its own host, which no pin describes (its
+    bytes differ by the paths it was built in, even on Linux x86-64): it's bundled as it
+    is, pinned build or not, and the digest names exactly those bytes."""
+    item = _protein(tmp_path, WASMTIME, helm=True)
+    built = plugin_runtime.Module(carried.path, carried.sha256, None)
+    monkeypatch.setattr(plugin_runtime, "wasm", lambda: built)
+    monkeypatch.setattr(workers, "_digests_hold_here", lambda: True)
+    out = tmp_path / "protein.tar.gz"
+    workers.bundle("acme/protein", item.directory, out, helm=True, pinned=True)
+    with tarfile.open(out) as tar:
+        member = tar.extractfile(".iki-runtime/iki_wasm.wasm")
+        assert member is not None
+        assert member.read() == carried.path.read_bytes()
+
+
+def test_iki_spec_reads_iki_wasms_pin_only_from_beside_the_module(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """As the server image puts it (server/Dockerfile): not the checkout's
+    server/iki_wasm.wasm.sha256, which a checkout's own build isn't."""
+    module = tmp_path / "iki_wasm.wasm"
+    module.write_bytes(b"\x00asm\x01\x00\x00\x00 built here")
+    monkeypatch.setattr(plugin_runtime, "WASM", module)
+    assert plugin_runtime.wasm().pinned is None
+    (tmp_path / "iki_wasm.wasm.sha256").write_text("d" * 64 + "\n")
+    assert plugin_runtime.wasm().pinned == "d" * 64
+    assert (Path(__file__).parents[2] / "server" / "iki_wasm.wasm.sha256").is_file()
 
 
 def test_names_with_spaces_or_quotes_are_quoted(tmp_path: Path) -> None:

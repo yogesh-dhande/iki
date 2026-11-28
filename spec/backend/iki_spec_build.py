@@ -48,12 +48,6 @@ def ensure_wasm(project: Path) -> Path:
     if script.is_file() and in_a_checkout:
         subprocess.run([str(script)], check=True)  # noqa: S603 - the checkout's own script
     wasm = project / WASM
-    # And, from a checkout, the SHA-256 Iki pins for it, which `iki deploy build` checks
-    # the module against before an environment gets it for the plugin runtime's HELM
-    # reader (ADR 0288).
-    pin = project.parent / "server" / f"{wasm.name}.sha256"
-    if pin.is_file():
-        shutil.copyfile(pin, wasm.with_name(pin.name))
     if not wasm.is_file() or wasm.stat().st_size == 0:
         raise RuntimeError(
             f"iki-spec needs iki-wasm ({WASM}), and it isn't there: build iki-spec from Iki's "
