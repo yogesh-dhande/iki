@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from iki_cli import fetch
+from iki_cli import fetch, workers
 from iki_cli.main import main
 from iki_spec import first_party, naming
 from iki_spec.lockfile import LockedPlugin
@@ -21,6 +21,13 @@ ROOT = Path(__file__).parents[2]
 CANONICAL = naming.IKI_REPOSITORY
 
 pytestmark = pytest.mark.skipif(not (ROOT / ".git").exists(), reason="needs Iki's repository")
+#: A build that succeeds bundles iki/dna pinned, and a pinned plugin's Wasm modules must be
+#: the ones its digests name: the Linux x86-64 build (ADR 0200). Elsewhere, such as on a
+#: Mac, this checkout's modules are built for the host, and the build rightly refuses them.
+builds_release_modules = pytest.mark.skipif(
+    not workers._digests_hold_here(),
+    reason="bundles a pinned plugin, whose modules only a Linux x86-64 host builds",
+)
 
 
 def git(repo: Path, *args: str) -> str:
@@ -91,6 +98,7 @@ def build(tmp_path: Path, sha: str, *mirrors: str) -> int:
     )
 
 
+@builds_release_modules
 def test_ikis_plugin_comes_from_the_mirror_and_says_so(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -109,6 +117,7 @@ def test_ikis_plugin_comes_from_the_mirror_and_says_so(
     assert f"MIRRORS = [{url!r}]" in (registry / "__init__.py").read_text()
 
 
+@builds_release_modules
 def test_mirrors_are_tried_in_order(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     empty, other = (f"file://{tmp_path / name}" for name in ("empty", "other"))
     for name in ("empty", "other"):

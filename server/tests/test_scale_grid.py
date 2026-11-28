@@ -7,7 +7,8 @@ entry, with its sequence and identity hash, and the project's record of it, link
 project. Then a viewer opens the grid's pages: the first, the next, one deep into the
 table, newest first, sorted and filtered by indexed fields, and searched. Each must answer
 within the grid's budget. ``make check-scale`` runs it; a thousand rows run with every
-check, so the copies are known to load before the nightly run copies millions.
+check, so the copies are known to load, and the pages to answer as planned, before the
+nightly run copies millions and times them.
 """
 
 import datetime as dt
@@ -410,5 +411,10 @@ def test_the_grid_stays_responsive(rows: int) -> None:
     assert sorted(e["hrid"] for e in answer["items"]) == sorted(theirs)
     for name in ("every type's, last changed first", "a small project's, last changed first"):
         print(f"{name}: {took[name] * 1000:.0f} ms")  # noqa: T201 - the load test's report
-    slow = {name: f"{s:.2f}s" for name, s in took.items() if s > BUDGET}
-    assert not slow, slow
+    # The budget is a page's at scale. At a thousand rows a page's time is the request's own
+    # work, not the table's, and on a shared CI runner tracing every line for coverage it
+    # measures the runner's load, not the grid. The answers and plans above are what this
+    # size checks.
+    if rows > SMALL:
+        slow = {name: f"{s:.2f}s" for name, s in took.items() if s > BUDGET}
+        assert not slow, slow
