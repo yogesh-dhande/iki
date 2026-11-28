@@ -125,8 +125,8 @@
       "required": ["action"],
       "properties": {
         "action": {
-          "description": "The name of the plugin's action it runs.",
-          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          "description": "The action it runs. A bare name is the plugin's own; `namespace/plugin.action` is a dependency's.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/actionRef"
         },
         "label": {
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"

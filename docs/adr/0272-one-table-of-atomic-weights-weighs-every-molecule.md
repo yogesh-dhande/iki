@@ -44,8 +44,9 @@ an auditor can check.
 
 **The table is one file, `scripts/weights.py`, copied into each plugin that
 weighs a molecule.** Those plugins are complex, protein, oligo, biologics_ms,
-conjugate, small_molecule and lots, plus the protein-translation example. The
-file also holds the amino-acid residue formulas. Plugins share no library, so
+conjugate, small_molecule and lots. The protein-translation example runs
+protein's own action ([0298](0298-a-plugin-can-run-its-dependencies-actions.md)),
+so it holds no copy. The file also holds the amino-acid residue formulas. Plugins share no library, so
 the copies are byte-identical. A test checks that they match each other, the
 web package's copy, and CIAAW's published values. A change to the table goes
 into every copy at once, with an amendment here.

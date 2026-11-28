@@ -723,10 +723,7 @@ def recheck_holders(
         if not names:
             continue
         if detached or record.locked or record.archived_at is not None:
-            flagged += [
-                Recalculation(entity_id=record.pk, action=f"{spec.plugin}.{spec.action}")
-                for spec, _ in found
-            ]
+            flagged += [Recalculation(entity_id=record.pk, action=spec.action) for spec, _ in found]
             continue
         groups[names].append(record)
     Recalculation.objects.bulk_create(flagged, ignore_conflicts=True)

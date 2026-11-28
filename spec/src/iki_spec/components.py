@@ -106,7 +106,7 @@ def read_component(plugin: str, body: dict[str, Any], document: Document) -> Com
         slots=tuple(_slot(s, plugin, label, entities) for s in body["slots"]),
         entities=entities,
         selects=qualify(selects["type"], plugin) if selects else "",
-        runs=tuple(f"{plugin}.{name}" for name in runs),
+        runs=tuple(qualify(name, plugin) for name in runs),
         file=document.file,
     )
 
@@ -180,21 +180,16 @@ class _Rules:
         for index, slot in enumerate(self.component.slots):
             self.slot(slot, index, seen)
         for index, action in enumerate(self.component.runs):
-            self.offered(action.rpartition(".")[2], ("events", "run", "actions", index))
+            self.offered(action, ("events", "run", "actions", index))
 
-    def offered(self, name: str, path: Path) -> None:
-        """An action it offers to run on its tab's entity: the plugin's own, reviewed with
-        it, as a trigger's is, and taking the entity of each tab it's on (ADR 0170)."""
-        action = self.s.plugin.actions.get(name)
+    def offered(self, qualified: str, path: Path) -> None:
+        """An action it offers to run on its tab's entity: the plugin's own or a declared
+        dependency's (ADR 0298), reviewed with it, as a trigger's is, and taking the entity
+        of each tab it's on (ADR 0170)."""
+        action = self.s.action(qualified, "component-unknown-action", self.source, path)
         if action is None:
-            self.add(
-                "component-unknown-action",
-                f"This plugin has no action `{name}`.",
-                self.source,
-                path,
-                hint=schemas._did_you_mean(name, list(self.s.plugin.actions)),
-            )
             return
+        name = self.s.shown(qualified)
         tabs = [s for s in self.component.slots if s.slot == "entity.tab"]
         if not tabs:
             self.add(

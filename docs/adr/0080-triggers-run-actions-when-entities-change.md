@@ -1,6 +1,7 @@
 # 0080. Triggers run actions when entities change
 
 - Status: Accepted (refined by [0297](0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md): a value from the record's own values is worked out at every save, not by a triggered action)
+- Amended by [0298](0298-a-plugin-can-run-its-dependencies-actions.md): `action:` may name a declared dependency's action; a recheck runs only its own plugin's
 - Date: 2026-11-13
 - Refines: [0013](0013-agents-via-mcp-oauth-approvals.md),
   [0079](0079-workflows-are-dags-of-ordinary-runs.md)

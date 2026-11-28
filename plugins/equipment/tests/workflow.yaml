@@ -371,3 +371,18 @@ inputs:
 params: { measurement_at: "2026-01-08T09:59:59Z", reason: Logbook entry 41. }
 expect:
   error: The measurement was before the failed calibration's suspected onset.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: failure_flag_before_signature
+action: trace_failed_calibrations
+description: An observed failure awaiting signature remains in the service history for follow-up.
+inputs:
+  instrument: [{ values: { name: Spectrophotometer } }]
+  calibrations:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        kind: calibration
+        outcome: out_of_tolerance
+        review: scheduled
+expect: { error: Select at least one signed out-of-tolerance calibration for the trace. }

@@ -999,7 +999,7 @@ WEIGH_BY_HAZARD = Trigger(
     on="entity.updated",
     type=PROTEIN,
     fields=("hazard",),
-    action="compute_properties",
+    action="acme/protein.compute_properties",
     input="protein",
     recheck="summary",
 )

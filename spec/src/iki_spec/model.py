@@ -1990,10 +1990,12 @@ class Approval:
 
 @dataclass(frozen=True)
 class WorkflowStep:
-    """One step of a workflow: a run of one of the plugin's actions (ADR 0079)."""
+    """One step of a workflow: a run of one of the plugin's actions, or a dependency's
+    (ADR 0079, ADR 0298)."""
 
     id: str
-    action: str  # the action's name in the plugin
+    #: The action it runs, qualified: the plugin's own, or a declared dependency's (ADR 0298).
+    action: str
     label: str = ""
     #: The action's input → where it comes from: ``$inputs.<name>``,
     #: ``$steps.<id>.inputs.<name>`` or ``$steps.<id>.created.<namespace/plugin.Type>``.
@@ -2021,7 +2023,8 @@ class WorkflowStep:
 
 @dataclass(frozen=True)
 class Workflow:
-    """Steps that each run one of the plugin's actions, wired together (ADR 0079)."""
+    """Steps that each run an action, the plugin's or a dependency's, wired together
+    (ADR 0079, ADR 0298)."""
 
     plugin: str
     name: str
@@ -2100,8 +2103,9 @@ class Related:
 
 @dataclass(frozen=True)
 class Trigger:
-    """Runs one of the plugin's actions by itself when an entity of a type is created or
-    changed, or on a schedule, in projects whose Admins turn it on (ADR 0080)."""
+    """Runs an action, the plugin's or a dependency's (ADR 0298), by itself when an entity of
+    a type is created or changed, or on a schedule, in projects whose Admins turn it on
+    (ADR 0080)."""
 
     plugin: str
     name: str
@@ -2120,7 +2124,7 @@ class Trigger:
     #: it fires on a record entering; empty for any. Its manifest calls it ``field``.
     state_field: str = ""
     states: tuple[str, ...] = ()
-    #: The plugin's action it runs.
+    #: The action it runs, qualified: the plugin's own, or a declared dependency's (ADR 0298).
     action: str = ""
     #: The action's input that takes the entity: given, or the only one that takes its type.
     input: str = ""
@@ -2198,8 +2202,8 @@ class Component:
     entities: ComponentEntities | None = None
     #: The type of the entities it can select (qualified), or empty if it selects none.
     selects: str = ""
-    #: The plugin's actions it may offer to run on its tab's entity (qualified): Iki's run
-    #: page runs them, for whoever may.
+    #: The actions it may offer to run on its tab's entity (qualified), the plugin's own or
+    #: its dependencies' (ADR 0298): Iki's run page runs them, for whoever may.
     runs: tuple[str, ...] = ()
     #: The module's SHA-256, in hex, as the plugin was read: what the build copies.
     sha256: str = ""

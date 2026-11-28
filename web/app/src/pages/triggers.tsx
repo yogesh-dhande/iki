@@ -13,6 +13,8 @@ import { iki, problemOf, useApiMutation, type Project } from "../api";
 import { inSentence, stateLabel, typeLabel, typesQuery, type EntityType } from "../entities";
 import { usePageTitle } from "../layout";
 import {
+  fromPlugin,
+  pluginOf,
   projectTriggersQuery,
   RUNS,
   triggerFiringsQuery,
@@ -243,6 +245,8 @@ function TriggerRow({
   const onAsSomeoneElse = trigger.enabled && trigger.can.enable;
   const account = trigger.run_as_choices.find((c) => c.id === runAs);
   const enableLabel = !onAsSomeoneElse ? "Turn on" : byAccount ? "Change" : "Run as me";
+  // Another plugin's action (ADR 0298): “, from the iki/protein plugin”.
+  const other = fromPlugin(trigger.action, trigger.plugin);
   return (
     <li className="row">
       <div className="row-main">
@@ -251,12 +255,14 @@ function TriggerRow({
           {scheduled ? (
             <>
               On the schedule <code>{trigger.schedule}</code> ({trigger.timezone}), it starts a run
-              of {trigger.action_label} in {project.name}
+              of {trigger.action_label}
+              {other} in {project.name}
             </>
           ) : (
             <>
               {fires} {trigger.on === "request.received" ? "to" : "in"} {project.name} starts a run
               of {trigger.action_label}
+              {other}
             </>
           )}
           {waits(trigger) ? `, on the ${trigger.tier ?? ""} tier: each waits for approval` : ""}.
@@ -372,6 +378,13 @@ function TriggerRow({
               : ""}
           </p>
         )}
+        {other ? (
+          <p>
+            {trigger.action_label} is an action of the {pluginOf(trigger.action)} plugin. Its runs
+            are that plugin’s, as it declares them: its environment, settings, secrets and what it
+            may change. This trigger decides only when they start.
+          </p>
+        ) : null}
         {waits(trigger) ? (
           <p>
             Its runs are on the {trigger.tier} tier, so each waits for your approval before it

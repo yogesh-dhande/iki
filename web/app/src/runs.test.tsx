@@ -1518,6 +1518,7 @@ describe("a run's page", () => {
         () =>
           run({
             ...waiting,
+            action: "iki/protein.fetch_proteins",
             via: "trigger",
             client: "",
             agent: null,
@@ -1560,6 +1561,7 @@ describe("a run's page", () => {
         () =>
           run({
             ...waiting,
+            action: "acme/request_priority.rank_requests",
             via: "trigger",
             client: "",
             agent: null,
@@ -1581,6 +1583,36 @@ describe("a run's page", () => {
       expect(screen.getByText(/Rank requests as they arrive, when/)).toHaveTextContent(
         /arrived from the project that asked \(revision 2\)\. It runs as Queue ranker on Alice Admin’s authority, who turned the trigger on\./,
       );
+    });
+
+    it("names the trigger's plugin when it ran another plugin's action", async () => {
+      // A lab's trigger on its own subtype runs Protein's calculation (ADR 0298).
+      const trigger = {
+        name: "acme/nanobodies.weigh_new_nanobodies",
+        label: "Weigh new nanobodies",
+        event: "entity.created" as const,
+        entity: "00000000-0000-7000-8000-0000000000e1",
+        revision: 1,
+        scheduled_for: null,
+        since: null,
+        enabled_by: { id: "00000000-0000-7000-8000-00000000a11c", name: "Alice Admin" },
+      };
+      onRun(
+        () =>
+          run({
+            via: "trigger",
+            reason: "Trigger “Weigh new nanobodies”: NB-000001 was created.",
+            trigger,
+          }),
+        unstarted,
+      );
+      withLog(() => "");
+      await renderApp("/runs/RUN-000001/");
+      expect(
+        await screen.findByText(
+          /Weigh new nanobodies \(a trigger of the acme\/nanobodies plugin\), when/,
+        ),
+      ).toHaveTextContent(/when its entity was created \(revision 1\)/);
     });
 
     it("says when nobody approved it in time", async () => {

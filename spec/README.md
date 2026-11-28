@@ -1931,14 +1931,25 @@ tiers can still use their manifest's Python or conda environment.
 
 ## Workflows
 
-A workflow runs several of its own plugin's actions as one (ADR 0079).
-Each step names an action declared in that plugin. Dependencies can supply
-the types those actions read or write. To run actions belonging to several
-plugins in sequence, call them from a client.
+A workflow runs several actions as one (ADR 0079). Each step names its
+action: the plugin's own by name (`translate`), or a dependency's in full
+(`iki/protein.translate`), as types are named. The dependency must be listed
+under `dependencies`; `{}` is enough when the workflow uses none of its types
+([ADR 0298](../docs/adr/0298-a-plugin-can-run-its-dependencies-actions.md)).
 The [translation workflow example](../examples/plugins/protein_translation)
-declares both actions locally and uses DNA and Protein record types from its dependencies.
-The [storage labels workflow](../examples/plugins/storage_labels/workflows/store_sample.yaml)
+runs Protein's own `translate` and `compute_properties`, declaring no action
+of its own. The [storage labels workflow](../examples/plugins/storage_labels/workflows/store_sample.yaml)
 runs two local actions on the same sample.
+
+A dependency's action runs as its own plugin declares it: in its environment
+and on its tier, with its plugin's settings, secrets, hosts and outside APIs,
+and changing only what it declares it changes. The run records that plugin's
+version. The workflow decides only when the action runs, on which entities and
+with which values of its params. The step's run is the person's who started the
+workflow, in its project, as any step's is. The build checks the step against
+the dependency's action as it checks a local one. A name in another plugin that
+isn't a declared dependency is refused (`undeclared-dependency`), and so is one
+without its namespace (`unqualified-reference`).
 
 A step can take its inputs from the workflow (`$inputs.<name>`), from records
 an earlier step created (`$steps.<id>.created.<Type>`), or from the inputs an
@@ -1958,11 +1969,11 @@ params:
   frame: { type: int, min: 1, max: 3, default: 1 } # as an action's params
 steps:
   translate:
-    action: translate
+    action: iki/protein.translate # a dependency's action, in full
     inputs: { sequence: $inputs.sequence }
     params: { frame: $params.frame }
   properties:
-    action: compute_properties
+    action: iki/protein.compute_properties
     inputs: { protein: $steps.translate.created.iki/protein.Protein }
     # needs: [other_step]  # wait for a step it doesn't take from
 ```
@@ -2037,7 +2048,7 @@ ordering comparisons take numbers. No step may come before itself.
 
 ## Triggers
 
-A trigger runs one of the plugin's actions by itself when an entity of a type
+A trigger runs an action by itself when an entity of a type
 (or a subtype) is created (`entity.created`, for each project's new record),
 registered (`entity.registered`, once for each new registry entry of a type
 with an identity, by the record that registered it: ADR 0115) or changed
@@ -2055,10 +2066,30 @@ name: compute_new_protein_properties
 label: Compute each new protein's properties
 on: entity.registered
 type: Protein
-action: compute_properties # the plugin's action
+action: compute_properties # the plugin's own; a dependency's in full, such as iki/protein.compute_properties
 input: protein # which input takes the entity; left out when only one can
 params: {} # values; a string starting with `$` is written `$$`
 ```
+
+The action is the plugin's own, by name, or a declared dependency's, in full
+([ADR 0298](../docs/adr/0298-a-plugin-can-run-its-dependencies-actions.md)).
+A lab plugin can run a first-party calculation on its own subtype without
+copying it:
+
+```yaml
+# acme/nanobodies, which lists iki/protein under `dependencies`
+on: entity.created
+type: Nanobody # extends iki/protein.Protein
+action: iki/protein.compute_properties
+```
+
+The run is the action's, as its plugin declares it: its environment, tier,
+settings, secrets, hosts, outside APIs and effects. The trigger only decides
+when it starts, on which entity, and with which fixed params. It's still
+launched as the Admin who turned the trigger on, in the project, and checked
+as their own run would be. The Triggers page and the confirmation to turn it
+on say whose action it runs, and the run's page names the trigger and its
+plugin beside the action.
 
 `entity.state_changed` runs it when one of a record's state fields is set
 (ADR 0125): `field` names which (`trigger-state-field-missing`,
@@ -2094,7 +2125,8 @@ permissions. A project's Admin can turn the automatic run off, giving a
 reason; the edit still clears the outputs. The action must be a
 deterministic backend calculation that only updates optional, computed
 fields of the edited record, one of them the `recheck` text field
-(`trigger-recheck`).
+(`trigger-recheck`). A recheck is on in every project without an Admin turning
+it on, so it runs only its own plugin's action, never a dependency's.
 
 `watch_included` runs it again when a record its input includes changes, as
 a lot's computed values follow its oligonucleotide's weight:
@@ -2159,8 +2191,9 @@ related:
 The [calibration tracing example](../examples/plugins/calibration_tracing/README.md)
 uses three downstream reference searches to collect service history, instrument
 uses and existing assessments when an instrument's calibration state changes.
-The equipment types come from its dependency. The trigger's action and worker
-are local to the example.
+The equipment types come from its dependency. Its trigger runs Equipment's own
+`iki/equipment.trace_failed_calibrations`, so the example has no action,
+environment or worker of its own.
 
 Each such input takes many (`trigger-related-one`), and isn't the one the
 entity goes to (`trigger-related-is-input`); a scheduled trigger has none.
@@ -2458,14 +2491,19 @@ events, whose `detail.entities` lists the HRIDs of the entities picked, of
 the type `events.select` declares. The page shows what was picked, among
 what the person may read, and offers to run an action on them.
 
-A tab may also offer its own plugin's actions on its entity, under
-`events.run` (ADR 0170). Its `place.runs` lists those the person viewing it
-may run there now, and an `iki-run` event with `detail.action` opens Iki's
-run page with that action and the entity chosen, for the person to check and
-start. The validator refuses an action the plugin doesn't have
-(`component-unknown-action`), one with no input that takes the tab's entity
-(`component-action-takes-no-entity`), and offers from a component with no
-entity tab (`component-run-needs-a-tab`).
+`events.run.actions` lists actions a tab may offer to run on its entity (ADR
+0170): the plugin's own by name, or a declared dependency's in full, each with
+an input that takes the tab's type. The element dispatches `iki-run` with
+`detail.action`, the qualified name. It's offered only the ones the viewer may
+run there, in `place.runs`. Iki opens its run page with the action and the
+entity chosen, and the person starts it there. The validator refuses an action
+that is neither (`component-unknown-action`), one with no input that takes the
+tab's entity (`component-action-takes-no-entity`), and offers from a component
+with no entity tab (`component-run-needs-a-tab`).
+
+```yaml
+events: { run: { actions: [compute_composition, iki/protein.compute_properties] } }
+```
 
 What a component is given and may send is
 [`@ikisci/component`](../web/packages/component)'s frame protocol, published

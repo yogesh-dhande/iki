@@ -3,8 +3,10 @@
 A plugin's triggers live under `triggers/`. The schema checks each document's shape; the
 rules here check it against the plugin's types and actions: that the type exists and the
 fields it watches are the type's, that the action it runs takes an entity of that type and
-needs nothing else, and that its params fit. A scheduled trigger's schedule must read,
-come round, and run at most every five minutes, and its action must need no inputs.
+needs nothing else, and that its params fit. The action is the plugin's own, or, named
+`namespace/plugin.action`, a declared dependency's (ADR 0298), checked the same way. A
+scheduled trigger's schedule must read, come round, and run at most every five minutes, and
+its action must need no inputs.
 
 A trigger may give other inputs the entities related to the one that fired it (ADR 0123):
 ``related: {aliquots: {direction: downstream}}`` gives ``aliquots`` every Aliquot in the
@@ -61,7 +63,9 @@ def read_trigger(plugin: str, body: dict[str, Any], document: Document) -> Trigg
         fields=tuple(body.get("fields") or ()),
         state_field=body.get("field") or "",
         states=tuple(body.get("states") or ()),
-        action=body["action"],
+        # Qualified: a bare name is the plugin's own, `namespace/plugin.action` a
+        # dependency's (ADR 0298).
+        action=qualify(body["action"], plugin),
         # Filled in by `check` when it's left out and one input takes the type.
         input=body.get("input") or "",
         params=dict(body.get("params") or {}),
@@ -166,22 +170,16 @@ class _Rules:
                     ("on",),
                     hint="Use `on: entity.created`, which fires for each new entity.",
                 )
-        action = self.plugin.actions.get(trigger.action)
+        action = self.s.action(trigger.action, "trigger-unknown-action", source, ("action",))
         if action is None:
-            self.add(
-                "trigger-unknown-action",
-                f"This plugin has no action `{trigger.action}`.",
-                source,
-                ("action",),
-                hint=schemas._did_you_mean(trigger.action, list(self.plugin.actions)),
-            )
             return trigger
         if scheduled:
             for name, put in action.inputs.items():
                 if not put.optional and not put.from_project:
                     self.add(
                         "trigger-input-missing",
-                        f"`{trigger.action}` needs `{name}`, and a scheduled trigger gives it no "
+                        f"`{self.s.shown(trigger.action)}` needs `{name}`, and a scheduled trigger "
+                        "gives it no "
                         "entities.",
                         source,
                         ("action",),
@@ -214,7 +212,19 @@ class _Rules:
                 hint="Drop `watch_included`, or keep the calculation in a trigger without "
                 "`recheck`.",
             )
-        if trigger.recheck:
+        if trigger.recheck and action.plugin != trigger.plugin:
+            # A recheck is on in every project without an Admin turning it on, and clears
+            # what it rechecks in the edit's transaction: only the calculation's own plugin
+            # may declare that (ADR 0298).
+            self.add(
+                "trigger-recheck",
+                f"A recheck is on in every project by default, so it runs only this plugin's "
+                f"own action, and `{trigger.action}` is the {action.plugin} plugin's.",
+                source,
+                ("recheck",),
+                hint="Leave `recheck` out: a project's Admin can then turn the trigger on.",
+            )
+        elif trigger.recheck:
             outputs = {n for update in action.updates for n in update.fields}
             target = self.s.types.get(trigger.type)
             fields = self.s.all_fields(target) if target else {}
@@ -260,7 +270,8 @@ class _Rules:
                 ):
                     self.add(
                         "trigger-input-missing",
-                        f"`{trigger.action}` also needs `{name}`, and a trigger gives it only the "
+                        f"`{self.s.shown(trigger.action)}` also needs `{name}`, and a trigger "
+                        "gives it only the "
                         "entity that changed.",
                         source,
                         ("action",),
@@ -273,7 +284,7 @@ class _Rules:
             if name not in trigger.params and param.required:
                 self.add(
                     "trigger-param-missing",
-                    f"`{trigger.action}` needs the param `{name}`, "
+                    f"`{self.s.shown(trigger.action)}` needs the param `{name}`, "
                     "and this trigger doesn't give it.",
                     source,
                     ("params",) if trigger.params else (),
@@ -343,9 +354,10 @@ class _Rules:
                     shown = ", ".join(f"`{n}`" for n in changing[:4])
                     self.add(
                         "trigger-reads-unwatched",
-                        f"`{trigger.action}` reads what `{name}` names, whose values can change "
-                        f"({shown}{', …' if len(changing) > 4 else ''}), and this trigger "
-                        f"doesn't watch it: a record worked out from one would stay as it was "
+                        f"`{self.s.shown(trigger.action)}` reads what `{name}` names, whose "
+                        f"values can change ({shown}{', …' if len(changing) > 4 else ''}), and "
+                        "this trigger doesn't watch it: a record worked out from one would stay "
+                        "as it was "
                         "when it changes, with no notice that it needs working out again.",
                         source,
                         ("watch_included",) if trigger.watch_included else ("action",),
@@ -400,7 +412,7 @@ class _Rules:
             if put is None:
                 self.add(
                     "trigger-unknown-input",
-                    f"`{trigger.action}` has no input `{name}`.",
+                    f"`{self.s.shown(trigger.action)}` has no input `{name}`.",
                     source,
                     path,
                     key=True,
@@ -429,7 +441,8 @@ class _Rules:
             elif put.cardinality != "many":
                 self.add(
                     "trigger-related-one",
-                    f"`{trigger.action}`'s `{name}` takes one entity, and related ones can be any "
+                    f"`{self.s.shown(trigger.action)}`'s `{name}` takes one entity, and related "
+                    "ones can be any "
                     "number.",
                     source,
                     path,
@@ -589,7 +602,7 @@ class _Rules:
             if put is None:
                 self.add(
                     "trigger-unknown-input",
-                    f"`{trigger.action}` has no input `{trigger.input}`.",
+                    f"`{self.s.shown(trigger.action)}` has no input `{trigger.input}`.",
                     source,
                     ("input",),
                     hint=schemas._did_you_mean(trigger.input, list(action.inputs)),
@@ -608,7 +621,8 @@ class _Rules:
             if not self.is_a(trigger.type, put.type):
                 self.add(
                     "trigger-wrong-type",
-                    f"The trigger fires for `{trigger.type}`, and `{trigger.action}`'s "
+                    f"The trigger fires for `{trigger.type}`, and "
+                    f"`{self.s.shown(trigger.action)}`'s "
                     f"`{trigger.input}` takes `{put.type}`.",
                     source,
                     ("input",),
@@ -621,7 +635,8 @@ class _Rules:
         if not fits:
             self.add(
                 "trigger-wrong-type",
-                f"None of `{trigger.action}`'s inputs takes `{trigger.type}`, which the trigger "
+                f"None of `{self.s.shown(trigger.action)}`'s inputs takes `{trigger.type}`, which "
+                "the trigger "
                 "fires for.",
                 source,
                 ("action",),
@@ -629,9 +644,8 @@ class _Rules:
         else:
             self.add(
                 "trigger-input-ambiguous",
-                f"More than one of `{trigger.action}`'s inputs takes `{trigger.type}`: "
-                + ", ".join(f"`{n}`" for n in fits)
-                + ".",
+                f"More than one of `{self.s.shown(trigger.action)}`'s inputs takes "
+                f"`{trigger.type}`: " + ", ".join(f"`{n}`" for n in fits) + ".",
                 source,
                 ("action",),
                 hint="Say which with `input:`.",

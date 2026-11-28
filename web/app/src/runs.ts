@@ -193,6 +193,19 @@ export function actionLabel(actions: Action[] | undefined, name: string): string
   return actions?.find((a) => a.name === name)?.label ?? name;
 }
 
+/** The plugin a qualified name is of: `iki/protein` for `iki/protein.compute_properties`. */
+export function pluginOf(qualified: string): string {
+  const dot = qualified.lastIndexOf(".");
+  return dot < 0 ? "" : qualified.slice(0, dot);
+}
+
+/** “, from the iki/protein plugin” for an action a trigger or workflow of another plugin
+ * runs (ADR 0298); nothing for its own plugin's. */
+export function fromPlugin(action: string, caller: string): string {
+  const plugin = pluginOf(action);
+  return plugin && plugin !== caller ? `, from the ${plugin} plugin` : "";
+}
+
 /** A list of runs' address (ADR 0176): `?status=`, and across projects, `?project=`, a
  * project's slug. */
 export interface RunsSearch {

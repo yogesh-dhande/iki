@@ -1,6 +1,7 @@
 # 0170. A component can offer its plugin's actions on its entity
 
 - Status: Accepted
+- Amended by [0298](0298-a-plugin-can-run-its-dependencies-actions.md): a component may offer a declared dependency's action
 - Date: 2026-11-20
 - Refines: [0084](0084-plugin-components-run-in-sandboxed-frames.md),
   [0117](0117-components-show-many-entities-in-more-places.md)

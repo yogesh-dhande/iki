@@ -108,12 +108,12 @@
           "additionalProperties": false,
           "properties": {
             "actions": {
-              "description": "The plugin's own actions, by name, each with an input that takes the tab's type.",
+              "description": "The actions it may offer, each with an input that takes the tab's type: the plugin's own by name, or a dependency's as `namespace/plugin.action`.",
               "type": "array",
               "minItems": 1,
               "maxItems": 10,
               "uniqueItems": true,
-              "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+              "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/actionRef" }
             }
           }
         }

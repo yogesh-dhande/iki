@@ -179,7 +179,7 @@ def _step_out(of: Workflow, step_id: str) -> dict[str, Any]:
     return {
         "id": step.id,
         "label": step.label,
-        "action": f"{of.plugin}.{step.action}",
+        "action": step.action,
         "inputs": dict(step.inputs),
         "params": dict(step.params),
         "after": sorted(step.after()),

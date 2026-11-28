@@ -20327,7 +20327,7 @@ export interface components {
             label: string;
             /**
              * Name
-             * @description The trigger's qualified name, such as `protein.weigh_new`.
+             * @description The trigger's qualified name, such as `iki/protein.weigh_new`: its plugin may not be the run's action's (ADR 0298).
              */
             name: string;
             /**
@@ -20445,7 +20445,7 @@ export interface components {
             label: string;
             /**
              * Name
-             * @description The trigger's qualified name, such as `protein.weigh_new`.
+             * @description The trigger's qualified name, such as `iki/protein.weigh_new`: its plugin may not be the run's action's (ADR 0298).
              */
             name: string;
         };
@@ -22010,6 +22010,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Name
+             * @description The workflow's qualified name, such as `acme/protein_translation.translate_and_characterize`: its plugin may not be the run's action's (ADR 0298).
+             */
+            name: string;
             /**
              * Step
              * @description The step's ID in the workflow.

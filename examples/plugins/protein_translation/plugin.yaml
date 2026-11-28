@@ -2,9 +2,9 @@
 apiVersion: iki/v1
 kind: Plugin
 name: acme/protein_translation
-version: 0.2.1
+version: 0.2.2
 title: Protein translation and characterization
-description: Translate a registered DNA sequence and calculate the properties of the resulting protein.
+description: Translate a registered DNA sequence and calculate the properties of the resulting protein, with the Protein plugin's actions.
 license: Apache-2.0
 iki: ">=0.1"
 dependencies:
