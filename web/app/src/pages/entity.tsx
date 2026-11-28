@@ -6,7 +6,7 @@
  * says where it's from and what it's linked to.
  */
 
-import { unwrap, type Schemas } from "@ikisci/sdk";
+import { isStale, unwrap, type Schemas } from "@ikisci/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Link,
@@ -19,7 +19,8 @@ import {
 import { lazy, Suspense, useId, useState } from "react";
 import { Button as AriaButton, Dialog, DialogTrigger, Popover } from "react-aria-components";
 
-import { iki, problemOf, useApiMutation, useOpenedRevision } from "../api";
+import { iki, problemOf, useApiMutation } from "../api";
+import { changedProblem, useRevisioned, type IfMatch } from "../revisioned";
 import { lineageOf } from "../components";
 import {
   apiRef,
@@ -294,7 +295,7 @@ function Superseded({ entity }: { entity: Entity }) {
   // Entities are refreshed once the page is the moved record's: refreshing this one first
   // would ask for the old ID in the project, which no longer has it.
   const move = useApiMutation(
-    async (header: { "If-Match": string }) =>
+    async (header: IfMatch) =>
       unwrap(
         await iki.POST("/api/v1/entities/{ref}/move", {
           params: { path: { ref: entity.id }, header },
@@ -303,8 +304,8 @@ function Superseded({ entity }: { entity: Entity }) {
       ),
     [],
   );
-  // The record as it was when the move was asked for: one changed meanwhile is refused (412).
-  const opened = useOpenedRevision(entity.revision, { open: asking, error: move.error });
+  // The record as it was when the move was asked for, which it's moved from (ADR 0300).
+  const rev = useRevisioned(entity, { open: asking, error: move.error, refresh: ENTITIES });
   if (!entry || !by) return null;
   const project = entity.owner_project?.name ?? "this project";
   const close = () => {
@@ -371,32 +372,42 @@ function Superseded({ entity }: { entity: Entity }) {
         isOpen={asking}
         title={`Move to ${by.by.hrid}?`}
         confirmLabel={`Move to ${by.by.hrid}`}
-        busy={move.isPending}
-        problem={move.error ? problemOf(move.error) : undefined}
+        busy={move.isPending || rev.rereading}
+        problem={
+          rev.changed
+            ? changedProblem(
+                "Someone changed it while this was open. The page now shows their change: check it, then move it again.",
+              )
+            : move.error && !isStale(move.error)
+              ? problemOf(move.error)
+              : undefined
+        }
         onCancel={close}
         onConfirm={() => {
           if (!reason.trim()) {
             setMissing(true);
             return;
           }
-          move.mutate(opened.ifMatch, {
-            onSuccess: (moved) => {
-              close();
-              void navigate({
-                to: "/entities/$ref/",
-                params: { ref: moved.hrid },
-                search: recordSearch(moved),
-                state: (prev) => ({
-                  ...prev,
-                  moved: {
-                    from: entry.hrid,
-                    to: moved.hrid,
-                    repointed: moved.repointed,
-                    ...(carries ? { across: kind } : {}),
-                  },
-                }),
-              }).then(() => client.invalidateQueries({ queryKey: ENTITIES }));
-            },
+          rev.submit((header) => {
+            move.mutate(header, {
+              onSuccess: (moved) => {
+                close();
+                void navigate({
+                  to: "/entities/$ref/",
+                  params: { ref: moved.hrid },
+                  search: recordSearch(moved),
+                  state: (prev) => ({
+                    ...prev,
+                    moved: {
+                      from: entry.hrid,
+                      to: moved.hrid,
+                      repointed: moved.repointed,
+                      ...(carries ? { across: kind } : {}),
+                    },
+                  }),
+                }).then(() => client.invalidateQueries({ queryKey: ENTITIES }));
+              },
+            });
           });
         }}
       >

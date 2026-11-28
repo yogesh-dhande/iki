@@ -18,6 +18,7 @@
  * the person chose that wasn't, to save on it or let go.
  */
 
+import { isStale } from "@ikisci/sdk";
 import {
   useQueryClient,
   useSuspenseQuery,
@@ -45,7 +46,6 @@ import {
   edit,
   importable,
   importQuery,
-  isStale,
   OUTCOMES,
   parseRanges,
   plural,

@@ -587,15 +587,15 @@ describe("a list's page", () => {
     expect(label).toHaveFocus();
   });
 
-  it("relabels an option from the revision read, with a reason, and reloads when it changed", async () => {
+  it("relabels an option from the revision read, with a reason, and brings a colleague's change in", async () => {
     onList({ can: { curate: true } });
     const relabelled = { ...SEC, label: "Gel filtration", revision: 3 };
-    let stale = true;
-    answer(`PATCH ${OPTIONS}/sec`, () =>
-      stale
-        ? problem(412, "stale", "It changed since you read it: it’s at revision 2 now.")
-        : relabelled,
-    );
+    answer(`PATCH ${OPTIONS}/sec`, (call: { headers: Headers }) => {
+      if (call.headers.get("If-Match") !== '"1"') return relabelled;
+      // A colleague described it meanwhile: the list, read again, has it at revision 2.
+      onOptions([PROTEIN_A, { ...SEC, revision: 2, description: "Superdex 200" }, DIALYSIS]);
+      return problem(412, "stale", "It changed since you read it: it’s at revision 2 now.");
+    });
     const { user } = await renderApp(PAGE);
     await user.click(await screen.findByRole("button", { name: "Change Size exclusion" }));
     await user.click(await screen.findByRole("menuitem", { name: "Edit…" }));
@@ -616,26 +616,28 @@ describe("a list's page", () => {
     });
     expect(first.headers.get("If-Match")).toBe('"1"');
     expect(first.body).toEqual({ label: "Gel filtration", values: {}, reason: "What we call it" });
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
-      /Someone changed Size exclusion since you opened it/,
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Someone changed Size exclusion while you were editing (it’s at revision 2 now)",
     );
-    // The latest, at revision 2, is loaded; the reason stays; saving sends that revision.
-    onOptions([PROTEIN_A, { ...SEC, revision: 2, description: "Superdex 200" }, DIALYSIS]);
-    stale = false;
-    await user.click(within(dialog).getByRole("button", { name: "Load the latest" }));
-    await waitFor(() => {
-      expect(within(dialog).getByRole("textbox", { name: /^Description/ })).toHaveValue(
-        "Superdex 200",
-      );
-    });
-    expect(within(dialog).getByRole("textbox", { name: "Label" })).toHaveValue("Size exclusion");
-    await user.clear(within(dialog).getByRole("textbox", { name: "Label" }));
-    await user.type(within(dialog).getByRole("textbox", { name: "Label" }), "Gel filtration");
+    // Theirs comes in; the new label and the reason stay; saving sends revision 2.
+    expect(alert).toHaveTextContent("Description now has its new value.");
+    expect(within(dialog).getByRole("textbox", { name: /^Description/ })).toHaveValue(
+      "Superdex 200",
+    );
+    expect(label).toHaveValue("Gel filtration");
+    expect(within(dialog).getByRole("textbox", { name: /^Reason/ })).toHaveValue("What we call it");
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => {
       expect(calls("PATCH", `${OPTIONS}/sec`)).toHaveLength(2);
     });
-    expect(calls("PATCH", `${OPTIONS}/sec`)[1]?.headers.get("If-Match")).toBe('"2"');
+    const second = calls("PATCH", `${OPTIONS}/sec`)[1];
+    expect(second?.headers.get("If-Match")).toBe('"2"');
+    expect(second?.body).toEqual({
+      label: "Gel filtration",
+      values: {},
+      reason: "What we call it",
+    });
     expect(await screen.findByText(/Saved Gel filtration/)).toBeVisible();
   });
 

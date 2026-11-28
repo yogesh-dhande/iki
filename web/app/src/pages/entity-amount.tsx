@@ -2,14 +2,13 @@
  * How much there is of a record (ADR 0139): its amount, whether a state holds it, the
  * controls that draw, transfer, split and adjust it, and its ledger.
  *
- * An adjustment is a count: it's checked against the balance the person saw when they
- * started it (its revision, as If-Match; If-None-Match: * when none was recorded, ADR
- * 0289). If anything changed it since, nothing is recorded: the
- * dialog shows the balance now and what changed it, keeps what they entered, and they
- * recount before recording again.
+ * An adjustment is a count: it's made from the balance the person saw when they started it
+ * (`useRevisioned`, ADR 0300: its revision, or If-None-Match: * when none was recorded, ADR
+ * 0289). If anything changed it since, nothing is recorded: the dialog shows the balance now
+ * and what changed it, keeps what they entered, and they record their recount against it.
  */
 
-import { ifMatch, ifNoneMatchAny, isStale, unwrap, type Schemas } from "@ikisci/sdk";
+import { isStale, unwrap, type Schemas } from "@ikisci/sdk";
 import {
   infiniteQueryOptions,
   useInfiniteQuery,
@@ -17,12 +16,13 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
 import { ENTITIES, personName, type Entity, type EntityType, type FieldDef } from "../entities";
 import { RecordPicker } from "../entity-inputs";
 import type { Picked } from "../entity-values";
+import { useRevisioned, type Precondition } from "../revisioned";
 import { IKI_ID_REFUSED, ikiId, SCAN_REFUSED, type ScanMode } from "../storage";
 import {
   Button,
@@ -82,15 +82,17 @@ function changeOf(m: Movement): string {
   return `${m.change.startsWith("-") ? `−${m.change.slice(1)}` : `+${m.change}`} ${m.unit}`;
 }
 
-/** The balance now, and the movements since the one a count was made against. */
-function useBalanceSince(observed: Amount | null, ref: string, enabled: boolean) {
-  const revision = observed?.revision ?? 0;
+/** The movements from the balance a count was started against (`from`) to the one it's
+ * made against now (`to`). */
+function useBalanceSince(from: Amount | null, to: Amount | null, ref: string, enabled: boolean) {
+  const since = from?.revision ?? 0;
+  const until = to?.revision ?? 0;
   return useQuery({
-    queryKey: ["balance-since", ref, revision],
+    queryKey: ["balance-since", ref, since, until],
     enabled,
     gcTime: 0,
     queryFn: async ({ signal }) => {
-      const [now, ledger] = await Promise.all([
+      const [read, ledger] = await Promise.all([
         iki.GET("/api/v1/entities/{ref}/amount", { params: { path: { ref } }, signal }),
         iki.GET("/api/v1/entities/{ref}/amount/movements", {
           params: { path: { ref }, query: { limit: 25 } },
@@ -98,13 +100,12 @@ function useBalanceSince(observed: Amount | null, ref: string, enabled: boolean)
         }),
       ]);
       const moves = unwrap(ledger);
-      const amount = now.response.status === 404 ? null : unwrap(now);
-      // Each movement is one revision of the balance: those after the one counted from are
-      // the newest (now − then) of the ledger.
-      const since = moves.items.slice(0, Math.max(0, (amount?.revision ?? 0) - revision));
+      const amount = read.response.status === 404 ? null : unwrap(read);
+      // Each movement is one revision of the balance, newest first: those after the one
+      // counted from, up to the one counted against, leaving any made since it was read.
+      const now = amount?.revision ?? 0;
       return {
-        amount,
-        since,
+        since: moves.items.slice(Math.max(0, now - until), Math.max(0, now - since)),
         refs: moves.refs as Record<string, Schemas["RefOut"]>,
       };
     },
@@ -256,9 +257,9 @@ function AmountDialog({
   const refusal = doing === "draw" && purposeAllowed ? entity.draw_refusals?.[purpose] : undefined;
   const own = ownFields(aliquotType, kept);
   const [names, setNames] = useState<Record<string, string>>({});
-  // The balance a count is made against: as the dialog opened, or as last recounted. A
-  // refetch behind the dialog doesn't change it.
-  const [observed, setObserved] = useState<Amount | null>(entity.amount ?? null);
+  // The balance a count was started against, once it changed meanwhile: what the dialog says
+  // changed it since.
+  const [startedFrom, setStartedFrom] = useState<Amount | null | undefined>(undefined);
   const countRef = useRef<HTMLDivElement>(null);
   const { say } = useMessages();
   const client = useQueryClient();
@@ -269,67 +270,91 @@ function AmountDialog({
       .split("\n")
       .map((l) => l.trim())
       .filter(Boolean);
-  const move = useApiMutation(async (): Promise<Done> => {
-    switch (doing) {
-      case "draw":
-        return {
-          moved: unwrap(
-            await iki.POST("/api/v1/entities/{ref}/amount/draw", {
+  const move = useApiMutation(
+    async (header?: Precondition): Promise<Done> => {
+      switch (doing) {
+        case "draw":
+          return {
+            moved: unwrap(
+              await iki.POST("/api/v1/entities/{ref}/amount/draw", {
+                params: { path: { ref } },
+                body: {
+                  amount: quantity,
+                  purpose,
+                  reason: reason.trim(),
+                  used_in: usedIn?.id ?? null,
+                  confirm: proofBy === "iki_id" ? ikiId(scanned) : scanned.trim(),
+                },
+              }),
+            ),
+            aliquots: [],
+          };
+        case "transfer":
+          return {
+            moved: unwrap(
+              await iki.POST("/api/v1/entities/{ref}/amount/transfer", {
+                params: { path: { ref } },
+                body: { to: to.trim(), amount: quantity, reason: reason.trim() },
+              }),
+            ),
+            aliquots: [],
+          };
+        case "adjust":
+          return {
+            moved: unwrap(
+              await iki.POST("/api/v1/entities/{ref}/amount/adjust", {
+                params: { path: { ref }, ...(header ? { header } : {}) },
+                body: { amount: quantity, reason: reason.trim() },
+              }),
+            ),
+            aliquots: [],
+          };
+        case "split": {
+          const n = Number(count);
+          const values = own.length
+            ? Array.from({ length: n }, (_, i) =>
+                Object.fromEntries(own.map((f) => [f.name, lines(f.name)[i] ?? ""])),
+              )
+            : null;
+          const split = unwrap(
+            await iki.POST("/api/v1/entities/{ref}/aliquots", {
               params: { path: { ref } },
-              body: {
-                amount: quantity,
-                purpose,
-                reason: reason.trim(),
-                used_in: usedIn?.id ?? null,
-                confirm: proofBy === "iki_id" ? ikiId(scanned) : scanned.trim(),
-              },
+              body: { count: n, each: quantity, values, reason: reason.trim() },
             }),
-          ),
-          aliquots: [],
-        };
-      case "transfer":
-        return {
-          moved: unwrap(
-            await iki.POST("/api/v1/entities/{ref}/amount/transfer", {
-              params: { path: { ref } },
-              body: { to: to.trim(), amount: quantity, reason: reason.trim() },
-            }),
-          ),
-          aliquots: [],
-        };
-      case "adjust":
-        return {
-          moved: unwrap(
-            await iki.POST("/api/v1/entities/{ref}/amount/adjust", {
-              params: {
-                path: { ref },
-                header: observed ? ifMatch(observed.revision) : ifNoneMatchAny(),
-              },
-              body: { amount: quantity, reason: reason.trim() },
-            }),
-          ),
-          aliquots: [],
-        };
-      case "split": {
-        const n = Number(count);
-        const values = own.length
-          ? Array.from({ length: n }, (_, i) =>
-              Object.fromEntries(own.map((f) => [f.name, lines(f.name)[i] ?? ""])),
-            )
-          : null;
-        const split = unwrap(
-          await iki.POST("/api/v1/entities/{ref}/aliquots", {
-            params: { path: { ref } },
-            body: { count: n, each: quantity, values, reason: reason.trim() },
-          }),
-        );
-        return { moved: split, aliquots: split.aliquots };
+          );
+          return { moved: split, aliquots: split.aliquots };
+        }
       }
-    }
-  }, [ENTITIES]);
+    },
+    [ENTITIES],
+  );
+  // A count is made against the balance as it was when it began: a refetch behind the
+  // dialog doesn't change it (ADR 0300).
+  const rev = useRevisioned(entity.amount ?? null, {
+    error: doing === "adjust" ? move.error : undefined,
+    refresh: ENTITIES,
+    onCatchUp: (_, was) => {
+      setStartedFrom(was);
+    },
+  });
+  const observed = doing === "adjust" ? rev.read : (entity.amount ?? null);
+  const recounting = doing === "adjust" && rev.changed;
+  const latest = useBalanceSince(
+    startedFrom ?? null,
+    observed,
+    ref,
+    recounting && !rev.rereading && startedFrom !== undefined,
+  );
+  // Caught up: what they entered stays, selected, to keep or count again against it.
+  const recountFrom = recounting && startedFrom !== undefined ? (observed?.revision ?? 0) : null;
+  useEffect(() => {
+    if (recountFrom === null) return;
+    const field = countRef.current?.querySelector("input");
+    field?.focus();
+    field?.select();
+  }, [recountFrom]);
   const problem = move.error ? problemOf(move.error) : undefined;
-  const stale = doing === "adjust" && isStale(move.error);
-  const latest = useBalanceSince(observed, ref, stale);
+  const stale = isStale(move.error);
   const errors = fieldErrors(problem);
   const amountError = errors["amount"] ?? errors["each"];
   // A typed Iki ID the server can't use: none matched, or one the person can't read did.
@@ -362,15 +387,6 @@ function AmountDialog({
     split: "Split",
     adjust: observed ? "Adjust" : "Record",
   };
-  const recount = () => {
-    if (!latest.data) return;
-    setObserved(latest.data.amount);
-    move.reset();
-    // What they entered stays, selected, to keep or count again against the new balance.
-    const field = countRef.current?.querySelector("input");
-    field?.focus();
-    field?.select();
-  };
   return (
     <ConfirmDialog
       isOpen
@@ -378,41 +394,42 @@ function AmountDialog({
       confirmLabel={confirm[doing]}
       confirmVariant="primary"
       confirmDisabled={
-        stale ||
-        (doing === "draw" && (!purposeAllowed || !!refusal || (confirmDraw && !scanned.trim())))
+        doing === "draw" && (!purposeAllowed || !!refusal || (confirmDraw && !scanned.trim()))
       }
-      busy={move.isPending}
+      busy={move.isPending || rev.rereading}
       problem={shownProblem}
       onCancel={onClose}
       onConfirm={() => {
-        move.mutate(undefined, {
-          onError: (error) => {
-            if (doing === "draw" && error.status === 403) {
-              void client.invalidateQueries({ queryKey: [...ENTITIES, "one"] });
-            }
-            // The page behind shows the balance now, as the dialog does.
-            if (isStale(error)) {
+        const send = (header?: Precondition) => {
+          move.mutate(header, {
+            onError: (error) => {
+              if (doing === "draw" && error.status === 403) {
+                void client.invalidateQueries({ queryKey: [...ENTITIES, "one"] });
+              }
+            },
+            onSuccess: ({ moved, aliquots }) => {
+              onClose();
+              const left = `${moved.amount.value} ${moved.amount.unit}`;
+              say(
+                aliquots.length
+                  ? `Split ${entity.hrid} into ${aliquots.map((a) => a.hrid).join(", ")}: ${left} left.`
+                  : `${entity.hrid} has ${left} now.`,
+              );
               void client.invalidateQueries({ queryKey: ENTITIES });
-            }
-          },
-          onSuccess: ({ moved, aliquots }) => {
-            onClose();
-            const left = `${moved.amount.value} ${moved.amount.unit}`;
-            say(
-              aliquots.length
-                ? `Split ${entity.hrid} into ${aliquots.map((a) => a.hrid).join(", ")}: ${left} left.`
-                : `${entity.hrid} has ${left} now.`,
-            );
-            void client.invalidateQueries({ queryKey: ENTITIES });
-          },
-        });
+            },
+          });
+        };
+        // Only a count replaces what's recorded: a draw, transfer or split adds a movement.
+        if (doing === "adjust") rev.submit(send);
+        else send();
       }}
     >
-      {stale ? (
+      {recounting ? (
         <StaleBalance
-          observed={observed}
+          from={startedFrom ?? null}
+          now={observed}
+          reading={rev.rereading || startedFrom === undefined}
           latest={latest}
-          onRecount={recount}
           what={kept.label.toLowerCase()}
         />
       ) : null}
@@ -563,20 +580,22 @@ function AmountDialog({
   );
 }
 
-/** A count refused because the balance changed after it was started: the balance now,
- * what changed it, and the way to recount. */
+/** A count not recorded because the balance changed after it was started: the balance now,
+ * what changed it, and that it's recorded against this one when they confirm again. */
 function StaleBalance({
-  observed,
+  from,
+  now,
+  reading,
   latest,
-  onRecount,
   what,
 }: {
-  observed: Amount | null;
+  from: Amount | null;
+  now: Amount | null;
+  /** The balance now is still being read. */
+  reading: boolean;
   latest: ReturnType<typeof useBalanceSince>;
-  onRecount: () => void;
   what: string;
 }) {
-  const now = latest.data?.amount;
   const since = latest.data?.since ?? [];
   const refs = latest.data?.refs ?? {};
   return (
@@ -584,17 +603,17 @@ function StaleBalance({
       <p>
         <strong>Your count wasn’t recorded:</strong> the {what} changed after you started counting.
       </p>
-      {latest.isPending ? <Loading label="Reading the balance now…" /> : null}
-      {latest.error ? <ProblemAlert problem={problemOf(latest.error)} /> : null}
-      {latest.data ? (
+      {reading ? (
+        <Loading label="Reading the balance now…" />
+      ) : (
         <>
           <p>
             {now ? (
               <>
                 It has {now.value} {now.unit} now
-                {observed ? (
+                {from ? (
                   <>
-                    , not the {observed.value} {observed.unit} you started from
+                    , not the {from.value} {from.unit} you started from
                   </>
                 ) : null}
                 .
@@ -603,6 +622,7 @@ function StaleBalance({
               "None is recorded now."
             )}
           </p>
+          {latest.error ? <ProblemAlert problem={problemOf(latest.error)} /> : null}
           {since.length ? (
             <ul aria-label="Changed since you started">
               {since.map((m) => {
@@ -618,18 +638,12 @@ function StaleBalance({
               })}
             </ul>
           ) : null}
-          <p>Recount it against this balance. What you entered is kept.</p>
+          <p>
+            Recount it against this balance. What you entered is kept: record it again when it’s
+            right.
+          </p>
         </>
-      ) : null}
-      <div className="actions">
-        <Button
-          busy={latest.isPending}
-          busyText="Reading…"
-          onClick={latest.error ? () => void latest.refetch() : onRecount}
-        >
-          {latest.error ? "Try again" : "Recount"}
-        </Button>
-      </div>
+      )}
     </div>
   );
 }
