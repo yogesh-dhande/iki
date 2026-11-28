@@ -1,0 +1,14 @@
+apiVersion: iki/v1
+kind: Starter
+name: purity_review
+version: 1.0.0
+label: Purity checks
+description: Choose how purity checks are reviewed, and who signs them.
+governs: PurityCheck
+procedure: iki/core.result_review@1
+flows: [research, regulated_qc]
+suggested: research
+slots:
+  analyst: { minimum: editor, role: acme/protein.analyst }
+  reviewer: { minimum: viewer, role: acme/protein.reviewer }
+  qa: { minimum: viewer, role: acme/protein.qa }

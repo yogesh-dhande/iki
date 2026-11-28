@@ -54,6 +54,8 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("admin/webhooks/", web.app, name="webhook_settings"),
     # Outside APIs and the projects each is approved for (ADR 0130).
     path("admin/outside-apis/", web.app, name="outside_api_settings"),
+    # Each reviewed type's deployment default (ADR 0302).
+    path("admin/review-procedures/", web.app, name="review_defaults"),
     path("admin/compute/", web.app, name="compute"),
     path("admin/compute/workers/", web.app, name="compute_workers"),
     path("admin/compute/slurm/", web.app, name="compute_slurm"),

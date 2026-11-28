@@ -11,7 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useMemo, useState, type SubmitEvent } from "react";
 
-import { membersQuery, problemOf, useApiMutation, type Project } from "../api";
+import { labRolesQuery, membersQuery, problemOf, useApiMutation, type Project } from "../api";
 import { typeFlowQuery } from "../flow";
 import { FlowDiagram, useRoleLabels } from "../flow-diagram";
 import { usePageTitle } from "../layout";
@@ -20,6 +20,7 @@ import { StaleNote } from "../observations";
 import { listed } from "../requests";
 import {
   applyStarter,
+  canStaff,
   eligible,
   independentEnough,
   planChanges,
@@ -40,6 +41,7 @@ import {
   Loading,
   ProblemAlert,
   RadioField,
+  SelectField,
   useMessages,
 } from "../ui";
 import { useProject } from "./project-overview";
@@ -71,7 +73,11 @@ export function ProjectStarters() {
       ) : null}
       {starters.data?.map((s) =>
         project.can.manage && !project.archived ? (
-          <StarterSetupCard key={s.id} starter={s} project={project} />
+          s.procedure ? (
+            <ProcedureStarterCard key={s.id} starter={s} project={project} />
+          ) : (
+            <StarterSetupCard key={s.id} starter={s} project={project} />
+          )
         ) : (
           <StarterCard key={s.id} starter={s} project={project} />
         ),
@@ -83,6 +89,14 @@ export function ProjectStarters() {
 /** What's applied, in a badge. */
 function Applied({ starter }: { starter: Starter }) {
   const applied = starter.applied;
+  const flowLabel = (flow: string) => starter.flows.find((f) => f.id === flow)?.label ?? flow;
+  if (!applied && starter.chosen) {
+    // Chosen another way: by another starter, or through the API.
+    return <Badge>Chosen: {flowLabel(starter.chosen.flow)}</Badge>;
+  }
+  if (!applied && starter.default) {
+    return <Badge muted>Deployment default: {flowLabel(starter.default.flow)}</Badge>;
+  }
   if (!applied) return <Badge muted>Not applied here</Badge>;
   const flow = starter.flows.find((f) => f.id === applied.flow);
   return (
@@ -158,7 +172,9 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
   const { say } = useMessages();
   const applied = starter.applied;
   const members = useQuery(membersQuery(project.id));
-  const [flowId, setFlowId] = useState(applied?.flow ?? starter.flows[0]?.id ?? "research");
+  const [flowId, setFlowId] = useState(
+    applied?.flow ?? starter.suggested ?? starter.flows[0]?.id ?? "research",
+  );
   const flow = starter.flows.find((f) => f.id === flowId) ?? starter.flows[0];
   // Who's chosen for each role: until the Admin chooses, whoever holds it already.
   const [picked, setPicked] = useState<Record<string, string[]> | null>(null);
@@ -411,17 +427,333 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
   );
 }
 
+/**
+ * A plugin's starter as a project's Admin applies it (ADRs 0302 to 0304): the review flow
+ * for new records of its type, who plays each of the procedure's parts, and the members
+ * who hold those roles. It starts from the project's choice, else the deployment's
+ * default, else the flow the plugin suggests.
+ */
+function ProcedureStarterCard({ starter, project }: { starter: Starter; project: Project }) {
+  const id = useId();
+  const { say } = useMessages();
+  const applied = starter.applied;
+  const members = useQuery(membersQuery(project.id));
+  const labRoles = useQuery(labRolesQuery);
+  const [flowId, setFlowId] = useState(
+    applied?.flow ?? starter.default?.flow ?? starter.suggested ?? starter.flows[0]?.id ?? "",
+  );
+  const flow = starter.flows.find((f) => f.id === flowId) ?? starter.flows[0];
+  const slotsOf = useMemo(() => new Map(starter.slots.map((s) => [s.id, s])), [starter.slots]);
+  // Who plays each part: as the project's choice (or the default) binds it, until changed.
+  const [roles, setRoles] = useState<Record<string, string>>(() =>
+    Object.fromEntries(starter.slots.map((s) => [s.id, s.role])),
+  );
+  const [picked, setPicked] = useState<Record<string, string[]> | null>(null);
+  const [plan, setPlan] = useState<{ key: string; plan: StarterPlan } | null>(null);
+  const [changes, setChanges] = useState<{ key: string; body: string }[] | null>(null);
+
+  const roleLabels = useMemo(
+    () => new Map((labRoles.data ?? []).map((r) => [r.name, r.label])),
+    [labRoles.data],
+  );
+  const label = (role: string) =>
+    roleLabels.get(role) ?? starter.roles.find((r) => r.id === role)?.label ?? role;
+  const slots = (flow?.steps ?? [])
+    .flatMap((step) => step.slots)
+    .filter((slot, i, all) => all.indexOf(slot) === i)
+    .flatMap((slot) => {
+      const found = slotsOf.get(slot);
+      return found ? [found] : [];
+    });
+  const minimumOf = (role: string) =>
+    slots.some((s) => roles[s.id] === role && s.minimum_project_role === "editor")
+      ? "editor"
+      : "viewer";
+  const bound = [...new Set(slots.map((s) => roles[s.id] ?? s.role))];
+  const held = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const role of new Set(Object.values(roles))) {
+      out[role] = (members.data ?? [])
+        .filter((m) => m.lab_roles.some((g) => g.role === role))
+        .map((m) => m.id);
+    }
+    return out;
+  }, [members.data, roles]);
+  const chosen = picked ?? held;
+  const setup: StarterSetup = {
+    project: project.id,
+    version: starter.version,
+    flow: flow?.id ?? "",
+    role_assignments: Object.fromEntries(bound.map((r) => [r, [...(chosen[r] ?? [])].sort()])),
+    slots: Object.fromEntries(
+      starter.slots
+        .filter((s) => roles[s.id] !== s.starter_role)
+        .map((s) => [s.id, roles[s.id] ?? s.role]),
+    ),
+  };
+  const key = JSON.stringify(setup);
+  const previewed = plan?.key === key ? plan.plan : null;
+  const preview = useApiMutation((s: StarterSetup) => previewStarter(starter.id, s), []);
+  const apply = useApiMutation(
+    ({ setup: s, plan: reviewed }: { setup: StarterSetup; plan: string }) =>
+      applyStarter(starter.id, s, reviewed),
+    [STARTERS, membersQuery(project.id).queryKey],
+  );
+  const problem =
+    (apply.error ?? preview.error) ? problemOf(apply.error ?? preview.error) : undefined;
+  const memberById = new Map((members.data ?? []).map((m) => [m.id, m]));
+  const nameOf = (member: string) => {
+    const found = memberById.get(member);
+    return found ? memberName(found) : "someone";
+  };
+  const form = useForm(null, preview.isPending || apply.isPending);
+
+  function submit(event: SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const checks: Record<string, string | false> = {};
+    const unstaffed = (flow?.steps ?? []).filter(
+      (step) => !step.slots.some((slot) => (chosen[roles[slot] ?? ""] ?? []).length),
+    );
+    for (const step of unstaffed) {
+      checks[`step:${step.state}`] = `Choose someone who can move records to ${step.label}.`;
+    }
+    checks["independent"] =
+      !unstaffed.length &&
+      flow !== undefined &&
+      !canStaff(flow, roles, chosen) &&
+      "Choose enough different people that each step’s signer can be someone other than the signers it must be independent of. One person may play several parts, so long as that holds.";
+    if (!form.validate(checks)) return;
+    if (!previewed) {
+      apply.reset();
+      setChanges(null);
+      preview.mutate(setup, {
+        onSuccess: (result) => {
+          setPlan({ key, plan: result });
+        },
+      });
+      return;
+    }
+    const shown = previewed;
+    setChanges(null);
+    apply.mutate(
+      { setup, plan: shown.plan },
+      {
+        onError: (error) => {
+          const now = error instanceof ApiError ? error.problem.plan : undefined;
+          if (error instanceof ApiError && error.problem.code === "starter_plan_changed" && now) {
+            apply.reset();
+            setPlan({ key, plan: now });
+            setChanges(planChanges(shown, now, label, nameOf));
+          }
+        },
+        onSuccess: (result) => {
+          setPlan({ key, plan: { ...result, changed: false, grants_to_add: {} } });
+          say(
+            result.changed
+              ? `Applied ${starter.label} with the ${flow?.label ?? ""} flow.`
+              : `${starter.label} was already set up this way.`,
+          );
+        },
+      },
+    );
+  }
+
+  const roleOptions = (labRoles.data ?? []).map((r) => ({ value: r.name, label: r.label }));
+  const unstaffedErrors = Object.entries(form.errors).filter(([k]) => k.startsWith("step:"));
+  return (
+    <section className="card card-wide starter" aria-labelledby={`${id}-title`}>
+      <div className="section-header">
+        <h2 className="section-title" id={`${id}-title`}>
+          {starter.label}
+        </h2>
+        <span className="tags">
+          <Badge muted>Version {starter.version}</Badge>
+          <Applied starter={starter} />
+        </span>
+      </div>
+      <p>{starter.description}</p>
+      {!applied && starter.chosen ? (
+        <p className="muted">
+          New {starter.governs} in {project.name} follow {starter.chosen.procedure}, chosen by{" "}
+          {starter.chosen.chosen_by}. Applying this starter replaces that choice.
+        </p>
+      ) : null}
+      {!applied && !starter.chosen && starter.default ? (
+        <p className="muted">
+          Until {project.name} chooses, new {starter.governs} follow the deployment’s default, set
+          by {starter.default.chosen_by}: “{starter.default.reason}”
+        </p>
+      ) : null}
+      <form {...form.props} onSubmit={submit}>
+        <RadioField
+          label="Review flow"
+          value={flow?.id ?? ""}
+          onChange={(value) => {
+            setFlowId(value);
+          }}
+          options={starter.flows.map((f) => ({
+            value: f.id,
+            label:
+              f.id === applied?.flow
+                ? `${f.label} (applied now)`
+                : f.id === starter.suggested && !applied
+                  ? `${f.label} (suggested)`
+                  : f.label,
+            description: f.summary,
+          }))}
+        />
+        {flow ? (
+          <div className="starter-flow">
+            <h3 className="starter-flow-title">How a {flow.label} record moves</h3>
+            <ResultFlow flow={flow} />
+          </div>
+        ) : null}
+        {applied && flow && applied.flow !== flow.id ? (
+          <div className="alert alert-warning" role="note">
+            <p>
+              New {starter.governs} will use the {flow.label} flow. Existing ones keep the procedure
+              they were made under.
+            </p>
+          </div>
+        ) : null}
+
+        <h3 className="starter-step">Who does what</h3>
+        {slots.length ? (
+          <p className="field-help starter-help">
+            Choose the lab role that plays each part, and members of {project.name} who hold it. To
+            add someone, open{" "}
+            <Link to="/projects/$slug/members/" params={{ slug: project.slug }}>
+              Members
+            </Link>
+            .
+          </p>
+        ) : (
+          <p className="field-help starter-help">
+            No one signs in {flow?.label ?? "this flow"}, so it grants no lab roles.
+          </p>
+        )}
+        {members.isPending && slots.length ? <Loading label="Loading members" /> : null}
+        {slots.map((slot) => {
+          const role = roles[slot.id] ?? slot.role;
+          const minimum = minimumOf(role);
+          const options = eligible(members.data ?? [], minimum);
+          return (
+            <fieldset className="starter-slot" key={slot.id}>
+              <legend className="starter-role">{slot.label}</legend>
+              {slot.description ? <p className="field-help">{slot.description}</p> : null}
+              {roleOptions.length > 1 ? (
+                <SelectField
+                  label={`Lab role that plays ${slot.label}`}
+                  value={role}
+                  onChange={(value) => {
+                    setRoles({ ...roles, [slot.id]: value });
+                  }}
+                  options={roleOptions}
+                />
+              ) : null}
+              {options.length ? (
+                <CheckboxesField
+                  label={`Members who hold ${label(role)}`}
+                  literal={false}
+                  value={chosen[role] ?? []}
+                  onChange={(value) => {
+                    setPicked({ ...chosen, [role]: value });
+                  }}
+                  help={`Needs ${PROJECT_ROLE[minimum]} or higher.`}
+                  options={options.map((m) => ({
+                    value: m.id,
+                    label: memberName(m),
+                    description: [
+                      PROJECT_ROLE[m.role],
+                      m.lab_roles.some((g) => g.role === role)
+                        ? `holds ${label(role)} already`
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · "),
+                  }))}
+                />
+              ) : (
+                <p className="field-error">
+                  No one here can be {label(role)}: it needs a membership of their own as{" "}
+                  {PROJECT_ROLE[minimum]} or higher.
+                </p>
+              )}
+            </fieldset>
+          );
+        })}
+        {unstaffedErrors.map(([k, message]) => (
+          <p className="field-error" role="alert" key={k}>
+            {message}
+          </p>
+        ))}
+        {form.errors["independent"] ? (
+          <p className="field-error" role="alert">
+            {form.errors["independent"]}
+          </p>
+        ) : null}
+
+        <ProblemAlert problem={problem} />
+        {previewed && changes ? (
+          <StaleNote
+            changes={changes}
+            what="What applying does"
+            again={
+              previewed.changed
+                ? "If it’s still what you want, apply it."
+                : "Nothing is left to apply."
+            }
+          />
+        ) : null}
+        {previewed ? (
+          <Plan
+            plan={previewed}
+            flowLabel={starter.flows.find((f) => f.id === previewed.flow)?.label ?? previewed.flow}
+            label={label}
+            memberName={nameOf}
+            governs={starter.governs}
+          />
+        ) : null}
+        <div className="actions">
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={previewed !== null && !previewed.changed}
+            busy={preview.isPending || apply.isPending}
+            busyText={preview.isPending ? "Previewing…" : "Applying…"}
+          >
+            {previewed ? "Apply" : "Preview"}
+          </Button>
+          {previewed ? (
+            <Button
+              variant="quiet"
+              onClick={() => {
+                setPlan(null);
+                setChanges(null);
+              }}
+            >
+              Change it
+            </Button>
+          ) : null}
+        </div>
+      </form>
+    </section>
+  );
+}
+
 /** The flow and role grants the admin is about to apply. */
 function Plan({
   plan,
   flowLabel,
   label,
   memberName,
+  governs = "results",
 }: {
   plan: StarterPlan;
   flowLabel: string;
   label: (role: string) => string;
   memberName: (membership: string) => string;
+  governs?: string;
 }) {
   const grants = Object.entries(plan.grants_to_add).flatMap(([role, ids]) =>
     ids.map((member) => `${memberName(member)} becomes ${label(role)}`),
@@ -433,7 +765,9 @@ function Plan({
         <p>This starter is already configured with these choices.</p>
       ) : (
         <ul>
-          <li>New results follow the {flowLabel} flow.</li>
+          <li>
+            {`New ${governs} follow the ${flowLabel} flow${plan.replaces ? ", replacing the project’s current choice" : ""}.`}
+          </li>
           {grants.map((g) => (
             <li key={g}>{g}.</li>
           ))}

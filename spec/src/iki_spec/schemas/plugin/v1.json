@@ -289,6 +289,10 @@
         "description": {
           "description": "What someone with the role does, shown where Admins give it, such as `Releases reviewed samples`.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
+        },
+        "distinct": {
+          "description": "Why it's separate from the shared `iki/lab_roles` role of the same name, such as `Qualifying a cell bank is given to different people than assay review.` (ADR 0304). Without a reason, a plugin's own `qa` or `reviewer` splits a project's people for no one's benefit.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
         }
       },
       "additionalProperties": false

@@ -388,6 +388,12 @@ def misfits(
     return out
 
 
+def route(flow: ReviewFlow, review: ReviewSpec | None) -> tuple[str, ...]:
+    """The states a type's records pass through in ``flow``, in order: for a derived
+    record, the flow's first and final states (ADR 0301)."""
+    return _route(flow, review)
+
+
 def _route(flow: ReviewFlow, review: ReviewSpec | None) -> tuple[str, ...]:
     if review is not None and review.derived and len(flow.route) > 1:
         return (flow.route[0], flow.route[-1])

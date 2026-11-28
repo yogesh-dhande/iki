@@ -81,6 +81,7 @@ describe("the admin area", () => {
         [
           ["Audit log", "/admin/audit/"],
           ["Electronic signatures", "/admin/signatures/"],
+          ["Review procedures", "/admin/review-procedures/"],
           ["Legal holds", "/admin/legal-holds/"],
         ],
       ],

@@ -14,8 +14,15 @@ import { describe, expect, it } from "vitest";
 import { queryClient } from "./api";
 import fixtures from "./flow-fixtures.json";
 import { createAppRouter } from "./router";
-import { eligible, independentEnough, routeOf, type Member, type StarterFlow } from "./starters";
-import { answer, calls, page, problem, project, signedIn, TEAM } from "./test-server";
+import {
+  canStaff,
+  eligible,
+  independentEnough,
+  routeOf,
+  type Member,
+  type StarterFlow,
+} from "./starters";
+import { answer, calls, ME, page, problem, project, signedIn, TEAM } from "./test-server";
 
 const SERVICE = project({
   id: "00000000-0000-7000-8000-0000000000s1",
@@ -37,6 +44,8 @@ function starter(more: Partial<Schemas["StarterOut"]> = {}): Schemas["StarterOut
         id: "research",
         label: "Research",
         result_type: `${PLATE}ResearchAssayResult`,
+        steps: [],
+        apart: [],
         required_roles: [ANALYST, REVIEWER],
         independent_roles: [],
         summary:
@@ -46,6 +55,8 @@ function starter(more: Partial<Schemas["StarterOut"]> = {}): Schemas["StarterOut
         id: "regulated_qc",
         label: "Regulated QC",
         result_type: `${PLATE}QCAssayResult`,
+        steps: [],
+        apart: [],
         required_roles: [ANALYST, REVIEWER, QA],
         independent_roles: [ANALYST, REVIEWER, QA],
         summary:
@@ -59,6 +70,11 @@ function starter(more: Partial<Schemas["StarterOut"]> = {}): Schemas["StarterOut
     ],
     types: [],
     applied: null,
+    procedure: null,
+    suggested: null,
+    slots: [],
+    chosen: null,
+    default: null,
     ...more,
   };
 }
@@ -227,12 +243,19 @@ function experimentReview(): Schemas["StarterOut"] {
     id,
     label,
     result_type: `${EXPERIMENT}Experiment`,
+    steps: [],
+    apart: [],
     required_roles: required,
     independent_roles: independent,
     summary: `${label}, in a sentence.`,
     states,
   });
   return {
+    procedure: null,
+    suggested: null,
+    slots: [],
+    chosen: null,
+    default: null,
     id: "experiment-review",
     version: "1.0.0",
     label: "Experiment review",
@@ -423,6 +446,8 @@ describe("a project's starters", () => {
       id,
       label,
       result_type: result,
+      steps: [],
+      apart: [],
       states,
       required_roles,
       independent_roles: id === "regulated_qc" ? required_roles : [],
@@ -696,5 +721,258 @@ describe("a project's starters", () => {
     expect(within(list).getByText("Applied: Regulated QC")).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Set it up from a starter" }));
     expect(await setupCard()).toBeInTheDocument();
+  });
+});
+
+const SHARED = "iki/lab_roles.";
+const [LAB_ANALYST, LAB_REVIEWER, LAB_QA] = [
+  `${SHARED}analyst`,
+  `${SHARED}reviewer`,
+  `${SHARED}qa`,
+];
+const SEARCH_REVIEW = "iki/proteomics.search_review";
+const SEARCH_RESULT = "iki/proteomics.ProteomicsResult";
+const REGULATED_STEPS = {
+  steps: [
+    { state: "submitted", label: "Submitted", slots: ["analyst"] },
+    { state: "reviewed", label: "Independently reviewed", slots: ["reviewer"] },
+    { state: "released", label: "QA released", slots: ["qa"] },
+  ],
+  apart: [
+    ["submitted", "reviewed"],
+    ["submitted", "released"],
+    ["reviewed", "released"],
+  ],
+};
+
+/** A plugin's starter for core's result review (ADR 0303), as `GET /starters` lists it. */
+function procedureStarter(more: Partial<Schemas["StarterOut"]> = {}): Schemas["StarterOut"] {
+  const slot = (id: string, label: string, role: string, minimum: "viewer" | "editor") => ({
+    id,
+    label,
+    description: "",
+    role,
+    starter_role: role,
+    minimum_project_role: minimum,
+  });
+  return {
+    id: SEARCH_REVIEW,
+    version: "1.0.0",
+    label: "Proteomics search results",
+    description: "Choose how newly imported search results are reviewed, and who signs them.",
+    governs: "proteomics results",
+    procedure: "iki/core.result_review@1",
+    suggested: "research",
+    flows: [
+      {
+        id: "research",
+        label: "Research",
+        result_type: SEARCH_RESULT,
+        states: ["recorded", "signed_off"],
+        required_roles: [LAB_REVIEWER],
+        independent_roles: [],
+        summary: "One reviewer, who didn’t make or edit it, signs it off.",
+        steps: [{ state: "signed_off", label: "Signed off", slots: ["reviewer"] }],
+        apart: [],
+      },
+      {
+        id: "regulated_qc",
+        label: "Regulated QC",
+        result_type: SEARCH_RESULT,
+        states: ["recorded", "submitted", "reviewed", "released"],
+        required_roles: [LAB_ANALYST, LAB_REVIEWER, LAB_QA],
+        independent_roles: [LAB_ANALYST, LAB_REVIEWER, LAB_QA],
+        summary: "Submitted, independently reviewed and released by QA.",
+        ...REGULATED_STEPS,
+      },
+    ],
+    roles: [
+      { id: LAB_ANALYST, label: "Analyst", minimum_project_role: "editor" },
+      { id: LAB_REVIEWER, label: "Reviewer", minimum_project_role: "viewer" },
+      { id: LAB_QA, label: "Sample and result QA", minimum_project_role: "viewer" },
+    ],
+    slots: [
+      slot("analyst", "Analyst", LAB_ANALYST, "editor"),
+      slot("reviewer", "Reviewer", LAB_REVIEWER, "viewer"),
+      slot("qa", "QA", LAB_QA, "viewer"),
+    ],
+    types: [SEARCH_RESULT],
+    applied: null,
+    chosen: null,
+    default: null,
+    ...more,
+  };
+}
+
+describe("a plugin's starter", () => {
+  it("needs someone for every step, with the steps the procedure keeps apart signed apart", () => {
+    const roles = { analyst: LAB_ANALYST, reviewer: LAB_REVIEWER, qa: LAB_QA };
+    const three = { [LAB_ANALYST]: ["a"], [LAB_REVIEWER]: ["b"], [LAB_QA]: ["c"] };
+    expect(canStaff(REGULATED_STEPS, roles, three)).toBe(true);
+    // One person can't submit, review and release.
+    expect(canStaff(REGULATED_STEPS, roles, { ...three, [LAB_QA]: ["a"] })).toBe(false);
+    // Two holders of a role leave room: b reviews, so QA can be c.
+    expect(canStaff(REGULATED_STEPS, roles, { ...three, [LAB_QA]: ["a", "c"] })).toBe(true);
+    // Steps nothing keeps apart may be one person's.
+    expect(
+      canStaff({ ...REGULATED_STEPS, apart: [] }, roles, {
+        [LAB_ANALYST]: ["a"],
+        [LAB_REVIEWER]: ["a"],
+        [LAB_QA]: ["a"],
+      }),
+    ).toBe(true);
+    // Two slots one role plays: its holders must be enough for both.
+    const one = { analyst: LAB_ANALYST, reviewer: LAB_ANALYST, qa: LAB_QA };
+    expect(canStaff(REGULATED_STEPS, one, { [LAB_ANALYST]: ["a"], [LAB_QA]: ["c"] })).toBe(false);
+    expect(canStaff(REGULATED_STEPS, one, { [LAB_ANALYST]: ["a", "b"], [LAB_QA]: ["c"] })).toBe(
+      true,
+    );
+  });
+
+  it("starts from the deployment's default, checks the signers, and binds a part to another role", async () => {
+    onStarters(
+      procedureStarter({
+        default: {
+          procedure: "iki/core.result_review@1",
+          flow: "research",
+          version: "1.0.0",
+          slots: { analyst: LAB_ANALYST, reviewer: LAB_REVIEWER, qa: LAB_QA },
+          chosen_by: "Rosalind Franklin",
+          chosen_at: "2026-11-20T10:00:00Z",
+          reason: "SOP-QA-014 v3 covers discovery proteomics.",
+        },
+      }),
+    );
+    answer(`GET /api/v1/entity-types/${SEARCH_RESULT}/flow`, flowOf(SEARCH_RESULT));
+    const { user } = await renderApp("/projects/assay-core/settings/starters/");
+    const card = await screen.findByRole("region", { name: "Proteomics search results" });
+    expect(within(card).getByText("Deployment default: Research")).toBeInTheDocument();
+    expect(card).toHaveTextContent(
+      "Until Assay Core chooses, new proteomics results follow the deployment’s default",
+    );
+    const flows = within(card).getByRole("group", { name: "Review flow" });
+    expect(within(flows).getByRole("radio", { name: /^Research \(suggested\)/ })).toBeChecked();
+    await user.click(within(flows).getByRole("radio", { name: /^Regulated QC/ }));
+
+    const analyst = within(card).getByRole("group", { name: "Members who hold Analyst" });
+    const reviewer = within(card).getByRole("group", { name: "Members who hold Reviewer" });
+    const qa = within(card).getByRole("group", { name: "Members who hold Sample and result QA" });
+    await user.click(within(analyst).getByRole("checkbox", { name: "Barbara McClintock" }));
+    await user.click(within(reviewer).getByRole("checkbox", { name: "Barbara McClintock" }));
+    await user.click(within(qa).getByRole("checkbox", { name: "Barbara McClintock" }));
+    await user.click(within(card).getByRole("button", { name: "Preview" }));
+    expect(within(card).getByRole("alert")).toHaveTextContent(
+      "Choose enough different people that each step’s signer can be someone other",
+    );
+    expect(calls("POST")).toHaveLength(0);
+
+    // The lab's own reviewers play Reviewer here.
+    await user.selectOptions(
+      within(card).getByRole("combobox", { name: "Lab role that plays Reviewer" }),
+      "Assay reviewer",
+    );
+    const assayReviewers = within(card).getByRole("group", {
+      name: "Members who hold Assay reviewer",
+    });
+    await user.click(within(assayReviewers).getByRole("checkbox", { name: "Carl Woese" }));
+    await user.click(within(qa).getByRole("checkbox", { name: "Barbara McClintock" }));
+    await user.click(within(qa).getByRole("checkbox", { name: "Dorothy Hodgkin" }));
+    const plan = {
+      starter: SEARCH_REVIEW,
+      version: "1.0.0",
+      project: SERVICE.id,
+      flow: "regulated_qc",
+      result_type: SEARCH_RESULT,
+      changed: true,
+      role_assignments: {},
+      slots: { analyst: LAB_ANALYST, reviewer: REVIEWER, qa: LAB_QA },
+      grants_to_add: { [LAB_ANALYST]: ["m2"], [REVIEWER]: ["m3"], [LAB_QA]: ["m4"] },
+      plan: "b2".repeat(32),
+      replaces: { procedure: "iki/core.result_review@1", flow: "research", starter: null },
+    };
+    answer(`POST /api/v1/starters/${SEARCH_REVIEW}/preview`, plan);
+    await user.click(within(card).getByRole("button", { name: "Preview" }));
+    const preview = await within(card).findByRole("status", { name: "What applying will do" });
+    expect(calls("POST", `/api/v1/starters/${SEARCH_REVIEW}/preview`)[0]?.body).toEqual({
+      project: SERVICE.id,
+      version: "1.0.0",
+      flow: "regulated_qc",
+      role_assignments: { [LAB_ANALYST]: ["m2"], [REVIEWER]: ["m3"], [LAB_QA]: ["m4"] },
+      slots: { reviewer: REVIEWER },
+    });
+    expect(within(preview).getAllByRole("listitem")[0]).toHaveTextContent(
+      "New proteomics results follow the Regulated QC flow, replacing the project’s current choice.",
+    );
+  });
+});
+
+describe("Admin → Review procedures", () => {
+  it("sets a deployment default only with a reason, and clears it with one", async () => {
+    signedIn({ can: { ...ME.can, manage_org: true } });
+    answer("GET /api/v1/starters", [starter(), procedureStarter()]);
+    answer(`GET /api/v1/entity-types/${SEARCH_RESULT}/flow`, flowOf(SEARCH_RESULT));
+    const set: Schemas["StarterDefaultOut"] = {
+      starter: SEARCH_REVIEW,
+      default: {
+        procedure: "iki/core.result_review@1",
+        flow: "regulated_qc",
+        version: "1.0.0",
+        slots: { analyst: LAB_ANALYST, reviewer: LAB_REVIEWER, qa: LAB_QA },
+        chosen_by: "Rosalind Franklin",
+        chosen_at: "2026-11-27T10:00:00Z",
+        reason: "SOP-QA-014 v3: proteomics results are released by QA.",
+      },
+    };
+    answer(`POST /api/v1/starters/${SEARCH_REVIEW}/default`, set);
+    const { user } = await renderApp("/admin/review-procedures/");
+    // Only a plugin's starter chooses a procedure: the server's own recipes aren't here.
+    expect(screen.queryByRole("region", { name: "Dose-response plate assay" })).toBeNull();
+    const card = await screen.findByRole("region", { name: "Proteomics search results" });
+    expect(within(card).getByText("No default")).toBeInTheDocument();
+    expect(card).toHaveTextContent(
+      "Projects that haven’t chosen can’t create proteomics results until they do.",
+    );
+    await user.click(within(card).getByRole("radio", { name: /^Regulated QC/ }));
+    await user.click(within(card).getByRole("button", { name: "Set as the default" }));
+    expect(within(card).getByText(/Say why: a deployment’s default/)).toBeInTheDocument();
+    expect(calls("POST")).toHaveLength(0);
+
+    answer("GET /api/v1/starters", [procedureStarter({ default: set.default })]);
+    await user.type(
+      within(card).getByRole("textbox", { name: /Reason/ }),
+      "SOP-QA-014 v3: proteomics results are released by QA.",
+    );
+    await user.click(within(card).getByRole("button", { name: "Set as the default" }));
+    expect(
+      await screen.findByText(
+        "New proteomics results default to Regulated QC where a project hasn’t chosen.",
+      ),
+    ).toBeVisible();
+    expect(calls("POST", `/api/v1/starters/${SEARCH_REVIEW}/default`)[0]?.body).toEqual({
+      version: "1.0.0",
+      flow: "regulated_qc",
+      slots: {},
+      reason: "SOP-QA-014 v3: proteomics results are released by QA.",
+    });
+    expect(await within(card).findByText("Default: Regulated QC")).toBeInTheDocument();
+
+    answer(`POST /api/v1/starters/${SEARCH_REVIEW}/default/clear`, {
+      starter: SEARCH_REVIEW,
+      default: null,
+    });
+    await user.click(within(card).getByRole("button", { name: "Clear the default" }));
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Clear the default for proteomics results?",
+    });
+    expect(within(dialog).getByRole("button", { name: "Clear" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await user.type(within(dialog).getByRole("textbox", { name: /Reason/ }), "SOP retired.");
+    await user.click(within(dialog).getByRole("button", { name: "Clear" }));
+    expect(await screen.findByText("Cleared the default for proteomics results.")).toBeVisible();
+    expect(calls("POST", `/api/v1/starters/${SEARCH_REVIEW}/default/clear`)[0]?.body).toEqual({
+      reason: "SOP retired.",
+    });
   });
 });

@@ -350,7 +350,7 @@ def installed_starters() -> dict[str, Starter]:
         s.id: s
         for s in CATALOG
         if s.plugin in plugins
-        and plugins[s.plugin].starters.get(s.id) == s.version
+        and plugins[s.plugin].recipes.get(s.id) == s.version
         and s.setting in plugins[s.plugin].settings
         and s.roles.keys() <= roles.keys()
         and all(t in types and types[t].plugin not in detached for t in s.types)
@@ -367,6 +367,16 @@ def effective_flow(project: Project, starter_id: str) -> str | None:
 
 
 def list_starters(project: Project | None = None) -> list[dict[str, Any]]:
+    from iki_server.setup import declared_starters
+
+    declared = [
+        declared_starters.describe(starter, procedure, project)
+        for starter, procedure in declared_starters.declared().values()
+    ]
+    return [*_recipes(project), *declared]
+
+
+def _recipes(project: Project | None) -> list[dict[str, Any]]:
     current = (
         {a.starter: a for a in StarterApplication.objects.filter(project=project)}
         if project
@@ -389,6 +399,8 @@ def list_starters(project: Project | None = None) -> list[dict[str, Any]]:
                     "required_roles": list(s.required_roles[f]),
                     "independent_roles": list(s.independent_roles.get(f, ())),
                     "summary": s.summary(f),
+                    "steps": [],
+                    "apart": [],
                 }
                 for f, t in s.flows.items()
             ],
@@ -398,6 +410,11 @@ def list_starters(project: Project | None = None) -> list[dict[str, Any]]:
                 for r, minimum in s.roles.items()
             ],
             "applied": {"version": a.version, "flow": a.flow} if (a := current.get(s.id)) else None,
+            "procedure": None,
+            "suggested": None,
+            "slots": [],
+            "chosen": None,
+            "default": None,
         }
         for s in installed_starters().values()
     ]

@@ -318,7 +318,7 @@ def test_project_starters_pin_a_recipe_version_in_the_built_manifest(tmp_path: P
     iki = PLUGIN.replace("acme/lab", "iki/oligo")
     result = make(tmp_path, TYPE, plugin=iki + 'starters: {dose-response: "1.0.0"}\n')
     assert result.plugin is not None and not result.problems
-    assert plugin_from_dict(plugin_to_dict(result.plugin)).starters == {"dose-response": "1.0.0"}
+    assert plugin_from_dict(plugin_to_dict(result.plugin)).recipes == {"dose-response": "1.0.0"}
     bad = make(tmp_path, TYPE, plugin=iki + 'starters: {dose-response: "latest"}\n')
     assert codes(bad) == ["schema"]
 
@@ -1872,7 +1872,7 @@ def test_the_manifest_schema_dispatches_on_kind() -> None:
     assert [i.message for i in issues] == [
         "`kind` can't be `Nope`. Choose one of: `Plugin`, `EntityType`, `EntityTypeExtension`, "
         "`Action`, `Environment`, `Workflow`, `Trigger`, `Component`, `ActionTest`, "
-        "`ReviewProcedure`."
+        "`ReviewProcedure`, `Starter`."
     ]
 
 
@@ -1931,14 +1931,14 @@ def test_lab_roles_need_a_name_and_a_label(tmp_path: Path, roles: str) -> None:
 
 
 def test_a_lab_plugins_starters_are_warned_of(tmp_path: Path) -> None:
-    """A starter is a recipe the server has (ADR 0198), and only Iki's own plugins have
-    any: a lab plugin's `starters` switch nothing on."""
+    """plugin.yaml's `starters` names recipes the server has (ADR 0198), and only Iki's own
+    plugins have any: a lab plugin's switch nothing on. Its own are `kind: Starter`."""
     result = make(tmp_path, TYPE, PLUGIN + "starters:\n  buffer-release: 1.0.0\n")
     assert result.ok
     message = only(result, "unknown-starter")
     assert "`buffer-release`" in message
     assert result.problems[0].severity.value == "warning"
-    assert "enum` setting" in (result.problems[0].hint or "")
+    assert "`kind: Starter`" in (result.problems[0].hint or "")
 
 
 def test_lab_roles_have_labels_of_their_own(tmp_path: Path) -> None:

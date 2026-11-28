@@ -55,6 +55,8 @@ __all__ = [
     "Rule",
     "Signature",
     "Slot",
+    "Starter",
+    "StarterSlot",
     "State",
     "StateMove",
     "TypeGuard",
@@ -750,6 +752,58 @@ class ReviewSpec:
 
 #: The fields Iki adds to a reviewed type beside its review state field (ADR 0302).
 PINNED_FIELDS = ("review_procedure", "review_flow")
+
+
+@dataclass(frozen=True)
+class StarterSlot:
+    """A slot a starter's flows use: the least project role someone playing it needs, and
+    the lab role that plays it (None: the ``iki/lab_roles`` role of its name)."""
+
+    minimum: str = "viewer"
+    role: str | None = None
+
+
+@dataclass(frozen=True)
+class Starter:
+    """How a project's Admin chooses a type's review procedure (ADR 0303)."""
+
+    plugin: str
+    name: str
+    version: str
+    label: str
+    governs: str
+    procedure: str
+    flows: tuple[str, ...]
+    description: str | None = None
+    suggested: str | None = None
+    summaries: dict[str, str] = dataclasses.field(default_factory=dict)
+    slots: dict[str, StarterSlot] = dataclasses.field(default_factory=dict)
+    file: str | None = None
+
+    @property
+    def qualified_name(self) -> str:
+        return f"{self.plugin}.{self.name}"
+
+    @classmethod
+    def read(cls, plugin: str, data: Mapping[str, Any], file: str | None) -> Starter:
+        governs = str(data["governs"])
+        return cls(
+            plugin=plugin,
+            name=str(data["name"]),
+            version=str(data["version"]),
+            label=str(data["label"]).strip(),
+            governs=governs if "." in governs else f"{plugin}.{governs}",
+            procedure=str(data["procedure"]),
+            flows=tuple(data["flows"]),
+            description=(data.get("description") or "").strip() or None,
+            suggested=data.get("suggested"),
+            summaries={k: str(v).strip() for k, v in (data.get("summaries") or {}).items()},
+            slots={
+                k: StarterSlot(minimum=v.get("minimum") or "viewer", role=v.get("role"))
+                for k, v in (data.get("slots") or {}).items()
+            },
+            file=file,
+        )
 
 
 def _while_value(value: object) -> str:
@@ -1816,6 +1870,8 @@ class LabRole:
     name: str
     label: str
     description: str | None = None
+    #: Why it's separate from the shared ``iki/lab_roles`` role of its name (ADR 0304).
+    distinct: str | None = None
 
     @property
     def qualified_name(self) -> str:
@@ -2119,7 +2175,11 @@ class Plugin:
     #: Its lab roles, by qualified name (``acme/qms.qa``), as declared.
     roles: dict[str, LabRole] = field(default_factory=dict)
     #: Installed project starter recipes and their versions (ADR 0198).
-    starters: dict[str, str] = field(default_factory=dict)
+    #: The server's own project setup recipes it ships, by ID and version (ADR 0198).
+    #: Replaced by ``starters`` as its types move to review procedures.
+    recipes: dict[str, str] = field(default_factory=dict)
+    #: The starters it declares, by qualified name (ADR 0303).
+    starters: dict[str, Starter] = field(default_factory=dict)
     #: File formats this plugin owns, by qualified ID, in declaration order.
     formats: dict[str, FileFormat] = field(default_factory=dict)
     #: The outside APIs its actions call, by name (ADR 0130).
@@ -2227,6 +2287,8 @@ _DATACLASSES = (
     ReviewState,
     ReviewFlow,
     ReviewProcedure,
+    Starter,
+    StarterSlot,
     ReviewNeeds,
     TypeGuard,
     ReviewSpec,
@@ -2324,7 +2386,11 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
                 and f.name in {"maker", "independent_of"}
                 and not getattr(value, f.name)
             )
-            and not (isinstance(value, Plugin) and f.name == "procedures" and not value.procedures)
+            and not (
+                isinstance(value, Plugin)
+                and f.name in {"procedures", "recipes"}
+                and not getattr(value, f.name)
+            )
             and not (
                 f.name == "customer_image_required"
                 and isinstance(value, Environment)
@@ -2467,6 +2533,19 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
             "writers": {k: _writer(v) for k, v in (data.get("writers") or {}).items()},
             # ...or review procedures (ADR 0301).
             "procedures": {k: _procedure(v) for k, v in (data.get("procedures") or {}).items()},
+            # ...or starters (ADR 0303).
+            "starters": {k: _starter(v) for k, v in (data.get("starters") or {}).items()},
+            "recipes": dict(data.get("recipes") or {}),
+        }
+    )
+
+
+def _starter(data: dict[str, Any]) -> Starter:
+    return Starter(
+        **{
+            **data,
+            "flows": tuple(data["flows"]),
+            "slots": {k: StarterSlot(**v) for k, v in (data.get("slots") or {}).items()},
         }
     )
 

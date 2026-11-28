@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/starter/v1",
+  "title": "Iki starter (iki/v1)",
+  "description": "A starter (ADR 0303): how a project's Admin chooses one type's review procedure and gives the lab roles it needs. It names the procedure and the flows the project may choose; who must be different people, the roles each flow needs and its states are read from the procedure.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "name", "version", "label", "governs", "procedure", "flows"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
+    "kind": { "description": "What the manifest declares: `Starter`.", "const": "Starter" },
+    "name": {
+      "description": "The starter's name in snake_case. Elsewhere it is `plugin.name`, such as `iki/proteomics.proteomics_search_review`.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+    },
+    "version": {
+      "description": "Its release, as a semantic version such as `1.0.0`: what a project's Admin previews and applies.",
+      "$ref": "https://ikisci.org/schemas/plugin/v1#/properties/version"
+    },
+    "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+    "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
+    "governs": {
+      "description": "The reviewed type whose new records it pins: one `pinned: create` or `opens: true`, its plugin's own or a dependency's (`namespace/plugin.Type`). Records pinned by it follow it, and the procedure must fit each of them too.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "procedure": {
+      "description": "The procedure it applies, as `plugin.name@version`, such as `iki/core.result_review@1`.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*/[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*@[1-9][0-9]{0,2}$"
+    },
+    "flows": {
+      "description": "The procedure's flows a project may choose, in the order they're offered.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+    },
+    "suggested": {
+      "description": "The flow setup shows chosen at first (ADR 0302). Never applied by itself.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+    },
+    "summaries": {
+      "description": "What a flow asks of people for this work, where the procedure's own summary says it less well.",
+      "type": "object",
+      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+      "additionalProperties": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" }
+    },
+    "slots": {
+      "description": "For the slots its flows use: the least project role someone playing it needs, and the lab role that plays it, if not the `iki/lab_roles` role of its name (ADR 0304).",
+      "type": "object",
+      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleName" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "minimum": {
+            "description": "The least project role a member needs to play it: `viewer` (who signs and reviews) or `editor` (who records). Defaults to `viewer`.",
+            "enum": ["viewer", "editor"]
+          },
+          "role": {
+            "description": "The lab role that plays it, qualified: `acme/qms.second_reviewer`.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,5 +1,6 @@
 """The installed starters and their project-specific setup (ADRs 0198 and 0247)."""
 
+from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -10,11 +11,17 @@ from pydantic import ConfigDict
 from iki_server.api import common
 from iki_server.api.problems import Problem
 from iki_server.org.permissions import Action
-from iki_server.setup import starters
+from iki_server.setup import declared_starters, starters
 
 router = Router(tags=["starters"])
 
-StarterFlow = Literal["author_signed", "research", "regulated_qc", "record_only"]
+StarterFlow = str
+
+
+class StarterStepOut(Schema):
+    state: str
+    label: str
+    slots: list[str] = Field(description="The slots whose roles may set it: any one of them.")
 
 
 class StarterFlowOut(Schema):
@@ -34,6 +41,15 @@ class StarterFlowOut(Schema):
         "group of them needs at least as many people as it has roles."
     )
     summary: str = Field(description="What the flow asks of people, in a sentence or two.")
+    steps: list[StarterStepOut] = Field(
+        description="For a plugin's starter: each state a record must be moved to, after "
+        "the first, with the slots whose roles may set it.",
+    )
+    apart: list[list[str]] = Field(
+        description="For a plugin's starter: the pairs of `steps` whose people must differ, "
+        "as the procedure's `independent_of` says (ADR 0301). The people chosen must be "
+        "able to sign every step with each pair apart.",
+    )
 
 
 class StarterRoleOut(Schema):
@@ -44,16 +60,50 @@ class StarterRoleOut(Schema):
     )
 
 
+class StarterSlotOut(Schema):
+    id: str = Field(description="The procedure's slot, such as `reviewer` (ADR 0304).")
+    label: str
+    description: str
+    role: str = Field(
+        description="The qualified lab role that plays it: in the project, as its current "
+        "choice bound it, else as the starter does."
+    )
+    starter_role: str = Field(description="The role the starter binds it to.")
+    minimum_project_role: Literal["viewer", "editor"]
+
+
 class AppliedStarterOut(Schema):
     version: str
     flow: StarterFlow
 
 
+class StarterChoiceOut(Schema):
+    procedure: str = Field(description="The review procedure chosen, as `plugin.name@version`.")
+    flow: StarterFlow
+    version: str | None = Field(
+        description="The version of the starter that made it; null if it was chosen "
+        "through `PUT /review-choices` or by another starter."
+    )
+    slots: dict[str, str] = Field(description="Each slot to the lab role that plays it.")
+    chosen_by: str
+    chosen_at: datetime
+    reason: str
+
+
 class StarterOut(Schema):
-    id: str
+    id: str = Field(
+        description="A plugin's starter, qualified (`iki/proteomics.proteomics_search_review`), "
+        "or one of the server's own recipes (`dose-response`)."
+    )
     version: str
     label: str
     description: str
+    procedure: str | None = Field(
+        description="The review procedure it applies, as `plugin.name@version` (ADR 0303).",
+    )
+    suggested: str | None = Field(
+        description="The flow its plugin suggests, shown chosen at first."
+    )
     governs: str = Field(
         description="The records the project's choice applies to from now on, such as "
         "`release cases`. Those already opened keep the flow they were opened with."
@@ -63,6 +113,18 @@ class StarterOut(Schema):
     types: list[str] = Field(description="Qualified types the starter uses.")
     applied: AppliedStarterOut | None = Field(
         description="Current choice in the requested project, if applied there."
+    )
+    slots: list[StarterSlotOut] = Field(
+        description="For a plugin's starter: the parts its flows have. None for a recipe."
+    )
+    chosen: StarterChoiceOut | None = Field(
+        description="For a plugin's starter: the project's current choice for its type, "
+        "whether this starter, another or `PUT /review-choices` made it. `applied` is set "
+        "when this starter did."
+    )
+    default: StarterChoiceOut | None = Field(
+        description="For a plugin's starter: the deployment's default for its type, whoever "
+        "set it. It applies in every project that hasn't chosen."
     )
 
 
@@ -74,6 +136,37 @@ class StarterSetupIn(Schema):
     role_assignments: dict[str, list[UUID]] = Field(
         description="Each qualified lab role and the project membership IDs receiving it."
     )
+    slots: dict[str, str] = Field(
+        default_factory=dict,
+        description="For a plugin's starter: each slot to the qualified lab role that plays "
+        "it in this project, where not the starter's (ADR 0304).",
+    )
+
+
+class StarterDefaultIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    version: str = Field(min_length=1, description="Installed starter version shown at setup.")
+    flow: StarterFlow
+    slots: dict[str, str] = Field(
+        default_factory=dict,
+        description="Each slot to the qualified lab role that plays it, where not the "
+        "starter's (ADR 0304).",
+    )
+    reason: str = Field(
+        min_length=1,
+        max_length=2000,
+        description="Why: a deployment's default is a controlled procedure change.",
+    )
+
+
+class StarterDefaultClearIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class StarterDefaultOut(Schema):
+    starter: str
+    default: StarterChoiceOut | None
 
 
 class StarterApplyIn(StarterSetupIn):
@@ -95,12 +188,21 @@ class StarterSetupOut(Schema):
         description="Whether applying this choice would change anything (preview), or did (apply)."
     )
     role_assignments: dict[str, list[UUID]]
+    slots: dict[str, str] = Field(
+        default_factory=dict,
+        description="For a plugin's starter: each slot to the lab role that plays it.",
+    )
     grants_to_add: dict[str, list[UUID]] = Field(
         description="Lab role grants missing when the setup was checked, by membership ID."
     )
     plan: str = Field(
         description="Identifies this plan: what the setup was, and every change applying makes. "
         "Send it to apply what was reviewed."
+    )
+    replaces: dict[str, Any] | None = Field(
+        default=None,
+        description="The project's current choice for the type, which applying replaces, "
+        "where another starter or the API made it.",
     )
 
 
@@ -113,46 +215,89 @@ def list_starters(request: HttpRequest, project: UUID | None = None) -> list[dic
     return starters.list_starters(found)
 
 
+def _recipe(starter: str, payload: StarterSetupIn) -> bool:
+    """Whether ``starter`` is one of the server's own recipes rather than a plugin's starter
+    (a qualified name), which alone has slots to bind (ADR 0304)."""
+    if "." in starter:
+        return False
+    if payload.slots:
+        raise Problem(
+            422,
+            "Only a plugin's starter has slots to bind: leave out `slots`.",
+            code="validation_failed",
+            errors=[{"pointer": "/slots", "detail": "This starter has no slots."}],
+        )
+    return True
+
+
 @router.post(
-    "/starters/{starter}/preview", response=StarterSetupOut, summary="Preview a starter choice"
+    "/starters/{path:name}/preview", response=StarterSetupOut, summary="Preview a starter choice"
 )
-def preview_starter(request: HttpRequest, starter: str, payload: StarterSetupIn) -> dict[str, Any]:
-    """Preview the version, review flow and role grants for the project."""
+def preview_starter(request: HttpRequest, name: str, payload: StarterSetupIn) -> dict[str, Any]:
+    """Preview the review flow, who plays each of its parts and the role grants for the
+    project, and which current choice for its type it replaces."""
     me = common.caller(request)
     project = common.project(me, payload.project, Action.PROJECT_MANAGE)
-    return starters.preview(
-        project,
-        starter,
-        payload.version,
-        payload.flow,
-        payload.role_assignments,
-        by=me,
-    )
+    args = (project, name, payload.version, payload.flow, payload.role_assignments)
+    if _recipe(name, payload):
+        return starters.preview(*args, by=me)
+    return declared_starters.preview(*args, by=me, slots=payload.slots)
 
 
 @router.post(
-    "/starters/{starter}/apply", response=StarterSetupOut, summary="Apply a starter to a project"
+    "/starters/{path:name}/apply",
+    response=StarterSetupOut,
+    summary="Apply a starter to a project",
 )
-def apply_starter(request: HttpRequest, starter: str, payload: StarterApplyIn) -> dict[str, Any]:
+def apply_starter(request: HttpRequest, name: str, payload: StarterApplyIn) -> dict[str, Any]:
     """Apply the reviewed flow and role grants to the project.
     If what applying does changed since the preview, as when another Admin removed a grant or
     applied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,
     what applying would do now, for review (ADR 0207). Reapplying a setup that's in place
-    changes nothing. Changing the flow applies to records opened from now on, such as
-    new fits or release cases. Existing ones keep their flow."""
+    changes nothing. A plugin's starter is the project's choice for its type: new records
+    are pinned to it, and records already made keep their procedure (ADR 0302)."""
     me = common.caller(request)
     project = common.project(me, payload.project, Action.PROJECT_MANAGE)
+    args = (project, name, payload.version, payload.flow, payload.role_assignments)
     try:
-        return starters.apply(
-            project,
-            starter,
-            payload.version,
-            payload.flow,
-            payload.role_assignments,
-            by=me,
-            plan=payload.plan,
-        )
+        if _recipe(name, payload):
+            return starters.apply(*args, by=me, plan=payload.plan)
+        return declared_starters.apply(*args, by=me, plan=payload.plan, slots=payload.slots)
     except starters.PlanChanged as changed:
+        # The plan as a preview answers it, so applying it as given applies what it says.
+        plan = StarterSetupOut.model_validate(changed.plan).model_dump(mode="json")
         raise Problem(
-            409, str(changed), code="starter_plan_changed", extensions={"plan": changed.plan}
+            409, str(changed), code="starter_plan_changed", extensions={"plan": plan}
         ) from None
+
+
+@router.post(
+    "/starters/{path:name}/default",
+    response=StarterDefaultOut,
+    summary="Set a starter as the deployment's default",
+)
+def set_default(request: HttpRequest, name: str, payload: StarterDefaultIn) -> dict[str, Any]:
+    """For Org Admins: every project that hasn't chosen pins new records of the starter's
+    type to this flow, its slots played by these roles (ADR 0302). Needs a reason, kept
+    with the change in the audit log. Projects that chose keep their choice, and records
+    already made keep their procedure."""
+    me = common.caller(request)
+    common.require_scope(me, "write")
+    return declared_starters.set_default(
+        me, name, payload.version, payload.flow, slots=payload.slots, reason=payload.reason
+    )
+
+
+@router.post(
+    "/starters/{path:name}/default/clear",
+    response=StarterDefaultOut,
+    summary="Clear the deployment's default a starter set",
+)
+def clear_default(
+    request: HttpRequest, name: str, payload: StarterDefaultClearIn
+) -> dict[str, Any]:
+    """For Org Admins, with a reason. Projects that haven't chosen can't create the type's
+    records until they do (409 `procedure_not_chosen`)."""
+    me = common.caller(request)
+    common.require_scope(me, "write")
+    return declared_starters.clear_default(me, name, reason=payload.reason)

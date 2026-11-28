@@ -64,7 +64,7 @@ def crumbs(html: str) -> list[str]:
                 ("Organization", ORGANIZATION),
                 ("Data", DATA),
                 ("Compute and cost", ["Costs and budgets"]),
-                ("Compliance", ["Electronic signatures", "Legal holds"]),
+                ("Compliance", ["Electronic signatures", "Review procedures", "Legal holds"]),
             ],
         ),
         (
@@ -168,7 +168,14 @@ def test_every_page_of_the_area_is_under_admin() -> None:
     routed = {page for page in routed_pages() if page.startswith("/admin/")}
     assert app <= routed
     areas = {page.split("/")[2] for page in routed}
-    assert areas == {"compute", "costs", "outside-apis", "quarantine", "webhooks"}
+    assert areas == {
+        "compute",
+        "costs",
+        "outside-apis",
+        "quarantine",
+        "review-procedures",
+        "webhooks",
+    }
 
 
 OLD_ADDRESSES = [

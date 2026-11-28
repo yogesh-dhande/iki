@@ -33,8 +33,8 @@ export function startersQuery(projectId: string) {
 
 export async function previewStarter(id: string, setup: StarterSetup): Promise<StarterPlan> {
   return unwrap(
-    await iki.POST("/api/v1/starters/{starter}/preview", {
-      params: { path: { starter: id } },
+    await iki.POST("/api/v1/starters/{name}/preview", {
+      params: { path: { name: id } },
       body: setup,
     }),
   );
@@ -48,8 +48,8 @@ export async function applyStarter(
   plan: string,
 ): Promise<StarterPlan> {
   return unwrap(
-    await iki.POST("/api/v1/starters/{starter}/apply", {
-      params: { path: { starter: id } },
+    await iki.POST("/api/v1/starters/{name}/apply", {
+      params: { path: { name: id } },
       body: { ...setup, plan },
     }),
   );
@@ -147,3 +147,78 @@ export function independentEnough(
   }
   return true;
 }
+
+/** The installed lab roles a starter's slot may be played by. */
+export type SlotRoles = Readonly<Record<string, string>>;
+
+/**
+ * Whether the people chosen can sign a plugin starter's flow (ADR 0303), as Iki checks it:
+ * someone for every step, from the roles playing any of its slots, with each pair of steps
+ * the procedure keeps apart signed by different people. One person may play several
+ * slots, so long as that holds. A flow has a handful of steps, so it tries every way.
+ */
+export function canStaff(
+  flow: Pick<StarterFlow, "steps" | "apart">,
+  roles: SlotRoles,
+  chosen: Readonly<Record<string, readonly string[]>>,
+): boolean {
+  const steps = flow.steps ?? [];
+  const apart = new Set((flow.apart ?? []).map(([a = "", b = ""]) => [a, b].sort().join(" ")));
+  const signer: string[] = [];
+  const candidates = (index: number) => [
+    ...new Set(
+      (steps[index]?.slots ?? []).flatMap((slot) => {
+        const role = roles[slot];
+        return role ? (chosen[role] ?? []) : [];
+      }),
+    ),
+  ];
+  const place = (index: number): boolean => {
+    if (index === steps.length) return true;
+    const state = steps[index]?.state ?? "";
+    for (const person of candidates(index)) {
+      const clash = steps
+        .slice(0, index)
+        .some(
+          (other, i) => signer[i] === person && apart.has([state, other.state].sort().join(" ")),
+        );
+      if (clash) continue;
+      signer[index] = person;
+      if (place(index + 1)) return true;
+    }
+    return false;
+  };
+  return place(0);
+}
+
+/** Sets a plugin's starter as the deployment's default for its type (ADR 0302). */
+export async function setStarterDefault(
+  id: string,
+  body: Schemas["StarterDefaultIn"],
+): Promise<Schemas["StarterDefaultOut"]> {
+  return unwrap(
+    await iki.POST("/api/v1/starters/{name}/default", {
+      params: { path: { name: id } },
+      body,
+    }),
+  );
+}
+
+/** Clears the deployment's default for a starter's type, with a reason. */
+export async function clearStarterDefault(
+  id: string,
+  reason: string,
+): Promise<Schemas["StarterDefaultOut"]> {
+  return unwrap(
+    await iki.POST("/api/v1/starters/{name}/default/clear", {
+      params: { path: { name: id } },
+      body: { reason },
+    }),
+  );
+}
+
+/** The installed starters, for an Org Admin choosing the deployment's defaults. */
+export const deploymentStartersQuery = queryOptions({
+  queryKey: [...STARTERS, "deployment"],
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/starters", { signal })),
+});

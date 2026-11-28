@@ -5015,7 +5015,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/starters/{starter}/apply": {
+    "/api/v1/starters/{name}/apply": {
         parameters: {
             query?: never;
             header?: never;
@@ -5030,8 +5030,8 @@ export interface paths {
          *     If what applying does changed since the preview, as when another Admin removed a grant or
          *     applied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,
          *     what applying would do now, for review (ADR 0207). Reapplying a setup that's in place
-         *     changes nothing. Changing the flow applies to records opened from now on, such as
-         *     new fits or release cases. Existing ones keep their flow.
+         *     changes nothing. A plugin's starter is the project's choice for its type: new records
+         *     are pinned to it, and records already made keep their procedure (ADR 0302).
          */
         post: operations["iki_server_api_starters_apply_starter"];
         delete?: never;
@@ -5040,7 +5040,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/starters/{starter}/preview": {
+    "/api/v1/starters/{name}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set a starter as the deployment's default
+         * @description For Org Admins: every project that hasn't chosen pins new records of the starter's
+         *     type to this flow, its slots played by these roles (ADR 0302). Needs a reason, kept
+         *     with the change in the audit log. Projects that chose keep their choice, and records
+         *     already made keep their procedure.
+         */
+        post: operations["iki_server_api_starters_set_default"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/starters/{name}/default/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clear the deployment's default a starter set
+         * @description For Org Admins, with a reason. Projects that haven't chosen can't create the type's
+         *     records until they do (409 `procedure_not_chosen`).
+         */
+        post: operations["iki_server_api_starters_clear_default"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/starters/{name}/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -5051,7 +5095,8 @@ export interface paths {
         put?: never;
         /**
          * Preview a starter choice
-         * @description Preview the version, review flow and role grants for the project.
+         * @description Preview the review flow, who plays each of its parts and the role grants for the
+         *     project, and which current choice for its type it replaces.
          */
         post: operations["iki_server_api_starters_preview_starter"];
         delete?: never;
@@ -6679,11 +6724,8 @@ export interface components {
         };
         /** AppliedStarterOut */
         AppliedStarterOut: {
-            /**
-             * Flow
-             * @enum {string}
-             */
-            flow: "author_signed" | "research" | "regulated_qc" | "record_only";
+            /** Flow */
+            flow: string;
             /** Version */
             version: string;
         };
@@ -19579,11 +19621,8 @@ export interface components {
         };
         /** StarterApplyIn */
         StarterApplyIn: {
-            /**
-             * Flow
-             * @enum {string}
-             */
-            flow: "author_signed" | "research" | "regulated_qc" | "record_only";
+            /** Flow */
+            flow: string;
             /**
              * Plan
              * @description The `plan` its preview returned: what you reviewed. If what applying does has changed since, nothing is applied (409 `starter_plan_changed`, with the `plan` it would apply now).
@@ -19603,18 +19642,91 @@ export interface components {
                 [key: string]: string[];
             };
             /**
+             * Slots
+             * @description For a plugin's starter: each slot to the qualified lab role that plays it in this project, where not the starter's (ADR 0304).
+             */
+            slots?: {
+                [key: string]: string;
+            };
+            /**
              * Version
              * @description Installed starter version shown at setup.
              */
             version: string;
         };
+        /** StarterChoiceOut */
+        StarterChoiceOut: {
+            /**
+             * Chosen At
+             * Format: date-time
+             */
+            chosen_at: string;
+            /** Chosen By */
+            chosen_by: string;
+            /** Flow */
+            flow: string;
+            /**
+             * Procedure
+             * @description The review procedure chosen, as `plugin.name@version`.
+             */
+            procedure: string;
+            /** Reason */
+            reason: string;
+            /**
+             * Slots
+             * @description Each slot to the lab role that plays it.
+             */
+            slots: {
+                [key: string]: string;
+            };
+            /**
+             * Version
+             * @description The version of the starter that made it; null if it was chosen through `PUT /review-choices` or by another starter.
+             */
+            version: string | null;
+        };
+        /** StarterDefaultClearIn */
+        StarterDefaultClearIn: {
+            /** Reason */
+            reason: string;
+        };
+        /** StarterDefaultIn */
+        StarterDefaultIn: {
+            /** Flow */
+            flow: string;
+            /**
+             * Reason
+             * @description Why: a deployment's default is a controlled procedure change.
+             */
+            reason: string;
+            /**
+             * Slots
+             * @description Each slot to the qualified lab role that plays it, where not the starter's (ADR 0304).
+             */
+            slots?: {
+                [key: string]: string;
+            };
+            /**
+             * Version
+             * @description Installed starter version shown at setup.
+             */
+            version: string;
+        };
+        /** StarterDefaultOut */
+        StarterDefaultOut: {
+            default: components["schemas"]["StarterChoiceOut"] | null;
+            /** Starter */
+            starter: string;
+        };
         /** StarterFlowOut */
         StarterFlowOut: {
             /**
-             * Id
-             * @enum {string}
+             * Apart
+             * @description For a plugin's starter: the pairs of `steps` whose people must differ, as the procedure's `independent_of` says (ADR 0301). The people chosen must be able to sign every step with each pair apart.
              */
-            id: "author_signed" | "research" | "regulated_qc" | "record_only";
+            apart: string[][];
+            /** Id */
+            id: string;
             /**
              * Independent Roles
              * @description Required roles whose signatures must come from different people: each group of them needs at least as many people as it has roles.
@@ -19638,6 +19750,11 @@ export interface components {
              */
             states?: string[] | null;
             /**
+             * Steps
+             * @description For a plugin's starter: each state a record must be moved to, after the first, with the slots whose roles may set it.
+             */
+            steps: components["schemas"]["StarterStepOut"][];
+            /**
              * Summary
              * @description What the flow asks of people, in a sentence or two.
              */
@@ -19647,6 +19764,10 @@ export interface components {
         StarterOut: {
             /** @description Current choice in the requested project, if applied there. */
             applied: components["schemas"]["AppliedStarterOut"] | null;
+            /** @description For a plugin's starter: the project's current choice for its type, whether this starter, another or `PUT /review-choices` made it. `applied` is set when this starter did. */
+            chosen: components["schemas"]["StarterChoiceOut"] | null;
+            /** @description For a plugin's starter: the deployment's default for its type, whoever set it. It applies in every project that hasn't chosen. */
+            default: components["schemas"]["StarterChoiceOut"] | null;
             /** Description */
             description: string;
             /** Flows */
@@ -19656,12 +19777,30 @@ export interface components {
              * @description The records the project's choice applies to from now on, such as `release cases`. Those already opened keep the flow they were opened with.
              */
             governs: string;
-            /** Id */
+            /**
+             * Id
+             * @description A plugin's starter, qualified (`iki/proteomics.proteomics_search_review`), or one of the server's own recipes (`dose-response`).
+             */
             id: string;
             /** Label */
             label: string;
+            /**
+             * Procedure
+             * @description The review procedure it applies, as `plugin.name@version` (ADR 0303).
+             */
+            procedure: string | null;
             /** Roles */
             roles: components["schemas"]["StarterRoleOut"][];
+            /**
+             * Slots
+             * @description For a plugin's starter: the parts its flows have. None for a recipe.
+             */
+            slots: components["schemas"]["StarterSlotOut"][];
+            /**
+             * Suggested
+             * @description The flow its plugin suggests, shown chosen at first.
+             */
+            suggested: string | null;
             /**
              * Types
              * @description Qualified types the starter uses.
@@ -19688,11 +19827,8 @@ export interface components {
         };
         /** StarterSetupIn */
         StarterSetupIn: {
-            /**
-             * Flow
-             * @enum {string}
-             */
-            flow: "author_signed" | "research" | "regulated_qc" | "record_only";
+            /** Flow */
+            flow: string;
             /**
              * Project
              * Format: uuid
@@ -19707,6 +19843,13 @@ export interface components {
                 [key: string]: string[];
             };
             /**
+             * Slots
+             * @description For a plugin's starter: each slot to the qualified lab role that plays it in this project, where not the starter's (ADR 0304).
+             */
+            slots?: {
+                [key: string]: string;
+            };
+            /**
              * Version
              * @description Installed starter version shown at setup.
              */
@@ -19719,11 +19862,8 @@ export interface components {
              * @description Whether applying this choice would change anything (preview), or did (apply).
              */
             changed: boolean;
-            /**
-             * Flow
-             * @enum {string}
-             */
-            flow: "author_signed" | "research" | "regulated_qc" | "record_only";
+            /** Flow */
+            flow: string;
             /**
              * Grants To Add
              * @description Lab role grants missing when the setup was checked, by membership ID.
@@ -19741,16 +19881,69 @@ export interface components {
              * Format: uuid
              */
             project: string;
+            /**
+             * Replaces
+             * @description The project's current choice for the type, which applying replaces, where another starter or the API made it.
+             */
+            replaces?: {
+                [key: string]: unknown;
+            } | null;
             /** Result Type */
             result_type: string;
             /** Role Assignments */
             role_assignments: {
                 [key: string]: string[];
             };
+            /**
+             * Slots
+             * @description For a plugin's starter: each slot to the lab role that plays it.
+             */
+            slots?: {
+                [key: string]: string;
+            };
             /** Starter */
             starter: string;
             /** Version */
             version: string;
+        };
+        /** StarterSlotOut */
+        StarterSlotOut: {
+            /** Description */
+            description: string;
+            /**
+             * Id
+             * @description The procedure's slot, such as `reviewer` (ADR 0304).
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Minimum Project Role
+             * @enum {string}
+             */
+            minimum_project_role: "viewer" | "editor";
+            /**
+             * Role
+             * @description The qualified lab role that plays it: in the project, as its current choice bound it, else as the starter does.
+             */
+            role: string;
+            /**
+             * Starter Role
+             * @description The role the starter binds it to.
+             */
+            starter_role: string;
+        };
+        /** StarterStepOut */
+        StarterStepOut: {
+            /** Label */
+            label: string;
+            /**
+             * Slots
+             * @description The slots whose roles may set it: any one of them.
+             */
+            slots: string[];
+            /** State */
+            state: string;
         };
         /**
          * StateCan
@@ -28979,7 +29172,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                starter: string;
+                name: string;
             };
             cookie?: never;
         };
@@ -29000,12 +29193,64 @@ export interface operations {
             };
         };
     };
+    iki_server_api_starters_set_default: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StarterDefaultIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StarterDefaultOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_starters_clear_default: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StarterDefaultClearIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StarterDefaultOut"];
+                };
+            };
+        };
+    };
     iki_server_api_starters_preview_starter: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                starter: string;
+                name: string;
             };
             cookie?: never;
         };

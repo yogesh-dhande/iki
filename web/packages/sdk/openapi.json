@@ -1343,12 +1343,6 @@
       "AppliedStarterOut": {
         "properties": {
           "flow": {
-            "enum": [
-              "author_signed",
-              "research",
-              "regulated_qc",
-              "record_only"
-            ],
             "title": "Flow",
             "type": "string"
           },
@@ -29902,12 +29896,6 @@
         "additionalProperties": false,
         "properties": {
           "flow": {
-            "enum": [
-              "author_signed",
-              "research",
-              "regulated_qc",
-              "record_only"
-            ],
             "title": "Flow",
             "type": "string"
           },
@@ -29935,6 +29923,14 @@
             "title": "Role Assignments",
             "type": "object"
           },
+          "slots": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "For a plugin's starter: each slot to the qualified lab role that plays it in this project, where not the starter's (ADR 0304).",
+            "title": "Slots",
+            "type": "object"
+          },
           "version": {
             "description": "Installed starter version shown at setup.",
             "minLength": 1,
@@ -29952,15 +29948,154 @@
         "title": "StarterApplyIn",
         "type": "object"
       },
+      "StarterChoiceOut": {
+        "properties": {
+          "chosen_at": {
+            "format": "date-time",
+            "title": "Chosen At",
+            "type": "string"
+          },
+          "chosen_by": {
+            "title": "Chosen By",
+            "type": "string"
+          },
+          "flow": {
+            "title": "Flow",
+            "type": "string"
+          },
+          "procedure": {
+            "description": "The review procedure chosen, as `plugin.name@version`.",
+            "title": "Procedure",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "slots": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Each slot to the lab role that plays it.",
+            "title": "Slots",
+            "type": "object"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The version of the starter that made it; null if it was chosen through `PUT /review-choices` or by another starter.",
+            "title": "Version"
+          }
+        },
+        "required": [
+          "procedure",
+          "flow",
+          "version",
+          "slots",
+          "chosen_by",
+          "chosen_at",
+          "reason"
+        ],
+        "title": "StarterChoiceOut",
+        "type": "object"
+      },
+      "StarterDefaultClearIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "StarterDefaultClearIn",
+        "type": "object"
+      },
+      "StarterDefaultIn": {
+        "additionalProperties": false,
+        "properties": {
+          "flow": {
+            "title": "Flow",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why: a deployment's default is a controlled procedure change.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "slots": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Each slot to the qualified lab role that plays it, where not the starter's (ADR 0304).",
+            "title": "Slots",
+            "type": "object"
+          },
+          "version": {
+            "description": "Installed starter version shown at setup.",
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "flow",
+          "reason"
+        ],
+        "title": "StarterDefaultIn",
+        "type": "object"
+      },
+      "StarterDefaultOut": {
+        "properties": {
+          "default": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StarterChoiceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "starter": {
+            "title": "Starter",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starter",
+          "default"
+        ],
+        "title": "StarterDefaultOut",
+        "type": "object"
+      },
       "StarterFlowOut": {
         "properties": {
+          "apart": {
+            "description": "For a plugin's starter: the pairs of `steps` whose people must differ, as the procedure's `independent_of` says (ADR 0301). The people chosen must be able to sign every step with each pair apart.",
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Apart",
+            "type": "array"
+          },
           "id": {
-            "enum": [
-              "author_signed",
-              "research",
-              "regulated_qc",
-              "record_only"
-            ],
             "title": "Id",
             "type": "string"
           },
@@ -30004,6 +30139,14 @@
             "description": "The result type's states in this flow, where its one state field has a route per flow. Null: all of them.",
             "title": "States"
           },
+          "steps": {
+            "description": "For a plugin's starter: each state a record must be moved to, after the first, with the slots whose roles may set it.",
+            "items": {
+              "$ref": "#/components/schemas/StarterStepOut"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
           "summary": {
             "description": "What the flow asks of people, in a sentence or two.",
             "title": "Summary",
@@ -30016,7 +30159,9 @@
           "result_type",
           "required_roles",
           "independent_roles",
-          "summary"
+          "summary",
+          "steps",
+          "apart"
         ],
         "title": "StarterFlowOut",
         "type": "object"
@@ -30033,6 +30178,28 @@
               }
             ],
             "description": "Current choice in the requested project, if applied there."
+          },
+          "chosen": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StarterChoiceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a plugin's starter: the project's current choice for its type, whether this starter, another or `PUT /review-choices` made it. `applied` is set when this starter did."
+          },
+          "default": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StarterChoiceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a plugin's starter: the deployment's default for its type, whoever set it. It applies in every project that hasn't chosen."
           },
           "description": {
             "title": "Description",
@@ -30051,6 +30218,7 @@
             "type": "string"
           },
           "id": {
+            "description": "A plugin's starter, qualified (`iki/proteomics.proteomics_search_review`), or one of the server's own recipes (`dose-response`).",
             "title": "Id",
             "type": "string"
           },
@@ -30058,12 +30226,44 @@
             "title": "Label",
             "type": "string"
           },
+          "procedure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The review procedure it applies, as `plugin.name@version` (ADR 0303).",
+            "title": "Procedure"
+          },
           "roles": {
             "items": {
               "$ref": "#/components/schemas/StarterRoleOut"
             },
             "title": "Roles",
             "type": "array"
+          },
+          "slots": {
+            "description": "For a plugin's starter: the parts its flows have. None for a recipe.",
+            "items": {
+              "$ref": "#/components/schemas/StarterSlotOut"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "suggested": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The flow its plugin suggests, shown chosen at first.",
+            "title": "Suggested"
           },
           "types": {
             "description": "Qualified types the starter uses.",
@@ -30083,11 +30283,16 @@
           "version",
           "label",
           "description",
+          "procedure",
+          "suggested",
           "governs",
           "flows",
           "roles",
           "types",
-          "applied"
+          "applied",
+          "slots",
+          "chosen",
+          "default"
         ],
         "title": "StarterOut",
         "type": "object"
@@ -30125,12 +30330,6 @@
         "additionalProperties": false,
         "properties": {
           "flow": {
-            "enum": [
-              "author_signed",
-              "research",
-              "regulated_qc",
-              "record_only"
-            ],
             "title": "Flow",
             "type": "string"
           },
@@ -30150,6 +30349,14 @@
             },
             "description": "Each qualified lab role and the project membership IDs receiving it.",
             "title": "Role Assignments",
+            "type": "object"
+          },
+          "slots": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "For a plugin's starter: each slot to the qualified lab role that plays it in this project, where not the starter's (ADR 0304).",
+            "title": "Slots",
             "type": "object"
           },
           "version": {
@@ -30176,12 +30383,6 @@
             "type": "boolean"
           },
           "flow": {
-            "enum": [
-              "author_signed",
-              "research",
-              "regulated_qc",
-              "record_only"
-            ],
             "title": "Flow",
             "type": "string"
           },
@@ -30207,6 +30408,19 @@
             "title": "Project",
             "type": "string"
           },
+          "replaces": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project's current choice for the type, which applying replaces, where another starter or the API made it.",
+            "title": "Replaces"
+          },
           "result_type": {
             "title": "Result Type",
             "type": "string"
@@ -30220,6 +30434,14 @@
               "type": "array"
             },
             "title": "Role Assignments",
+            "type": "object"
+          },
+          "slots": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "For a plugin's starter: each slot to the lab role that plays it.",
+            "title": "Slots",
             "type": "object"
           },
           "starter": {
@@ -30243,6 +30465,78 @@
           "plan"
         ],
         "title": "StarterSetupOut",
+        "type": "object"
+      },
+      "StarterSlotOut": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "The procedure's slot, such as `reviewer` (ADR 0304).",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "minimum_project_role": {
+            "enum": [
+              "viewer",
+              "editor"
+            ],
+            "title": "Minimum Project Role",
+            "type": "string"
+          },
+          "role": {
+            "description": "The qualified lab role that plays it: in the project, as its current choice bound it, else as the starter does.",
+            "title": "Role",
+            "type": "string"
+          },
+          "starter_role": {
+            "description": "The role the starter binds it to.",
+            "title": "Starter Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "description",
+          "role",
+          "starter_role",
+          "minimum_project_role"
+        ],
+        "title": "StarterSlotOut",
+        "type": "object"
+      },
+      "StarterStepOut": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "slots": {
+            "description": "The slots whose roles may set it: any one of them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "label",
+          "slots"
+        ],
+        "title": "StarterStepOut",
         "type": "object"
       },
       "StateCan": {
@@ -51994,17 +52288,17 @@
         ]
       }
     },
-    "/api/v1/starters/{starter}/apply": {
+    "/api/v1/starters/{name}/apply": {
       "post": {
-        "description": "Apply the reviewed flow and role grants to the project.\nIf what applying does changed since the preview, as when another Admin removed a grant or\napplied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,\nwhat applying would do now, for review (ADR 0207). Reapplying a setup that's in place\nchanges nothing. Changing the flow applies to records opened from now on, such as\nnew fits or release cases. Existing ones keep their flow.",
+        "description": "Apply the reviewed flow and role grants to the project.\nIf what applying does changed since the preview, as when another Admin removed a grant or\napplied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,\nwhat applying would do now, for review (ADR 0207). Reapplying a setup that's in place\nchanges nothing. A plugin's starter is the project's choice for its type: new records\nare pinned to it, and records already made keep their procedure (ADR 0302).",
         "operationId": "iki_server_api_starters_apply_starter",
         "parameters": [
           {
             "in": "path",
-            "name": "starter",
+            "name": "name",
             "required": true,
             "schema": {
-              "title": "Starter",
+              "title": "Name",
               "type": "string"
             }
           }
@@ -52045,17 +52339,119 @@
         ]
       }
     },
-    "/api/v1/starters/{starter}/preview": {
+    "/api/v1/starters/{name}/default": {
       "post": {
-        "description": "Preview the version, review flow and role grants for the project.",
+        "description": "For Org Admins: every project that hasn't chosen pins new records of the starter's\ntype to this flow, its slots played by these roles (ADR 0302). Needs a reason, kept\nwith the change in the audit log. Projects that chose keep their choice, and records\nalready made keep their procedure.",
+        "operationId": "iki_server_api_starters_set_default",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StarterDefaultIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StarterDefaultOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Set a starter as the deployment's default",
+        "tags": [
+          "starters"
+        ]
+      }
+    },
+    "/api/v1/starters/{name}/default/clear": {
+      "post": {
+        "description": "For Org Admins, with a reason. Projects that haven't chosen can't create the type's\nrecords until they do (409 `procedure_not_chosen`).",
+        "operationId": "iki_server_api_starters_clear_default",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StarterDefaultClearIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StarterDefaultOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Clear the deployment's default a starter set",
+        "tags": [
+          "starters"
+        ]
+      }
+    },
+    "/api/v1/starters/{name}/preview": {
+      "post": {
+        "description": "Preview the review flow, who plays each of its parts and the role grants for the\nproject, and which current choice for its type it replaces.",
         "operationId": "iki_server_api_starters_preview_starter",
         "parameters": [
           {
             "in": "path",
-            "name": "starter",
+            "name": "name",
             "required": true,
             "schema": {
-              "title": "Starter",
+              "title": "Name",
               "type": "string"
             }
           }

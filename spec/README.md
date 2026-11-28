@@ -33,6 +33,7 @@ workflows/           # kind: Workflow
 triggers/            # kind: Trigger
 components/          # kind: Component, with each one's JavaScript module
 procedures/          # kind: ReviewProcedure
+starters/            # kind: Starter
 migrations/          # made by `iki plugin makemigrations`, committed and reviewed
 ```
 
@@ -60,19 +61,12 @@ settings:
   uniprot_mirror: { type: string, format: uri, default: "https://rest.uniprot.org" }
 ```
 
-`starters` names the project setup recipes a plugin ships, each at an exact
-version, such as `starters: { lot-release-testing: "1.0.0" }` (ADR 0198). A
-starter lets a project's Admin choose a review procedure, such as **Research**
-or **Regulated QC**, and grant the lab roles it needs. The recipes are Iki's
-own, so only Iki's plugins declare starters. A lab plugin's `starters` does
-nothing, and the validator warns of it (`unknown-starter`).
-
-A lab plugin that offers more than one review procedure lets each deployment
-choose one instead. Declare an `enum` setting of the procedures, copy its value
-onto each result when the action records it (an immutable, computed field),
-and have the result's state guards read that field. Each result then keeps
-the procedure it was recorded under. The lots plugin's `verification_flow`
-setting and its plasmid verification's `review_flow` field are an example.
+`starters` names the project setup recipes Iki's own plugins ship, each at an
+exact version, such as `starters: { lot-release-testing: "1.0.0" }` (ADR 0198).
+The recipes are Iki's, so a lab plugin's `starters` does nothing, and the
+validator warns of it (`unknown-starter`). To let a project choose how one of
+its types is reviewed, any plugin declares a `kind: Starter` in `starters/`
+instead ([Starters](#starters)).
 
 ### Names
 
@@ -192,6 +186,21 @@ own by the short name, and another plugin's in full, which needs that plugin
 under `dependencies` (`undeclared-dependency`), so several plugins can share
 one QA role. Naming a role nobody declares is `unknown-role`; two roles with
 the same label are a warning, `duplicate-role-label`.
+
+Iki's `iki/lab_roles` plugin declares the roles most labs share: Analyst,
+Reviewer, QA, Engineer and Coordinator. A procedure's slots are bound to them
+by default
+([ADR 0304](../docs/adr/0304-lab-roles-are-shared-and-a-procedures-slots-are-bound-at-setup.md)).
+A plugin that uses them and declares its own role of the same name says why
+it's separate, with `distinct:`, or it's a warning, `generic-role`:
+
+```yaml
+roles:
+  qa:
+    label: Lot QA
+    description: Decides a lot's disposition.
+    distinct: A certificate's approver doesn't gain the right to release a lot.
+```
 
 ## Entity types
 
@@ -832,6 +841,53 @@ review:
   states its guards are on. One that doesn't is refused, saying which need
   it misses.
 - A type is reviewed once in its lineage: its subtypes follow its review.
+
+### Starters
+
+A starter is how a project's Admin chooses a type's review procedure, and
+gives the lab roles it needs
+([ADR 0303](../docs/adr/0303-a-plugin-declares-its-starters.md)). A plugin
+declares it in `starters/`, for its own types or a dependency's:
+
+```yaml
+apiVersion: iki/v1
+kind: Starter
+name: proteomics_search_review
+version: 1.0.0
+label: Proteomics search results
+description: Choose how newly imported search results are reviewed, and who signs them.
+governs: ProteomicsResult
+procedure: iki/core.result_review@1
+flows: [research, regulated_qc, record_only]
+suggested: research
+summaries:
+  research: A reviewer who didn't import or edit the results signs them off.
+slots:
+  analyst: { minimum: editor }
+  reviewer: { minimum: viewer }
+  qa: { minimum: viewer }
+```
+
+- It's `plugin.name` elsewhere: `iki/proteomics.proteomics_search_review`.
+  Its semver `version` is what setup previews and applies.
+- `governs` is a reviewed type that's pinned at create, or that opens work
+  (`opens: true`). The procedure must fit it and every type that follows it
+  (`procedure-misfit`).
+- `flows` are those a project may choose, `suggested` is shown chosen at
+  first, and never applied by itself.
+- Each slot its flows use says the least project role someone playing it
+  needs (`starter-slot-minimum`), and may name the lab role that plays it,
+  `role: acme/qms.second_reviewer`, instead of the `iki/lab_roles` role of its
+  name.
+- What it doesn't say is read from the procedure: the roles each flow needs,
+  who must be different people, and its states. Applying it is the project's
+  choice for the type: new records are pinned to it, and records already made
+  keep theirs
+  ([ADR 0302](../docs/adr/0302-a-project-chooses-each-types-review-procedure-and-the-server-pins-it.md)).
+- A project's Admin applies it in Project settings → Starters, and may bind a
+  slot to another declared lab role there. An Org Admin may make it the
+  deployment's default for its type, with a reason, in Admin → Review
+  procedures: every project that hasn't chosen follows the default.
 
 ### Notifications
 
