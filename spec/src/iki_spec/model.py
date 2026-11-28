@@ -122,7 +122,16 @@ class Field:
     description: str | None = None
     required: bool = False
     immutable: bool = False
+    #: Set by Iki, not by a person: by an action's runs (``computed: true``), or worked out
+    #: at every save from the record's own values by the CEL expression ``cel``
+    #: (``computed: {cel: …}``, ADR 0297).
     computed: bool = False
+    #: A computed field's CEL expression, which the server evaluates at every save (ADR
+    #: 0297); None for a field that's typed or that a run sets.
+    cel: str | None = None
+    #: The record's fields ``cel`` reads, as the validator's type check found them, which
+    #: the server works computed fields out in the order of.
+    cel_reads: tuple[str, ...] = ()
     #: For an editable boolean, clearing a true value requires a reason in the edit.
     reason_on_clear: bool = False
     #: For a type with an identity: ``derived`` or ``fact``, a field of its registry entry
@@ -200,6 +209,18 @@ class Field:
     closed: bool = False
 
     @property
+    def worked_out(self) -> bool:
+        """Whether Iki works it out from the record's own values, at every save (ADR 0297):
+        no person, agent or run sets it."""
+        return self.cel is not None
+
+    @property
+    def set_by_runs(self) -> bool:
+        """Whether it's computed by an action's runs or by Iki's own code
+        (``computed: true``), not by an expression."""
+        return self.computed and self.cel is None
+
+    @property
     def is_rows(self) -> bool:
         """Whether it's a list of rows (ADR 0137)."""
         return self.type == "list" and self.items is not None and self.items.type == "row"
@@ -221,6 +242,8 @@ class Field:
         role = data.get("role")
         assignment = data.get("assignment", False)
         moved = data.get("moved_to") if data.get("type") == "state" else None
+        computed = data.get("computed")
+        cel = computed.get("cel") if isinstance(computed, dict) else None
         return cls(
             name=name,
             type=data["type"],
@@ -229,6 +252,7 @@ class Field:
             required=bool(data.get("required", False)),
             immutable=bool(data.get("immutable", False)),
             computed=bool(data.get("computed", False)),
+            cel=cel if isinstance(cel, str) else None,
             reason_on_clear=bool(data.get("reason_on_clear", False)),
             registry=data.get("registry"),
             indexed=bool(data.get("indexed", False)),
@@ -2315,9 +2339,9 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
             and not (isinstance(value, Plugin) and f.name == "formats" and not value.formats)
             and not (isinstance(value, Plugin) and f.name == "writers" and not value.writers)
             and not (
-                f.name == "reason_on_clear"
+                f.name in {"reason_on_clear", "cel", "cel_reads"}
                 and isinstance(value, Field)
-                and not value.reason_on_clear
+                and not getattr(value, f.name)
             )
             and not (
                 isinstance(value, RequestSpec)
@@ -2768,6 +2792,7 @@ def _field(data: dict[str, Any]) -> Field:
             "to": (data["to"],) if isinstance(data.get("to"), str) else tuple(data.get("to") or ()),
             "items": _field(data["items"]) if data["items"] is not None else None,
             "assignment_states": tuple(data.get("assignment_states") or ()),
+            "cel_reads": tuple(data.get("cel_reads") or ()),
             # Plugins built before state fields have none.
             "states": {
                 n: State(

@@ -3,6 +3,7 @@
  * it, what the page sends it, and a way to answer (ADR 0084, ADR 0117).
  */
 
+import { PROTOCOL } from "@ikisci/component";
 import { fireEvent } from "@testing-library/react";
 import { vi } from "vitest";
 
@@ -18,7 +19,7 @@ export function connectFrame(frame: HTMLIFrameElement) {
   const [port] = transfer as [MessagePort];
   const received: Record<string, unknown>[] = [];
   port.onmessage = (event: MessageEvent) => received.push(event.data as Record<string, unknown>);
-  port.postMessage({ type: "ready" });
+  port.postMessage({ type: "ready", protocol: PROTOCOL });
   return { port, received };
 }
 

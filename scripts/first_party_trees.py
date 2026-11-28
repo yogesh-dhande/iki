@@ -5,6 +5,10 @@ repository only if its tree is listed there (ADR 0114). Run it, as
 ``make first-party``, whenever a plugin under ``plugins/`` changes. With
 ``--check``, it changes nothing and fails if a tree is missing.
 
+It also lists the HRID prefixes Iki's own types use and reserve
+(``scripts/reserved_hrid_prefixes.py``, ADR 0033), since a plugin's change can
+change those too: one step keeps both lists current.
+
 A tree is what ``git rev-parse <commit>:plugins/<name>`` prints once the
 plugin's files are committed. It's computed from the working tree through a
 scratch index, so it's right before the commit is made, and it leaves out
@@ -20,6 +24,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+import reserved_hrid_prefixes  # beside this script
 
 from iki_spec import first_party
 
@@ -66,10 +72,13 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(f"{error}\n")
         return 1
     missing = {name: t for name, t in trees.items() if t not in listed.get(name, [])}
+    prefixes: int = reserved_hrid_prefixes.main(["--check"] if args.check else [])
     if args.check:
         for name, t in missing.items():
             sys.stderr.write(f"{name}'s tree {t} isn't listed: run `make first-party`.\n")
-        return 1 if missing else 0
+        return 1 if missing or prefixes else 0
+    if prefixes:
+        return prefixes
     for name, t in missing.items():
         listed.setdefault(name, []).append(t)
     LIST.write_text(json.dumps({"trees": dict(sorted(listed.items()))}, indent=2) + "\n", "utf-8")

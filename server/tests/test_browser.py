@@ -4915,7 +4915,7 @@ def test_a_rule_holds_a_record_and_someone_else_reviews_it(open_as: Any, world: 
     assert_clean(page)
     why.fill("As measured on the SEC; retest booked.")
     page.get_by_role("button", name="Create batch").click()
-    page.wait_for_url(re.compile(r"/entities/BAT-\d+/"))
+    page.wait_for_url(re.compile(r"/entities/BTC-\d+/"))
     hrid = Entity.objects.get(type=BATCH).hrid
 
     heading = page.get_by_role("heading", name="Held for review")

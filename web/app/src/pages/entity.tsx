@@ -62,7 +62,16 @@ import { EntityLocation } from "./entity-location";
 import { EntityState } from "./entity-state";
 import { EntityWork } from "./entity-work";
 import { EntityTabs, neighboursOf, neighboursQuery, trailCount, useEntity } from "./entity-header";
-import { drawnBy, DrawnBy, MappedFeatures, registryNote, shownIn, Value } from "./entity-value";
+import { isOptionRef } from "../lab-lists";
+import {
+  drawnBy,
+  DrawnBy,
+  MappedFeatures,
+  OptionRef,
+  registryNote,
+  shownIn,
+  Value,
+} from "./entity-value";
 import { FeatureTable, MiniMap, useMiniMap, type MapOf } from "./record-map";
 import { UtcTime, Via } from "./revision-text";
 import { Button, ConfirmDialog, Loading, RelativeTime, TextField, Time } from "../ui";
@@ -922,14 +931,19 @@ function LineageCard({ entity }: { entity: Entity }) {
           <ul className="rail-links">
             {g.items.slice(0, RAIL_LINKS).map(({ node: e, via }) => (
               <li key={e.id}>
-                <Link
-                  to="/entities/$ref/"
-                  params={{ ref: e.hrid }}
-                  search={slug && hasIdentity(types, e.type) ? { project: slug } : {}}
-                >
-                  <code>{e.hrid}</code>
-                  {e.title !== e.hrid ? ` · ${e.title}` : ""}
-                </Link>
+                {/* An option is read by its label, and leads to its list, as its field does. */}
+                {isOptionRef(e) ? (
+                  <OptionRef found={e} project={slug} />
+                ) : (
+                  <Link
+                    to="/entities/$ref/"
+                    params={{ ref: e.hrid }}
+                    search={slug && hasIdentity(types, e.type) ? { project: slug } : {}}
+                  >
+                    <code>{e.hrid}</code>
+                    {e.title !== e.hrid ? ` · ${e.title}` : ""}
+                  </Link>
+                )}
                 {via.length ? <span className="rail-via"> via {via.join(", ")}</span> : null}
               </li>
             ))}

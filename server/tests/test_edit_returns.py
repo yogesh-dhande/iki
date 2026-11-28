@@ -53,7 +53,8 @@ def test_a_correction_records_the_return_and_the_new_values_together(world: Worl
     )
     assert [(r.kind, r.changed_fields, r.user_id, r.reason) for r in (back, edit)] == [
         ("state_changed", ["status"], world.users["editor"].pk, why),
-        ("edited", ["purity"], world.users["editor"].pk, why),
+        # The batch's purity fraction is worked out from its purity (ADR 0297).
+        ("edited", ["purity", "purity_fraction"], world.users["editor"].pk, why),
     ]
     for number, status, purity in [
         (3, "approved", 96),

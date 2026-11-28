@@ -6,6 +6,7 @@
  * opens is opened by Iki.
  */
 
+import type { Place } from "@ikisci/component";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -13,7 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { problemOf } from "../api";
 import type { PlaceData } from "../component-entities";
 import { ComponentFrame, type GivenEntity } from "../component-frame";
-import type { PinnedRevision, PlaceInfo, PluginComponent } from "../components";
+import type { PinnedRevision, PluginComponent } from "../components";
 import { inSentence, type Entity, type EntityType } from "../entities";
 import { entitiesByHridQuery, MAX_BATCH } from "../runs";
 import { buttonClass, ProblemAlert } from "../ui";
@@ -41,7 +42,7 @@ export function PluginPlace({
 }: {
   component: PluginComponent;
   label: string;
-  place: PlaceInfo;
+  place: Place;
   entity?: GivenEntity | undefined;
   data?: PlaceData | undefined;
   /** The project a run starts in; on a person's home, null: each pick's own. */

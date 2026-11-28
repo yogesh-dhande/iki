@@ -54,7 +54,6 @@ class CompoundFile:
     structure: str  # its Molfile, as its type's structure field holds it
     #: The fields chosen for an SDF's data, as text, in order: (field name, value).
     data: tuple[tuple[str, str], ...] = ()
-    latest: bool = True
 
 
 def _lines(record: CompoundFile) -> tuple[list[str], list[str]]:
@@ -77,8 +76,7 @@ def _lines(record: CompoundFile) -> tuple[list[str], list[str]]:
             f"{name}."
         )
         name = name[:HEADER_WIDTH].rstrip()
-    which = f"revision {record.revision}" + ("" if record.latest else ", not its latest")
-    comment = f"Exported from Iki: {record.hrid} ({which})."[:HEADER_WIDTH]
+    comment = f"Exported from Iki: {record.hrid} (revision {record.revision})."[:HEADER_WIDTH]
     return [name, lines[1], comment, *lines[3:]], said
 
 

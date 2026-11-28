@@ -9,6 +9,7 @@ from uuid import UUID
 
 from iki_server.accounts.models import User
 from iki_server.entities import access
+from iki_server.entities.history import FieldNames
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.services import values_at
 from iki_server.signatures import proof, services, signing_keys
@@ -23,10 +24,18 @@ class Unissued(ValueError):  # noqa: N818 - this revision has no issuable report
 
 
 def snapshot(user: User, entity: Entity, number: int, export: ReportExport) -> dict[str, Any]:
-    """Read the report, and verify every carried signature of the continuous signed cycle."""
+    """Read the report, and verify every carried signature of the continuous signed cycle.
+
+    A plugin's migration may have renamed the report or its review field since (ADR 0148):
+    a revision keeps the name its review field had when it was written, and a signature
+    the names its record's fields had when it was signed, so both are read through what
+    was done since, as verifying a signature reads them."""
     values = values_at(entity, number)
+    names = FieldNames.for_type(entity.type)
     revisions = iter(
-        Revision.objects.filter(entity=entity, number__lte=number, state_field=export.review)
+        Revision.objects.filter(
+            names.transitioning(export.review), entity=entity, number__lte=number
+        )
         .order_by("-number")
         .iterator()
     )
@@ -54,7 +63,7 @@ def snapshot(user: User, entity: Entity, number: int, export: ReportExport) -> d
     references: set[UUID] = set()
     for step in carried:
         evidence = [
-            _check(signatures, pk, index, step, report, export, trusted)
+            _check(signatures, pk, index, entity, step, report, export, trusted)
             for index, pk in enumerate(step.signatures)
         ]
         approvals = [item for item in evidence if item is not None]
@@ -88,6 +97,7 @@ def _check(
     found: dict[UUID, Signature],
     pk: UUID,
     index: int,
+    entity: Entity,
     step: Revision,
     report: Any,  # noqa: ANN401 - arbitrary JSON report
     export: ReportExport,
@@ -105,11 +115,15 @@ def _check(
     ):
         raise Unissued("A signature in this report's issuance could not be verified.")
     document = json.loads(signature.document)
-    content = json.loads(signature.content)
     if document["signature"]["of"] != len(step.signatures):
         raise Unissued("This transition does not carry all its signatures.")
     if document["change"].get("reversal"):
         return None
+    try:
+        # What was signed, named and in the units as the record's fields are now.
+        content = proof.migrated(json.loads(signature.content), services.since(signature, entity))
+    except proof.Unexplained as error:
+        raise Unissued("The report needs verified history of what was done to it.") from error
     if proof.canonical(content["values"].get(export.report)) != proof.canonical(report):
         raise Unissued("The report differs from the one signed in its issuance.")
     return {

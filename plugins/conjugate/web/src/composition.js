@@ -1,0 +1,150 @@
+// A sandboxed component cannot load the app's stylesheet. These token fallbacks match
+// iki.css in each color scheme. The tree connects each declared attachment to its carrier.
+
+import * as iki from "@ikisci/component";
+
+const STYLE = `
+  :host {
+    display: block;
+    color: var(--text, #1d1f21);
+    background: var(--surface, #fff);
+    font: 14px/1.45 var(--font, system-ui, sans-serif);
+    overflow-wrap: anywhere;
+    padding: .5rem;
+  }
+  h2, h3, p, dl, dd, ul { margin: 0; }
+  h2, h3 { font-size: 1rem; }
+  section { margin-top: 1rem; }
+  .carrier { margin-top: .5rem; }
+  dt { color: var(--muted, #5d6064); }
+  .carrier dd, .part { font-weight: 600; }
+  .attachments { list-style: none; padding: 0 0 0 .75rem; }
+  .attachments li { border-left: 1px solid var(--input-border, #8d9095); padding: .4rem 0 .15rem 1rem; position: relative; }
+  .attachments li::before { content: ""; position: absolute; left: 0; top: 1.05rem; width: .65rem; border-top: 1px solid var(--input-border, #8d9095); }
+  .details, .properties { display: grid; grid-template-columns: fit-content(45%) minmax(0, 1fr); gap: .1rem .75rem; }
+  .details { font-size: .875rem; }
+  .properties { margin-top: .25rem; font-variant-numeric: tabular-nums; }
+  .formula { font-family: var(--mono, ui-monospace, monospace); }
+  .note, button { margin-top: .5rem; }
+  button { font: inherit; background: var(--accent, #0b6e5f); color: var(--accent-text, white); border: 1px solid transparent; border-radius: var(--radius-sm, 6px); padding: .3rem .65rem; cursor: pointer; }
+  button:focus-visible { outline: 2px solid var(--focus, #0b6e5f); outline-offset: 2px; }
+  @media (prefers-color-scheme: dark) {
+    :host { color: var(--text, #e8e9eb); background: var(--surface, #1a1b1e); }
+    dt { color: var(--muted, #a3a6ab); }
+    .attachments li, .attachments li::before { border-color: var(--input-border, #6c6f75); }
+    button { background: var(--accent, #3fb8ad); color: var(--accent-text, #06201e); }
+    button:focus-visible { outline-color: var(--focus, #5cc8be); }
+  }
+`;
+
+const COMPUTE = "iki/conjugate.compute_composition";
+const KINDS = {
+  antibody_drug: "Antibody–drug conjugate",
+  oligo_conjugate: "Oligonucleotide conjugate",
+  pegylated_protein: "PEGylated protein",
+};
+const MASS = new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 });
+
+function node(tag, ...children) {
+  const el = document.createElement(tag);
+  el.append(...children);
+  return el;
+}
+
+function named(entity, id) {
+  const ref = entity.refs?.[id];
+  if (!ref) return "Unavailable reference";
+  return ref.title && ref.title !== ref.hrid ? `${ref.hrid} · ${ref.title}` : ref.hrid;
+}
+
+function pair(list, term, value) {
+  list.append(node("dt", term), node("dd", value));
+}
+
+function attachments(entity, rows) {
+  const list = node("ul");
+  // Preserve list semantics in WebKit when the branches replace list markers.
+  list.setAttribute("role", "list");
+  list.setAttribute("aria-label", "Attachments");
+  list.className = "attachments";
+  for (const row of rows) {
+    const part = node("p", named(entity, row.part));
+    part.className = "part";
+    const detail = node("dl");
+    detail.className = "details";
+    if (row.peg_grade) pair(detail, "PEG grade", row.peg_grade);
+    pair(detail, "Carrier site", row.site);
+    pair(detail, "Copies", row.copies ?? "Unspecified");
+    pair(detail, "Loss per attachment", row.loss_formula ?? "Unknown");
+    list.append(node("li", part, detail));
+  }
+  return list;
+}
+
+class ConjugateComposition extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+  }
+
+  set entity(entity) {
+    this.record = entity;
+    this.render();
+  }
+
+  set place(place) {
+    this.runs = place?.runs;
+    if (this.record) this.render();
+  }
+
+  render() {
+    const entity = this.record;
+    if (!entity) {
+      this.shadowRoot.replaceChildren();
+      return;
+    }
+    const values = entity.values ?? {};
+    const carrierRow = values.carrier?.[0];
+    const heading = node("h2", KINDS[carrierRow?.kind] ?? "Conjugate");
+    const carrier = node("dl");
+    carrier.className = "carrier";
+    pair(carrier, "Carrier", named(entity, carrierRow?.molecule));
+    const properties = node("section", node("h3", "Formula and masses"));
+    if (values.molecular_formula) {
+      const list = node("dl");
+      list.className = "properties";
+      const formula = node("span", values.molecular_formula);
+      formula.className = "formula";
+      pair(list, "Molecular formula", formula);
+      for (const [label, mass] of [
+        ["Average mass", values.molecular_weight],
+        ["Monoisotopic mass", values.monoisotopic_mass],
+      ]) {
+        if (Number.isFinite(mass)) pair(list, label, `${MASS.format(mass)} u`);
+      }
+      properties.append(list);
+    }
+    if (values.composition_note || !values.molecular_formula) {
+      const note = node("p", values.composition_note || "Composition has not been computed.");
+      note.className = "note";
+      properties.append(note);
+    }
+    if (!values.molecular_formula && this.runs?.includes(COMPUTE)) {
+      const button = node("button", "Compute composition");
+      button.type = "button";
+      button.addEventListener("click", () => {
+        iki.run(this, COMPUTE);
+      });
+      properties.append(button);
+    }
+    this.shadowRoot.replaceChildren(
+      node("style", STYLE),
+      heading,
+      carrier,
+      attachments(entity, values.attachments ?? []),
+      properties,
+    );
+  }
+}
+
+customElements.define("conjugate-composition", ConjugateComposition);

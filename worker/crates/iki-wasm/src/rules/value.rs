@@ -198,3 +198,50 @@ pub(super) fn text(value: &cel::Value) -> String {
         _ => String::new(),
     }
 }
+
+/// A computed field's value as JSON its field reads, from what its expression gave: a
+/// number where it holds numbers (a whole one where it holds whole numbers), text, yes
+/// or no, or a time in RFC 3339, in UTC; null where it's empty. Or why it isn't one: a
+/// number that isn't finite, as a division by zero gives, or text that isn't one of an
+/// enum's values (ADR 0297).
+pub(super) fn computed(value: &cel::Value, wanted: &Ty) -> Result<serde_json::Value, String> {
+    use cel::Value as V;
+    use serde_json::Value as J;
+    let number = |n: f64| {
+        serde_json::Number::from_f64(n)
+            .map(J::Number)
+            .ok_or_else(|| "It isn't a finite number: a division by zero gives none.".to_owned())
+    };
+    match (wanted, value) {
+        (_, V::Null) => Ok(J::Null),
+        (Ty::Double, V::Float(f)) => number(*f),
+        #[allow(clippy::cast_precision_loss)]
+        (Ty::Double, V::Int(i)) => number(*i as f64),
+        #[allow(clippy::cast_precision_loss)]
+        (Ty::Double, V::UInt(u)) => number(*u as f64),
+        (Ty::Int, V::Int(i)) => Ok(J::from(*i)),
+        (Ty::Int, V::UInt(u)) => i64::try_from(*u)
+            .map(J::from)
+            .map_err(|_| "It's too large a whole number.".to_owned()),
+        (Ty::Int, V::Float(f)) => whole(*f).map(J::from).ok_or_else(|| {
+            "It's a number with a fraction, where a whole number is wanted.".to_owned()
+        }),
+        (Ty::Str(choices), V::String(s)) => match choices {
+            Some(choices) if !choices.values.iter().any(|v| v == s.as_str()) => Err(format!(
+                "`{}` isn't one of {}'s values.",
+                super::types::short(s),
+                choices.label
+            )),
+            _ => Ok(J::String(s.as_str().to_owned())),
+        },
+        (Ty::Bool, V::Bool(b)) => Ok(J::Bool(*b)),
+        (Ty::Timestamp, V::Timestamp(t)) => Ok(J::String(
+            t.naive_utc().format("%Y-%m-%dT%H:%M:%S%.fZ").to_string(),
+        )),
+        (wanted, other) => Err(format!(
+            "It's {} where {} is wanted.",
+            expressions::kind(other),
+            wanted.describe()
+        )),
+    }
+}

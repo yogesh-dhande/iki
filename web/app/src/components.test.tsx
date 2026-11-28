@@ -3,6 +3,8 @@
  * run in, and the page's checks on every message a frame sends.
  */
 
+import { MAX_FRAME_HEIGHT, MAX_SELECTED, MIN_FRAME_HEIGHT, PROTOCOL } from "@ikisci/component";
+import { readMessage } from "@ikisci/component/host";
 import { act, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -11,11 +13,7 @@ import {
   entityTabs,
   EVERY_RECORD,
   lineageOf,
-  MAX_FRAME_HEIGHT,
-  MAX_SELECTED,
-  MIN_FRAME_HEIGHT,
   pinnedRevision,
-  readMessage,
   type PluginComponent,
 } from "./components";
 import { entity, PROTEIN, PROTEIN_ID, renderApp, STRUCTURE, withTypes } from "./entity-fixtures";
@@ -170,9 +168,9 @@ describe("the frame", () => {
     await renderApp("/entities/PRT-000001/components/iki/protein.residues/");
     const frame = await screen.findByTitle<HTMLIFrameElement>("Residues");
     const { message, origin, port, received } = connect(frame);
-    expect(message).toEqual({ type: "iki-connect" });
+    expect(message).toEqual({ type: "iki-connect", protocol: PROTOCOL });
     expect(origin).toBe("*");
-    port.postMessage({ type: "ready" });
+    port.postMessage({ type: "ready", protocol: PROTOCOL });
     await vi.waitFor(() => {
       expect(received).toEqual([
         { type: "place", place: { slot: "entity.tab", label: "Residues" } },
@@ -215,7 +213,7 @@ describe("a selection", () => {
     const { user } = await renderApp("/entities/PRT-000001/components/iki/protein.residues/");
     const frame = await screen.findByTitle<HTMLIFrameElement>("Residues");
     const { port } = connect(frame);
-    port.postMessage({ type: "ready" });
+    port.postMessage({ type: "ready", protocol: PROTOCOL });
     port.postMessage({ type: "select", entities });
     return user;
   }
@@ -275,7 +273,7 @@ describe("an action it offers", () => {
     const { router } = await renderApp("/entities/PRT-000001/components/iki/protein.residues/");
     const frame = await screen.findByTitle<HTMLIFrameElement>("Residues");
     const { port, received } = connect(frame);
-    port.postMessage({ type: "ready" });
+    port.postMessage({ type: "ready", protocol: PROTOCOL });
     return { router, port, received };
   }
 
@@ -427,7 +425,13 @@ describe("historical record links", () => {
 
 describe("messages", () => {
   it("are only those a component may send, within bounds", () => {
-    expect(readMessage(RESIDUES, { type: "ready" })).toEqual({ type: "ready" });
+    expect(readMessage(RESIDUES, { type: "ready", protocol: PROTOCOL })).toEqual({
+      type: "ready",
+      protocol: PROTOCOL,
+    });
+    // A bridge that speaks another version, or doesn't say, isn't one the page can use.
+    expect(readMessage(RESIDUES, { type: "ready", protocol: PROTOCOL + 1 })).toBeNull();
+    expect(readMessage(RESIDUES, { type: "ready" })).toBeNull();
     expect(readMessage(RESIDUES, { type: "resize", height: 1e9 })).toEqual({
       type: "resize",
       height: MAX_FRAME_HEIGHT,

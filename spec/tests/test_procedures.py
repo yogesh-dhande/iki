@@ -395,7 +395,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: Batch
 schema_version: 1
-hrid: { prefix: BAT }
+hrid: { prefix: BTC }
 fields:
   source: { type: enum, values: [made, bought] }
   made_by: { type: person }

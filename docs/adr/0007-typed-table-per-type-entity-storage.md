@@ -1,6 +1,6 @@
 # 0007. Typed table-per-type entity storage with history and provenance
 
-- Status: Accepted
+- Status: Accepted (edit rules amended by [0297](0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md): a computed field may be worked out by an expression, not only set by actions)
 - Date: 2026-11-09
 
 ## Context
