@@ -176,7 +176,8 @@ def _sequencing(world: World, asking: Project) -> None:
     delivered = SEQUENCING + "SequencingDeliverable"
     with pytest.raises(Invalid, match="Attach the read files or give a public run accession"):
         _make(world, "editor", delivered, world.project, **fields)
-    with pytest.raises(Invalid, match="Name the tube that was sequenced"):
+    # The type narrows its inherited material to required (ADR 0283).
+    with pytest.raises(Invalid, match="material: is required"):
         _make(
             world,
             "editor",
