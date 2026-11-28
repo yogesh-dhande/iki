@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/equipment
-version: 0.6.3
+version: 0.7.0
 title: Equipment service
 description: Schedule calibration and maintenance, pin calibration evidence at use, and trace results after failed checks.
 license: Apache-2.0

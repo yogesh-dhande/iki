@@ -285,11 +285,14 @@ var InstrumentUses = class extends EquipmentRecords {
 	actions = [];
 	buildRow(item) {
 		const v = item.values;
-		return this.row(item, reference(item, "result", v.result_revision), [
+		const entries = [
 			["Instrument", reference(item, "instrument")],
 			["Measured", date(v.measurement_at)],
 			["Calibration", reference(item, "calibration", v.calibration_revision)]
-		]);
+		];
+		if (v.covered === false) entries.push(["Coverage", marked(`Not covered: ${v.not_covered_because}`, "danger")]);
+		else if (v.covered === true) entries.push(["Coverage", "Covered"]);
+		return this.row(item, reference(item, "result", v.result_revision), entries);
 	}
 };
 customElements.define("iki-equipment-service", EquipmentService);
