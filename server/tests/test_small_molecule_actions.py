@@ -2416,12 +2416,20 @@ def test_a_search_of_many_compounds_holds_one_at_a_time(tmp_path: Path) -> None:
             written.write(("," if i else "") + json.dumps(entity(i, **shapes[i % len(shapes)])))
         written.write("]}}")
     assert path.stat().st_size > 50_000_000
+    # Its own peak. On Linux, getrusage's ru_maxrss also counts the process it was started
+    # from, whose memory exec carries over: a test worker that's run many tests is
+    # hundreds of MiB. VmHWM is the peak of this program's own memory.
     measure = (
-        "import os, resource, runpy, sys; sys.argv = ['search.py', 'similar']\n"
+        "import resource, runpy, sys; sys.argv = ['search.py', 'similar']\n"
         "try: runpy.run_path('search.py', run_name='__main__')\n"
         "finally:\n"
-        "    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss\n"
-        "    print(peak // (1 if sys.platform == 'darwin' else 1 / 1024) // 2**20)\n"
+        "    if sys.platform == 'linux':\n"
+        "        with open('/proc/self/status') as status:\n"
+        "            [hwm] = [line for line in status if line.startswith('VmHWM:')]\n"
+        "        peak = int(hwm.split()[1]) * 1024\n"
+        "    else:\n"
+        "        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss\n"
+        "    print(peak // 2**20)\n"
     )
     (tmp_path / "out").mkdir()
     result = subprocess.run(  # noqa: S603 - our own script
