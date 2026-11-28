@@ -1,4 +1,4 @@
-import { AVERAGE, MONOISOTOPIC } from "./molecular-data.js";
+import { AVERAGE_H, MASS_1H } from "./molecular-data.js";
 
 /** Neutral Hill formula and masses in u. Supply null for unknown values. ε280 in L/(mol·cm). */
 export interface CompositionMass {
@@ -8,9 +8,6 @@ export interface CompositionMass {
   extinctionCoefficient: number | null;
 }
 
-// Hydrogen's average and ¹H's masses, as the complex plugin weighs a disulfide's two.
-const AVERAGE_H = AVERAGE["H"] ?? Number.NaN;
-const MASS_1H = MONOISOTOPIC["H"] ?? Number.NaN;
 // Pace et al. (1995), folded proteins in water: https://doi.org/10.1002/pro.5560041120
 const CYSTINE_EXTINCTION = 125;
 

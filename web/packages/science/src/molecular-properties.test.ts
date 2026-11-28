@@ -5,6 +5,7 @@ import {
   proteinProperties,
   strandExtinction260,
 } from "./molecular-properties.js";
+import { AVERAGE, AVERAGE_H, MASS_1H, MONOISOTOPIC } from "./molecular-data.js";
 
 describe("molecular mass and spectroscopy", () => {
   it("weighs water and fixed labels by their neutral atom masses", () => {
@@ -17,6 +18,8 @@ describe("molecular mass and spectroscopy", () => {
     expect(molecularMass("[12C]")).toEqual({ average: 12, monoisotopic: 12 });
     for (const invalid of ["", "CO2+", "[400C]", "Xx", "C0", "C2H5OH"])
       expect(() => molecularMass(invalid)).toThrow(RangeError);
+    // Hydrogen's own constants, which a disulfide's weighing reads, are the tables'.
+    expect([AVERAGE_H, MASS_1H]).toEqual([AVERAGE["H"], MONOISOTOPIC["H"]]);
   });
 
   it("accounts for peptide termini and only the stated disulfides", () => {

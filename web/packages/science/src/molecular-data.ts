@@ -5,6 +5,10 @@
 // Monoisotopic and isotope masses: AME2020, as NIST gives them,
 // https://physics.nist.gov/PhysRefData/Compositions/ . Each labelled atom counts as its
 // specified nuclide, including in an average mass.
+// Hydrogen's average mass and ¹H's, on their own for what weighs only hydrogen (a
+// disulfide's two), so it needn't carry the tables; they equal the tables' (a test says so).
+export const AVERAGE_H = 1.008;
+export const MASS_1H = 1.00782503223;
 export const AVERAGE: Readonly<Record<string, number>> = {
   C: 12.011,
   H: 1.008,

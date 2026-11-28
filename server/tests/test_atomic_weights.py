@@ -83,8 +83,11 @@ def test_the_web_packages_weigh_by_the_same_table() -> None:
         for k, v in weights.RESIDUES.items()
     }
     assert residues == hill
+    # A disulfide's two hydrogens are weighed by hydrogen's own constant, the table's.
+    [hydrogen] = re.findall(r"^export const AVERAGE_H = ([0-9.]+);$", source, re.M)
+    assert float(hydrogen) == weights.AVERAGE["H"]
     assert (
-        "AVERAGE_H = AVERAGE["
+        'import { AVERAGE_H, MASS_1H } from "./molecular-data.js";'
         in (ROOT / "web/packages/science/src/composition-mass.ts").read_text()
     )
 
