@@ -19,11 +19,28 @@ SOURCE = Path(__file__).parents[1] / "src" / "iki_server"
 _CODE_ARGUMENT = {("entities", "Unexportable"): 1, ("components", "Refused"): 0}
 
 
-def _raised() -> dict[str, set[tuple[int | None, str]]]:
-    """Each code the server's source gives a problem, with its status where it says one,
-    and where: a `Problem(...)`'s `code`, or its status's default; a refusal's `code`
-    attribute; a literal code given to an exception the API answers with it."""
-    found: dict[str, set[tuple[int | None, str]]] = {}
+def _codes(node: ast.Call) -> list[str] | None:
+    """The codes a call's `code` keyword gives: a literal, or either of a conditional's
+    literals; None if it has none, or one worked out as it runs."""
+    for k in node.keywords:
+        if k.arg != "code":
+            continue
+        v = k.value
+        if isinstance(v, ast.Constant):
+            return [str(v.value)]
+        if (
+            isinstance(v, ast.IfExp)
+            and isinstance(v.body, ast.Constant)
+            and isinstance(v.orelse, ast.Constant)
+        ):
+            return [str(v.body.value), str(v.orelse.value)]
+        return None
+    return None
+
+
+def _problem_calls() -> list[tuple[ast.Call, str]]:
+    """Each `Problem(...)` in the server's source, and where."""
+    calls: list[tuple[ast.Call, str]] = []
     for path in SOURCE.rglob("*.py"):
         if "migrations" in path.parts:
             continue
@@ -34,40 +51,58 @@ def _raised() -> dict[str, set[tuple[int | None, str]]]:
             and any(a.name == "Problem" for a in n.names)
             for n in ast.walk(tree)
         ) or path.name in ("problems.py", "preconditions.py")
+        if not imports_problem:
+            continue
         where = str(path.relative_to(SOURCE))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                name = getattr(node.func, "id", getattr(node.func, "attr", None))
-                literal = [a.value if isinstance(a, ast.Constant) else None for a in node.args]
-                code = next(
-                    (
-                        str(k.value.value)
-                        for k in node.keywords
-                        if k.arg == "code" and isinstance(k.value, ast.Constant)
-                    ),
-                    None,
-                )
-                if name == "Problem" and imports_problem:
-                    first = literal[0] if literal else None
-                    status = first if isinstance(first, int) else None
-                    dynamic = any(k.arg == "code" and code is None for k in node.keywords)
-                    if code is None and status is not None and not dynamic:
-                        code = DEFAULT_CODES.get(status, f"<no default for {status}>")
-                    if code is not None:
-                        found.setdefault(code, set()).add((status, where))
-                elif (
+        calls.extend(
+            (node, where)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and getattr(node.func, "id", getattr(node.func, "attr", None)) == "Problem"
+        )
+    return calls
+
+
+def _raised() -> dict[str, set[tuple[int | None, str]]]:
+    """Each code the server's source gives a problem, with its status where it says one,
+    and where: a `Problem(...)`'s `code`, or its status's default; a refusal's `code`
+    attribute; a literal code given to an exception the API answers with it."""
+    found: dict[str, set[tuple[int | None, str]]] = {}
+    for node, where in _problem_calls():
+        first = node.args[0] if node.args else None
+        status = (
+            first.value
+            if isinstance(first, ast.Constant) and isinstance(first.value, int)
+            else None
+        )
+        codes = _codes(node)
+        dynamic = codes is None and any(k.arg == "code" for k in node.keywords)
+        if codes is None and status is not None and not dynamic:
+            codes = [DEFAULT_CODES.get(status, f"<no default for {status}>")]
+        for code in codes or ():
+            found.setdefault(code, set()).add((status, where))
+    for path in SOURCE.rglob("*.py"):
+        if "migrations" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(), str(path))
+        where = str(path.relative_to(SOURCE))
+        for each in ast.walk(tree):
+            if isinstance(each, ast.Call):
+                name = getattr(each.func, "id", getattr(each.func, "attr", None))
+                literal = [a.value if isinstance(a, ast.Constant) else None for a in each.args]
+                if (
                     (at := _CODE_ARGUMENT.get((path.parts[-2], name or ""))) is not None
                     and len(literal) > at
                     and isinstance(literal[at], str)
                 ):
                     found.setdefault(str(literal[at]), set()).add((None, where))
-            elif isinstance(node, ast.ClassDef):
-                for item in node.body:
+            elif isinstance(each, ast.ClassDef):
+                for item in each.body:
                     if (
                         isinstance(item, ast.Assign)
                         and [getattr(t, "id", None) for t in item.targets] == ["code"]
                         and isinstance(item.value, ast.Constant)
-                        and any(getattr(b, "id", None) == "Refused" for b in node.bases)
+                        and any(getattr(b, "id", None) == "Refused" for b in each.bases)
                     ):
                         found.setdefault(str(item.value.value), set()).add((409, where))
     return found
@@ -87,6 +122,26 @@ def test_every_code_the_server_gives_a_problem_is_declared() -> None:
     # The status defaults are given by Iki's handlers for whatever answers that status.
     unused = set(CODES) - set(raised) - set(DEFAULT_CODES.values())
     assert unused == set()
+
+
+def test_every_member_the_server_gives_a_problem_is_one_its_code_declares() -> None:
+    """A member a `Problem(...)` names in its `extensions` is one its code carries, so a
+    client reads it from the code's own schema."""
+    given = 0
+    undeclared: dict[str, list[str]] = {}
+    for node, where in _problem_calls():
+        extensions = next((k.value for k in node.keywords if k.arg == "extensions"), None)
+        if not isinstance(extensions, ast.Dict):
+            continue
+        names = [str(k.value) for k in extensions.keys if isinstance(k, ast.Constant)]
+        for code in _codes(node) or ():
+            given += 1
+            if code in CODES:
+                for name in names:
+                    if name not in CODES[code].members:
+                        undeclared.setdefault(code, []).append(f"{name} ({where})")
+    assert given > 10
+    assert undeclared == {}
 
 
 def test_a_problem_the_catalogue_doesnt_declare_fails_the_tests_and_is_logged_in_production(

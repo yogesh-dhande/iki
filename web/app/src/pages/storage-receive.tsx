@@ -11,7 +11,7 @@
  * handover, cancelling) asks why, names the version seen, and keeps both in the history.
  */
 
-import { ApiError, unwrap, type Problem, type Schemas } from "@ikisci/sdk";
+import { ApiError, isApiError, unwrap, type Problem, type Schemas } from "@ikisci/sdk";
 import { buttonState } from "@ikisci/ui/button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
@@ -1012,11 +1012,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
         void client.invalidateQueries({ queryKey: STORAGE });
       },
       onError: (error) => {
-        if (
-          error instanceof ApiError &&
-          error.problem.code === "moves_plan_changed" &&
-          error.problem.moves
-        ) {
+        if (isApiError(error, "moves_plan_changed")) {
           showPlacement(error.problem.moves);
           return;
         }

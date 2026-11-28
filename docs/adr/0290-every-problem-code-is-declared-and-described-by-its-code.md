@@ -65,8 +65,10 @@ gives.
 **The SDKs read problems from the document.** The TypeScript SDK's
 `Problem` is the generated union, with `ClientProblem` for what the client
 describes itself (`unexpected_response`, `network_error`).
-`isProblem(value, code)` and `isApiError(error, code)` narrow to that code's
-problem, whose members are then typed; `isStale` and
+`ApiError.problem` is that union, so `instanceof ApiError` gives a typed
+problem to narrow by `code`. `isProblem(value, code)` and
+`isApiError(error, code)` narrow to that code's problem, whose members are
+then typed; `isStale` and
 `isPreconditionRequired` are those for `stale` and `precondition_required`.
 The Python SDK's `ApiError.problem` is the generated union, which a type
 checker narrows by comparing `problem["code"]`.
@@ -74,14 +76,16 @@ checker narrows by comparing `problem["code"]`.
 **Codes changed** to keep one meaning each: a collection whose search finds
 too many is 422 `too_many`, as a lineage export's is; a trigger's missing
 service account or reason is `validation_failed`, naming the field; a
-trigger that can't be turned on is `refused`.
+trigger that can't be turned on is `refused`; MCP's sign-in challenge is
+`not_authenticated`, as the API's is.
 
 ## Consequences
 
 - Positive:
   - A client knows every code, its status and its members from the
     document, and a generated client checks its handling of them.
-  - A new code can't ship undeclared: the test that first raises it fails.
+  - A new code can't ship undeclared: the test that first raises it fails,
+    and a check of the source finds each code and member a problem names.
 - Negative / trade-offs:
   - Declaring a code is one more step when writing a refusal.
   - The per-operation statuses come from the operation's shape, not from

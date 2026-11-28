@@ -89,11 +89,13 @@ export function isProblem(value: unknown, code?: ProblemCode): boolean {
   );
 }
 
-/** An API call that answered with a problem. */
-export class ApiError<P extends Problem = Problem> extends Error {
-  readonly problem: P;
+/** An API call that answered with a problem. Its `problem` is the {@link Problem} union,
+ * so `instanceof` gives a typed problem to narrow by `code`; {@link isApiError} with a
+ * code narrows it in one step. */
+export class ApiError extends Error {
+  readonly problem: Problem;
 
-  constructor(problem: P) {
+  constructor(problem: Problem) {
     super(problem.detail);
     this.name = "ApiError";
     this.problem = problem;
@@ -103,18 +105,21 @@ export class ApiError<P extends Problem = Problem> extends Error {
     return this.problem.status;
   }
 
-  get code(): P["code"] {
+  get code(): ProblemCode {
     return this.problem.code;
   }
 }
 
+/** An {@link ApiError} whose problem is a code's, with the members that code carries. */
+export type ApiErrorOf<C extends ProblemCode> = ApiError & {
+  readonly problem: ProblemOf<C>;
+  readonly code: C;
+};
+
 /** Whether `error` is an API call's problem, and, given a `code`, that code's, whose
  * members its `problem` then has. */
 export function isApiError(error: unknown): error is ApiError;
-export function isApiError<C extends ProblemCode>(
-  error: unknown,
-  code: C,
-): error is ApiError<ProblemOf<C>>;
+export function isApiError<C extends ProblemCode>(error: unknown, code: C): error is ApiErrorOf<C>;
 export function isApiError(error: unknown, code?: ProblemCode): boolean {
   return error instanceof ApiError && (code === undefined || error.code === code);
 }
@@ -142,7 +147,7 @@ export function ifNoneMatchAny(): { "If-None-Match": "*" } {
 
 /** Whether a change was refused because what it named changed since it was read (412
  * `stale`): nothing changed. Read it again, then decide. */
-export function isStale(error: unknown): error is ApiError<ProblemOf<"stale">> {
+export function isStale(error: unknown): error is ApiErrorOf<"stale"> {
   return isApiError(error, "stale");
 }
 
@@ -150,7 +155,7 @@ export function isStale(error: unknown): error is ApiError<ProblemOf<"stale">> {
  * `precondition_required`). */
 export function isPreconditionRequired(
   error: unknown,
-): error is ApiError<ProblemOf<"precondition_required">> {
+): error is ApiErrorOf<"precondition_required"> {
   return isApiError(error, "precondition_required");
 }
 

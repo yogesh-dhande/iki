@@ -490,7 +490,7 @@ export function scanRefusal(problem: Problem | undefined): ScanRefusal | null {
   if (!problem) return null;
   if (problem.code === "scan_unavailable") return { kind: "refused" };
   if (problem.code === "scan_ambiguous") {
-    const candidates = problem.candidates ?? [];
+    const { candidates } = problem;
     // Without its candidates, a choice can't be offered: it's said as a refusal.
     return candidates.length
       ? { kind: "ambiguous", candidates, index: problem.index ?? null }
@@ -520,7 +520,7 @@ export interface UnregisteredChoice {
 export function unregisteredChoice(problem: Problem | undefined): UnregisteredChoice | null {
   if (problem?.code !== "count_unregistered_choice") return null;
   if (typeof problem.index !== "number" || !problem.position) return null;
-  return { index: problem.index, position: problem.position, sources: problem.observations ?? [] };
+  return { index: problem.index, position: problem.position, sources: problem.observations };
 }
 
 /**
