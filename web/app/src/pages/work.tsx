@@ -19,28 +19,10 @@ import {
   workQuery,
   workStateFields,
   workStates,
+  type WorkFilter,
   type WorkItem,
 } from "../people";
 import { Badge, Button, Loading, PageHeader, ProblemAlert, SelectField, useMessages } from "../ui";
-
-export interface WorkSearch {
-  open?: boolean | undefined;
-  project?: string | undefined;
-  type?: string | undefined;
-  state?: string | undefined;
-  sort?: "due" | "updated" | undefined;
-}
-
-export function validateWorkSearch(search: Record<string, unknown>): WorkSearch {
-  const out: WorkSearch = {};
-  if (search["open"] === true || search["open"] === "true") out.open = true;
-  for (const key of ["project", "type", "state"] as const) {
-    const value = search[key];
-    if (typeof value === "string" && value && value.length <= 200) out[key] = value;
-  }
-  if (search["sort"] === "updated") out.sort = "updated";
-  return out;
-}
 
 /** Each type with assignment fields. */
 function assignedTypes(types: EntityType[] | undefined): EntityType[] {
@@ -70,7 +52,7 @@ export function Work() {
   const assigned = assignedTypes(types);
   const chosenType = assigned.find((t) => t.name === search.type);
   const states = stateOptions(chosenType ? [chosenType] : assigned);
-  const set = (change: Partial<WorkSearch>) => {
+  const set = (change: Partial<WorkFilter>) => {
     void navigate({ search: (was) => ({ ...was, ...change }), replace: true });
   };
 
@@ -184,7 +166,7 @@ export function Work() {
   );
 }
 
-function filtered(search: WorkSearch): boolean {
+function filtered(search: WorkFilter): boolean {
   return Boolean(search.project ?? search.type ?? search.state);
 }
 

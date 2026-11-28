@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: AntibodyRearrangement
 label: Antibody rearrangement
-schema_version: 1
+schema_version: 2
 hrid: { prefix: ABR }
 description: >-
   A curator's statement that a rearrangement in an imported AIRR repertoire encodes a chain of a
@@ -35,6 +35,15 @@ fields:
     computed: true
     immutable: true
     description: The person who linked the rearrangement to the antibody.
+  nonproductive_reason:
+    type: text
+    label: Why a non-productive call encodes the chain
+    computed: true
+    immutable: true
+    max_length: 1000
+    description: >-
+      For a rearrangement the report calls non-productive, the curator's reason
+      it encodes the antibody's chain anyway.
   inputs:
     type: json
     computed: true

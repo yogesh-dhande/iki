@@ -1,6 +1,7 @@
 # 0247. A project chooses how its experiments are signed
 
 - Status: Accepted
+- Superseded in part by [0301](0301-a-review-procedure-is-declared-once-and-a-type-says-what-it-needs.md) and [0302](0302-a-project-chooses-each-types-review-procedure-and-the-server-pins-it.md): an experiment is pinned at create and never re-pinned
 - Date: 2026-11-26
 - Refines: [0189](0189-an-experiment-pins-the-evidence-its-witness-signs.md),
   [0198](0198-a-project-applies-a-versioned-assay-starter.md),

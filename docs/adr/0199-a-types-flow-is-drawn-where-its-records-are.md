@@ -1,6 +1,7 @@
 # 0199. A type's flow is drawn where its records are
 
 - Status: Accepted
+- Amended by [0306](0306-a-types-flow-is-drawn-from-its-procedures.md): a reviewed type's flow is drawn from its procedures
 - Date: 2026-11-22
 
 ## Context

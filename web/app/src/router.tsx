@@ -35,23 +35,21 @@ import { validateLineageSearch } from "./lineage";
 import { validateListSearch } from "./lists";
 import { validateEntrySearch, validateTypePageSearch } from "./lab-lists";
 import { validateRequestsSearch } from "./requests";
-import { validateWorkSearch, Work } from "./pages/work";
+import { validateWorkSearch } from "./people";
 import { entryQuery } from "./registries";
 
 import { validateCostsSearch } from "./costs-search";
 import { validateWorkersSearch } from "./compute";
 import { validateQuarantineSearch } from "./quarantine";
-import { ProjectList } from "./pages/project-list";
-import { ProjectNew } from "./pages/project-new";
 import { fileQuery, validateFileSearch } from "./files";
-import { AllFiles, FilePage, ProjectFiles } from "./pages/files";
-import { ContainerPage, StoragePage, validateContainerSearch } from "./pages/storage";
-import { ReceivePage } from "./pages/storage-receive";
-import { ReconcilePage } from "./pages/storage-reconcile";
-import { containerQuery, placesQuery, receiptsQuery, reconciliationQuery } from "./storage";
-import { ProjectOverview, ProjectTabs } from "./pages/project-overview";
-import { ProjectSettings } from "./pages/project-settings";
-import { AppDraft } from "./pages/app-draft";
+import {
+  containerQuery,
+  placesQuery,
+  receiptsQuery,
+  reconciliationQuery,
+  validateContainerSearch,
+} from "./storage";
+import { ProjectTabs } from "./pages/project-header";
 import { validateNewRunSearch } from "./pages/new-run-search";
 import {
   actionsQuery,
@@ -63,7 +61,32 @@ import {
   type RunStatus,
 } from "./runs";
 
-// Pages fetched when they're first opened, so the first page loads quickly.
+// Pages fetched when they're first opened (or a link to one is pointed at), so the first page
+// loads quickly. Only the frame and Home load with the app: `make web` checks what that weighs.
+const Work = lazyRouteComponent(() => import("./pages/work"), "Work");
+const ProjectList = lazyRouteComponent(() => import("./pages/project-list"), "ProjectList");
+const ProjectNew = lazyRouteComponent(() => import("./pages/project-new"), "ProjectNew");
+const ProjectOverview = lazyRouteComponent(
+  () => import("./pages/project-overview"),
+  "ProjectOverview",
+);
+const ProjectSettings = lazyRouteComponent(
+  () => import("./pages/project-settings"),
+  "ProjectSettings",
+);
+const AppDraft = lazyRouteComponent(() => import("./pages/app-draft"), "AppDraft");
+const filePages = () => import("./pages/files");
+const ProjectFiles = lazyRouteComponent(filePages, "ProjectFiles");
+const AllFiles = lazyRouteComponent(filePages, "AllFiles");
+const FilePage = lazyRouteComponent(filePages, "FilePage");
+const storagePages = () => import("./pages/storage");
+const StoragePage = lazyRouteComponent(storagePages, "StoragePage");
+const ContainerPage = lazyRouteComponent(storagePages, "ContainerPage");
+const ReceivePage = lazyRouteComponent(() => import("./pages/storage-receive"), "ReceivePage");
+const ReconcilePage = lazyRouteComponent(
+  () => import("./pages/storage-reconcile"),
+  "ReconcilePage",
+);
 const entityPages = () => import("./pages/entity");
 const typePages = () => import("./pages/types");
 const webhookPages = () => import("./pages/webhooks");
@@ -135,7 +158,7 @@ const EntityApp = lazyRouteComponent(() => import("./pages/entity-app"), "Entity
 const registryPages = () => import("./pages/registries");
 const RegistryEntries = lazyRouteComponent(registryPages, "RegistryEntries");
 const EntryPage = lazyRouteComponent(registryPages, "EntryPage");
-const savedSearchPages = () => import("./pages/saved-searches");
+const savedSearchPages = () => import("./pages/saved-search");
 const SavedSearchPage = lazyRouteComponent(savedSearchPages, "SavedSearchPage");
 const TypeList = lazyRouteComponent(typePages, "TypeList");
 const TypeDetail = lazyRouteComponent(typePages, "TypeDetail");
@@ -459,7 +482,7 @@ const projectStartersRoute = createRoute({
 const projectImportRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "imports/$importId",
-  component: lazyRouteComponent(() => import("./pages/project-imports"), "ImportPage"),
+  component: lazyRouteComponent(() => import("./pages/project-import"), "ImportPage"),
 });
 
 const projectAppDraftRoute = createRoute({

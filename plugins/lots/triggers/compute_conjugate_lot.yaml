@@ -22,6 +22,7 @@ on: entity.updated
 type: ConjugateLot
 fields:
   [
+    conjugate,
     drug_loads,
     dar_method,
     a280,
@@ -32,4 +33,5 @@ fields:
   ]
 watch_included:
   conjugate: [carrier_light_copies, carrier_heavy_copies]
+  concentration_method: [calculation]
 run: compute_conjugate_lot

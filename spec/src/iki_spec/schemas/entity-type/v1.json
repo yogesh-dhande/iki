@@ -166,6 +166,133 @@
         }
       }
     },
+    "review": {
+      "description": "Its records are reviewed under a review procedure a project chooses (ADRs 0301, 0302). Iki adds the state field the procedure drives (`review`, or the one `field` names) and two immutable fields the server stamps at create, `review_procedure` and `review_flow`. It says what it needs of a procedure, not which procedure it uses; any that fits can be chosen. Its subtypes are reviewed the same way. Inheritance: `once`. Inherited, and declared once in a lineage: a subtype has its ancestor's, and can't declare another.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "description": "The name of the state field the procedure drives. `review` if left out.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "label": {
+          "description": "The state field's label. Review if left out.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+        },
+        "pinned": {
+          "description": "Where its procedure comes from: `create`, the project's choice (or the deployment's default) when it's created; or `{by: field}`, the procedure of the record a required, immutable reference names, such as a release case's.",
+          "oneOf": [
+            {
+              "const": "create"
+            },
+            {
+              "type": "object",
+              "required": ["by"],
+              "additionalProperties": false,
+              "properties": {
+                "by": {
+                  "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+                }
+              }
+            }
+          ]
+        },
+        "opens": {
+          "description": "It has no review of its own: it pins a procedure, at create, for the records that are `pinned: {by: ...}` it, such as a release case for its certificate and investigations.",
+          "const": true
+        },
+        "derived": {
+          "description": "It re-issues a record already reviewed under the same flow, such as a certificate of analysis from its certificate: its route is the flow's first state and its final one, signed as the final one is.",
+          "const": true
+        },
+        "needs": {
+          "description": "What it needs of a procedure. A procedure that fits all of it can be chosen; one that doesn't is refused with what it misses.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "open": {
+              "description": "The state its actions write in: every flow starts in it.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "final": {
+              "description": "The states its readers take as complete, such as a request receiving it or a record citing it: every flow ends in one of them.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 10,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+              }
+            },
+            "states": {
+              "description": "Other states it names, in notifications, assignments, guards, rules and scripts: the procedure has each.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+              }
+            },
+            "locks": {
+              "description": "`signed`: every signed state locks the record. `final`: each flow's final state locks it.",
+              "enum": ["signed", "final"]
+            },
+            "slots": {
+              "description": "The slots its own fields and guards name: the procedure declares each.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 10,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleName"
+              }
+            }
+          }
+        },
+        "independent_of": {
+          "description": "People every state that declares `independent_of` also excludes: `{people: [fields]}`, whom its person fields name, each with an optional `when`.",
+          "$ref": "https://ikisci.org/schemas/review-procedure/v1#/$defs/independentOf"
+        },
+        "guards": {
+          "description": "Its own conditions on the procedure's states, by name, each `on` some states, appended to what the procedure declares (ADR 0128).",
+          "type": "object",
+          "maxProperties": 20,
+          "propertyNames": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "required": ["on", "check", "message"],
+            "additionalProperties": false,
+            "properties": {
+              "on": {
+                "description": "The states it applies to: names, `signed` for every signed state, or `final` for each flow's final state.",
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+                }
+              },
+              "check": {
+                "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/expression"
+              },
+              "message": {
+                "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/message"
+              },
+              "when": {
+                "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/expression"
+              },
+              "description": {
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
+              }
+            }
+          }
+        }
+      }
+    },
     "rules": {
       "description": "Rules every save of its records keeps (ADR 0127): CEL checks of the record, fields no two of a project's records share, and ranges none of them overlap. Inheritance: `accumulate`. Inherited and added to: a subtype has every ancestor's and its own, none named as an ancestor's is.",
       "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/rules"

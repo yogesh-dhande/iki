@@ -83,7 +83,7 @@ impl Host for Local {
         "Checked the result files."
     }
 
-    fn keep(&self, relative: &str, _path: &Path) -> Result<(), files::Failed> {
+    fn keep(&self, relative: &str, _file: &std::fs::File) -> Result<(), files::Failed> {
         // Local artifacts can be inspected with --keep.
         say::info("Would keep an artifact.", &[("path", &relative)]);
         Ok(())

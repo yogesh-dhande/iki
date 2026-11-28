@@ -464,6 +464,7 @@ def run_input(
             "id": _id(3, n),
             "hrid": entity.get("hrid") or f"{prefix}-{n:0{entity_type.hrid_digits}d}",
             "type": type_name,
+            "types": list(lineage(every, type_name)),
             "schema_version": entity_type.schema_version,
             "revision": 1,
             "values": _with_ids(entity["values"], file_ids),

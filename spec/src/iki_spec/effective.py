@@ -139,6 +139,8 @@ POLICIES: Mapping[str, Policy] = {
     "storage": Policy.NEAREST,
     "stock_catalogue": Policy.NEAREST,
     "amount": Policy.ONCE,
+    # Reviewed once in a lineage (ADR 0301): the fields it adds are its subtypes' fields.
+    "review": Policy.ONCE,
 }
 
 

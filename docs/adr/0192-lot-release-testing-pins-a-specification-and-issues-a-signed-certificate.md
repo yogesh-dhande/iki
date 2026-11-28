@@ -11,6 +11,8 @@
   its investigator (see Amendment)
 - Amended: 2026-11-26 — specification contexts and release cycles (see Amendment)
 - Amended: 2026-11-27 — a criterion names the fit method it accepts (see Amendment)
+- Amended: 2026-11-27 — a result is rounded to its limits' place, and a certificate names
+  its material (see Amendment)
 
 ## Context
 
@@ -191,3 +193,36 @@ attribute.
 The name is what the result records. Iki doesn't check which plugin fitted it: any
 installed plugin that creates plate assay results is deployment code the administrator
 installed, and could record any endpoint as well as any method name.
+
+## Amendment. A result is rounded to its limits' place, and a certificate names its material
+
+**A limit is stated as its specification states it.** A criterion's limits were floats, so
+`99.0` was stored as `99` and its place was lost. A limit is now a decimal, kept as text
+to its last significant digit (`99.0`, `0.5`, `0.020`). USP General Notices 7.20 says a
+limit is significant to its last digit shown, and that a result is rounded to that place
+before it's compared, considering only the next digit: below 5 it's dropped, 5 or more
+rounds the digit before it up. The limits themselves are fixed.
+
+**`record_test` compares the reportable value.** It rounds the result to the limits'
+place, half up, and compares that with them. The test keeps both the value as measured
+(21 CFR 211.194(a)) and the `reported` value it compared. So 98.96% meets "99.0–100.5%"
+as 99.0%, and 98.94% is 98.9%, out of specification, as 7.20's own examples have it. The
+certificate states the reportable value, and the evidence keeps the measured one. Before,
+Iki compared the unrounded value, which made results that conform under 7.20 out of
+specification and opened investigations for them.
+
+A criterion's `rounding` is `limit_places` by default, or `unrounded` where its
+specification compares results as measured: a primitive, not a policy. With rounding, a
+range's two limits are stated to the same place, as monographs write them; a rule refuses
+`98` to `102.0`, whose comparison would be ambiguous.
+
+**A certificate names its material.** ICH Q7 §11.41 puts on a certificate of analysis the
+name of the intermediate or API, with its grade where appropriate, the batch number and
+the date of release. The certificate named the lot only. A case now pins its `material`,
+and the certificate states the material's registered name, read when the certificate is
+prepared, and the grade its schedule gives. A schedule's optional `grade`, such as USP, is
+fixed with it. A material without a name can't have a case opened or a certificate
+prepared. The issuing signature dates the certificate (§11.43), and its export shows that
+signature with its date. The certificate's other contents follow §11.42 (each test, its
+limits and numerical result) and §11.43 (the issuer). Iki's earlier citation of §11.4 as
+a whole claimed more than the certificate stated.

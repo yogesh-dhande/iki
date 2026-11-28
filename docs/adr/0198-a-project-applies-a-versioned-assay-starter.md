@@ -1,6 +1,7 @@
 # 0198. A project applies a versioned assay starter
 
 - Status: Accepted. [ADR 0223](0223-applying-an-assay-starter-configures-the-project.md) revises setup for recipe 2.0.0.
+- Superseded in part by [0303](0303-a-plugin-declares-its-starters.md) (starters are plugin manifests) and [0305](0305-a-type-is-a-kind-of-work-not-a-review-procedure.md) (one result type, procedure pinned)
 - Date: 2026-11-22
 - Refines: [0188](0188-a-plate-read-keeps-the-wells-behind-a-fitted-endpoint.md)
 
