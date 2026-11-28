@@ -4119,11 +4119,11 @@ def polymers(alice: requests.Session, project: dict[str, Any]) -> None:
             ),
         },
     )
-    run = launch(alice, project, "iki/lots.compute_polymer_lot", {"lot": lot["id"]})
+    # Molar-mass dispersity, Mw/Mn (https://doi.org/10.1351/PAC-REC-08-05-02), which the
+    # lot works out as it's saved (ADR 0297).
     measured = record(alice, lot["id"])["values"]
-    # Molar-mass dispersity, Mw/Mn: https://doi.org/10.1351/PAC-REC-08-05-02
     if (measured.get("polymer"), measured.get("dispersity")) != (entry_of(polymer), 1.045):
-        fail(f"{run['hrid']} returned {measured} for NIST SRM 1478")
+        fail(f"{lot['hrid']} was saved as {measured} for NIST SRM 1478")
     ok(f"{lot['hrid']} links to {polymer['hrid']} and has Đ 1.045 from the SRM 1478 certificate")
 
 

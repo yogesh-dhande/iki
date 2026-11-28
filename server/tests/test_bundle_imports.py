@@ -14,7 +14,7 @@ from typing import Any, cast
 import pytest
 import requests
 from api_client import Api, problem
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.utils import ProgrammingError
 from django.test import override_settings
 from org_world import World, build_world
@@ -1410,3 +1410,44 @@ def test_a_number_kept_from_the_source_is_never_handed_out_later_in_the_same_imp
     writer = _Writer(made=cast(Any, None), bundle=cast(Any, None), tmp=tmp_path)
     writer._keep(HRID_PREFIX, f"{HRID_PREFIX}-{ahead:06d}")
     assert int(run_services._next_hrid().rpartition("-")[2]) > ahead
+
+
+def test_a_bundles_computed_values_are_worked_out_again_by_this_deployments_expressions(
+    world: World, tmp_path: Path
+) -> None:
+    """A record brings the values the other deployment's expressions gave (ADR 0297); here,
+    they're what this deployment's give, each change a revision of its own."""
+    import datetime as dt
+
+    from iki_server.entities.models import Revision
+    from iki_server.entities.values import shape
+
+    def elsewhere() -> list[Any]:
+        made = services.create(
+            world.users["admin"],
+            "acme/protein.Batch",
+            world.project,
+            {"name": "L-7", "made_on": "2026-11-27", "shelf_life_days": 30},
+        ).entity
+        # As a shelf life counted another way there gave it. History is append-only, so
+        # its trigger is off for this transaction alone, which bundle_of rolls back.
+        part = shape("acme/protein.Batch").part_of("use_by")
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL session_replication_role = replica")
+        for table in (part.model, part.history):
+            table._default_manager.filter(entity_id=made.pk).update(use_by=dt.date(2026, 12, 1))
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL session_replication_role = origin")
+        return [Entity.objects.get(pk=made.pk)]
+
+    path = bundle_of(world, tmp_path, elsewhere)
+    api = Api(world.browser("admin"))
+    made = upload(api, world.project, path)
+    assert made["plan"]["applicable"], made["plan"]
+    assert applied(api, made)["state"] == "applied"
+    batch = Entity.objects.get(type="acme/protein.Batch")
+    assert services.current_values_of([batch])[batch.pk]["use_by"] == dt.date(2026, 12, 27)
+    latest = Revision.objects.get(entity=batch, number=batch.revision)
+    assert (latest.kind, latest.via, latest.user_id) == ("migrated", "system", None)
+    assert latest.changed_fields == ["use_by"]
+    assert "imported from test" in latest.reason

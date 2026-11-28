@@ -1,4 +1,5 @@
 import { PlasmidMap } from "@ikisci/science/plasmid-map";
+import * as iki from "@ikisci/component";
 
 const ANNOTATE = "iki/plasmid.annotate_plasmid";
 const EMPTY_MESSAGE =
@@ -17,13 +18,11 @@ class PlasmidMapAdapter extends PlasmidMap {
   constructor() {
     super();
     this.addEventListener("primer-open", ({ detail }) => {
-      this.dispatchEvent(
-        new CustomEvent("iki-open", { detail: { entity: detail.id }, bubbles: true }),
-      );
+      iki.open(this, detail.id);
     });
     this.addEventListener("empty-action", () => {
       if (this.#place?.runs?.includes(ANNOTATE)) {
-        this.dispatchEvent(new CustomEvent("iki-run", { detail: { action: ANNOTATE } }));
+        iki.run(this, ANNOTATE);
       }
     });
   }

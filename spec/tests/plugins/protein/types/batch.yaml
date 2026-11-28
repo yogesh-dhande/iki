@@ -4,7 +4,7 @@ name: Batch
 label: Batch
 label_plural: Batches
 schema_version: 1
-hrid: { prefix: BAT }
+hrid: { prefix: BTC }
 # Plugins' rules (ADR 0127) and guards (ADR 0128), on a type of their own so other
 # tests' samples aren't held to them.
 fields:
@@ -21,6 +21,19 @@ fields:
   stored: { type: bool, default: true }
   made_on: { type: date }
   expires_on: { type: date }
+  # Worked out at every save, from its own values (ADR 0297).
+  shelf_life_days: { type: int, min: 1 }
+  use_by:
+    type: date
+    computed: { cel: 'record.made_on + duration(string(record.shelf_life_days * 24) + "h")' }
+  purity_fraction:
+    type: float
+    min: 0.5
+    computed: { cel: record.purity / 100.0 }
+  use_by_label:
+    type: string
+    max_length: 200
+    computed: { cel: 'record.name + " until " + string(record.use_by)' }
   starts_at: { type: datetime }
   ends_at: { type: datetime }
   status:

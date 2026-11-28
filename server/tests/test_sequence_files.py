@@ -15,6 +15,7 @@ import json
 import subprocess
 import sys
 import warnings
+from dataclasses import fields
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -335,11 +336,10 @@ def test_the_comment_says_which_record_and_revision_it_is() -> None:
         4,
         DAY,
         sequence_of="DNA-000003",
-        latest=False,
     )
     comment = str(biopython(genbank(record).content).annotations["comment"])
     assert " ".join(comment.split()) == (
-        "Exported from Iki: PLS-000007 (revision 4, not its latest), whose sequence is DNA-000003."
+        "Exported from Iki: PLS-000007 (revision 4), whose sequence is DNA-000003."
     )
 
 
@@ -402,9 +402,33 @@ def test_a_type_genbank_cant_hold_is_written_as_a_misc_feature() -> None:
     assert len(written.left_out) == 1
 
 
-def test_the_same_revision_is_the_same_file(tmp_path: Path) -> None:
-    values = imported(tmp_path, RECORDS["J02459.1"].read_bytes(), "J02459.1.gb")
-    assert genbank(as_file(values)).content == genbank(as_file(values)).content
+def test_a_file_is_written_from_nothing_a_later_edit_changes() -> None:
+    """The same revision is the same file (ADR 0171): what a writer is given of a record is
+    what the revision holds, and which record and revision it is. Nothing it's given says
+    whether the revision is still the latest, which the next edit would change."""
+    assert {f.name for f in fields(SequenceFile)} == {
+        "hrid",
+        "name",
+        "bases",
+        "topology",
+        "revision",
+        "date",
+        "molecule",
+        "strandedness",
+        "description",
+        "accession",
+        "organism",
+        "features",
+        "sequence_of",
+    }
+    assert {f.name for f in fields(ProteinFile)} == {
+        "hrid",
+        "name",
+        "residues",
+        "revision",
+        "description",
+        "organism",
+    }
 
 
 def test_fasta_names_the_record_and_its_topology(tmp_path: Path) -> None:

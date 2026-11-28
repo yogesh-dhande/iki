@@ -1,6 +1,6 @@
 # 0080. Triggers run actions when entities change
 
-- Status: Accepted
+- Status: Accepted (refined by [0297](0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md): a value from the record's own values is worked out at every save, not by a triggered action)
 - Date: 2026-11-13
 - Refines: [0013](0013-agents-via-mcp-oauth-approvals.md),
   [0079](0079-workflows-are-dags-of-ordinary-runs.md)

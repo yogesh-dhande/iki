@@ -958,6 +958,15 @@ class _Rules:
                     hint="Read it as an input instead, or trigger the action on "
                     "`entity.state_changed`.",
                 )
+            elif f.cel is not None:
+                self.add(
+                    "updates-cel-computed",
+                    f"`{name}` is worked out from its record's own values at every save "
+                    "(ADR 0297): no one sets it, not even a run.",
+                    source,
+                    where,
+                    hint="Update the fields it's worked out from instead.",
+                )
             elif f.immutable:
                 self.add(
                     "updates-immutable",
