@@ -39,9 +39,11 @@ from iki_spec.model import Component, ComponentSearch, ComponentSlot
 
 logger = structlog.get_logger("iki.components")
 
-#: The most a refinement may say: conditions, and how deeply they nest.
-MAX_REFINE_CONDITIONS = conditions.MAX_CONDITIONS
-MAX_REFINE_DEPTH = conditions.MAX_DEPTH
+# The most a refinement may say, by the names @ikisci/component gives them (ADR 0286),
+# which a test holds equal: conditions, how deeply they nest, and text.
+MAX_CONDITIONS = conditions.MAX_CONDITIONS
+MAX_DEPTH = conditions.MAX_DEPTH
+MAX_QUERY_LENGTH = 200
 #: What a refinement can name besides the component's fields.
 REFINABLE_COLUMNS = ("hrid",)
 
@@ -217,16 +219,16 @@ def refined(
     errors: list[tuple[str, str]] = []
     if refinement.where is not None:
         leaves = list(_leaves(refinement.where, "#/refine/where"))
-        if len(leaves) > MAX_REFINE_CONDITIONS:
+        if len(leaves) > MAX_CONDITIONS:
             errors.append(
                 (
                     "#/refine/where",
-                    f"has {len(leaves)} conditions: at most {MAX_REFINE_CONDITIONS}.",
+                    f"has {len(leaves)} conditions: at most {MAX_CONDITIONS}.",
                 )
             )
         for pointer, field, depth in leaves:
-            if depth > MAX_REFINE_DEPTH:
-                errors.append((pointer, f"nests too deeply: at most {MAX_REFINE_DEPTH} levels."))
+            if depth > MAX_DEPTH:
+                errors.append((pointer, f"nests too deeply: at most {MAX_DEPTH} levels."))
             elif isinstance(field, str) and field not in readable:
                 errors.append(
                     (f"{pointer}/field", f"`{field}` isn't a field {component.label} reads.")

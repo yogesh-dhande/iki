@@ -22,6 +22,7 @@ import { FlowDiagram, useRoleLabels } from "../flow-diagram";
 import { usePageTitle } from "../layout";
 import { TypeDot } from "../type-color";
 import { Badge, PageHeader, ProblemAlert } from "../ui";
+import { DetachedNote } from "./detached-note";
 import { ListOptions } from "./list-options";
 
 /** Where a field of a type with an identity is kept (ADR 0115). */
@@ -306,6 +307,11 @@ export function TypeDetail() {
                         {f.computed ? <Badge muted>Computed</Badge> : null}
                         {f.unique ? <Badge muted>Unique</Badge> : null}
                       </span>
+                      {f.cel ? (
+                        <span className="cell-meta">
+                          Worked out at every save as <code>{f.cel}</code>
+                        </span>
+                      ) : null}
                     </td>
                     {kept ? (
                       <td>
@@ -415,19 +421,5 @@ function TypeNotifications({
         ))}
       </ul>
     </section>
-  );
-}
-
-/** A detached plugin's data is kept, readable and frozen (ADR 0091). */
-export function DetachedNote({ plugin, what }: { plugin: string; what: "type" | "entity" }) {
-  return (
-    <div className="alert alert-warning" role="note">
-      <p>
-        {what === "type" ? "This type" : "This entity"} is from the <code>{plugin}</code> plugin,
-        which is detached. {what === "type" ? "Its entities’" : "Its"} values and history are kept
-        and can be read, but can’t change
-        {what === "type" ? ", and no new ones can be made" : ""}.
-      </p>
-    </div>
   );
 }

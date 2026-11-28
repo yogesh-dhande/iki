@@ -2,6 +2,8 @@
 #   - its manifests are valid;
 #   - its committed migrations match its manifests (run `iki plugin
 #     makemigrations .` and commit what it writes if not);
+#   - if it has components, each one's module in components/ is what its source in
+#     web/src/ builds (run `npm run bundle` in web/ and commit what it writes if not);
 #   - its actions pass their tests in tests/, run by the iki-worker release
 #     of the same version;
 #   - on a pull request, its migrations upgrade the base commit's test
@@ -58,6 +60,19 @@ jobs:
         run: iki plugin validate .
       - name: Migrations match the manifests
         run: iki plugin makemigrations . --check --no-input
+      # A plugin with components keeps their sources in web/, a package of its own with
+      # @ikisci/component at the IKI_VERSION above: iki-component-bundle builds each.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: hashFiles('web/package.json') != ''
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Components are built from their sources
+        if: hashFiles('web/package.json') != ''
+        working-directory: web
+        run: |
+          npm ci --ignore-scripts
+          npm run check
       - name: Action and upgrade tests
         env:
           GH_TOKEN: ${{ github.token }}

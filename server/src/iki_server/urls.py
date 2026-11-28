@@ -86,7 +86,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     # The frames Iki's own viewers run in (ADR 0085).
     path("viewers/structure/", viewers.structure_frame, name="structure_frame"),
     path(
-        "plugin-components/<qualified:name>/<str:digest>/",
+        "plugin-components/<qualified:name>/<str:digest>/<str:bridge>/",
         components.frame,
         name="component_frame",
     ),

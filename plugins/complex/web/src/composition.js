@@ -1,4 +1,5 @@
 import { ComplexComposition } from "@ikisci/science/complex-composition";
+import * as iki from "@ikisci/component";
 
 const COMPUTE = "iki/complex.compute_composition";
 
@@ -15,8 +16,7 @@ class CompositionTab extends ComplexComposition {
   constructor() {
     super();
     this.addEventListener("compute-request", () => {
-      if (this.#canCompute)
-        this.dispatchEvent(new CustomEvent("iki-run", { detail: { action: COMPUTE } }));
+      if (this.#canCompute) iki.run(this, COMPUTE);
     });
   }
 

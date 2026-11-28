@@ -922,3 +922,45 @@ def test_the_build_approves_deployment_images_for_the_installed_release(
     assert compute.image_bindings == (binding,)
     assert compute.image_binding("acme/tools.tools", "1.2.0") == (binding if matches else None)
     assert images.read_text() == (image + "\n" if matches else "")
+
+
+def test_a_deployment_settles_two_plugins_with_one_hrid_prefix(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ADR 0033: the build's refusal names both types and the override that settles it;
+    with the override in the lockfile, the compiled manifest carries it."""
+    for name in ("acme/assays", "globex/reagents"):
+        plugin = tmp_path / naming.short_name(name)
+        (plugin / "types").mkdir(parents=True)
+        (plugin / "plugin.yaml").write_text(
+            f"apiVersion: iki/v1\nkind: Plugin\nname: {name}\nversion: 1.0.0\niki: '>=0.1'\n"
+        )
+        (plugin / "types" / "buffer.yaml").write_text(
+            "apiVersion: iki/v1\nkind: EntityType\nname: Buffer\nschema_version: 1\n"
+            "hrid: { prefix: BUF }\nfields:\n  name: { type: string, max_length: 100 }\n"
+        )
+        assert main(["plugin", "makemigrations", str(plugin), "--no-input"]) == 0
+    directory = tmp_path / "deployment"
+    directory.mkdir()
+    lock = (
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        "  - {name: acme/assays, local: ../assays, state: active}\n"
+        "  - {name: globex/reagents, local: ../reagents, state: active}\n"
+    )
+    (directory / "plugins.lock.yaml").write_text(lock)
+    out = tmp_path / "out"
+    build = ["deploy", "build", str(directory), "-o", str(out), "--allow-local"]
+    capsys.readouterr()
+    assert main(build) == 1
+    err = capsys.readouterr().err
+    assert "`acme/assays.Buffer` and `globex/reagents.Buffer` both use the HRID prefix `BUF`" in err
+    assert "`hrids: { globex/reagents.Buffer: GBUF }`" in err
+
+    (directory / "plugins.lock.yaml").write_text(lock + "hrids:\n  globex/reagents.Buffer: GBUF\n")
+    assert main(build) == 0, capsys.readouterr().err
+    manifest = json.loads((out / "iki_plugin_globex__reagents" / "manifest.json").read_text())[
+        "plugin"
+    ]
+    assert manifest["types"]["globex/reagents.Buffer"]["hrid_prefix"] == "GBUF"
+    recorded = json.loads((out / "iki_installed_plugins" / "lock.json").read_text())
+    assert recorded["lock"]["hrids"] == {"globex/reagents.Buffer": "GBUF"}

@@ -39,7 +39,7 @@ def test_the_summary_counts_a_plugins_writers(capsys: pytest.CaptureFixture[str]
     example = Path(__file__).parents[2] / "examples" / "plugins" / "liquid_handling"
     assert main(["plugin", "validate", str(example)]) == 0
     assert capsys.readouterr().out == (
-        "✓ acme/liquid_handling 0.1.1 is valid: 2 entity types, 0 extensions, 0 settings, "
+        "✓ acme/liquid_handling 0.1.2 is valid: 2 entity types, 0 extensions, 0 settings, "
         "0 actions, 0 environments, 0 workflows, 0 triggers, 0 components, 1 writer.\n"
     )
 

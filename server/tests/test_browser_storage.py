@@ -1420,6 +1420,9 @@ def test_draw_holds_still_as_the_box_map_comes_above_it(open_as: Any, world: Wor
     grid = page.get_by_role(
         "grid", name=f"Kinase retains’s positions, with {ours['hrid']}’s marked"
     )
+    # The first load's map is in before its read is held: held as it came, the reload would
+    # abort it and the reload's own read would wait for ever.
+    expect(grid).to_be_visible()
     held: list[Route] = []
     box_read = f"**/api/v1/storage/containers/{retains['hrid']}"
     page.route(box_read, lambda route: held.append(route))

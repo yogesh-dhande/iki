@@ -255,8 +255,6 @@ pub struct Record {
     pub r#type: String,
     /// The revision being written, from 1.
     pub revision: u64,
-    /// Whether that revision is the record's latest.
-    pub latest: bool,
     /// When that revision was made, in UTC, such as `2026-11-20T09:14:03Z`.
     pub revised_at: String,
     /// The writer's roles' values, by role.
@@ -651,7 +649,7 @@ pub mod testing {
     //! assert_eq!(begun.status, 0);
     //! let written = session.record(&json!({
     //!     "hrid": "SMP-000007", "id": "0b6f6d1e-6c38-4c5e-9a39-2f8f0d1c8e21",
-    //!     "latest": true, "name": "Liver lysate 7", "revised_at": "2026-11-20T09:14:03Z",
+    //!     "name": "Liver lysate 7", "revised_at": "2026-11-20T09:14:03Z",
     //!     "revision": 2, "roles": {}, "type": "acme/samples.Sample", "withheld": [],
     //! }));
     //! assert_eq!(written.output, b"SMP-000007\n");
@@ -826,7 +824,6 @@ mod tests {
         json!({
             "hrid": "TRF-000042",
             "id": "6f1c1b7e-2a6d-4c1e-9b0a-3f6f5f9b2d41",
-            "latest": true,
             "name": "Dose-response, compound 12",
             "revised_at": "2026-11-20T09:14:03Z",
             "revision": 3,
@@ -967,11 +964,10 @@ mod tests {
     #[test]
     fn requests_parse_as_iki_writes_them() {
         // Canonical JSON: keys sorted, no whitespace.
-        let request = br#"{"hrid":"TRF-000042","id":"6f1c1b7e-2a6d-4c1e-9b0a-3f6f5f9b2d41","latest":false,"name":"Dose-response, compound 12","revised_at":"2026-11-20T09:14:03Z","revision":3,"roles":{"count":96,"dispensed_on":"2026-11-19","done":true,"plate":{"fields":{"barcode":"CP-0412","dead_volume":{"unit":"uL","value":2.5},"label":"Compound source 1","sealed":false,"working_volume":12},"hrid":"PLT-000412","id":"2f0c9a43-61b8-4a1e-8d2e-0c9b0a7c5e10","name":"Compound source 1","revision":7,"type":"acme/plates.Plate"},"ratio":0.75,"volume":{"unit":"uL","value":2.5}},"type":"acme/liquid_handling.Transfer","withheld":["destination_plate"]}"#;
+        let request = br#"{"hrid":"TRF-000042","id":"6f1c1b7e-2a6d-4c1e-9b0a-3f6f5f9b2d41","name":"Dose-response, compound 12","revised_at":"2026-11-20T09:14:03Z","revision":3,"roles":{"count":96,"dispensed_on":"2026-11-19","done":true,"plate":{"fields":{"barcode":"CP-0412","dead_volume":{"unit":"uL","value":2.5},"label":"Compound source 1","sealed":false,"working_volume":12},"hrid":"PLT-000412","id":"2f0c9a43-61b8-4a1e-8d2e-0c9b0a7c5e10","name":"Compound source 1","revision":7,"type":"acme/plates.Plate"},"ratio":0.75,"volume":{"unit":"uL","value":2.5}},"type":"acme/liquid_handling.Transfer","withheld":["destination_plate"]}"#;
         let record: Record = serde_json::from_slice(request).unwrap();
         assert_eq!(record.r#type, "acme/liquid_handling.Transfer");
         assert_eq!(record.revision, 3);
-        assert!(!record.latest);
         assert_eq!(record.revised_at, "2026-11-20T09:14:03Z");
         assert_eq!(record.integer("count"), Some(96));
         assert_eq!(record.number("count"), Some(96.0));
@@ -1054,7 +1050,7 @@ mod tests {
         session.begin(&export(1));
         // `withheld` is missing.
         session.record(&json!({
-            "hrid": "TRF-000042", "id": "x", "latest": true, "name": "n",
+            "hrid": "TRF-000042", "id": "x", "name": "n",
             "revised_at": "2026-11-20T09:14:03Z", "revision": 1, "roles": {},
             "type": "t",
         }));

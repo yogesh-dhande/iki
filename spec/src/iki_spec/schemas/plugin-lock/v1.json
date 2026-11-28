@@ -24,6 +24,21 @@
       "items": {
         "$ref": "#/$defs/plugin"
       }
+    },
+    "hrids": {
+      "description": "HRID prefixes this deployment gives types in place of their plugins' (ADR 0033), such as `{ iki/reagents.Buffer: IBUF }`: for two plugins that take one prefix. Only a type with no records yet can be given one, or moved back. Core's types keep theirs.",
+      "type": "object",
+      "propertyNames": {
+        "description": "A type, `namespace/plugin.Type`.",
+        "type": "string",
+        "maxLength": 112,
+        "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[A-Z][A-Za-z0-9]*$"
+      },
+      "additionalProperties": {
+        "description": "2 to 8 capital letters or digits, starting with a letter.",
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{1,7}$"
+      }
     }
   },
   "additionalProperties": false,

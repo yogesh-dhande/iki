@@ -81,6 +81,34 @@ describe("the type browser", () => {
     expect(screen.queryByText(/duplicate/i)).not.toBeInTheDocument();
   });
 
+  it("shows what a computed field is worked out by", async () => {
+    withTypes();
+    answer("GET /api/v1/entity-types", [
+      {
+        ...PROTEIN,
+        fields: [
+          ...PROTEIN.fields,
+          field({ name: "length", label: "Length", type: "int" }),
+          field({
+            name: "half_length",
+            label: "Half length",
+            type: "float",
+            computed: true,
+            cel: "double(record.length) / 2.0",
+            cel_reads: ["length"],
+          }),
+        ],
+      },
+    ]);
+    await renderApp("/types/iki/protein.Protein/");
+    const row = screen.getByRole("row", { name: /Half length/ });
+    expect(within(row).getByText("Computed")).toBeInTheDocument();
+    expect(row).toHaveTextContent("Worked out at every save as double(record.length) / 2.0");
+    // A field an action sets says no expression.
+    const weight = screen.getByRole("row", { name: /Molecular weight/ });
+    expect(weight).not.toHaveTextContent("Worked out at every save");
+  });
+
   it("previews whom a type's notifications tell, and when", async () => {
     withTypes();
     answer("GET /api/v1/entity-types", [
