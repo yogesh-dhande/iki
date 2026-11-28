@@ -69,3 +69,114 @@ params:
   sequence_id: AACTCCCAGGCTAGGT-1_contig_2
 expect:
   error: Choose a result imported with Import AIRR rearrangements.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_non_productive_rearrangement_doesnt_encode_a_chain
+description: >-
+  AIRR's own test rearrangements include ones called non-productive (productive F); a junction
+  with a stop codon can't encode the antibody's chain, so linking one is refused.
+action: link_rearrangement
+files: { data: tests/data/airr-standards-productive.tsv }
+inputs:
+  result:
+    - values:
+        format: airr
+        report: { $file: data }
+        report_sha256: 9ec489bd85648f11537650b1114e88132aa89a28ef3fa460d3f339fcefb05af4
+        summary: { selector: "" }
+  antibody:
+    - values: { name: IGHV4-31 clone }
+params:
+  sequence_id: IVKNQEJ01AOYFZ
+expect:
+  error: is predicted not to be productive (productive F
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_curator_may_link_a_non_productive_call_saying_why
+description: >-
+  A non-productive call the curator has reason to overrule is linked with the reason, kept on the
+  link as its evidence.
+action: link_rearrangement
+files: { data: tests/data/airr-standards-productive.tsv }
+inputs:
+  result:
+    - values:
+        format: airr
+        report: { $file: data }
+        report_sha256: 9ec489bd85648f11537650b1114e88132aa89a28ef3fa460d3f339fcefb05af4
+        summary: { selector: "" }
+  antibody:
+    - values: { name: IGHV4-31 clone }
+params:
+  sequence_id: IVKNQEJ01AOYFZ
+  nonproductive_reason: The cloned plasmid's Sanger reads give an in-frame junction without a stop codon.
+expect:
+  output:
+    creates:
+      - type: iki/antibody_rearrangements.AntibodyRearrangement
+        values:
+          sequence_id: IVKNQEJ01AOYFZ
+          locus: IGH
+          nonproductive_reason: The cloned plasmid's Sanger reads give an in-frame junction without a stop codon.
+          rearrangement:
+            productive: F
+            v_call: IGHV4-31*03
+            d_call: IGHD6-19*01
+            j_call: IGHJ4*02
+            junction_aa: CASGVAGNF*LLX
+            duplicate_count: "92"
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_productive_rearrangement_needs_no_reason
+action: link_rearrangement
+files: { data: tests/data/airr-standards-productive.tsv }
+inputs:
+  result:
+    - values:
+        format: airr
+        report: { $file: data }
+        report_sha256: 9ec489bd85648f11537650b1114e88132aa89a28ef3fa460d3f339fcefb05af4
+        summary: { selector: "" }
+  antibody:
+    - values: { name: IGHV4-31 clone }
+params:
+  sequence_id: IVKNQEJ01BVGQ6
+  nonproductive_reason: Resequenced.
+expect:
+  error: isn't called non-productive, so there's nothing to give a reason for
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_rearrangement_of_unknown_productivity_is_linked_with_a_warning
+description: >-
+  AIRR writes a null productive as an empty cell; the link is made, and the run says the curator
+  should check it.
+action: link_rearrangement
+files: { data: tests/data/airr-standards-productive.tsv }
+inputs:
+  result:
+    - values:
+        format: airr
+        report: { $file: data }
+        report_sha256: 9ec489bd85648f11537650b1114e88132aa89a28ef3fa460d3f339fcefb05af4
+        summary: { selector: "" }
+  antibody:
+    - values: { name: IGHV4-31 clone }
+params:
+  sequence_id: IVKNQEJ01EI5S4
+expect:
+  output:
+    creates:
+      - type: iki/antibody_rearrangements.AntibodyRearrangement
+        values:
+          sequence_id: IVKNQEJ01EI5S4
+          locus: IGH
+          nonproductive_reason: null
+    messages:
+      - level: warning
+        text: >-
+          The report doesn't say whether 'IVKNQEJ01EI5S4' is productive: check that it's in frame
+          and without a stop codon, since only a productive rearrangement encodes a chain.

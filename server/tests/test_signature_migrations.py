@@ -390,6 +390,8 @@ def test_a_restored_signed_entry_keeps_its_reversal_after_a_state_field_rename(
         monkeypatch.setenv(key, getattr(settings, key))
     manifest = lab / "types/sample.yaml"
     manifest.write_text(SAMPLE)
+    # Signed and exported at another deployment, whose own key signs its signatures.
+    monkeypatch.setenv("IKI_ENVIRONMENT", "Lab A")
     made("lab", "--no-input", cwd=lab.parent)
     source = build(lab.parent, "lab")
     migrate(source, database)
@@ -434,6 +436,7 @@ export.write(
 """,
     )
     assert exported.returncode == 0, exported.stdout + exported.stderr
+    monkeypatch.setenv("IKI_ENVIRONMENT", "test")
     target = tmp_path / "receiving/plugins/lab"
     (target / "types").mkdir(parents=True)
     (target / "plugin.yaml").write_text((lab / "plugin.yaml").read_text())
@@ -460,7 +463,7 @@ from iki_server.signatures import changes
 world = build_world()
 admin = world.users["admin"]
 OrgRoleAssignment.objects.create(user=admin, role=OrgRole.ORG_ADMIN)
-settings.IKI_BUNDLE_TRUSTED_KEYS = {{"test": (PUBLIC,)}}
+settings.IKI_BUNDLE_TRUSTED_KEYS = {{"Lab A": (PUBLIC,)}}
 api = Api(world.browser("admin"))
 done = applied(api, upload(api, world.project, Path({str(archive)!r})))
 assert done["state"] == "applied", done

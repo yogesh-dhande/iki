@@ -66,6 +66,7 @@ class Command(BaseCommand):
         drafts = app_drafts.prune()
         bundles = bundle_exports.expire()
         record_files = record_exports.expire()
+        interrupted_exports = record_exports.interrupted()
         detached = queue.end_detached()
         tombstoned = purge.tombstone_due()
         sheets = spreadsheets.expire()
@@ -87,6 +88,7 @@ class Command(BaseCommand):
             expired_app_drafts=drafts,
             expired_bundles=bundles,
             expired_record_exports=record_files,
+            interrupted_record_exports=interrupted_exports,
             ended_detached_runs=detached,
             tombstoned_entities=tombstoned,
             abandoned_spreadsheet_imports=sheets,
@@ -102,8 +104,9 @@ class Command(BaseCommand):
             f"run artifact(s) whose retention was over, deleted {checkpoints_deleted} "
             f"run checkpoint(s) nothing will resume from, deleted {drafts} expired app "
             f"draft(s), deleted {bundles} expired bundle(s) and {record_files} expired record "
-            f"export(s), discarded {sheets} abandoned "
-            f"spreadsheet import(s), ended {detached} run(s) of detached plugins, and tombstoned "
-            f"{tombstoned} entit{'y' if tombstoned == 1 else 'ies'} of purged plugins. "
+            f"export(s), failed {interrupted_exports} interrupted record export(s), discarded "
+            f"{sheets} abandoned spreadsheet import(s), ended {detached} run(s) of detached "
+            f"plugins, and tombstoned {tombstoned} entit{'y' if tombstoned == 1 else 'ies'} "
+            "of purged plugins. "
             f"Sent {alerts} low-stock notification(s) and queued {scans} outstanding file scan(s)."
         )

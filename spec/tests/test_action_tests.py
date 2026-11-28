@@ -155,6 +155,13 @@ def test_the_run_input_is_the_servers(
     first, second = packed["inputs"]["protein"]
     assert (first["hrid"], second["hrid"]) == ("PRT-000001", "PRT-9")
     assert first["schema_version"] == plugin.types["acme/protein.Protein"].schema_version
+    # As the server gives it: the type and what it extends, through the dna plugin's.
+    assert first["types"] == [
+        "acme/protein.Protein",
+        "acme/dna.Sequence",
+        "iki/core.Sequence",
+        "iki/core.Entity",
+    ]
     assert [p["entity"] for p in packed["pack"]] == [first["id"], second["id"]]
     assert [p["hrid"] for p in packed["pack"]] == ["RUN-000001", "RUN-000002"]
 

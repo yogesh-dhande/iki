@@ -231,7 +231,7 @@ fn self_update(
         }
     };
     match update::install(update, &exe, config.allow_http) {
-        Ok(exe) => Some(update::restart(&exe)),
+        Ok(exe) => Some(update::restart(&exe, config.registration_token.as_deref())),
         Err(error) => {
             say::warn(
                 "Couldn't update iki-worker; carrying on with this one.",

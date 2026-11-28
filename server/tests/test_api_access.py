@@ -855,6 +855,9 @@ def receipt(suffix: str = "", body: Any = None) -> Build:
         # Each change names the revision it replaces (ADR 0289): the line's, or the receipt's.
         if body is not None and "reason" in body and "/lines/" in path:
             return path, body, {"If-Match": f'"{line.line_revision}"'}
+        if suffix.endswith("/put-away/placeable"):
+            box = {"box": str(_box(w).pk)}
+            return path, box, {"If-Match": f'"{started.plan_revision}"'}
         if body is not None and (
             suffix == "/receipts/{receipt}"
             or suffix.endswith(("/complete", "/cancel", "/put-away/preview"))
@@ -1490,6 +1493,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ),
     (
         "POST",
+        "/receipts/{receipt_id}/put-away/placeable",
+        receipt("/receipts/{receipt}/put-away/placeable"),
+        readers(403),
+    ),
+    (
+        "POST",
         "/receipts/{receipt_id}/complete",
         receipt("/receipts/{receipt}/complete", {"missing_rest": True}),
         readers(403),
@@ -1594,7 +1603,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         fixed("/signatures/certification", {"submitted_on": "2026-11-01", "reference": "QA-1"}),
         ORG_ADMIN_ONLY,
     ),
-    ("POST", "/users/{user_id}/signing/unlock", viewer("/signing/unlock"), row(403, org_admin=409)),
+    (
+        "POST",
+        "/users/{user_id}/signing/unlock",
+        viewer("/signing/unlock", {"reason": "Checked with them"}),
+        row(403, org_admin=409),
+    ),
     ("GET", "/entities/{ref}/revisions", entity("/revisions"), readers(200)),
     ("GET", "/entities/{ref}/revisions/{number}", entity("/revisions/1"), readers(200)),
     ("GET", "/entities/{ref}/provenance", entity("/provenance"), readers(200)),

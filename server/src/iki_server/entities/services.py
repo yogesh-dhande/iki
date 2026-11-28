@@ -103,8 +103,10 @@ __all__ = [
     "entry_at",
     "identity_lock",
     "link",
+    "lock_identity",
     "prepare",
     "provenance",
+    "register_entry",
     "set_archived",
     "unlink",
     "update",
@@ -246,6 +248,7 @@ def create(
     amount: Any = None,  # noqa: ANN401 - JSON: a quantity
     amount_reason: str | None = None,
     fills: frozenset[str] = frozenset(),
+    keeping: frozenset[Any] = frozenset(),
 ) -> Saved:
     """A new entity of ``type_name`` in ``project``. For a type with an identity, the
     project's record of its registry entry: a new one, or the one the project has, as it is.
@@ -257,23 +260,28 @@ def create(
     type with one (ADR 0139). A receipt's ``amount_reason`` explains its ledger movement.
     ``fills``: fields of ``values`` that only fill an
     existing entry's empty ones: where it has a value, it keeps it and this isn't refused,
-    as a fact that differs otherwise is (ADR 0140).
+    as a fact that differs otherwise is (ADR 0140). ``keeping``: entities ``values`` may
+    name though they couldn't be named anew, as a record they come from named them: a lab
+    list's archived options (ADR 0270), as a move to an entry of another type carries them
+    (ADR 0165).
     """
     from iki_server.amounts import services as amounts
 
     if amount is not None and amounts.spec(type_name) is None:
         raise amounts.Wrong({"amount": [f"{type_name} has no amount."]})
     given_amount = amounts.Given.of(amount) if amount is not None else None
-    form, given, holding = prepare(
-        user,
-        type_name,
-        project,
-        values,
-        access.refs_for(user, project),
-        by_run=by_run,
-        hold_reason=hold_reason,
-        defer_result_check=True,
-    )
+    refs = access.refs_for(user, project)
+    with refs.keeping(keeping):
+        form, given, holding = prepare(
+            user,
+            type_name,
+            project,
+            values,
+            refs,
+            by_run=by_run,
+            hold_reason=hold_reason,
+            defer_result_check=True,
+        )
     with transaction.atomic(), _unique_values():
         if errors := requests.check_result(project, type_name, given, lock=True):
             raise Invalid(errors)
@@ -436,12 +444,7 @@ def _find_entry(form: Shape, project: Project, given: Mapping[str, Any]) -> Enti
     identity's lock until the transaction ends: two people registering the same identity at
     once make one entry, the second waiting, then finding it."""
     digest = identity_digest(form, given)
-    identity_lock(form.entity_type, registry_of(project), shared=True)
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-            [f"iki_entry:{registry_of(project)}:{digest}"],
-        )
+    lock_identity(form.entity_type, registry_of(project), digest)
     entry = Entity.objects.filter(registry_id=registry_of(project), identity_hash=digest).first()
     if entry is None:
         return None
@@ -457,6 +460,18 @@ def _find_entry(form: Shape, project: Project, given: Mapping[str, Any]) -> Enti
             }
         )
     return entry
+
+
+def lock_identity(entity_type: EntityType, registry_id: Any, digest: str) -> None:  # noqa: ANN401 - a UUID
+    """Holds one identity's lock in a registry until the transaction ends, as registering
+    it does (and a bulk import's registering its type's): whoever registers it next, or
+    supersedes its entry, waits, then finds what this transaction left."""
+    identity_lock(entity_type, registry_id, shared=True)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            [f"iki_entry:{registry_id}:{digest}"],
+        )
 
 
 def superseded(entry: Entity) -> str:
@@ -516,22 +531,45 @@ def _new_entry(
 ) -> tuple[Entity, Revision]:
     """A new registry entry in the project's registry, with its values from ``given``. An
     import keeps the ID and HRID it had where it's from, when they're free here."""
+    fields = form.entry_fields()
+    clashes = unique.taken(project, form, {n: v for n, v in given.items() if n in fields})
+    if clashes:
+        raise Invalid(clashes)
+    return register_entry(
+        user, form, registry_of(project), given, reason, by_run, project=project, pk=pk, hrid=hrid
+    )
+
+
+def register_entry(
+    user: User,
+    form: Shape,
+    registry_id: Any,  # noqa: ANN401 - a UUID
+    given: Mapping[str, Any],
+    reason: str,
+    by_run: bool = False,
+    *,
+    project: Project | None = None,
+    pk: Any = None,  # noqa: ANN401 - a UUID
+    hrid: str = "",
+    moved_from: Any = None,  # noqa: ANN401 - a UUID
+) -> tuple[Entity, Revision]:
+    """A new registry entry in the registry, with its values from ``given``, whose unique
+    facts the caller has checked are free. ``project``: the one it's registered through,
+    or None for a registrar's; ``moved_from``: the entry a registrar registered it in
+    place of (ADR 0165)."""
     instance = _entry_instance(form, given)
     if pk is not None:
         # Its root table's ID: each table below takes it from there.
         instance.id = pk  # type: ignore[attr-defined]
     if hrid:
         instance.hrid = hrid  # type: ignore[attr-defined]
-    instance.registry_id = registry_of(project)  # type: ignore[attr-defined]
+    instance.registry_id = registry_id  # type: ignore[attr-defined]
     instance.created_by = user  # type: ignore[attr-defined]
     instance.identity_hash = identity.hash_for(  # type: ignore[attr-defined]
         instance, form.entity_type, _lists(form, given)
     )
     fields = form.entry_fields()
     mine = {n: v for n, v in given.items() if n in fields}
-    clashes = unique.taken(project, form, mine)
-    if clashes:
-        raise Invalid(clashes)
     instance.save()
     rows = Rows(form, None, instance)
     touched = [p for p in form.parts if p.entry and not p.extension]
@@ -557,6 +595,7 @@ def _new_entry(
         reason,
         via="run" if by_run else None,
         project=project,
+        moved_from=moved_from,
     )
     _write_history(touched, rows, revision.number)
     _use_files(fields, instance.pk, mine, revision.number)
@@ -691,23 +730,17 @@ def _unique_values() -> Iterator[None]:
         ) from None
 
 
-def _observation_ids(
-    form: Shape,
+def _row_ids(
     f: Field,
     rows: Any,  # noqa: ANN401 - stored field value
     current: Sequence[dict[str, Any]] | None = None,
 ) -> Any:  # noqa: ANN401 - stored values
-    """Assign IDs to new Experiment observations and keep the IDs of retained rows."""
-    if (
-        rows is None
-        or f.name != "observations"
-        or form.part_of(f.name).name != "iki/experiments.Experiment"
-        or f.items is None
-        or "observation_id" not in f.items.fields
-    ):
+    """Give each new row of a list whose rows have an ID (``row_id``) one, and keep the
+    IDs of the rows kept: an edit names a kept row by its ID, never one the record's rows
+    don't have, nor one twice."""
+    if rows is None or f.items is None or f.items.row_id is None:
         return rows
-
-    name = "observation_id"
+    name = f.items.row_id
     existing = {row[name]: row for row in current or ()}
     used: set[str] = set()
     for index, row in enumerate(rows):
@@ -715,19 +748,21 @@ def _observation_ids(
         if row_id is None:
             continue
         if row_id in used:
-            raise RowProblems({f"{index}/{name}": ["names the same observation twice."]})
+            raise RowProblems({f"{index}/{name}": ["names the same row twice."]})
         if current is not None and row_id not in existing:
-            raise RowProblems({f"{index}/{name}": ["isn't a current observation on this record."]})
+            raise RowProblems({f"{index}/{name}": ["isn't one of this record's rows."]})
         used.add(row_id)
 
-    def content(row: dict[str, Any]) -> tuple[Any, Any]:
-        return row["observed_at"], row["note"]
+    others = [c for c in f.items.fields if c != name]
+
+    def content(row: dict[str, Any]) -> tuple[Any, ...]:
+        return tuple(row.get(c) for c in others)
 
     # Older clients can keep an unchanged list as it is. For a changed list, incomplete
     # requests can preserve a unique content match, but cannot identify identical rows.
     if not used and current is not None and list(map(content, rows)) == list(map(content, current)):
         return list(current)
-    matches: dict[tuple[Any, Any], list[str]] = defaultdict(list)
+    matches: dict[tuple[Any, ...], list[str]] = defaultdict(list)
     if not used:
         for row_id, row in existing.items():
             matches[content(row)].append(row_id)
@@ -796,7 +831,7 @@ def prepare(
             ]
         else:
             try:
-                given[name] = _observation_ids(form, f, form.field_value(f, value, refs))
+                given[name] = _row_ids(f, form.field_value(f, value, refs))
             except ValueError as error:
                 errors.update(problems_of(name, error))
     for name, f in fields.items():
@@ -1021,9 +1056,7 @@ def update(
                     using.namer.keeping(_named_in(f, current)),
                     using.keeping(_referred_in(f, current)),
                 ):
-                    converted = _observation_ids(
-                        form, f, form.field_value(f, value, using), current
-                    )
+                    converted = _row_ids(f, form.field_value(f, value, using), current)
             except ValueError as error:
                 errors.update(problems_of(name, error))
                 continue
@@ -1237,11 +1270,49 @@ def set_archived(
         why = frozen(shape(locked.type))
         if why:
             raise Refused(why)
+        if not archived:
+            _reclaim_unique(locked)
         locked.archived_at = dt.datetime.now(dt.UTC) if archived else None
         locked.save(update_fields=["archived_at"])
         kind = RevisionKind.ARCHIVED if archived else RevisionKind.RESTORED
         revision = _revise(locked, kind, [], user, reason)
     return Saved(_specific(locked), revision)
+
+
+def _reclaim_unique(record: Entity) -> None:
+    """A record being restored holds its unique values again (ADR 0082), those it gave the
+    record its move to an entry of another type made (ADR 0165) included. Refused if one is
+    another record's now."""
+    from iki_server.entities.models import UniqueValue
+
+    if record.owner_project_id is None:
+        return
+    form = shape(record.type)
+    rows = Rows.of(_specific(record))
+    for part in form.parts:
+        if part.entry:
+            continue
+        for name, f in part.fields.items():
+            value = rows.value(part, f) if f.unique and not f.removed else None
+            if value is None:
+                continue
+            key = unique.key(part.model, name)
+            held = UniqueValue.objects.filter(
+                project_id=record.owner_project_id, key=key, value=str(value)
+            )
+            holder = held.exclude(entity_id=record.pk).values_list("entity__hrid", flat=True)
+            if found := holder.first():
+                raise Refused(
+                    f"Its {f.label or name} is {found}'s now, as a move gave it there: "
+                    f"{record.hrid} can't have it again, so it stays archived."
+                )
+            if not held.exists():
+                UniqueValue.objects.create(
+                    project_id=record.owner_project_id,
+                    key=key,
+                    value=str(value),
+                    entity_id=record.pk,
+                )
 
 
 def link(user: User, entity: Entity, project: Project) -> bool:

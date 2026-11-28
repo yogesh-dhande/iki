@@ -87,7 +87,10 @@ fields:
     values: [research, regulated_qc]
     immutable: true
     computed: true
-    description: The deployment’s verification procedure at the time the action recorded the evidence.
+    description: >-
+      The verification procedure in force when the action recorded the evidence: the
+      project's, chosen with the Plasmid prep verification starter, or else the
+      deployment's default.
   review:
     type: state
     label: Review

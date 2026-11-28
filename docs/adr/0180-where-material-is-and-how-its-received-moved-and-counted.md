@@ -265,8 +265,9 @@ Completing clears the former recorded location of each accepted tube. Its
 completed receipt line records its `put_away` destination or sets `received_unplaced` when the
 receiver took custody without placement. These fields describe the receipt
 at completion. To find records still awaiting placement, read
-`GET /api/v1/storage/awaiting-put-away`. Each entry identifies a readable
-tube, its current `custodian` and `custody_since`. Completing also records
+`GET /api/v1/storage/awaiting-put-away`, longest held first and a page at a
+time like every list. Each entry identifies a readable tube, its current
+`custodian` and `custody_since`. Completing also records
 `request.receipt_completed` in both projects' audit trails and emits a webhook
 event.
 

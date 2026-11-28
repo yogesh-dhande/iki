@@ -1433,3 +1433,27 @@ async def test_agents_read_and_verify_signatures_but_cant_give_them(world: World
         )
     )
     assert "(409" in refused and "signs in again in Iki’s web app" in refused
+
+
+def test_an_agent_is_told_which_parameter_was_wrong() -> None:
+    """ADR 0027: errors name body fields by pointer, and query and path parameters by
+    name. A bad cursor reaches an agent as the parameter it is, not as the body's `#`."""
+    from iki_server.mcp.api import problem_text
+
+    text = problem_text(
+        422,
+        {
+            "status": 422,
+            "code": "validation_failed",
+            "detail": "Some fields are invalid.",
+            "errors": [
+                {"parameter": "cursor", "detail": "Not a cursor from this API."},
+                {"pointer": "#/values/name", "detail": "Field required"},
+            ],
+        },
+    )
+    assert text.splitlines() == [
+        "Some fields are invalid. (422, validation_failed)",
+        "- parameter cursor: Not a cursor from this API.",
+        "- #/values/name: Field required",
+    ]
