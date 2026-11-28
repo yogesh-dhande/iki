@@ -409,7 +409,7 @@ def _draw_target_of(entity: Entity | None) -> DrawTarget | None:
     if entity_type is None:
         return None
     return next(
-        (t.draw_target for t in [entity_type, *registry.ancestors(entity_type)] if t.draw_target),
+        (t.draws.target for t in [entity_type, *registry.ancestors(entity_type)] if t.draws.target),
         None,
     )
 
@@ -425,16 +425,16 @@ def _check_draw_target(
     """Match one draw against the assigned record, under the source and target locks."""
     from iki_server.storage.models import Place
 
-    if policy.by:
+    if policy.drawn_by:
         refusal = states.refusal(
-            user, target, policy.by, "awaiting material", field=policy.state_field
+            user, target, policy.drawn_by, "awaiting material", field=policy.state_field
         )
         if refusal is not None:
             why, forbidden = refusal
             if forbidden:
                 raise PermissionDenied(why)
             raise Wrong({"used_in": [why]})
-    if values[policy.state_field] != policy.state or (
+    if values[policy.state_field] not in policy.states or (
         policy.ready and not values.get(policy.ready)
     ):
         raise Wrong({"used_in": [f"{target.hrid} is not awaiting a draw."]})

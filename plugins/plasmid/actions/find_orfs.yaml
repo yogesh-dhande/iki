@@ -11,7 +11,7 @@ description: >-
   molecule may read across its origin; nothing is read across a linear molecule's two ends
   (ADR 0168).
 inputs:
-  plasmid: { type: Plasmid, schema: ">=3", include: [sequence] }
+  plasmid: { type: Plasmid, schema_version: ">=3", include: [sequence] }
 params:
   least_codons:
     type: int
@@ -53,7 +53,7 @@ params:
       that don't start at ATG, and more ORFs that are nothing.
 effects:
   updates:
-    - input: plasmid
+    plasmid:
       fields: [orfs, orfs_found_with]
 software:
   - { name: Biopython, version: "1.88", url: https://biopython.org }

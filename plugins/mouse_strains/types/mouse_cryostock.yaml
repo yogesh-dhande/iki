@@ -71,9 +71,10 @@ rules:
     check: record.genotype.strain == record.strain.id
     message: Select a genotype record for the strain that supplied this stock.
     fields: [genotype, strain]
-draw_guards:
-  preserve_carrier_provenance:
-    check: operation == "draw"
-    message: Draw the volume used from this banked carrier and link it to the receiving record.
+draws:
+  guards:
+    preserve_carrier_provenance:
+      check: operation == "draw"
+      message: Draw the volume used from this banked carrier and link it to the receiving record.
 display:
   title: "{{ kind }} {{ carrier }} · {{ barcode or hrid }}"

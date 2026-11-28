@@ -372,7 +372,7 @@ def conditions_of(
         completion = requests.spec_of(entity.type)
         if completion and completion.completed_field == field:
             for st in candidates:
-                if st.name == completion.completed_state and (
+                if st.name in completion.completed_states and (
                     why := requests.delivery_refusal(entity)
                 ):
                     found[st.name] = (why, None)

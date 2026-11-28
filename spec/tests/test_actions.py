@@ -88,7 +88,7 @@ name: score
 inputs:
   assay: { type: Assay }
 effects:
-  updates: [{ input: assay, fields: [score] }]
+  updates: { assay: { fields: [score] } }
 runs_on: { tier: backend, environment: tools }
 command: [python, ./run.py]
 """
@@ -178,7 +178,9 @@ def test_the_example_actions_and_environments_are_valid() -> None:
 
 
 def test_an_action_cannot_replace_draw_evidence(tmp_path: Path) -> None:
-    types = TYPES.replace("hrid: { prefix: ASY }", "hrid: { prefix: ASY }\ndraws_received: score")
+    types = TYPES.replace(
+        "hrid: { prefix: ASY }", "hrid: { prefix: ASY }\ndraws: { received: score }"
+    )
     types = types.replace("score: { type: float,", "score: { type: json,")
     assert codes(make(tmp_path, files={"types/types.yaml": types})) == ["updates-draws-received"]
 
@@ -521,7 +523,7 @@ def test_unused_environments_are_mentioned(tmp_path: Path) -> None:
 def test_inputs_resolve_and_fit(tmp_path: Path) -> None:
     result = make(tmp_path, action(inputs="{ assay: { type: Nope } }", effects="{}"))
     assert "unknown-type" in codes(result)
-    result = make(tmp_path, action(inputs='{ assay: { type: Assay, schema: ">=4" } }'))
+    result = make(tmp_path, action(inputs='{ assay: { type: Assay, schema_version: ">=4" } }'))
     message = only(result, "input-schema-unsatisfied")
     assert message == "`acme/lab.Assay` is at schema version 3, which `>=4` doesn't allow."
     result = make(tmp_path, action(inputs="{ assay: { type: Assay, max: 10 } }"))
@@ -720,8 +722,7 @@ def test_an_action_must_leave_something(tmp_path: Path) -> None:
 
 def test_updates(tmp_path: Path) -> None:
     updates = (
-        "{ updates: [{ input: assay, fields: [score, barcode, old, scor] },"
-        " { input: nope, fields: [x] }] }"
+        "{ updates: { assay: { fields: [score, barcode, old, scor] }, nope: { fields: [x] } } }"
     )
     result = make(tmp_path, action(effects=updates))
     assert codes(result) == ["updates-immutable", "unknown-field", "unknown-field", "unknown-input"]
@@ -729,8 +730,9 @@ def test_updates(tmp_path: Path) -> None:
     assert messages[1] == "`acme/lab.Assay` has no field `old` any more (it was removed)."
     assert messages[2] == "`acme/lab.Assay` has no field `scor`."
     assert result.problems[2].hint == "Did you mean `score`?"
-    twice = "{ updates: [{ input: assay, fields: [score] }, { input: assay, fields: [score] }] }"
-    assert only(make(tmp_path, action(effects=twice)), "duplicate-updates")
+    # One input is updated once: the map can't name it twice.
+    twice = "{ updates: { assay: { fields: [score] }, assay: { fields: [score] } } }"
+    assert only(make(tmp_path, action(effects=twice)), "yaml-duplicate-key")
 
 
 def test_updates_leave_state_fields_to_people(tmp_path: Path) -> None:
@@ -745,7 +747,7 @@ def test_updates_leave_state_fields_to_people(tmp_path: Path) -> None:
             "  old: { type: int, removed: true }\n" + status,
         ),
     }
-    updates = "{ updates: [{ input: assay, fields: [score, status] }] }"
+    updates = "{ updates: { assay: { fields: [score, status] } } }"
     result = make(tmp_path, action(effects=updates), files=files)
     assert "set it, one revision each" in only(result, "updates-state")
 
@@ -754,10 +756,10 @@ def test_updates_reach_inherited_and_extension_fields(tmp_path: Path) -> None:
     plugin = PLUGIN + 'dependencies: { acme/protein: { types: { Protein: ">=1" } } }\n'
     other = action(
         inputs="{ protein: { type: acme/protein.Protein } }",
-        effects="{ updates: [{ input: protein, fields: [molecular_weight, acme_score] }] }",
+        effects="{ updates: { protein: { fields: [molecular_weight, acme_score] } } }",
     )
     extension = (
-        "apiVersion: iki/v1\nkind: EntityTypeExtension\nextends_type: acme/protein.Protein\n"
+        "apiVersion: iki/v1\nkind: EntityTypeExtension\nadds_to: acme/protein.Protein\n"
         "fields: { acme_score: { type: float, computed: true } }\n"
     )
     result = make(
@@ -1135,8 +1137,8 @@ def test_an_action_calls_only_its_plugins_apis(tmp_path: Path) -> None:
 
 def test_a_batchable_action_cant_call_an_api_it_parks_on(tmp_path: Path) -> None:
     single = ACTION.replace(
-        "effects:\n  updates: [{ input: assay, fields: [score] }]\n",
-        "effects:\n  updates: [{ input: assay, fields: [score] }]\nbatchable: 10\n",
+        "effects:\n  updates: { assay: { fields: [score] } }\n",
+        "effects:\n  updates: { assay: { fields: [score] } }\nbatchable: 10\n",
     )
     assert only(make(tmp_path, single + USES, files={"plugin.yaml": PLUGIN + API}), "batch-parks")
 

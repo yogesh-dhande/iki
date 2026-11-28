@@ -127,14 +127,14 @@ def wanted() -> tuple[Constraint, ...]:
             if found is not None:
                 out.append(Constraint(rule, entity_type.qualified_name, *found))
     for extension in registry.extensions():
-        if extension.extends_type not in registry.types():
+        if extension.adds_to not in registry.types():
             continue
         for rule in extension.rules.values():
             if rule.kind == "check":
                 continue
-            found = _own_model(extension.extends_type, rule)
+            found = _own_model(extension.adds_to, rule)
             if found is not None:
-                out.append(Constraint(rule, extension.extends_type, *found))
+                out.append(Constraint(rule, extension.adds_to, *found))
     return tuple(out)
 
 

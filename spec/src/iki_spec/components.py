@@ -230,7 +230,7 @@ class _Rules:
         plugins = [self.s.plugin, *(o.plugin for o in self.s.others.values() if o.plugin)]
         for plugin in plugins:
             for extension in plugin.extensions:
-                if extension.extends_type in chain:
+                if extension.adds_to in chain:
                     fields.update(extension.fields)
         return {n: f for n, f in fields.items() if not f.removed}
 
@@ -243,7 +243,7 @@ class _Rules:
         plugins = [self.s.plugin, *(o.plugin for o in self.s.others.values() if o.plugin)]
         for plugin in plugins:
             for extension in plugin.extensions:
-                if extension.extends_type in names:
+                if extension.adds_to in names:
                     out.extend(extension.rules.values())
         return out
 

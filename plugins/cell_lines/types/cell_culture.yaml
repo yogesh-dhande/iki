@@ -61,7 +61,7 @@ rules:
     fields: [passage_number, passage_unknown]
   thaw_once:
     unique: [event, vial]
-    while: { event: [thaw] }
+    while: { field: event, states: [thaw] }
     message: This vial already has a thaw record in the project.
   thaw_from_bank:
     when: record.event == "thaw"

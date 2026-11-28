@@ -7138,7 +7138,7 @@
             "description": "Which file, as its type's `exports` list them.",
             "examples": [
               "genbank",
-              "acme/liquid_handling.tecan-worklist"
+              "acme/liquid_handling.tecan_worklist"
             ],
             "maxLength": 200,
             "minLength": 1,
@@ -21973,6 +21973,14 @@
       "RequestTypeOut": {
         "description": "What makes a type's records requests between projects (ADR 0132).",
         "properties": {
+          "received_by": {
+            "description": "The lab roles in the service that receive it: any of its Editors, if none.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Received By",
+            "type": "array"
+          },
           "receives": {
             "anyOf": [
               {
@@ -21984,14 +21992,6 @@
             ],
             "description": "The reference whose records the service receives against what was sent, such as its tubes (ADR 0180).",
             "title": "Receives"
-          },
-          "receives_by": {
-            "description": "The lab roles in the service that receive it: any of its Editors, if none.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Receives By",
-            "type": "array"
           },
           "sends": {
             "description": "Its references whose records go to the service with it, such as its samples: what the service can read of the asking project.",
@@ -22837,15 +22837,15 @@
             "title": "When"
           },
           "while": {
-            "additionalProperties": {
-              "items": {
-                "type": "string"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WhileOut"
               },
-              "type": "array"
-            },
-            "description": "For `unique` and `no_overlap`: only records with one of these values of each field count.",
-            "title": "While",
-            "type": "object"
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For `unique` and `no_overlap`: only records whose `field` is in one of these `states` count."
           }
         },
         "required": [
@@ -33441,6 +33441,29 @@
         "title": "WebhookPatch",
         "type": "object"
       },
+      "WhileOut": {
+        "properties": {
+          "field": {
+            "description": "The state, enum or bool field it counts records by.",
+            "title": "Field",
+            "type": "string"
+          },
+          "states": {
+            "description": "The values of `field` that count: states, an enum's values, or `true` or `false`.",
+            "items": {
+              "type": "string"
+            },
+            "title": "States",
+            "type": "array"
+          }
+        },
+        "required": [
+          "field",
+          "states"
+        ],
+        "title": "WhileOut",
+        "type": "object"
+      },
       "WithdrawalIn": {
         "properties": {
           "reason": {
@@ -39473,7 +39496,7 @@
                 "value": "genbank"
               },
               "example1": {
-                "value": "acme/liquid_handling.tecan-worklist"
+                "value": "acme/liquid_handling.tecan_worklist"
               }
             },
             "in": "query",
@@ -39483,7 +39506,7 @@
               "description": "Which file, as its type's `exports` list them.",
               "examples": [
                 "genbank",
-                "acme/liquid_handling.tecan-worklist"
+                "acme/liquid_handling.tecan_worklist"
               ],
               "maxLength": 200,
               "minLength": 1,

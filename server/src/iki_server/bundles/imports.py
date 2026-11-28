@@ -471,7 +471,7 @@ class _Planner:
                     (
                         e
                         for e in registry.extensions()
-                        if e.plugin == name and e.extends_type == type_name
+                        if e.plugin == name and e.adds_to == type_name
                     ),
                     None,
                 )

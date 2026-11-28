@@ -45,10 +45,10 @@ next page with [@ikisci/component](../../../web/packages/component)'s `more`.
 rebuild `components/sample-label.js`, the one module Iki serves. The
 template's CI runs `npm run check`, which fails if they don't match.
 Update the examples and expected labels in `tests/` with values from your lab.
-The manifest also declares `tube-scan`, a rack scanner's export. Its header lets
+The manifest also declares `tube_scan`, a rack scanner's export. Its header lets
 Iki recognize a scan even when the filename has lost its extension. To accept
 it in a file field or action file parameter, set
-`media_types: [acme/storage_labels.tube-scan]`, with your copy's name in
+`media_types: [acme/storage_labels.tube_scan]`, with your copy's name in
 that ID. Change the label, media type, extension and signature to match your
 scanner's files, or remove the format if your lab has no scanner.
 

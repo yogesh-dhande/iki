@@ -6,13 +6,14 @@ label: Request
 abstract: true
 schema_version: 3
 description: A project's specification of work to be done by another team.
-request:
-  service_fields: [status, priority, scheduled_on, analyst, service_notes]
-  sends: [records, materials, tubes]
-  materials: [materials, tubes]
-  completed: { field: status, state: delivered }
-  # The service's coordinators receive its tubes against what was sent (ADR 0180).
-  receives: { field: tubes, by: [iki/lab_roles.coordinator] }
+service:
+  request:
+    service_fields: [status, priority, scheduled_on, analyst, service_notes]
+    sends: [records, materials, tubes]
+    materials: [materials, tubes]
+    completed: { field: status, states: [delivered] }
+    # The service's coordinators receive its tubes against what was sent (ADR 0180).
+    receives: { field: tubes, received_by: [iki/lab_roles.coordinator] }
 fields:
   title:
     type: string
@@ -123,7 +124,7 @@ notifications:
       The service's coordinators hear of each request sent to it, to accept or
       decline it.
     when: { sent: true }
-    tell: { roles: [iki/lab_roles.coordinator] }
+    notify: { roles: [iki/lab_roles.coordinator] }
     message:
       title: "{{ hrid }} arrived: {{ title }}"
       body: "Needed by {{ needed_by or 'no date given' }}."
@@ -133,6 +134,6 @@ notifications:
       Whoever made a request, and whoever watches it, hears as the service
       returns each deliverable.
     when: { released: true }
-    tell: { creator: true, watchers: true }
+    notify: { creator: true, watchers: true }
     message:
       title: "{{ hrid }} has results: {{ title }}"

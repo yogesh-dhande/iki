@@ -45,9 +45,9 @@ def test_the_example_declares_its_writer_and_its_transfers_export_through_it(
     result = load_plugin(plugin)
     assert codes(result) == []
     assert result.plugin is not None
-    writer = result.plugin.writers["acme/liquid_handling.tecan-worklist"]
+    writer = result.plugin.writers["acme/liquid_handling.tecan_worklist"]
     assert (writer.format, writer.many, writer.memory) == (
-        "acme/liquid_handling.tecan-gwl",
+        "acme/liquid_handling.tecan_gwl",
         "file",
         16 * 1024 * 1024,
     )
@@ -57,7 +57,7 @@ def test_the_example_declares_its_writer_and_its_transfers_export_through_it(
     transfer = result.plugin.types["acme/liquid_handling.Transfer"]
     assert transfer.exports == (
         PluginExport(
-            "acme/liquid_handling.tecan-worklist",
+            "acme/liquid_handling.tecan_worklist",
             {
                 "source_plate": "source",
                 "source_well": "source_well",
@@ -95,9 +95,9 @@ def test_a_writer_cant_write_what_a_browser_would_run(plugin: Path) -> None:
 
 
 def test_a_writers_format_is_one_the_plugin_can_name(plugin: Path) -> None:
-    edit(plugin / "plugin.yaml", "format: tecan-gwl", "format: acme/other.gwl")
+    edit(plugin / "plugin.yaml", "format: tecan_gwl", "format: acme/other.gwl")
     assert "writer-format-dependency" in codes(load_plugin(plugin))
-    edit(plugin / "plugin.yaml", "format: acme/other.gwl", "format: tecan-csv")
+    edit(plugin / "plugin.yaml", "format: acme/other.gwl", "format: tecan_csv")
     assert "unknown-format" in codes(load_plugin(plugin))
 
 
@@ -147,7 +147,7 @@ def test_every_required_role_is_mapped_and_no_other(plugin: Path) -> None:
 
 
 def test_a_type_exports_only_through_an_installed_writer(plugin: Path) -> None:
-    edit(plugin / "types" / "transfer.yaml", "export: tecan-worklist", "export: hamilton-worklist")
+    edit(plugin / "types" / "transfer.yaml", "export: tecan_worklist", "export: hamilton_worklist")
     assert codes(load_plugin(plugin)) == ["unknown-writer"]
 
 

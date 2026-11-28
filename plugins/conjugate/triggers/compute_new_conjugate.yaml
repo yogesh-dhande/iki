@@ -5,4 +5,4 @@ name: compute_new_conjugate
 label: Compute a newly registered conjugate's composition
 on: entity.created
 type: Conjugate
-run: compute_composition
+action: compute_composition

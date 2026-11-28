@@ -10,10 +10,10 @@ description: >-
   too. A structure with a residue DSSP doesn't know fails, and its run names
   the residue.
 inputs:
-  structure: { type: ProteinStructure, schema: ">=2" }
+  structure: { type: ProteinStructure, schema_version: ">=2" }
 effects:
   updates:
-    - input: structure
+    structure:
       fields:
         - secondary_structure
         - helix_fraction

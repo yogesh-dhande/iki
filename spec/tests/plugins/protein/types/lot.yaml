@@ -55,4 +55,4 @@ notifications:
   in_review:
     label: Signed for review
     when: { field: status, to: in_review }
-    tell: { roles: [reviewer] }
+    notify: { roles: [reviewer] }

@@ -4,7 +4,7 @@ name: record_measurement
 label: Record stability measurement
 description: Record a planned test on a completed pull with the study's reporting unit and pinned method.
 inputs:
-  pull: { type: Pull, schema: ">=1", include: [study] }
+  pull: { type: Pull, schema_version: ">=1", include: [study] }
 params:
   test:
     type: string

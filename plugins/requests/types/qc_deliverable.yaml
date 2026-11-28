@@ -6,10 +6,11 @@ label: QC deliverable
 extends: Deliverable
 schema_version: 3
 hrid: { prefix: QCD }
-result:
-  of: request
-  material: material
-  released: { field: review, states: [released] }
+service:
+  result:
+    of: request
+    material: material
+    released: { field: review, states: [released] }
 fields:
   request:
     type: ref

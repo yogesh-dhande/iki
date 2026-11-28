@@ -10,4 +10,4 @@ description: >-
   that compute them only fill in fields, so they never fire a trigger again.
 on: entity.registered
 type: Protein
-run: compute_properties
+action: compute_properties

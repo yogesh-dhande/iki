@@ -117,21 +117,24 @@
           }
         },
         "while": {
-          "description": "For `unique` and `no_overlap`: only records whose fields have one of these values count, such as tubes whose status is `stored`, or bookings that aren't cancelled. Each is an enum, state or bool field of the same table.",
+          "description": "For `unique` and `no_overlap`: only records whose field is in one of these states count, such as tubes whose status is `stored`, or bookings that aren't cancelled. The field is a state, enum or bool field of the same table.",
           "type": "object",
-          "minProperties": 1,
-          "maxProperties": 3,
-          "propertyNames": {
-            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-          },
-          "additionalProperties": {
-            "description": "The values of this field that count, such as `[stored]`: states, an enum's values, or `true` or `false`.",
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 20,
-            "uniqueItems": true,
-            "items": {
-              "type": ["string", "boolean"]
+          "required": ["field", "states"],
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "description": "The field, such as `status`.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "states": {
+              "description": "The values of `field` that count, such as `[stored]`: states, an enum's values, or `true` or `false`.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "uniqueItems": true,
+              "items": {
+                "type": ["string", "boolean"]
+              }
             }
           }
         }

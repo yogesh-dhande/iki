@@ -143,7 +143,7 @@ def test_builds_the_model_codegen_reads() -> None:
     prediction = load_plugin(PREDICTION, dependencies=[PROTEIN, DNA]).plugin
     assert prediction is not None
     extension, of_protein = sorted(prediction.extensions, key=lambda e: e.table, reverse=True)
-    assert extension.extends_type == "acme/protein.ProteinStructure"
+    assert extension.adds_to == "acme/protein.ProteinStructure"
     assert of_protein.fields["disorder"].registry == "derived"
     assert extension.table == "acme__prediction__acme__protein_proteinstructure"
     assert prediction.settings["allowed_presets"].default == ["monomer"]
@@ -1553,14 +1553,14 @@ def test_a_deprecated_key_is_warned_of_with_what_to_use(
 
 def test_a_lab_plugin_is_told_a_key_is_provisional(tmp_path: Path) -> None:
     typed = TYPE + "fields:\n  request: { type: ref, to: Assay, required: true, immutable: true }\n"
-    result = make(tmp_path, typed + "work_item: { of: request }\n")
+    result = make(tmp_path, typed + "service: { work_item: { of: request } }\n")
     assert "provisional-key" in codes(result, provisional=True)
     warning = next(p for p in result.problems if p.code == "provisional-key")
     assert warning.severity is Severity.WARNING
-    assert warning.message.startswith("`work_item` is provisional: a minor release of Iki")
+    assert warning.message.startswith("`service.work_item` is provisional: a minor release of Iki")
     # Iki's own plugins are released with Iki, and move with the key.
     own = PLUGIN.replace("acme/lab", "iki/requests")
-    result = make(tmp_path, typed + "work_item: { of: request }\n", own)
+    result = make(tmp_path, typed + "service: { work_item: { of: request } }\n", own)
     assert "provisional-key" not in codes(result, provisional=True)
 
 
@@ -1687,7 +1687,7 @@ def test_the_same_name_in_two_namespaces(tmp_path: Path) -> None:
 EXTENSION = """\
 apiVersion: iki/v1
 kind: EntityTypeExtension
-extends_type: acme/dna.DNASequence
+adds_to: acme/dna.DNASequence
 fields:
 """
 DNA_PIN = PLUGIN + "dependencies:\n  acme/dna:\n    types:\n      DNASequence: '>=2'\n"
@@ -2059,11 +2059,13 @@ def test_every_schema_says_how_its_keys_are_versioned() -> None:
                 )
             assert prop.get("x-iki-provisional", True) is True, (name, where)
     provisional = {
-        k
-        for k, v in schemas.load("entity-type")["properties"].items()
-        if v.get("x-iki-provisional")
+        where for where, v in _properties(schemas.load("entity-type")) if v.get("x-iki-provisional")
     }
-    assert provisional == {"stock_catalogue", "work_item", "draw_purposes"}
+    assert provisional == {
+        ".stock_catalogue",
+        "/properties/service.work_item",
+        "/properties/draws.purposes",
+    }
 
 
 @pytest.mark.parametrize("name", AUTHORED_KINDS)
@@ -2692,7 +2694,7 @@ notifications:
     label: An assay is released
     description: QA and its analyst hear when QA releases an assay.
     when: { field: status, to: released }
-    tell: { roles: [qa], fields: [analyst, helpers], creator: true }
+    notify: { roles: [qa], fields: [analyst, helpers], creator: true }
     message:
       title: "{{ hrid }} is released"
       body: "Lot {{ lot or 'unknown' }}: its result is {{ result }}, by {{ analyst }}."
@@ -2705,20 +2707,20 @@ notifications:
         - { field: sent_at, op: gte, value: "{{ now }}" }
         - { field: result, op: in, value: [fail] }
         - { field: received_by, op: is_set, value: true }
-    tell: { watchers: true, actor: true }
+    notify: { watchers: true, actor: true }
     email: false
   failed:
     label: A result failed
     when: { field: result, to: [fail] }
-    tell: { fields: [received_by] }
+    notify: { fields: [received_by] }
   parent_moved:
     label: Its parent moved
     when: { field: parent.custody, to: quarantined }
-    tell: { fields: [received_by] }
+    notify: { fields: [received_by] }
   made:
     label: An assay is made
     when: { created: true }
-    tell: { roles: [analyst] }
+    notify: { roles: [analyst] }
 """
 
 
@@ -2737,9 +2739,9 @@ def test_a_type_declares_its_notifications(tmp_path: Path) -> None:
         "status",
         ("released",),
     )
-    assert released.tell_roles == ("acme/lab.qa",)
-    assert released.tell_fields == ("analyst", "helpers")
-    assert (released.tell_creator, released.tell_watchers, released.tell_actor) == (
+    assert released.notify_roles == ("acme/lab.qa",)
+    assert released.notify_fields == ("analyst", "helpers")
+    assert (released.notify_creator, released.notify_watchers, released.notify_actor) == (
         True,
         False,
         False,
@@ -2764,9 +2766,10 @@ kind: EntityType
 name: AssayRequest
 schema_version: 1
 hrid: { prefix: REQ }
-request:
-  service_fields: [status, priority, scheduled_on, technician]
-  sends: [samples]
+service:
+  request:
+    service_fields: [status, priority, scheduled_on, technician]
+    sends: [samples]
 fields:
   title: { type: string, required: true, max_length: 200 }
   samples: { type: list, items: { type: ref, to: Sample }, max_items: 96 }
@@ -2788,9 +2791,10 @@ kind: EntityType
 name: AssayResult
 schema_version: 1
 hrid: { prefix: RES }
-result:
-  of: request
-  released: { field: review, states: [released] }
+service:
+  result:
+    of: request
+    released: { field: review, states: [released] }
 fields:
   request: { type: ref, to: AssayRequest, required: true, immutable: true }
   value: { type: float }
@@ -2832,10 +2836,10 @@ def test_signed_release_after_review_requires_a_lock(tmp_path: Path) -> None:
     assert result.problems == []
     assert result.plugin is not None
     assay = result.plugin.types["acme/lab.AssayResult"]
-    assert assay.result is not None
-    assert assay.result.requires_review(assay.fields["review"], "released")
-    assert not assay.result.requires_review(assay.fields["review"], "reviewed")
-    assert not assay.result.requires_review(assay.fields["value"], "released")
+    assert assay.service.result is not None
+    assert assay.service.result.requires_review(assay.fields["review"], "released")
+    assert not assay.service.result.requires_review(assay.fields["review"], "reviewed")
+    assert not assay.service.result.requires_review(assay.fields["value"], "released")
     unlocked = body.replace(", locks: true", "")
     assert "must lock" in only(
         make(tmp_path, requests(result=unlocked), ROLES), "result-release-lock"
@@ -2861,19 +2865,19 @@ def test_a_request_type_names_its_services_fields_and_what_it_sends(tmp_path: Pa
         tmp_path,
         requests(
             REQUEST.replace(
-                "  sends:", "  completed: { field: status, state: delivered }\n  sends:"
+                "    sends:", "    completed: { field: status, states: [delivered] }\n    sends:"
             )
         ),
         ROLES,
     )
     assert result.problems == []
     assert result.plugin is not None
-    request = result.plugin.types["acme/lab.AssayRequest"].request
+    request = result.plugin.types["acme/lab.AssayRequest"].service.request
     assert request is not None
     assert request.service_fields == ("status", "priority", "scheduled_on", "technician")
     assert request.sends == ("samples",)
-    assert (request.completed_field, request.completed_state) == ("status", "delivered")
-    found = result.plugin.types["acme/lab.AssayResult"].result
+    assert (request.completed_field, request.completed_states) == ("status", ("delivered",))
+    found = result.plugin.types["acme/lab.AssayResult"].service.result
     assert found is not None
     assert (found.of, found.released_field, found.released_states) == (
         "request",
@@ -2889,7 +2893,8 @@ kind: EntityType
 name: WorkItem
 schema_version: 1
 hrid: { prefix: WRK }
-work_item: { of: request }
+service:
+  work_item: { of: request }
 fields:
   request: { type: ref, to: AssayRequest, required: true, immutable: true }
 """
@@ -2900,8 +2905,8 @@ def test_work_items_round_trip_without_a_release_policy(tmp_path: Path) -> None:
     assert problems(result) == []
     assert result.plugin is not None
     found = result.plugin.types["acme/lab.WorkItem"]
-    assert found.work_item is not None and found.work_item.of == "request"
-    assert found.result is None
+    assert found.service.work_item is not None and found.service.work_item.of == "request"
+    assert found.service.result is None
     assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
 
 
@@ -2915,7 +2920,7 @@ def test_work_items_round_trip_without_a_release_policy(tmp_path: Path) -> None:
         (WORK_ITEM.replace(REQUEST_REF, "to: AssayRequest"), "work-item-of-changes"),
         (
             WORK_ITEM.replace(
-                "work_item: { of: request }", "extends: AssayResult\nwork_item: { of: request }"
+                "service:\n  work_item:", "extends: AssayResult\nservice:\n  work_item:"
             ).replace(
                 f"fields:\n  request: {{ type: ref, {REQUEST_REF} }}\n",
                 "",
@@ -2992,13 +2997,13 @@ def test_notifications_are_checked(
 @pytest.mark.parametrize(
     ("old", "new"),
     [
-        ("tell: { roles: [analyst] }", "tell: {}"),
+        ("notify: { roles: [analyst] }", "notify: {}"),
         ("    label: An assay is made\n", ""),
         ("email: false", "email: no"),
         ("  made:", "  Made:"),
         ("when: { created: true }", "when: { created: false }"),
         ("{{ hrid }} is released", ""),
-        ("tell: { roles: [analyst] }", "tell: { everyone: true }"),
+        ("notify: { roles: [analyst] }", "notify: { everyone: true }"),
     ],
 )
 def test_notifications_must_be_well_formed(tmp_path: Path, old: str, new: str) -> None:
@@ -3012,7 +3017,7 @@ notifications:
   testing:
     label: Testing
     when: { field: status, to: testing }
-    tell: { fields: [analyst] }
+    notify: { fields: [analyst] }
 """
     result = make(tmp_path, declared(body), ROLES)
     (problem,) = result.problems
@@ -3032,7 +3037,7 @@ notifications:
   made:
     label: Made again
     when: { created: true }
-    tell: { creator: true }
+    notify: { creator: true }
 """
     result = make(tmp_path, {"types/assay.yaml": declared(), "types/repeat.yaml": child}, ROLES)
     assert "`acme/lab.Assay`" in only(result, "notification-shadows-parent")
@@ -3044,7 +3049,7 @@ notifications:
   renamed:
     label: Renamed
     when: { field: code }
-    tell: { creator: true }
+    notify: { creator: true }
 """
     text = declared(body).replace(
         "fields:\n",
@@ -3108,7 +3113,7 @@ notifications:
             "no way to correct it",
         ),
         (
-            REQUEST.replace("request:\n", "identity: [title]\nrequest:\n").replace(
+            REQUEST.replace("service:\n", "identity: [title]\nservice:\n").replace(
                 "required: true, max_length", "required: true, immutable: true, max_length"
             ),
             RESULT,
@@ -3144,14 +3149,16 @@ notifications:
         ),
         (
             REQUEST.replace(
-                "  sends:", "  completed: { field: status, state: submitted }\n  sends:"
+                "    sends:", "    completed: { field: status, states: [submitted] }\n    sends:"
             ),
             RESULT,
             "request-completion-state",
             "non-initial state",
         ),
         (
-            REQUEST.replace("  sends:", "  completed: { field: title, state: absent }\n  sends:"),
+            REQUEST.replace(
+                "    sends:", "    completed: { field: title, states: [absent] }\n    sends:"
+            ),
             RESULT,
             "request-completion-state",
             "service writes",
@@ -3175,12 +3182,12 @@ notifications:
   received:
     label: A request arrives
     when: { sent: true }
-    tell: { roles: [qa] }
+    notify: { roles: [qa] }
     message: { title: "{{ hrid }} arrived: {{ title }}" }
   answered:
     label: Its results are released
     when: { released: true }
-    tell: { creator: true, watchers: true }
+    notify: { creator: true, watchers: true }
 """
 
 
@@ -3192,7 +3199,7 @@ def test_a_request_tells_its_service_and_who_asked(tmp_path: Path) -> None:
     assert result.plugin is not None
     found = result.plugin.types["acme/lab.AssayRequest"].notifications
     assert (found["received"].sent, found["received"].released) == (True, False)
-    assert found["received"].tell_roles == ("acme/lab.qa",)
+    assert found["received"].notify_roles == ("acme/lab.qa",)
     assert (found["answered"].sent, found["answered"].released) == (False, True)
 
 
@@ -3200,14 +3207,14 @@ def test_a_request_tells_its_service_and_who_asked(tmp_path: Path) -> None:
     ("old", "new", "code", "message"),
     [
         (
-            "tell: { roles: [qa] }",
-            "tell: { roles: [qa], creator: true }",
+            "notify: { roles: [qa] }",
+            "notify: { roles: [qa], creator: true }",
             "notification-recipients",
             "by the lab roles its people hold there: name them in `roles`, not `creator`.",
         ),
         (
-            "tell: { roles: [qa] }",
-            "tell: { watchers: true }",
+            "notify: { roles: [qa] }",
+            "notify: { watchers: true }",
             "notification-recipients",
             "name them in `roles`, not `watchers`.",
         ),
@@ -3236,7 +3243,7 @@ def test_a_requests_notifications_are_checked(
 def test_only_a_request_is_sent_or_has_results_released(tmp_path: Path, event: str) -> None:
     body = SAMPLE_TYPE + (
         f"notifications:\n  it:\n    label: It\n    when: {{ {event}: true }}\n"
-        "    tell: { roles: [qa] }\n"
+        "    notify: { roles: [qa] }\n"
     )
     files = {**requests(), "types/sample.yaml": body}
     found = only(make(tmp_path, files, ROLES), "notification-when")
@@ -3251,8 +3258,9 @@ name: UrgentRequest
 schema_version: 1
 extends: AssayRequest
 hrid: { prefix: URQ }
-request:
-  service_fields: [status]
+service:
+  request:
+    service_fields: [status]
 """
     files = {**requests(), "types/urgent.yaml": sub}
     # It adds service fields of its own (ADR 0232), not its parent's.
@@ -3262,7 +3270,7 @@ request:
     files["types/urgent.yaml"] = own.replace("[status]", "[queue_rank]")
     assert make(tmp_path, files, ROLES).problems == []
     # Its parent says the rest.
-    files["types/urgent.yaml"] = own.replace("[status]", "[queue_rank]\n  sends: [samples]")
+    files["types/urgent.yaml"] = own.replace("[status]", "[queue_rank]\n    sends: [samples]")
     message = only(make(tmp_path, files, ROLES), "request-redeclared")
     assert "can only add service fields of their own" in message
     files["types/urgent.yaml"] = own.replace("[status]", "[]")
@@ -3272,7 +3280,9 @@ request:
         "{ type: int }", "{ type: int, required: true }"
     )
     assert only(make(tmp_path, files, ROLES), "service-field-required")
-    files["types/urgent.yaml"] = sub.replace("request:\n  service_fields: [status]\n", "")
+    files["types/urgent.yaml"] = sub.replace(
+        "service:\n  request:\n    service_fields: [status]\n", ""
+    )
     assert make(tmp_path, files, ROLES).problems == []
 
 
@@ -3297,7 +3307,7 @@ fields:
     "request_",
     [
         REQUEST.replace("sends: [samples]", "sends: samples"),
-        REQUEST.replace("sends: [samples]", "sends: [samples]\n  queue: true"),
+        REQUEST.replace("sends: [samples]", "sends: [samples]\n    queue: true"),
         REQUEST.replace("[status, priority, scheduled_on, technician]", "[status, status]"),
     ],
 )
@@ -3347,7 +3357,7 @@ def test_a_draw_destination_declares_one_computed_receipt_field(tmp_path: Path) 
     parent = (
         TYPE.replace("hrid: { prefix: ASY }", "abstract: true")
         + """
-draws_received: material_draws
+draws: { received: material_draws }
 fields:
   material_draws: { type: json, computed: true }
 """
@@ -3365,9 +3375,9 @@ hrid: { prefix: EXPT }
     assert result.problems == []
     assert result.plugin is not None
     restored = plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin))))
-    assert restored.types["acme/lab.Assay"].draws_received == "material_draws"
+    assert restored.types["acme/lab.Assay"].draws.received == "material_draws"
     assert restored.types["acme/lab.Experiment"].extends == "acme/lab.Assay"
-    assert codes(make(tmp_path, parent + child + "draws_received: other\n")) == [
+    assert codes(make(tmp_path, parent + child + "draws: { received: other }\n")) == [
         "draws-received-field"
     ]
     for declaration in (
@@ -3379,7 +3389,7 @@ hrid: { prefix: EXPT }
             make(tmp_path, parent.replace("type: json, computed: true", declaration))
         )
     assert "draws-received-field" in codes(
-        make(tmp_path, parent.replace("draws_received: material_draws", "draws_received: missing"))
+        make(tmp_path, parent.replace("received: material_draws", "received: missing"))
     )
 
 
@@ -3391,7 +3401,7 @@ stock_catalogue:
   name: name
   unit: unit
   threshold: threshold
-  notify: [qa]
+  notify: { roles: [qa] }
   lots: { type: Lot, item: item, number: serial, expiry: expires_on }
   orders: { type: Order, item: item, reference: reference, ordered: ordered, received: received }
 fields:
@@ -3428,7 +3438,9 @@ fields:
     loaded = plugin_from_dict(plugin_to_dict(result.plugin))
     assert loaded == result.plugin
     cfg = loaded.types["acme/lab.Assay"].stock_catalogue
-    assert cfg is not None and cfg.lots.type == "acme/lab.Lot" and cfg.notify == ("acme/lab.qa",)
+    assert (
+        cfg is not None and cfg.lots.type == "acme/lab.Lot" and cfg.notify_roles == ("acme/lab.qa",)
+    )
     for before, after, expected in [
         ("threshold: threshold", "threshold: serial", "stock-catalogue-field"),
         ("required: true, immutable: true", "required: true", "stock-catalogue-unit"),
@@ -3594,7 +3606,7 @@ def test_draw_purposes_require_declared_roles_and_can_narrow_an_inherited_list(
     tmp_path: Path,
 ) -> None:
     parent = TYPE.replace("hrid: { prefix: ASY }", "abstract: true")
-    parent += "draw_purposes: {qa_sampling: {by: [qa, analyst]}}\n"
+    parent += "draws: { purposes: { qa_sampling: { drawn_by: [qa, analyst] } } }\n"
     child = """
 ---
 apiVersion: iki/v1
@@ -3604,16 +3616,17 @@ schema_version: 1
 extends: Assay
 hrid: { prefix: TUB }
 amount: { unit: mg }
-draw_purposes: {qa_sampling: {by: [qa]}}
+draws:
+  purposes: { qa_sampling: { drawn_by: [qa] } }
 """
     result = make(tmp_path, parent + child, ROLES)
     assert problems(result) == []
     assert result.plugin is not None
     built = plugin_from_dict(plugin_to_dict(result.plugin))
-    assert built.types["acme/lab.Assay"].draw_purposes == {
+    assert built.types["acme/lab.Assay"].draws.purposes == {
         "qa_sampling": ("acme/lab.qa", "acme/lab.analyst")
     }
-    assert built.types["acme/lab.Tube"].draw_purposes == {"qa_sampling": ("acme/lab.qa",)}
+    assert built.types["acme/lab.Tube"].draws.purposes == {"qa_sampling": ("acme/lab.qa",)}
     wider = make(tmp_path, parent.replace("[qa, analyst]", "[analyst]") + child, ROLES)
     assert "acme/lab.qa" in only(wider, "draw-purpose-widens-roles")
     missing_role = make(tmp_path, parent.replace("[qa, analyst]", "[missing]"), ROLES)
@@ -3623,10 +3636,17 @@ draw_purposes: {qa_sampling: {by: [qa]}}
 
 
 @pytest.mark.parametrize(
-    "policy", ["{qa_sampling: {by: []}}", "{qa_sampling: {}}", "{qc: {by: [qa]}}"]
+    "policy",
+    [
+        "{ qa_sampling: { drawn_by: [] } }",
+        "{ qa_sampling: {} }",
+        "{ qc: { drawn_by: [qa] } }",
+    ],
 )
 def test_invalid_draw_purpose_declarations_are_rejected(tmp_path: Path, policy: str) -> None:
-    result = make(tmp_path, TYPE + f"amount: {{ unit: mg }}\ndraw_purposes: {policy}\n", ROLES)
+    result = make(
+        tmp_path, TYPE + f"amount: {{ unit: mg }}\ndraws: {{ purposes: {policy} }}\n", ROLES
+    )
     assert codes(result) == ["schema"]
 
 
@@ -3671,10 +3691,11 @@ kind: EntityType
 name: Shipment
 schema_version: 1
 hrid: { prefix: SHP }
-request:
-  service_fields: [notes]
-  sends: [tubes]
-  receives: { field: tubes, by: [qa] }
+service:
+  request:
+    service_fields: [notes]
+    sends: [tubes]
+    receives: { field: tubes, received_by: [qa] }
 fields:
   tubes: { type: list, items: { type: ref, to: Tube } }
   notes: { type: text }
@@ -3698,9 +3719,9 @@ def test_a_type_says_what_it_holds_its_grid_its_barcode_and_what_needs_a_scan(
     assert tube.storage.confirm == ("draw", "move")
     assert tube.amount is not None
     assert tube.amount.follows == ("lot",)
-    request = types["acme/lab.Shipment"].request
+    request = types["acme/lab.Shipment"].service.request
     assert request is not None
-    assert (request.receives, request.receives_by) == ("tubes", ("acme/lab.qa",))
+    assert (request.receives, request.received_by) == ("tubes", ("acme/lab.qa",))
     # It round-trips through the built manifest.
     assert plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin)))) == result.plugin
 
@@ -3804,14 +3825,15 @@ fields:
 
 #: A prepared draw target (ADR 0243): its planned amount a float in the unit its record names.
 DRAW_TARGET = """\
-draw_target:
-  from: tube
-  source: lot
-  state: { field: status, is: waiting }
-  by: [analyst]
-  ready: prepared
-  amount: amount
-  unit: amount_unit
+draws:
+  target:
+    from: tube
+    source: lot
+    state: { field: status, states: [waiting] }
+    drawn_by: [analyst]
+    ready: prepared
+    amount: amount
+    unit: amount_unit
 fields:
   tube: { type: ref, to: iki/core.Entity, required: true, immutable: true }
   lot: { type: ref, to: iki/core.Entity, required: true, immutable: true }
@@ -3831,7 +3853,7 @@ def test_a_draw_targets_planned_amount_can_name_its_unit(tmp_path: Path) -> None
     result = make(tmp_path, TYPE + DRAW_TARGET, ROLES)
     assert codes(result) == []
     assert result.plugin is not None
-    target = result.plugin.types["acme/lab.Assay"].draw_target
+    target = result.plugin.types["acme/lab.Assay"].draws.target
     assert target is not None and (target.amount, target.unit) == ("amount", "amount_unit")
     assert plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin)))) == result.plugin
 
@@ -3841,7 +3863,7 @@ def test_a_draw_targets_planned_amount_can_name_its_unit(tmp_path: Path) -> None
     # A unit beside a quantity, or a float without one, says two units or none.
     quantity = "amount: { type: quantity, unit: uL,"
     assert problems("amount: { type: float,", quantity) == ["invalid-draw-target"]
-    assert problems("  unit: amount_unit\n", "") == ["invalid-draw-target"]
+    assert problems("    unit: amount_unit\n", "") == ["invalid-draw-target"]
     # The unit is fixed with the plan, like the amount.
     assert problems(
         "required: true, immutable: true }\n  status", "required: true }\n  status"

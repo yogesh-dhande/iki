@@ -525,10 +525,10 @@ class _Rules:
         chain = {entity_type.qualified_name} | {
             a.qualified_name for a in self.s.ancestors(entity_type)
         }
-        out = [e for e in self.plugin.extensions if e.extends_type in chain]
+        out = [e for e in self.plugin.extensions if e.adds_to in chain]
         for other in self.s.others.values():
             assert other.plugin is not None  # noqa: S101 - an invariant
-            out.extend(e for e in other.plugin.extensions if e.extends_type in chain)
+            out.extend(e for e in other.plugin.extensions if e.adds_to in chain)
         return out
 
     def fields_of(self, entity_type: EntityType) -> dict[str, Field]:
@@ -675,14 +675,20 @@ class _Rules:
                 review,
                 guards={n: replace(g, guard=checked[n]) for n, g in review.guards.items()},
             )
-        draw = entity_type.draw_guards
+        draw = entity_type.draws.guards
         if draw:
             draw = self.guards(
-                draw, draw_variables(entity_type.label, fields), fields, source, ("draw_guards",)
+                draw, draw_variables(entity_type.label, fields), fields, source, ("draws", "guards")
             )
         self.same_condition(entity_type, inherited, source)
         changed.update(self.computed(entity_type, fields, own, source))
-        return replace(entity_type, rules=rules, fields=changed, draw_guards=draw, review=review)
+        return replace(
+            entity_type,
+            rules=rules,
+            fields=changed,
+            draws=replace(entity_type.draws, guards=draw),
+            review=review,
+        )
 
     def same_condition(
         self, entity_type: EntityType, inherited: Mapping[str, EntityType], source: Document
@@ -707,7 +713,8 @@ class _Rules:
             for n, g in state.guards.items()
         ]
         guards.extend(
-            (f"draw guard `{n}`", g, ("draw_guards", n)) for n, g in entity_type.draw_guards.items()
+            (f"draw guard `{n}`", g, ("draws", "guards", n))
+            for n, g in entity_type.draws.guards.items()
         )
         for what, guard, at in guards:
             same = checks.get(" ".join(guard.check.split()))
@@ -727,7 +734,7 @@ class _Rules:
             )
 
     def extension(self, extension: Extension, source: Document) -> Extension:
-        target = self.s.types.get(extension.extends_type)
+        target = self.s.types.get(extension.adds_to)
         if target is None:
             return extension  # The extension's own check says what's wrong.
         fields = self.fields_of(target)
@@ -1222,7 +1229,7 @@ class _Rules:
                 fields,
                 own,
                 source,
-                (*path, "while", name),
+                (*path, "while", "field"),
                 WHILE_TYPES,
                 "`while` names enum, state and bool fields",
             )
@@ -1241,7 +1248,7 @@ class _Rules:
                         "rule-while",
                         f"`{value}` isn't one of `{name}`'s values: it's one of {shown}.",
                         source,
-                        (*path, "while", name, index),
+                        (*path, "while", "states", index),
                     )
 
     # Guards.

@@ -77,10 +77,10 @@ def layout(
         fields = {n: as_refined(chain, n, f) for n, f in t.current_fields.items()}
         parts.append((t.table, t.qualified_name, t.plugin, False, split_entry(fields, t.identity)))
     parts.extend(
-        (ext.table, ext.extends_type, ext.plugin, True, split_entry(ext.current_fields))
+        (ext.table, ext.adds_to, ext.plugin, True, split_entry(ext.current_fields))
         for plugin in plugins.values()
         for ext in plugin.extensions
-        if ext.extends_type in names
+        if ext.adds_to in names
     )
     return [
         Table(naming.entry_table(table) if entry else table, fields, entry, owner, plugin_name, ext)

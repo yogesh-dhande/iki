@@ -12,7 +12,7 @@ description: >-
 inputs:
   monomers:
     type: Monomer
-    schema: ">=1"
+    schema_version: ">=1"
     cardinality: many
     max: 500
     optional: true

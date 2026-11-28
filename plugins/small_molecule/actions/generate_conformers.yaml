@@ -14,7 +14,7 @@ description: >-
   lowest energy first, with each one's energy, or, for a compound MMFF94 can't
   minimise, as embedded, with none, which the set's method and the run say.
 inputs:
-  compound: { type: Compound, schema: ">=1" }
+  compound: { type: Compound, schema_version: ">=1" }
 params:
   count:
     type: int

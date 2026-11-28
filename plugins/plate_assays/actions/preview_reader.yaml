@@ -6,8 +6,8 @@ description: >-
   Read the reader file in the plate's reader file format and join its matrix to the plate
   layout. The preview displays the joined values and the export's run header, and identifies
   missing, repeated and unassigned wells and a file already committed to the plate.
-inputs: { plate: { type: AssayPlate, schema: ">=1" } }
-effects: { updates: [{ input: plate, fields: [preview] }] }
+inputs: { plate: { type: AssayPlate, schema_version: ">=1" } }
+effects: { updates: { plate: { fields: [preview] } } }
 runs_on: { tier: backend, environment: assay-tools }
 command: [python, ./scripts/assays.py, preview]
 timeout: 5m

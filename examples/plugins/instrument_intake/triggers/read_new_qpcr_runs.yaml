@@ -9,4 +9,4 @@ description: >-
   gets the file only then. The run's own changes fire no trigger.
 on: entity.created
 type: QPCRRun
-run: import_quantstudio_results
+action: import_quantstudio_results

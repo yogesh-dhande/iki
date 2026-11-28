@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: acme/liquid_handling
-version: 0.1.2
+version: 0.1.3
 title: Liquid handling
 description: >-
   Plates and the transfers between them, downloaded as a Tecan worklist that Freedom
@@ -10,17 +10,17 @@ description: >-
 license: Apache-2.0
 iki: ">=0.1"
 formats:
-  tecan-gwl:
+  tecan_gwl:
     label: Tecan worklist
     media_types: [text/x-tecan-gwl]
     extensions: [.gwl]
 writers:
-  tecan-worklist:
+  tecan_worklist:
     label: Tecan worklist
     description: >-
       An aspirate, a dispense and a tip wash for each transfer, in order, for Freedom
       EVOware or FluentControl to run as a worklist (.gwl).
-    format: tecan-gwl
+    format: tecan_gwl
     module: writers/tecan-worklist
     many: file
     memory: 16MiB

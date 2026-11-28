@@ -408,7 +408,7 @@ pub struct RunOutputMadeSoftwareItem {
 /// A new entity, of a type the action declares it creates.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunOutputCreate {
-    /// Its type, by its qualified name, such as `iki/protein.Protein`.
+    /// Its type: by its name, such as `BufferPrep`, for one of the action's own plugin, as its manifest names it, or qualified, such as `iki/protein.Protein`.
     pub r#type: String,
     /// A name for it, unique in `creates`, that a later create's ref fields can give as `{"$create": "<key>"}` to refer to it, such as a structure to the chains made with it, or a `creates_file`'s lines to the organisms they're from. Not in a `creates_file`'s lines themselves.
     #[serde(default, skip_serializing_if = "Option::is_none")]

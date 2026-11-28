@@ -714,7 +714,7 @@ def recheck_holders(
             continue
         if detached or record.locked or record.archived_at is not None:
             flagged += [
-                Recalculation(entity_id=record.pk, action=f"{spec.plugin}.{spec.run}")
+                Recalculation(entity_id=record.pk, action=f"{spec.plugin}.{spec.action}")
                 for spec, _ in found
             ]
             continue

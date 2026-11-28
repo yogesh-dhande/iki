@@ -84,7 +84,7 @@ const COMPOUND: Schemas["EntityTypeOut"] = {
 };
 
 const WORKLIST: Schemas["FileFormatOut"] = {
-  format: "acme/liquid_handling.tecan-worklist",
+  format: "acme/liquid_handling.tecan_worklist",
   label: "Tecan worklist",
   extension: "gwl",
   media_type: "text/x-tecan-gwl",

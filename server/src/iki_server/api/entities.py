@@ -174,6 +174,14 @@ class OverlapOut(Schema):
     per: list[str] = Field(description="Ranges only clash with the same values of these.")
 
 
+class WhileOut(Schema):
+    field: str = Field(description="The state, enum or bool field it counts records by.")
+    states: list[str] = Field(
+        description="The values of `field` that count: states, an enum's values, or `true` "
+        "or `false`."
+    )
+
+
 class RuleOut(Schema):
     """A rule its records keep at every save (ADR 0127): a CEL `check`, or one the
     database holds (`unique` together, ranges that don't overlap)."""
@@ -200,11 +208,11 @@ class RuleOut(Schema):
         default_factory=list, description="No two of a project's records share these together."
     )
     no_overlap: OverlapOut | None = None
-    while_: dict[str, list[str]] = Field(
-        default_factory=dict,
+    while_: WhileOut | None = Field(
+        None,
         alias="while",
-        description="For `unique` and `no_overlap`: only records with one of these values of "
-        "each field count.",
+        description="For `unique` and `no_overlap`: only records whose `field` is in one of "
+        "these `states` count.",
     )
 
 
@@ -487,7 +495,7 @@ ExportFormat = Annotated[
         min_length=1,
         max_length=200,
         pattern=r"^[a-z0-9][a-z0-9._/-]*$",
-        examples=["genbank", "acme/liquid_handling.tecan-worklist"],
+        examples=["genbank", "acme/liquid_handling.tecan_worklist"],
     ),
 ]
 
@@ -602,7 +610,7 @@ class RequestTypeOut(Schema):
         description="The reference whose records the service receives against what was "
         "sent, such as its tubes (ADR 0180).",
     )
-    receives_by: list[str] = Field(
+    received_by: list[str] = Field(
         default_factory=list,
         description="The lab roles in the service that receive it: any of its Editors, if none.",
     )
@@ -1684,7 +1692,9 @@ def _rule_out(rule: Rule) -> dict[str, Any]:
         }
         if rule.no_overlap
         else None,
-        "while": {name: list(values) for name, values in rule.only_while},
+        "while": {"field": rule.only_while[0][0], "states": list(rule.only_while[0][1])}
+        if rule.only_while
+        else None,
     }
 
 
@@ -1696,7 +1706,7 @@ def _request_type_out(name: str) -> dict[str, Any] | None:
         "service_fields": list(spec.service_fields),
         "sends": list(spec.sends),
         "receives": spec.receives,
-        "receives_by": list(spec.receives_by),
+        "received_by": list(spec.received_by),
     }
 
 

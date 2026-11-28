@@ -9,4 +9,4 @@ description: >-
 on: entity.updated
 type: iki/protein.Protein
 fields: [name]
-run: send_to_lims
+action: send_to_lims

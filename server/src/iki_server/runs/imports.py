@@ -95,7 +95,7 @@ from iki_server.runs.models import (
 )
 from iki_server.runs.services import is_a
 from iki_server.setup import starter_flows
-from iki_spec import schemas
+from iki_spec import outputs, schemas
 from iki_spec.model import Action as SpecAction
 from iki_spec.model import Field, Software, stored_in_list_table
 
@@ -554,7 +554,7 @@ def _check_chunk(imported: RunImport, run: ActionRun, reader: Reader) -> None:
             break
         size += len(raw)
         if raw.strip():
-            item = _parse(raw, number, errors)
+            item = _parse(raw, number, errors, check.action)
             if item is not None:
                 parsed.append(_Line(number, item))
         if number > MAX_LINES:
@@ -583,13 +583,17 @@ def _check_chunk(imported: RunImport, run: ActionRun, reader: Reader) -> None:
     _progress(imported, fraction, f"Checked {imported.lines:,} lines of its creates.")
 
 
-def _parse(raw: bytes, number: int, errors: list[dict[str, str]]) -> dict[str, Any] | None:
+def _parse(
+    raw: bytes, number: int, errors: list[dict[str, str]], action: SpecAction
+) -> dict[str, Any] | None:
     at = results.pointer("creates_file", number)
     try:
         item: dict[str, Any] | None = json.loads(raw)
     except ValueError as error:
         errors.append({"pointer": at, "detail": f"The line isn't JSON: {error}."})
         return None
+    if type(item) is dict:
+        item = dict(outputs.qualified(action, item))
     if not _plainly_a_create(item):
         issues = schemas.check("run-output", item, part="create")
         if issues:

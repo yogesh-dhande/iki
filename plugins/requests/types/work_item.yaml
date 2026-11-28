@@ -6,7 +6,8 @@ label: Work item
 schema_version: 2
 hrid: { prefix: WKI }
 description: A service project's private record of work on a request.
-work_item: { of: request }
+service:
+  work_item: { of: request }
 fields:
   request:
     type: ref

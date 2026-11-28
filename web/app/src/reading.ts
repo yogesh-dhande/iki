@@ -45,8 +45,8 @@ export function newWorker(script: string = readerUrl): Worker {
 
 /** The alphabet a FASTA file's format says it holds, if it says. */
 export function declaredAlphabet(formatId: string | undefined): Alphabet | null {
-  if (formatId === "iki/core.protein-fasta") return "protein";
-  if (formatId === "iki/core.nucleotide-fasta") return "nucleotide";
+  if (formatId === "iki/core.protein_fasta") return "protein";
+  if (formatId === "iki/core.nucleotide_fasta") return "nucleotide";
   return null;
 }
 

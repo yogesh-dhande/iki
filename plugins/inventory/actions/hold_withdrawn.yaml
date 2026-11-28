@@ -25,8 +25,8 @@ params:
       blank to give the source's hold reason.
 effects:
   updates:
-    - { input: source, fields: [hold_reason] }
-    - { input: tubes, fields: [on_hold, hold_reason] }
+    source: { fields: [hold_reason] }
+    tubes: { fields: [on_hold, hold_reason] }
 runs_on: { tier: backend, environment: stock-tools }
 command: [python, ./scripts/hold.py]
 retries: { max: 2, on: [worker_lost, interrupted] }

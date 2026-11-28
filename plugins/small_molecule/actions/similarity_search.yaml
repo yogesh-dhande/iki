@@ -12,13 +12,13 @@ description: >-
 inputs:
   compounds:
     type: Compound
-    schema: ">=1"
+    schema_version: ">=1"
     cardinality: many
     max: 100000
     description: The compounds to search, such as a project's library.
   query:
     type: Compound
-    schema: ">=1"
+    schema_version: ">=1"
     optional: true
     description: The compound to find others like. Or give its SMILES.
 params:

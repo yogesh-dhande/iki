@@ -43,29 +43,29 @@ slots:
 states:
   recorded:
     label: In progress
-    by: [analyst, reviewer]
+    set_by: [analyst, reviewer]
     reason: required
   submitted:
     label: Submitted
-    by: analyst
+    set_by: analyst
     locks: true
     signature: { meaning: authorship }
     maker: true
   first_review:
     label: First review
-    by: reviewer
+    set_by: reviewer
     locks: true
     signature: { meaning: review }
     independent_of: [creator, editors, signers: [submitted]]
   second_review:
     label: Second review
-    by: reviewer
+    set_by: reviewer
     locks: true
     signature: { meaning: review }
     independent_of: [creator, editors, signers: [submitted, first_review]]
   released:
     label: Approved
-    by: qa
+    set_by: qa
     locks: true
     signature: { meaning: approval }
     independent_of: [creator, editors, signers: [submitted, first_review, second_review]]
@@ -252,7 +252,10 @@ def test_a_procedure_keeps_the_labs_annotations_and_ignores_x_keys(tmp_path: Pat
             ),
             "when-in-procedure",
         ),
-        (("    by: [analyst, reviewer]\n", "    by: [analyst, approver]\n"), "unknown-slot"),
+        (
+            ("    set_by: [analyst, reviewer]\n", "    set_by: [analyst, approver]\n"),
+            "unknown-slot",
+        ),
         (("    reason: required\n", "    reason: required\n    locks: true\n"), "open-state-locks"),
         (("route: [recorded, submitted,", "route: [recorded, submit,"), "unknown-state"),
     ],

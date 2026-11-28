@@ -9,9 +9,9 @@ description: >-
   lot's tolerance holds it to; and its yield in nmol from its OD260 and ε260 (nmol = OD
   × 10⁶ / ε260): the lot's own ε260 if it gives one, else its oligonucleotide's.
 inputs:
-  lot: { type: OligoLot, schema: ">=1", include: [oligonucleotide] }
+  lot: { type: OligoLot, schema_version: ">=1", include: [oligonucleotide] }
 effects:
-  updates: [{ input: lot, fields: [expected_mass, mass_error, yield_amount] }]
+  updates: { lot: { fields: [expected_mass, mass_error, yield_amount] } }
 runs_on: { tier: backend, environment: lot-tools }
 command: [python, ./scripts/lots.py, oligo]
 deterministic: true

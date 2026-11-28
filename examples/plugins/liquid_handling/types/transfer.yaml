@@ -18,7 +18,7 @@ fields:
     description: The liquid class the instrument pipettes it with, if not the method's own.
 display: { title: "{{ source_well }} to {{ destination_well }}, {{ volume }} µL" }
 exports:
-  - export: tecan-worklist
+  - export: tecan_worklist
     fields:
       source_plate: source
       source_well: source_well

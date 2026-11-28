@@ -3,7 +3,7 @@ kind: Action
 name: relax_structure
 label: Relax structure
 inputs:
-  structure: { type: ProteinStructure, schema: ">=1", include: [chains] }
+  structure: { type: ProteinStructure, schema_version: ">=1", include: [chains] }
 effects:
   creates: [{ type: ProteinStructure, cardinality: one, derived_from: [structure] }]
 runs_on: { tier: backend, environment: protein-tools }

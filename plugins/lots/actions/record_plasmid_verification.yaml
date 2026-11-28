@@ -12,12 +12,12 @@ description: >-
 inputs:
   prep:
     type: PlasmidPrep
-    schema: ">=1"
+    schema_version: ">=1"
     include: [plasmid]
     label: Physical prep
   alignment:
     type: iki/core.Alignment
-    schema: ">=1"
+    schema_version: ">=1"
     optional: true
     description: The alignment of the selected prep's reads against its registered plasmid sequence.
 params:

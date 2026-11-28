@@ -7,15 +7,16 @@ hrid: { prefix: STP }
 due: due_on
 sample: true
 description: The scheduled use of a specific storage tube at one condition and time point.
-draw_target:
-  from: tube
-  source: lot
-  state: { field: status, is: scheduled }
-  by: [coordinator]
-  stored: true
-  ready: study_revision
-  amount: amount
-  unit: amount_unit
+draws:
+  target:
+    from: tube
+    source: lot
+    state: { field: status, states: [scheduled] }
+    drawn_by: [coordinator]
+    stored: true
+    ready: study_revision
+    amount: amount
+    unit: amount_unit
 fields:
   study: { type: ref, to: Study, required: true, immutable: true, indexed: true }
   study_revision: { type: int, min: 1, computed: true }

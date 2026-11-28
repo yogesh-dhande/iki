@@ -6,9 +6,10 @@ schema_version: 1
 extends: AssayRequest
 description: An assay request the core ranks by the project that asked (ADR 0232).
 hrid: { prefix: RAR }
-# One more of the core's fields, besides its parent's.
-request:
-  service_fields: [client_rank]
+service:
+  # One more of the core's fields, besides its parent's.
+  request:
+    service_fields: [client_rank]
 fields:
   client_rank: { type: int, label: Client rank }
   # The asking project's: how fast it needs it, in the order a queue serves them.

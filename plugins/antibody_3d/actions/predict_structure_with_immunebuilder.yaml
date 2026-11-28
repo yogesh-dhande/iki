@@ -13,7 +13,7 @@ description: >-
   launched, and says which of the two models made it, and in which
   ImmuneBuilder release.
 inputs:
-  antibody: { type: iki/antibody.Antibody, schema: ">=2", include: [components.part] }
+  antibody: { type: iki/antibody.Antibody, schema_version: ">=2", include: [components.part] }
 effects:
   creates:
     - type: iki/protein.ProteinStructure

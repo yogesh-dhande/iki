@@ -49,12 +49,12 @@ formats:
     media_types: [chemical/x-daylight-smiles]
     extensions: [.smi]
 
-  nucleotide-fasta:
+  nucleotide_fasta:
     label: nucleotide FASTA
     media_types: [chemical/seq-na-fasta]
     extensions: [.fasta, .fa, .fna]
     viewer: alignment
-  protein-fasta:
+  protein_fasta:
     label: protein FASTA
     media_types: [chemical/seq-aa-fasta]
     extensions: [.fasta, .fa, .faa]
@@ -119,7 +119,7 @@ formats:
     extensions: [.mzml]
     reader: mzml
     viewer: spectrum-mzml
-  jcamp-dx:
+  jcamp_dx:
     label: JCAMP-DX
     media_types: [chemical/x-jcamp-dx]
     extensions: [.jdx, .dx, .jcamp]

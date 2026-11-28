@@ -306,7 +306,7 @@ def _fire(d: Declared, record: Entity, change: Change, *, project: Project | Non
             change.actor is not None
             and c.user.pk == change.actor.pk
             and change.by_hand
-            and not d.n.tell_actor
+            and not d.n.notify_actor
         ):
             why_not = "made the change"
         elif c.user.pk not in can_read:
@@ -409,14 +409,14 @@ def _candidates(
             if pk is not None:
                 wanted.setdefault(uuid.UUID(str(pk)), why)
 
-    for name in n.tell_fields:
+    for name in n.notify_fields:
         value = values.get(name)
         add(value if isinstance(value, list) else [value], "field")
-    for role in n.tell_roles:
+    for role in n.notify_roles:
         add(list(people.nameable(project, role).values_list("pk", flat=True)), "role")
-    if n.tell_creator:
+    if n.notify_creator:
         add([record.created_by_id], "creator")
-    if n.tell_watchers:
+    if n.notify_watchers:
         add(
             list(
                 Watch.objects.filter(entity=record, mode=WatchMode.WATCHING).values_list(
@@ -425,7 +425,7 @@ def _candidates(
             ),
             "watcher",
         )
-    if n.tell_actor and change.actor is not None:
+    if n.notify_actor and change.actor is not None:
         add([change.actor.pk], "actor")
     found = User.objects.in_bulk(list(wanted))
     return [_Candidate(found[pk], why) for pk, why in wanted.items() if pk in found]
@@ -634,13 +634,13 @@ def _when(n: TypeNotification, fields: Mapping[str, Field]) -> str:
 
 
 def _tells(n: TypeNotification, fields: Mapping[str, Field], role_label: Any) -> list[str]:  # noqa: ANN401 - a callable
-    out = [f"Whoever its {_label(fields.get(f), f)} names" for f in n.tell_fields]
+    out = [f"Whoever its {_label(fields.get(f), f)} names" for f in n.notify_fields]
     where = "the service it’s sent to" if n.sent else "its project"
-    out += [f"Everyone with the {role_label(r)} role in {where}" for r in n.tell_roles]
-    if n.tell_creator:
+    out += [f"Everyone with the {role_label(r)} role in {where}" for r in n.notify_roles]
+    if n.notify_creator:
         out.append("Whoever made it")
-    if n.tell_watchers:
+    if n.notify_watchers:
         out.append("Whoever watches it")
-    if n.tell_actor:
+    if n.notify_actor:
         out.append("Whoever made the change")
     return out

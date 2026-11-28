@@ -5,9 +5,9 @@ name: tidy_storage
 label: Tidy storage locations
 description: Writes each sample's storage location the same way, such as "-80 °C freezer" for "-80C  freezer".
 inputs:
-  sample: { type: ExecutionSample, schema: ">=1" }
+  sample: { type: ExecutionSample, schema_version: ">=1" }
 effects:
-  updates: [{ input: sample, fields: [storage] }]
+  updates: { sample: { fields: [storage] } }
 runs_on: { tier: container, environment: tools, lifecycle: persistent }
 command: [python, ./scripts/storage.py, --tidy]
 deterministic: true

@@ -5,9 +5,10 @@ label: Assay result
 schema_version: 1
 description: What a core measured for an assay request, released back once reviewed (ADR 0132).
 hrid: { prefix: ARS }
-result:
-  of: request
-  released: { field: review, states: [released] }
+service:
+  result:
+    of: request
+    released: { field: review, states: [released] }
 fields:
   request: { type: ref, to: AssayRequest, required: true, immutable: true }
   sample: { type: ref, to: Sample }

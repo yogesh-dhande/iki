@@ -13,15 +13,10 @@ description: >-
   says, or none is named; otherwise its concentration is as measured.
   A concentration a pool set, or one entered, since its A280 was read is kept.
 inputs:
-  lot: { type: ProteinLot, schema: ">=4", include: [protein, concentration_method] }
+  lot: { type: ProteinLot, schema_version: ">=4", include: [protein, concentration_method] }
 effects:
   updates:
-    [
-      {
-        input: lot,
-        fields: [a280_extinction, a280_basis, a280_estimate, a280_concentration, concentration],
-      },
-    ]
+    lot: { fields: [a280_extinction, a280_basis, a280_estimate, a280_concentration, concentration] }
 runs_on: { tier: backend, environment: lot-tools }
 command: [python, ./scripts/lots.py, protein]
 deterministic: true

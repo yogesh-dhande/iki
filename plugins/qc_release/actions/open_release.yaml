@@ -36,8 +36,8 @@ params:
     description: For a later cycle, why the lot is tested again, such as its retest date or a rework.
 effects:
   updates:
-    - { input: schedule, fields: [versions, tested_through] }
-    - { input: previous, fields: [superseded] }
+    schedule: { fields: [versions, tested_through] }
+    previous: { fields: [superseded] }
   creates: [{ type: ReleaseCase, derived_from: [lot, schedule, previous, investigations] }]
 runs_on: { tier: backend, environment: qc-tools }
 command: [python, ./scripts/qc_release.py, open_release]

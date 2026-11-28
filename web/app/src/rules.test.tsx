@@ -80,7 +80,7 @@ function rule(more: Partial<Schemas["RuleOut"]> & Pick<Schemas["RuleOut"], "name
     hold: null,
     unique: [],
     no_overlap: null,
-    while: {},
+    while: null,
     ...more,
   } as Schemas["RuleOut"];
 }

@@ -211,9 +211,9 @@ def test_no_action_updates_a_computed_value(tmp_path: Path) -> None:
             kind: Action
             name: expire
             inputs:
-              batch: { type: Assay, schema: ">=1" }
+              batch: { type: Assay, schema_version: ">=1" }
             effects:
-              updates: [{ input: batch, fields: [expires_on] }]
+              updates: { batch: { fields: [expires_on] } }
             runs_on: { tier: backend, environment: python }
             command: [python, ./expire.py]
             """

@@ -11,4 +11,4 @@ label: Assign storage to new samples
 description: Gives each new sample the default storage, unless someone already said where it is.
 on: entity.created
 type: Sample
-run: assign_storage
+action: assign_storage

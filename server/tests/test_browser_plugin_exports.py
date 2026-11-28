@@ -29,7 +29,7 @@ pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = ROOT / "examples" / "plugins" / "liquid_handling" / "writers" / "tecan-worklist.wasm"
-WRITER = "acme/liquid_handling.tecan-worklist"
+WRITER = "acme/liquid_handling.tecan_worklist"
 
 if not MODULE.is_file():  # pragma: no cover - make test-wasm builds it
     pytest.skip("make test-wasm builds the Tecan writer's module", allow_module_level=True)

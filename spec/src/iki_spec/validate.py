@@ -60,6 +60,7 @@ from iki_spec.model import (
     AnyExport,
     Component,
     CompoundExport,
+    Draws,
     DrawTarget,
     EntityType,
     Environment,
@@ -80,6 +81,7 @@ from iki_spec.model import (
     ReviewProcedure,
     ReviewSpec,
     RowRole,
+    Service,
     State,
     StockCatalogue,
     Storage,
@@ -518,7 +520,7 @@ def _read(root: FilePath) -> _Loaded:
                 Extension(
                     plugin=name,
                     annotations=dict(body.get("annotations") or {}),
-                    extends_type=qualify(body["extends_type"], name),
+                    adds_to=qualify(body["adds_to"], name),
                     fields=_fields(body.get("fields", {}), name),
                     description=body.get("description"),
                     file=document.file,
@@ -934,31 +936,14 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         file=document.file,
         due=body.get("due"),
         rules=rules.read(body.get("rules"), plugin),
-        draw_guards={
-            n: Guard.from_manifest(n, g) for n, g in (body.get("draw_guards") or {}).items()
-        },
-        draw_purposes={
-            n: tuple(lab_role_name(role, plugin) for role in policy["by"])
-            for n, policy in (body.get("draw_purposes") or {}).items()
-        },
-        draw_target=_draw_target(body.get("draw_target"), plugin),
+        draws=_draws(body.get("draws"), plugin),
         notifications={
             n: TypeNotification.from_manifest(n, x, plugin=plugin)
             for n, x in (body.get("notifications") or {}).items()
             if isinstance(x, dict)
         },
-        request=_request(body.get("request"), plugin),
-        work_item=WorkItemSpec(**body["work_item"]) if "work_item" in body else None,
-        result=ResultSpec(
-            of=body["result"]["of"],
-            material=body["result"].get("material"),
-            released_field=body["result"]["released"]["field"],
-            released_states=tuple(body["result"]["released"]["states"]),
-        )
-        if isinstance(body.get("result"), dict)
-        else None,
+        service=_service(body.get("service"), plugin),
         amount=_amount(body.get("amount"), plugin),
-        draws_received=body.get("draws_received"),
         stock_catalogue=StockCatalogue.read(body["stock_catalogue"], plugin)
         if body.get("stock_catalogue")
         else None,
@@ -1060,6 +1045,20 @@ def _review_fields(review: ReviewSpec) -> dict[str, Field]:
     return out
 
 
+def _draws(data: Any, plugin: str) -> Draws:  # noqa: ANN401 - YAML
+    if not isinstance(data, dict):
+        return Draws()
+    return Draws(
+        guards={n: Guard.from_manifest(n, g) for n, g in (data.get("guards") or {}).items()},
+        purposes={
+            n: tuple(lab_role_name(role, plugin) for role in policy["drawn_by"])
+            for n, policy in (data.get("purposes") or {}).items()
+        },
+        target=_draw_target(data.get("target"), plugin),
+        received=data.get("received"),
+    )
+
+
 def _draw_target(data: dict[str, Any] | None, plugin: str) -> DrawTarget | None:
     if data is None:
         return None
@@ -1067,12 +1066,30 @@ def _draw_target(data: dict[str, Any] | None, plugin: str) -> DrawTarget | None:
         from_field=data["from"],
         source=data.get("source"),
         state_field=data["state"]["field"],
-        state=data["state"]["is"],
-        by=tuple(lab_role_name(role, plugin) for role in data.get("by", [])),
+        states=tuple(data["state"]["states"]),
+        drawn_by=tuple(lab_role_name(role, plugin) for role in data.get("drawn_by", [])),
         ready=data.get("ready"),
         amount=data.get("amount"),
         stored=data.get("stored", False),
         unit=data.get("unit"),
+    )
+
+
+def _service(data: Any, plugin: str) -> Service:  # noqa: ANN401 - YAML
+    if not isinstance(data, dict):
+        return Service()
+    result = data.get("result")
+    return Service(
+        request=_request(data.get("request"), plugin),
+        result=ResultSpec(
+            of=result["of"],
+            material=result.get("material"),
+            released_field=result["released"]["field"],
+            released_states=tuple(result["released"]["states"]),
+        )
+        if isinstance(result, dict)
+        else None,
+        work_item=WorkItemSpec(**data["work_item"]) if "work_item" in data else None,
     )
 
 
@@ -1104,9 +1121,11 @@ def _request(data: Any, plugin: str) -> RequestSpec | None:  # noqa: ANN401 - YA
         sends=tuple(data.get("sends") or ()),
         materials=tuple(data.get("materials") or ()),
         completed_field=(data.get("completed") or {}).get("field"),
-        completed_state=(data.get("completed") or {}).get("state"),
+        completed_states=tuple((data.get("completed") or {}).get("states") or ()),
         receives=receives.get("field"),
-        receives_by=tuple(lab_role_name(role, plugin) for role in receives.get("by") or ()),
+        received_by=tuple(
+            lab_role_name(role, plugin) for role in receives.get("received_by") or ()
+        ),
     )
 
 
@@ -1733,16 +1752,16 @@ class _Semantics:
         if entity_type.due is not None:
             self.due(entity_type, source, every)
         notifications.check(self, entity_type, source)
-        if entity_type.request is not None:
+        if entity_type.service.request is not None:
             self.request(entity_type, source, every)
-        if entity_type.result is not None:
+        if entity_type.service.result is not None:
             self.result(entity_type, source, every)
         self.work_item(entity_type, source, every)
         self.amount(entity_type, source, every)
         self.draws_received(entity_type, source, every)
         self.stock_catalogue(entity_type, source)
-        if entity_type.draw_target is not None:
-            self.draw_target(entity_type.draw_target, source, names)
+        if entity_type.draws.target is not None:
+            self.draw_target(entity_type.draws.target, source, names)
         if entity_type.storage is not None:
             self.storage(entity_type, source, every)
         if entity_type.is_lab_list:
@@ -2254,8 +2273,8 @@ class _Semantics:
         if config is None:
             return
         at: Path = ("stock_catalogue",)
-        for index, role in enumerate(config.notify):
-            self.lab_role(role, source, (*at, "notify", index))
+        for index, role in enumerate(config.notify_roles):
+            self.lab_role(role, source, (*at, "notify", "roles", index))
 
         def field_of(owner: EntityType, name: str, kinds: set[str], path: Path) -> Field | None:
             found = self.all_fields(owner).get(name)
@@ -2342,7 +2361,7 @@ class _Semantics:
         """One ledger field is inherited through the type's lineage. Every receipt must
         be a new value on a project's record that starts empty."""
         lineage = [entity_type, *self.ancestors(entity_type)]
-        declarations = [t.draws_received for t in lineage if t.draws_received is not None]
+        declarations = [t.draws.received for t in lineage if t.draws.received is not None]
         if not declarations:
             return
         name = declarations[0]
@@ -2352,7 +2371,7 @@ class _Semantics:
                 "draws-received-field",
                 "A subtype keeps its parent's material draw field.",
                 source,
-                ("draws_received",),
+                ("draws", "received"),
             )
         elif (
             field is None
@@ -2370,7 +2389,7 @@ class _Semantics:
                 f"`{name}` must be an optional computed JSON field on the project's record "
                 "that starts empty and can receive later draws.",
                 source,
-                ("draws_received",) if entity_type.draws_received else ("name",),
+                ("draws", "received") if entity_type.draws.received else ("name",),
             )
 
     def draw_target(self, target: DrawTarget, source: Document, fields: dict[str, Field]) -> None:
@@ -2396,23 +2415,32 @@ class _Semantics:
                     "invalid-draw-target",
                     f"`{name}` must be a required, immutable {' or '.join(kinds)} field.",
                     source,
-                    ("draw_target", key),
+                    ("draws", "target", key),
                 )
         if target.unit is not None and target.amount is None:
             self.add(
                 "invalid-draw-target",
                 "A planned amount's unit needs the planned amount it's the unit of.",
                 source,
-                ("draw_target", "unit"),
+                ("draws", "target", "unit"),
             )
         field = fields.get(target.state_field)
-        if field is None or field.type != "state" or target.state not in field.live_states:
+        if field is None or field.type != "state":
             self.add(
                 "invalid-draw-target",
-                "Name a live state of the draw target.",
+                "Name a state field of the draw target.",
                 source,
-                ("draw_target", "state"),
+                ("draws", "target", "state", "field"),
             )
+        else:
+            for index, state in enumerate(target.states):
+                if state not in field.live_states:
+                    self.add(
+                        "invalid-draw-target",
+                        f"`{state}` isn't a live state of `{target.state_field}`.",
+                        source,
+                        ("draws", "target", "state", "states", index),
+                    )
         if target.ready is not None and (
             target.ready not in fields or not fields[target.ready].set_by_runs
         ):
@@ -2420,10 +2448,10 @@ class _Semantics:
                 "invalid-draw-target",
                 f"`{target.ready}` must be a computed field set when preparing the record.",
                 source,
-                ("draw_target", "ready"),
+                ("draws", "target", "ready"),
             )
-        for index, role in enumerate(target.by):
-            self.lab_role(role, source, ("draw_target", "by", index))
+        for index, role in enumerate(target.drawn_by):
+            self.lab_role(role, source, ("draws", "target", "drawn_by", index))
 
     # Where material is kept (ADR 0180) --------------------------------------------------------
 
@@ -2573,7 +2601,11 @@ class _Semantics:
     def request_of(self, entity_type: EntityType) -> EntityType | None:
         """The type, of ``entity_type`` and its ancestors, that makes its records requests."""
         return next(
-            (t for t in [entity_type, *self.ancestors(entity_type)] if t.request is not None),
+            (
+                t
+                for t in [entity_type, *self.ancestors(entity_type)]
+                if t.service.request is not None
+            ),
             None,
         )
 
@@ -2582,9 +2614,11 @@ class _Semantics:
     ) -> None:
         """A request type names the fields its service writes, and the references whose
         records go with it."""
-        spec = entity_type.request
+        spec = entity_type.service.request
         assert spec is not None  # noqa: S101 - only called with one
-        above = next((a for a in self.ancestors(entity_type) if a.request is not None), None)
+        above = next(
+            (a for a in self.ancestors(entity_type) if a.service.request is not None), None
+        )
         if above is not None:
             # A subtype may name more of the service's fields, its own (ADR 0232): a lab's
             # request type adds what its service writes, such as a ranking. The rest is
@@ -2606,9 +2640,9 @@ class _Semantics:
                     "request type already: its subtypes are requests as it says, and can only "
                     "add service fields of their own.",
                     source,
-                    ("request", changed[0]) if changed else ("request",),
+                    ("service", "request", changed[0]) if changed else ("service", "request"),
                     key=True,
-                    hint="Leave `request` off, or give it only `service_fields`: the "
+                    hint="Leave `service.request` off, or give it only `service_fields`: the "
                     "subtype's own fields that its service writes.",
                 )
                 return
@@ -2620,39 +2654,38 @@ class _Semantics:
                 f"`{entity_type.name}` has an identity, so its records are registry entries' "
                 "records: a request is the asking project's own record of what it asks for.",
                 source,
-                ("request",),
+                ("service", "request"),
                 key=True,
                 hint="Make the request a type of its own that refers to what it's about.",
             )
             return
-        if entity_type.result is not None:
+        if entity_type.service.result is not None:
             self.add(
                 "result-is-a-request",
                 f"`{entity_type.name}` can't be both a request and a result: the asking "
                 "project owns a request, and the service its results.",
                 source,
-                ("result",),
+                ("service", "result"),
                 key=True,
             )
         present = [n for n, (f, _) in every.items() if not f.removed]
         self.service_fields(entity_type, spec, source, every)
         if spec.completed_field is not None:
             found = every.get(spec.completed_field)
-            state = found[0].states.get(spec.completed_state or "") if found else None
+            states = [found[0].states.get(s) if found else None for s in spec.completed_states]
             if (
                 spec.completed_field not in spec.service_fields
                 or not found
                 or found[0].removed
                 or found[0].type != "state"
-                or state is None
-                or state.removed
-                or found[0].initial == spec.completed_state
+                or any(state is None or state.removed for state in states)
+                or found[0].initial in spec.completed_states
             ):
                 self.add(
                     "request-completion-state",
                     "Completion must name a non-initial state of a state field the service writes.",
                     source,
-                    ("request", "completed"),
+                    ("service", "request", "completed"),
                 )
         for index, name in enumerate(spec.materials):
             if name not in spec.sends:
@@ -2660,7 +2693,7 @@ class _Semantics:
                     "request-material-not-sent",
                     f"Request material `{name}` must be one of the fields in `sends`.",
                     source,
-                    ("request", "materials", index),
+                    ("service", "request", "materials", index),
                 )
             if name in every:
                 field = every[name][0]
@@ -2670,10 +2703,10 @@ class _Semantics:
                         "request-material-identity",
                         "A material field must identify a physical record.",
                         source,
-                        ("request", "materials", index),
+                        ("service", "request", "materials", index),
                     )
         for index, name in enumerate(spec.sends):
-            at = ("request", "sends", index)
+            at = ("service", "request", "sends", index)
             found = every.get(name)
             if found is None or found[0].removed:
                 self.add(
@@ -2720,7 +2753,7 @@ class _Semantics:
         present = [n for n, (f, _) in every.items() if not f.removed]
         seen: set[str] = set()
         for index, name in enumerate(spec.service_fields):
-            at: Path = ("request", "service_fields", index)
+            at: Path = ("service", "request", "service_fields", index)
             if name in seen:
                 self.add("duplicate-field", f"`{name}` is named twice.", source, at)
                 continue
@@ -2758,7 +2791,7 @@ class _Semantics:
         kept somewhere, and the service's lab roles that receive them."""
         name = spec.receives
         assert name is not None  # noqa: S101 - only called with one
-        at: Path = ("request", "receives", "field")
+        at: Path = ("service", "request", "receives", "field")
         found = every.get(name)
         f = found[0] if found is not None and not found[0].removed else None
         kind = f.items if f is not None and f.type == "list" else f
@@ -2791,8 +2824,8 @@ class _Semantics:
                         at,
                         hint=f"Give `{found_type.name}` `storage`.",
                     )
-        for index, role in enumerate(spec.receives_by):
-            self.lab_role(role, source, ("request", "receives", "by", index))
+        for index, role in enumerate(spec.received_by):
+            self.lab_role(role, source, ("service", "request", "receives", "received_by", index))
 
     def service_field(self, f: Field, source: Document, at: Path) -> None:
         """A field the service writes: the asking project creates the request without it, and
@@ -2845,19 +2878,22 @@ class _Semantics:
         self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
     ) -> None:
         lineage = [entity_type, *self.ancestors(entity_type)]
-        if not any(t.work_item is not None for t in lineage):
+        if not any(t.service.work_item is not None for t in lineage):
             return
-        if any(t.identity or t.request is not None or t.result is not None for t in lineage):
+        if any(
+            t.identity or t.service.request is not None or t.service.result is not None
+            for t in lineage
+        ):
             self.add(
                 "work-item-conflict",
                 "A work item belongs to the service project. It can't be a request, a result "
                 "or a registry record.",
                 source,
-                ("work_item",),
+                ("service", "work_item"),
                 key=True,
             )
             return
-        spec = entity_type.work_item
+        spec = entity_type.service.work_item
         if spec is not None:
             self._request_reference(entity_type, source, every, "work_item", spec.of)
 
@@ -2879,7 +2915,7 @@ class _Semantics:
                 "unknown-field",
                 f"`{name}` isn't a field of `{entity_type.name}`.",
                 source,
-                (section, "of"),
+                ("service", section, "of"),
                 hint=schemas._did_you_mean(name, present),
             )
             return
@@ -2893,7 +2929,7 @@ class _Semantics:
                 f"`{name}` must refer to a request type, one with `request:`, as the "
                 f"request this is a {kind} of.",
                 source,
-                (section, "of"),
+                ("service", section, "of"),
             )
         elif not (f.required and f.immutable):
             self.add(
@@ -2901,7 +2937,7 @@ class _Semantics:
                 f"`{name}` must be `required` and `immutable`: a {kind} is of one request, "
                 "for good.",
                 source,
-                (section, "of"),
+                ("service", section, "of"),
             )
 
     def result(
@@ -2909,7 +2945,7 @@ class _Semantics:
     ) -> None:
         """A result type names its reference to its request, and the states it's released
         to the asking project in."""
-        spec = entity_type.result
+        spec = entity_type.service.result
         assert spec is not None  # noqa: S101 - only called with one
         if any(t.identity for t in [entity_type, *self.ancestors(entity_type)]):
             self.add(
@@ -2917,7 +2953,7 @@ class _Semantics:
                 f"`{entity_type.name}` has an identity, but a result is the service's own "
                 "record of what it did.",
                 source,
-                ("result",),
+                ("service", "result"),
                 key=True,
             )
             return
@@ -2934,7 +2970,7 @@ class _Semantics:
                     "result-material",
                     "Material must be an immutable reference to a physical record.",
                     source,
-                    ("result", "material"),
+                    ("service", "result", "material"),
                 )
         found = every.get(spec.released_field)
         state = found[0] if found is not None else None
@@ -2945,7 +2981,7 @@ class _Semantics:
                 f"`{spec.released_field}` isn't a state field of `{entity_type.name}`: a "
                 "result goes back once the service's own state field says it's released.",
                 source,
-                ("result", "released", "field"),
+                ("service", "result", "released", "field"),
                 hint=schemas._did_you_mean(spec.released_field, states)
                 if states
                 else "Add a `type: state` field for the service's review.",
@@ -2953,7 +2989,7 @@ class _Semantics:
             return
         names = set(state.live_states)
         for index, name in enumerate(spec.released_states):
-            at: Path = ("result", "released", "states", index)
+            at: Path = ("service", "result", "released", "states", index)
             if name not in names:
                 self.state_ref(name, names, source, at)
             elif name == state.initial:
@@ -2987,7 +3023,7 @@ class _Semantics:
                     f"Correcting a result in `{st.name}` would release it to the requester. "
                     "Return it to a state before release.",
                     source,
-                    ("result", "released", "states"),
+                    ("service", "result", "released", "states"),
                 )
 
     def state_on_edit(self, f: Field, state: State, source: Document, at: Path) -> None:
@@ -3213,13 +3249,13 @@ class _Semantics:
             if s.holds_amount and not s.removed
         ]
         amount = next((t.amount for t in lineage if t.amount is not None), None)
-        for purpose, roles in entity_type.draw_purposes.items():
+        for purpose, roles in entity_type.draws.purposes.items():
             inherited = next(
-                (t.draw_purposes[purpose] for t in lineage[1:] if purpose in t.draw_purposes),
+                (t.draws.purposes[purpose] for t in lineage[1:] if purpose in t.draws.purposes),
                 (),
             )
             for index, role in enumerate(roles):
-                path: Path = ("draw_purposes", purpose, "by", index)
+                path: Path = ("draws", "purposes", purpose, "drawn_by", index)
                 known = self.lab_role(role, source, path)
                 if known and inherited and role not in inherited:
                     self.add(
@@ -3232,21 +3268,21 @@ class _Semantics:
         if amount is None:
             if entity_type.abstract:
                 return
-            if any(t.draw_purposes for t in lineage):
+            if any(t.draws.purposes for t in lineage):
                 self.add(
                     "draw-purposes-without-amount",
                     f"`{entity_type.name}` has draw purposes but has no amount to take.",
                     source,
-                    ("draw_purposes",) if entity_type.draw_purposes else ("name",),
+                    ("draws", "purposes") if entity_type.draws.purposes else ("name",),
                     key=True,
                     hint="Give the type an `amount`.",
                 )
-            if any(t.draw_guards for t in lineage):
+            if any(t.draws.guards for t in lineage):
                 self.add(
                     "draw-guards-without-amount",
                     f"`{entity_type.name}` has draw guards but has no amount to take.",
                     source,
-                    ("draw_guards",) if entity_type.draw_guards else ("name",),
+                    ("draws", "guards") if entity_type.draws.guards else ("name",),
                     key=True,
                     hint="Give the type an `amount`.",
                 )
@@ -4072,26 +4108,26 @@ class _Semantics:
         for extension, source in zip(
             self.plugin.extensions, self.loaded.extension_sources, strict=True
         ):
-            if extension.extends_type in targets:
+            if extension.adds_to in targets:
                 continue  # reported as a duplicate extension
-            targets.add(extension.extends_type)
+            targets.add(extension.adds_to)
             record, entry = split_entry(extension.fields)
             add(
                 extension.table,
-                naming.extension_model(extension.extends_type),
-                f"the extension of `{extension.extends_type}`",
+                naming.extension_model(extension.adds_to),
+                f"the extension of `{extension.adds_to}`",
                 source,
-                ("extends_type",),
+                ("adds_to",),
                 "plugin",
                 record,
             )
             if entry:
                 add(
                     naming.entry_table(extension.table),
-                    naming.entry_model(naming.extension_model(extension.extends_type)),
-                    f"the extension of `{extension.extends_type}`'s registry entries",
+                    naming.entry_model(naming.extension_model(extension.adds_to)),
+                    f"the extension of `{extension.adds_to}`'s registry entries",
                     source,
-                    ("extends_type",),
+                    ("adds_to",),
                     "plugin",
                     entry,
                 )
@@ -4133,40 +4169,40 @@ class _Semantics:
     # Extensions ---------------------------------------------------------------------------------
 
     def extension(self, extension: Extension, source: Document, seen: dict[str, Document]) -> None:
-        path: Path = ("extends_type",)
-        if extension.extends_type in BUILTIN_TYPES:
+        path: Path = ("adds_to",)
+        if extension.adds_to in BUILTIN_TYPES:
             self.add(
                 "extends-builtin",
-                f"Plugins can't add fields to `{extension.extends_type}`, since that would add "
+                f"Plugins can't add fields to `{extension.adds_to}`, since that would add "
                 "them to every entity of every type.",
                 source,
                 path,
             )
             return
-        if extension.extends_type.split(".")[0] == self.plugin.name:
+        if extension.adds_to.split(".")[0] == self.plugin.name:
             self.add(
                 "extension-of-own-type",
-                f"`{extension.extends_type}` is this plugin's own type.",
+                f"`{extension.adds_to}` is this plugin's own type.",
                 source,
                 path,
                 hint="Add the fields to the type itself.",
             )
             return
-        target = self.reference(extension.extends_type, source, path)
+        target = self.reference(extension.adds_to, source, path)
         if target is None:
             return
-        if extension.extends_type in seen:
-            first = seen[extension.extends_type]
+        if extension.adds_to in seen:
+            first = seen[extension.adds_to]
             self.add(
                 "duplicate-extension",
-                f"This plugin already extends `{extension.extends_type}` "
+                f"This plugin already extends `{extension.adds_to}` "
                 f"(in {first.file}, line {first.start.line}).",
                 source,
                 path,
                 hint="Put all the fields this plugin adds to a type in one extension.",
             )
             return
-        seen[extension.extends_type] = source
+        seen[extension.adds_to] = source
         taken = {
             name: f"`{owner.qualified_name}`"
             for name, (_, owner) in self.all_fields(target).items()
@@ -4174,7 +4210,7 @@ class _Semantics:
         for other in self.others.values():
             assert other.plugin is not None  # noqa: S101 - an invariant, not a check
             for other_extension in other.plugin.extensions:
-                if other_extension.extends_type == extension.extends_type:
+                if other_extension.adds_to == extension.adds_to:
                     for name in other_extension.fields:
                         taken.setdefault(name, f"the {other.plugin.name} plugin's extension")
         names = {n: f for n, (f, _) in self.all_fields(target).items()} | dict(extension.fields)
@@ -4191,8 +4227,7 @@ class _Semantics:
             if name in taken:
                 self.add(
                     "extension-field-conflict",
-                    f"`{name}` is already a field of `{extension.extends_type}` "
-                    f"(from {taken[name]}).",
+                    f"`{name}` is already a field of `{extension.adds_to}` (from {taken[name]}).",
                     source,
                     field_path,
                     key=True,
@@ -4214,7 +4249,7 @@ class _Semantics:
             if target.is_lab_list and f.registry != "fact":
                 self.add(
                     "list-extension-record-field",
-                    f"`{extension.extends_type}` is a lab list (ADR 0270), whose options are "
+                    f"`{extension.adds_to}` is a lab list (ADR 0270), whose options are "
                     f"registry entries with no records: `{name}` must be its options' own.",
                     source,
                     field_path,
@@ -4239,7 +4274,7 @@ class _Semantics:
             if not any(t.identity for t in [target, *self.ancestors(target)]):
                 self.add(
                     "registry-without-identity",
-                    f"`{name}` is marked `registry: {f.registry}`, but `{extension.extends_type}` "
+                    f"`{name}` is marked `registry: {f.registry}`, but `{extension.adds_to}` "
                     "has no identity, so it has no registry entries.",
                     source,
                     (*field_path, "registry"),

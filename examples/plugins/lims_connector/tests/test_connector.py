@@ -38,8 +38,8 @@ def test_connector_scope_and_external_id_mapping() -> None:
         assert action["network"] == ["{settings.lims_host}"]
         assert [secret["name"] for secret in action["secrets"]] == ["LIMS_TOKEN"]
     assert load["effects"]["creates"][0]["match_on"] == "lims_id"
-    assert manifest("triggers/import_nightly.yaml")["run"] == load["name"]
-    assert manifest("triggers/send_renamed.yaml")["run"] == send["name"]
+    assert manifest("triggers/import_nightly.yaml")["action"] == load["name"]
+    assert manifest("triggers/send_renamed.yaml")["action"] == send["name"]
 
 
 class FakeResponse(urllib.response.addinfourl):

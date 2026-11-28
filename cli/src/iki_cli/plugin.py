@@ -469,7 +469,7 @@ def _json(
                 "name": plugin.name,
                 "version": plugin.version,
                 "types": sorted(plugin.types),
-                "extensions": [e.extends_type for e in plugin.extensions],
+                "extensions": [e.adds_to for e in plugin.extensions],
                 "settings": sorted(plugin.settings),
                 "actions": sorted(plugin.actions),
                 "environments": sorted(plugin.environments),

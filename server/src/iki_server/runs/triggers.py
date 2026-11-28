@@ -207,7 +207,7 @@ def rechecks(entity_type: str, changed: set[str]) -> list[tuple[Trigger, tuple[s
     found = []
     for spec in triggers().values():
         if spec.recheck and _fires(spec, "entity.updated", entity_type, list(changed)):
-            action = catalog.action(f"{spec.plugin}.{spec.run}")
+            action = catalog.action(f"{spec.plugin}.{spec.action}")
             if action is not None:
                 found.append((spec, tuple(n for u in action.updates for n in u.fields)))
     return found
@@ -225,7 +225,7 @@ def _calculations(entity_type: str) -> Iterator[tuple[Trigger, Action, frozenset
             or not services.is_a(entity_type, spec.type)
         ):
             continue
-        action = catalog.action(f"{spec.plugin}.{spec.run}")
+        action = catalog.action(f"{spec.plugin}.{spec.action}")
         if action is None or not any(u.input == spec.input for u in action.updates):
             continue
         put = action.inputs.get(spec.input)
@@ -354,7 +354,7 @@ def source_changed(parent: Entity, revision: Revision) -> None:
         records_list = list(records.order_by("pk"))
         if not records_list:
             continue
-        action = f"{spec.plugin}.{spec.run}"
+        action = f"{spec.plugin}.{spec.action}"
         Recalculation.objects.bulk_create(
             [Recalculation(entity=r, action=action) for r in records_list],
             ignore_conflicts=True,
@@ -455,9 +455,11 @@ def _fire(firing: TriggerFiring, *, editor: User | None = None) -> None:
     if firing.entity is not None and firing.entity.archived_at is not None:
         _end(firing, FiringState.SKIPPED, "archived", f"{firing.entity.hrid} was archived first.")
         return
-    action = catalog.action(f"{spec.plugin}.{spec.run}")
+    action = catalog.action(f"{spec.plugin}.{spec.action}")
     if action is None:
-        _end(firing, FiringState.FAILED, "not_installed", f"`{spec.run}` is no longer installed.")
+        _end(
+            firing, FiringState.FAILED, "not_installed", f"`{spec.action}` is no longer installed."
+        )
         return
     authority = editor or row.enabled_by
     if authority is None or (spec.recheck and editor is None):
@@ -747,9 +749,9 @@ def why_not_enable(user: User, project: Project, spec: Trigger) -> str | None:
         return "Only the project's Admins can turn its triggers on."
     if spec.recheck:
         return None
-    action = catalog.action(f"{spec.plugin}.{spec.run}")
+    action = catalog.action(f"{spec.plugin}.{spec.action}")
     if action is None:
-        return f"`{spec.run}` is no longer installed."
+        return f"`{spec.action}` is no longer installed."
     try:
         services.may_launch(user, action, project)
     except PermissionDenied:
@@ -778,7 +780,7 @@ def why_not_enable(user: User, project: Project, spec: Trigger) -> str | None:
 def run_as_choices(project: Project, spec: Trigger) -> list[User]:
     """The service accounts a scheduled trigger may run as in the project: active members
     who can run its action's tier, by name."""
-    action = catalog.action(f"{spec.plugin}.{spec.run}")
+    action = catalog.action(f"{spec.plugin}.{spec.action}")
     if spec.on not in ACCOUNT_EVENTS or action is None:
         return []
     least = permissions.least_role(services.TIER_PERMISSIONS[action.tier])
@@ -843,7 +845,7 @@ def enable(
             project=project,
             data={
                 "trigger": name,
-                "action": f"{spec.plugin}.{spec.run}",
+                "action": f"{spec.plugin}.{spec.action}",
                 "on": spec.on,
                 **({"run_as": run_as.name} if run_as else {}),
                 **({"schedule": spec.schedule} if scheduled else {}),

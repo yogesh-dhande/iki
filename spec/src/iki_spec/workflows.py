@@ -46,7 +46,7 @@ def read_workflow(plugin: str, body: dict[str, Any], document: Document) -> Work
             n: Input(
                 name=n,
                 type=qualify(spec["type"], plugin),
-                schema=spec.get("schema"),
+                schema_version=spec.get("schema_version"),
                 cardinality=spec.get("cardinality", "one"),
                 max=spec.get("max"),
                 optional=bool(spec.get("optional", False)),

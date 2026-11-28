@@ -5,13 +5,14 @@ label: Assay request
 schema_version: 1
 description: Samples a project sends a core facility to measure (ADR 0132).
 hrid: { prefix: ARQ }
-# The core's fields: its status, schedule, priority, technician and notes. The rest are
-# the asking project's.
-request:
-  service_fields: [status, priority, scheduled_on, technician, core_notes]
-  sends: [samples, protein, tubes]
-  # The core's analysts receive the tubes against what was sent (ADR 0180).
-  receives: { field: tubes, by: [analyst] }
+service:
+  # The core's fields: its status, schedule, priority, technician and notes. The rest are
+  # the asking project's.
+  request:
+    service_fields: [status, priority, scheduled_on, technician, core_notes]
+    sends: [samples, protein, tubes]
+    # The core's analysts receive the tubes against what was sent (ADR 0180).
+    receives: { field: tubes, received_by: [analyst] }
 fields:
   title: { type: string, required: true, max_length: 200 }
   samples: { type: list, items: { type: ref, to: Sample }, max_items: 20 }
@@ -65,11 +66,11 @@ notifications:
     label: A request arrives
     description: The core's QA hears of each request sent to it.
     when: { sent: true }
-    tell: { roles: [qa] }
+    notify: { roles: [qa] }
     message:
       title: "{{ hrid }} arrived: {{ title }}"
   results_released:
     label: Its results are released
     description: Whoever made a request, and whoever watches it, hears as its results come back.
     when: { released: true }
-    tell: { creator: true, watchers: true }
+    notify: { creator: true, watchers: true }

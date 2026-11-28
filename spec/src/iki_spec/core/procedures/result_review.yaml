@@ -24,38 +24,38 @@ states:
   recorded:
     label: Recorded
     description: The work is recorded and can be edited.
-    by: [analyst, reviewer, qa]
+    set_by: [analyst, reviewer, qa]
     reason: required
   accepted:
     label: Accepted
     description: The work is accepted as recorded, without a signature, and locked.
-    by: [analyst, reviewer]
+    set_by: [analyst, reviewer]
     locks: true
   signed_off:
     label: Signed off
     description: A reviewer who didn't make or edit it has signed it off.
-    by: reviewer
+    set_by: reviewer
     locks: true
     signature: { meaning: review }
     independent_of: [creator, editors]
   submitted:
     label: Submitted
     description: Its maker has signed it and submitted it for review.
-    by: analyst
+    set_by: analyst
     locks: true
     signature: { meaning: authorship }
     maker: true
   reviewed:
     label: Independently reviewed
     description: A reviewer independent of its maker and submitter has signed the review.
-    by: reviewer
+    set_by: reviewer
     locks: true
     signature: { meaning: review }
     independent_of: [creator, editors, signers: [submitted]]
   released:
     label: QA released
     description: QA, independent of everyone before, has released it.
-    by: qa
+    set_by: qa
     locks: true
     signature: { meaning: approval, label: QA release }
     independent_of: [creator, editors, signers: [submitted, reviewed]]

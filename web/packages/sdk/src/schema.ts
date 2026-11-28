@@ -9462,7 +9462,7 @@ export interface components {
              * Format
              * @description Which file, as its type's `exports` list them.
              * @example genbank
-             * @example acme/liquid_handling.tecan-worklist
+             * @example acme/liquid_handling.tecan_worklist
              */
             format: string;
             /**
@@ -16047,15 +16047,15 @@ export interface components {
          */
         RequestTypeOut: {
             /**
+             * Received By
+             * @description The lab roles in the service that receive it: any of its Editors, if none.
+             */
+            received_by?: string[];
+            /**
              * Receives
              * @description The reference whose records the service receives against what was sent, such as its tubes (ADR 0180).
              */
             receives?: string | null;
-            /**
-             * Receives By
-             * @description The lab roles in the service that receive it: any of its Editors, if none.
-             */
-            receives_by?: string[];
             /**
              * Sends
              * @description Its references whose records go to the service with it, such as its samples: what the service can read of the asking project.
@@ -16461,13 +16461,8 @@ export interface components {
              * @description It applies only while this is true.
              */
             when?: string | null;
-            /**
-             * While
-             * @description For `unique` and `no_overlap`: only records with one of these values of each field count.
-             */
-            while?: {
-                [key: string]: string[];
-            };
+            /** @description For `unique` and `no_overlap`: only records whose `field` is in one of these `states` count. */
+            while?: components["schemas"]["WhileOut"] | null;
         };
         /** RunApiOut */
         RunApiOut: {
@@ -21282,6 +21277,19 @@ export interface components {
             events?: string[] | null;
             /** Url */
             url?: string | null;
+        };
+        /** WhileOut */
+        WhileOut: {
+            /**
+             * Field
+             * @description The state, enum or bool field it counts records by.
+             */
+            field: string;
+            /**
+             * States
+             * @description The values of `field` that count: states, an enum's values, or `true` or `false`.
+             */
+            states: string[];
         };
         /** WithdrawalIn */
         WithdrawalIn: {

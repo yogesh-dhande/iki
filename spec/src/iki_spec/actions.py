@@ -107,7 +107,7 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
             n: Input(
                 name=n,
                 type=qualify(spec["type"], plugin),
-                schema=spec.get("schema"),
+                schema_version=spec.get("schema_version"),
                 cardinality=spec.get("cardinality", "one"),
                 max=spec.get("max"),
                 optional=bool(spec.get("optional", False)),
@@ -134,7 +134,8 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
             for c in effects.get("creates", ())
         ),
         updates=tuple(
-            Updates(input=u["input"], fields=tuple(u["fields"])) for u in effects.get("updates", ())
+            Updates(input=n, fields=tuple(u["fields"]))
+            for n, u in (effects.get("updates") or {}).items()
         ),
         tier=runs_on["tier"],
         environment=runs_on["environment"],
@@ -631,15 +632,15 @@ class _Rules:
         target = self.s.reference(put.type, source, (*path, "type"))
         if (
             target is not None
-            and put.schema is not None
-            and not _validate.satisfies(target.schema_version, put.schema)
+            and put.schema_version is not None
+            and not _validate.satisfies(target.schema_version, put.schema_version)
         ):
             self.add(
                 "input-schema-unsatisfied",
                 f"`{put.type}` is at schema version {target.schema_version}, which "
-                f"`{put.schema}` doesn't allow.",
+                f"`{put.schema_version}` doesn't allow.",
                 source,
-                (*path, "schema"),
+                (*path, "schema_version"),
                 hint="Update the action for the new version, then the constraint.",
             )
         if target is not None:
@@ -753,7 +754,7 @@ class _Rules:
         fields = {n: f for n, (f, _) in self.s.all_fields(target).items()}
         names = {target.qualified_name, *(a.qualified_name for a in self.s.ancestors(target))}
         for extension in self.s.plugin.extensions:
-            if extension.extends_type in names:
+            if extension.adds_to in names:
                 fields.update(extension.fields)
         found = fields.get(name)
         if found is None:
@@ -853,22 +854,12 @@ class _Rules:
                     (*path, "on_match"),
                     hint="Give `match_on`, a unique field, or drop `on_match`.",
                 )
-        seen: dict[str, int] = {}
-        for index, updates in enumerate(action.updates):
-            path = ("effects", "updates", index)
+        # Keyed by input, so an input can't be updated twice.
+        for updates in action.updates:
+            path = ("effects", "updates", updates.input)
             if updates.input not in action.inputs:
-                self.unknown_input(action, updates.input, source, (*path, "input"))
+                self.unknown_input(action, updates.input, source, path)
                 continue
-            if updates.input in seen:
-                self.add(
-                    "duplicate-updates",
-                    f"`{updates.input}` is updated twice (in update {seen[updates.input] + 1} "
-                    "too).",
-                    source,
-                    (*path, "input"),
-                    hint="List all the fields it sets in one.",
-                )
-            seen[updates.input] = index
             self.updated_fields(action.inputs[updates.input], updates, source, path)
         if not action.creates and not action.updates and not action.artifacts:
             self.add(
@@ -900,9 +891,9 @@ class _Rules:
         fields = {n: f for n, (f, _) in self.s.all_fields(target).items()}
         lineage = [target, *self.s.ancestors(target)]
         chain = {t.qualified_name for t in lineage}
-        ledger_fields = {t.draws_received for t in lineage if t.draws_received}
+        ledger_fields = {t.draws.received for t in lineage if t.draws.received}
         for extension in self.plugin.extensions:
-            if extension.extends_type in chain:
+            if extension.adds_to in chain:
                 fields.update(extension.fields)
         for index, name in enumerate(updates.fields):
             f = fields.get(name)

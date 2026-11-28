@@ -1,6 +1,6 @@
 apiVersion: iki/v1
 kind: EntityTypeExtension
-extends_type: acme/protein.ProteinStructure
+adds_to: acme/protein.ProteinStructure
 fields:
   plddt_mean: { type: float, computed: true, indexed: true, min: 0, max: 100 }
   job_id:

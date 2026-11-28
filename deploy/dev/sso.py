@@ -1837,7 +1837,7 @@ def plugin_export(alice: requests.Session, project: dict[str, Any]) -> None:
             "liquid_class": "DMSO Free Single",
         },
     )
-    format_name = kind + "tecan-worklist"
+    format_name = kind + "tecan_worklist"
     query = urlencode({"format": format_name})
     got = api_call(alice, "GET", f"/entities/{transfer['hrid']}/export?{query}")
     if got.status_code != 200:

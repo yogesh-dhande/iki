@@ -8,7 +8,7 @@ description: >-
   such as from its form.
 on: entity.created
 type: ProteinLot
-run: compute_protein_lot
+action: compute_protein_lot
 ---
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 apiVersion: iki/v1
@@ -43,4 +43,4 @@ watch_included:
       molecular_formula,
     ]
   concentration_method: [calculation]
-run: compute_protein_lot
+action: compute_protein_lot

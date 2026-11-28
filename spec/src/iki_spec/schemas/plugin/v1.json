@@ -60,7 +60,7 @@
             "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeName" },
             "additionalProperties": {
               "description": "The schema versions of this type the plugin works with, such as `>=2,<4`.",
-              "$ref": "#/$defs/versionConstraint"
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/versionConstraint"
             }
           }
         },
@@ -69,17 +69,17 @@
     },
     "settings": { "$ref": "https://ikisci.org/schemas/settings/v1" },
     "formats": {
-      "description": "File formats owned by this plugin under stable local names, such as mars-csv. A field can name the format as acme/lab.mars-csv.",
+      "description": "File formats owned by this plugin under stable local names in snake_case, such as mars_csv. A field can name the format as acme/lab.mars_csv.",
       "type": "object",
       "maxProperties": 256,
-      "propertyNames": { "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$", "maxLength": 63 },
+      "propertyNames": { "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$", "maxLength": 63 },
       "additionalProperties": { "$ref": "#/$defs/fileFormat" }
     },
     "writers": {
-      "description": "Writers of export formats, by local name such as tecan-worklist, which types name as `acme/lab.tecan-worklist` in their `exports` (ADR 0230). Each is a Rust crate in the plugin, built to a WebAssembly module and pinned by its SHA-256 in `<module>.wasm.sha256`; Iki runs it in a sandbox with no network, credentials or imports, for one record or many, each export pinned to its revisions and audited.",
+      "description": "Writers of export formats, by local name in snake_case such as tecan_worklist, which types name as `acme/lab.tecan_worklist` in their `exports` (ADR 0230). Each is a Rust crate in the plugin, built to a WebAssembly module and pinned by its SHA-256 in `<module>.wasm.sha256`; Iki runs it in a sandbox with no network, credentials or imports, for one record or many, each export pinned to its revisions and audited.",
       "type": "object",
       "maxProperties": 64,
-      "propertyNames": { "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$", "maxLength": 63 },
+      "propertyNames": { "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$", "maxLength": 63 },
       "additionalProperties": { "$ref": "#/$defs/writer" }
     },
     "starters": {
@@ -122,10 +122,10 @@
           "maxLength": 500
         },
         "format": {
-          "description": "The format it writes (ADR 0213): one of this plugin's, such as tecan-gwl, or a dependency's, as `acme/lab.tecan-gwl`. It gives the file's media type and extension. A format that can carry active content (HTML, SVG, XHTML, scripts) can't be written.",
+          "description": "The format it writes (ADR 0213): one of this plugin's, such as tecan_gwl, or a dependency's, as `acme/lab.tecan_gwl`. It gives the file's media type and extension. A format that can carry active content (HTML, SVG, XHTML, scripts) can't be written.",
           "type": "string",
           "maxLength": 125,
-          "pattern": "^([a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.)?[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+          "pattern": "^([a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.)?[a-z][a-z0-9]*(_[a-z0-9]+)*$"
         },
         "module": {
           "description": "The writer's Rust crate, a directory under writers/ with its Cargo.toml and Cargo.lock, such as writers/tecan-worklist. Beside it, writers/tecan-worklist.wasm.sha256 holds the SHA-256 of the module the Linux x86-64 builder makes of it; `iki plugin writers --update` writes it.",
@@ -298,11 +298,6 @@
         }
       },
       "additionalProperties": false
-    },
-    "versionConstraint": {
-      "description": "Comparisons with whole schema versions, separated by commas, such as `>=2` or `>=2,<4`.",
-      "type": "string",
-      "pattern": "^\\s*(==|!=|>=|<=|>|<)\\s*[0-9]+(\\s*,\\s*(==|!=|>=|<=|>|<)\\s*[0-9]+)*\\s*$"
     },
     "api": {
       "description": "One outside API: its host, what the plugin uses it for, and how its calls are authenticated and recorded.",

@@ -37,9 +37,11 @@ def test_valid_plugins_pass(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_the_summary_counts_a_plugins_writers(capsys: pytest.CaptureFixture[str]) -> None:
     example = Path(__file__).parents[2] / "examples" / "plugins" / "liquid_handling"
+    # The example's version moves with every change to it; the counts are what's tested.
+    version = yaml.safe_load((example / "plugin.yaml").read_text())["version"]
     assert main(["plugin", "validate", str(example)]) == 0
     assert capsys.readouterr().out == (
-        "✓ acme/liquid_handling 0.1.2 is valid: 2 entity types, 0 extensions, 0 settings, "
+        f"✓ acme/liquid_handling {version} is valid: 2 entity types, 0 extensions, 0 settings, "
         "0 actions, 0 environments, 0 workflows, 0 triggers, 0 components, 1 writer.\n"
     )
 
@@ -83,11 +85,11 @@ def test_problems_show_where_and_how_to_fix_them(
         "    |                                             ^",
         "  hint: `u` is the unified atomic mass unit (the dalton); `g/mol` is molar mass.",
         "",
-        "protein/types/sample.yaml:11:1: warning: `draw_purposes` is provisional: a minor "
+        "protein/types/sample.yaml:12:3: warning: `draws.purposes` is provisional: a minor "
         "release of Iki may change its shape, with a codemod and a release note. "
         "[provisional-key]",
-        " 11 | draw_purposes: { qa_sampling: { by: [qa] } }",
-        "    | ^",
+        " 12 |   purposes: { qa_sampling: { drawn_by: [qa] } }",
+        "    |   ^",
         "  hint: Use it if you need it, and read each release's notes before upgrading.",
         "",
         "1 error and 1 warning in protein.",
@@ -190,8 +192,8 @@ def test_github_annotations(
         "::error file=protein/types/protein.yaml,line=11,col=45,title=unknown-unit::"
         "`Da` isn't a UCUM unit.%0A`u` is the unified atomic mass unit (the dalton); "
         "`g/mol` is molar mass.",
-        "::warning file=protein/types/sample.yaml,line=11,col=1,title=provisional-key::"
-        "`draw_purposes` is provisional: a minor release of Iki may change its shape, with a "
+        "::warning file=protein/types/sample.yaml,line=12,col=3,title=provisional-key::"
+        "`draws.purposes` is provisional: a minor release of Iki may change its shape, with a "
         "codemod and a release note.%0AUse it if you need it, and read each release's notes "
         "before upgrading.",
         "1 error and 1 warning in protein.",

@@ -162,6 +162,12 @@
       "maxLength": 61,
       "pattern": "^([a-z][a-z0-9]*(_[a-z0-9]+)*/)?[a-z][a-z0-9]*(_[a-z0-9]+)*$"
     },
+    "versionConstraint": {
+      "description": "The schema versions of a type something works with: comparisons with whole versions, separated by commas, such as `>=2` or `>=2,<4`.",
+      "type": "string",
+      "maxLength": 200,
+      "pattern": "^\\s*(==|!=|>=|<=|>|<)\\s*[0-9]+(\\s*,\\s*(==|!=|>=|<=|>|<)\\s*[0-9]+)*\\s*$"
+    },
     "typeRef": {
       "description": "An entity type: `namespace/plugin.Type` (such as `iki/protein.Protein`), or just `Type` for one in the same plugin.",
       "type": "string",

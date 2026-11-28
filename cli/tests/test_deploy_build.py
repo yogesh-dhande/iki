@@ -30,7 +30,7 @@ AUTHOR_INPUTS = (
 def errors(err: str) -> str:
     """What a build wrote besides the warning that acme/protein's samples draw by purpose, a
     provisional key (ADR 0293): every build of the fixtures says it."""
-    return re.sub(r"[^\n]*warning: `draw_purposes` is provisional:.*?\n\n", "", err, flags=re.S)
+    return re.sub(r"[^\n]*warning: `draws.purposes` is provisional:.*?\n\n", "", err, flags=re.S)
 
 
 def git(repo: Path, *args: str) -> str:

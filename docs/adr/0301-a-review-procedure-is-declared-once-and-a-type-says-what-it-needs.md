@@ -1,6 +1,6 @@
 # 0301. A review procedure is declared once, and a type says what it needs of one
 
-- Status: Accepted
+- Status: Accepted. Amended by [0294](0294-a-manifest-says-each-thing-one-way.md): a state names the slots that set it `set_by`, as a field's state names its roles
 - Date: 2026-11-27
 - Amends: [0125](0125-a-state-is-a-field-each-state-says-who-sets-it.md),
   [0128](0128-guards-say-when-a-state-may-be-set.md)
@@ -87,33 +87,33 @@ states:
   recorded:
     label: Recorded
     open: true
-    by: [analyst, reviewer, qa]
+    set_by: [analyst, reviewer, qa]
     reason: required
   accepted:
     label: Accepted
-    by: [analyst, reviewer]
+    set_by: [analyst, reviewer]
     locks: true
   signed_off:
     label: Signed off
-    by: reviewer
+    set_by: reviewer
     locks: true
     signature: { meaning: review }
     independent_of: [creator, editors]
   submitted:
     label: Submitted
-    by: analyst
+    set_by: analyst
     locks: true
     signature: { meaning: authorship }
     maker: true
   reviewed:
     label: Independently reviewed
-    by: reviewer
+    set_by: reviewer
     locks: true
     signature: { meaning: review }
     independent_of: [creator, editors, signers: [submitted]]
   released:
     label: QA released
-    by: qa
+    set_by: qa
     locks: true
     signature: { meaning: approval, label: QA release }
     independent_of: [creator, editors, signers: [submitted, reviewed]]
@@ -139,7 +139,7 @@ flows:
     moves: { recorded: [submitted, reviewed] }
 ```
 
-- **A state** has a `label`, a `description`, `by` (the slots whose holders may set
+- **A state** has a `label`, a `description`, `set_by` (the slots whose holders may set
   it), `locks`, `reason`, at most one `signature` (meaning, label, statement, as ADR
   0126), and `on_edit` (ADR 0179). An `open` state is where the work is recorded and
   edited; it's the edits window that independence reads. Each flow starts in an open
@@ -171,7 +171,7 @@ flows:
   declare neither.
 
 **Independence is declared structure, compiled into guards.** The validator compiles
-`by`, the route, `moves`, `maker` and `independent_of` into the guards ADR 0128 already
+`set_by`, the route, `moves`, `maker` and `independent_of` into the guards ADR 0128 already
 evaluates, one guard each with a generated message ("A signer independent of the
 creator, the submitter and the editors must sign"), and checks them as it checks any
 guard. The server enforces the compiled guards, under the record's lock and at every

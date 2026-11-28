@@ -9,7 +9,8 @@ sample: true
 description: >-
   A portion drawn from one tube or lot for identified work, with its measurements. Each
   kind of sample is a testing procedure the lab chooses as it creates one.
-draws_received: receipt
+draws:
+  received: receipt
 due: due_on
 fields:
   source: { type: ref, to: [iki/inventory.Tube, iki/lots.Lot], required: true, immutable: true }

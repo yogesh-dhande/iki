@@ -4,9 +4,9 @@ name: schedule_pulls
 label: Schedule stability pulls
 description: Generate the pulls its protocol plans, at each condition, time point and replicate, and pin the study's measurement review flow.
 inputs:
-  study: { type: Study, schema: ">=1", include: [lot, assignments.tube] }
+  study: { type: Study, schema_version: ">=1", include: [lot, assignments.tube] }
 effects:
-  updates: [{ input: study, fields: [scheduled, review_flow] }]
+  updates: { study: { fields: [scheduled, review_flow] } }
   creates: [{ type: Pull, cardinality: many, derived_from: [study] }]
 runs_on: { tier: backend, environment: stability-tools }
 command: [python, ./scripts/stability.py, schedule]

@@ -5,5 +5,5 @@ label: Fetch hemoglobin nightly
 on: schedule
 schedule: 0 3 * * *
 timezone: Europe/Zurich
-run: fetch_proteins
+action: fetch_proteins
 params: { accession: P69905 }

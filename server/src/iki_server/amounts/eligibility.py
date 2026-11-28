@@ -22,7 +22,7 @@ def draw_guards(type_name: str) -> tuple[Guard, ...]:
     """The type's draw guards, including every ancestor's."""
     entity_type = registry.types()[type_name]
     chain = [*reversed(registry.ancestors(entity_type)), entity_type]
-    return tuple(g for t in chain for g in t.draw_guards.values())
+    return tuple(g for t in chain for g in t.draws.guards.values())
 
 
 @cache
@@ -30,7 +30,7 @@ def purpose_roles(type_name: str) -> dict[str, tuple[str, ...]]:
     """For each declared draw purpose, the roles on the nearest declaring type."""
     entity_type = registry.types()[type_name]
     chain = [*reversed(registry.ancestors(entity_type)), entity_type]
-    return {purpose: by for t in chain for purpose, by in t.draw_purposes.items()}
+    return {purpose: by for t in chain for purpose, by in t.draws.purposes.items()}
 
 
 def purpose_refusal(

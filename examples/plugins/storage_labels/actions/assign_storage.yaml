@@ -8,9 +8,9 @@ name: assign_storage
 label: Assign default storage
 description: Records where a sample is stored as the deployment's default, if nobody said.
 inputs:
-  sample: { type: Sample, schema: ">=1" }
+  sample: { type: Sample, schema_version: ">=1" }
 effects:
-  updates: [{ input: sample, fields: [storage] }]
+  updates: { sample: { fields: [storage] } }
 runs_on: { tier: container, environment: tools }
 # An action that runs a tool lists it, with the version its environment
 # installs, so what its runs make is recorded as made with it (ADR 0106). This

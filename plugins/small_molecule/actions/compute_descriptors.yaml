@@ -11,10 +11,10 @@ description: >-
   and SDF exports are written from. A compound whose InChIKey isn't its structure's
   fails its run, saying so.
 inputs:
-  compound: { type: Compound, schema: ">=2" }
+  compound: { type: Compound, schema_version: ">=2" }
 effects:
   updates:
-    - input: compound
+    compound:
       fields:
         - inchi
         - molecular_formula

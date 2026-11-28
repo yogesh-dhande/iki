@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/reagents
-version: 0.4.0
+version: 0.4.1
 title: Reagents and consumables
 description: Track catalogue packs, stock across storage, reorder lines, partial deliveries and stock received without an order.
 iki: ">=0.1"

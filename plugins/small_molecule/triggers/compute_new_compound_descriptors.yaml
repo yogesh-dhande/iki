@@ -10,4 +10,4 @@ description: >-
   in fields, so they never fire a trigger again.
 on: entity.registered
 type: Compound
-run: compute_descriptors
+action: compute_descriptors

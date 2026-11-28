@@ -1,6 +1,7 @@
 # 0243. A stability protocol plans its own pulls
 
 - Status: Accepted
+- Amended by [0294](0294-a-manifest-says-each-thing-one-way.md): the draw target is `draws.target`, its state `{ field, states }` and its roles `drawn_by`
 - Date: 2026-11-26
 - Refines: [0193](0193-a-stability-pull-keeps-its-protocol-revision-and-ledger-draw.md)
 

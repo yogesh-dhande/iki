@@ -2,7 +2,7 @@
 Jira's watchers do.
 
 Someone who can read a record can **watch** it: they're told what its type tells its
-watchers (``tell: { watchers: true }``), beside what names them. Or they can **mute** it:
+watchers (``notify: { watchers: true }``), beside what names them. Or they can **mute** it:
 they're told nothing of it but what its plugin requires. Without either, they're told
 what names them: as a field's person, its creator, or a lab role. Each choice is audited.
 """
@@ -41,7 +41,7 @@ def of(user: User, entity: Entity) -> Watching:
     sent = declared.of_type(entity.type)
     return Watching(
         mode=found or DEFAULT,
-        can_watch=any(d.n.tell_watchers for d in sent),
+        can_watch=any(d.n.notify_watchers for d in sent),
         can_mute=any(not d.n.required for d in sent),
     )
 
