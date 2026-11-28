@@ -91,7 +91,7 @@ PREVIOUS = "\n".join(
 
 
 class Migration(migrations.Migration):
-    dependencies = [("iki_entities", "0028_record_exports")]
+    dependencies = [("iki_entities", "0030_record_export_limits")]
 
     operations = [
         migrations.RunSQL(KEEP, PREVIOUS),

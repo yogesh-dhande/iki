@@ -453,6 +453,7 @@ def supersede_as(
             )
         # The new entry's values are all its own: each of its registry's rules is checked,
         # against every entry but this one, whose carried rows go below.
+        assert locked.registry_id is not None  # noqa: S101 - it's an entry
         errors = unique.taken(locked.registry_id, form, given, entry=locked.pk)
         if errors:
             raise Invalid(errors)
