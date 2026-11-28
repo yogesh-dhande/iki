@@ -867,7 +867,14 @@ def _move_across(
         key__in=[unique.key(was.part_of(n).model, n) for n in taking if was.fields()[n].unique],
     ).delete()
     saved = services.create(
-        user, new.type, project, given, reason=reason, keeping=frozenset(named["ref"])
+        user,
+        new.type,
+        project,
+        given,
+        reason=reason,
+        # A rule that holds holds it for the move's reason, as a move within a type does.
+        hold_reason=reason,
+        keeping=frozenset(named["ref"]),
     )
     repointed = _repoint(user, project, old, new, reason)
     log.record(
