@@ -2079,6 +2079,7 @@ export interface paths {
          * Change a registry entry's facts
          * @description Its registry's registrars, with a reason. Audited, and told to every holding project:
          *     who, when and why. Its identity and derived values never change: supersede it instead.
+         *     A lab list's option changes on its list (`/lists/{name}/options/{code}`), not here.
          */
         patch: operations["iki_server_api_registries_patch_entry"];
         trace?: never;
@@ -2162,7 +2163,9 @@ export interface paths {
          * @description Its registry's registrars replace a mistaken entry with another in the registry, for
          *     good: one of its type, or of another type under its identity; or with a new entry of its
          *     identity as another type (``type``, ADR 0165). Each holding project's Admins, and
-         *     whoever added its record, are told, to move their records to the replacement.
+         *     whoever added its record, are told, to move their records to the replacement. A lab
+         *     list's option is superseded on its list (`/lists/{name}/options/{code}/supersede`), not
+         *     here, either way.
          */
         post: operations["iki_server_api_registries_supersede_entry"];
         delete?: never;

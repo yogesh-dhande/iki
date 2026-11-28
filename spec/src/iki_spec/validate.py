@@ -2046,6 +2046,8 @@ class _Semantics:
         assert entity_type.list_spec is not None  # noqa: S101 - only lists have options
         codes: dict[str, int] = {}
         labels: dict[str, int] = {}
+        # Each option's code and label in any case, as a sheet reads them: whose, and which.
+        names: dict[str, tuple[int, str]] = {}
         fields = entity_type.fields
         for index, option in enumerate(entity_type.list_spec.options):
             at: Path = ("list", "options", index)
@@ -2074,6 +2076,7 @@ class _Semantics:
                     )
                 else:
                     labels[key] = index
+            self.list_option_names(option, index, codes, labels, names, source, at)
             for name, value in option.items():
                 f = fields.get(name)
                 if name == LIST_POSITION or f is None or f.removed:
@@ -2101,6 +2104,43 @@ class _Semantics:
                         source,
                         at,
                     )
+
+    def list_option_names(
+        self,
+        option: dict[str, Any],
+        index: int,
+        codes: dict[str, int],
+        labels: dict[str, int],
+        names: dict[str, tuple[int, str]],
+        source: Document,
+        at: Path,
+    ) -> None:
+        """A sheet names an option by its code or its label, in any case (ADR 0270), so no
+        other option's code or label may be either: beyond a code or a label twice, which
+        :meth:`list_options` says."""
+        given = [(n, option.get(n)) for n in (LIST_CODE, LIST_LABEL)]
+        for name, value in given:
+            if not isinstance(value, str):
+                continue
+            key = value.casefold()
+            other = names.get(key)
+            same = (
+                codes.get(value) not in (None, index)
+                if name == LIST_CODE
+                else labels.get(key) not in (None, index)
+            )
+            if other is not None and other[0] != index and not same:
+                its = "code" if other[1] == LIST_CODE else "label"
+                self.add(
+                    "list-name-twice",
+                    f"“{value}” is option {other[0] + 1}'s {its}, in any case: a sheet names an "
+                    "option by its code or its label, so each names one option.",
+                    source,
+                    (*at, name),
+                )
+        for name, value in given:
+            if isinstance(value, str):
+                names.setdefault(value.casefold(), (index, name))
 
     def list_option_value(self, f: Field, value: Any, source: Document, at: Path) -> None:  # noqa: ANN401 - manifest data is JSON-shaped
         """A starting option's value for one of its type's fields. A reference to another

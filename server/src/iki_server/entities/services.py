@@ -89,7 +89,7 @@ from iki_server.notifications import declared
 from iki_server.org.models import Project, registry_of
 from iki_server.org.services import Refused
 from iki_server.setup import starter_flows
-from iki_spec.model import EntityType, Field, names_people
+from iki_spec.model import LIST_LABEL, EntityType, Field, names_people
 
 __all__ = [
     "Invalid",
@@ -723,6 +723,10 @@ def _unique_values() -> Iterator[None]:
                 f"Another record has just been saved that this one would break “{label}” with."
             )
             raise Invalid({n: [message] for n in names or ("",)}) from None
+        if unique.is_label_clash(error):
+            raise Invalid(
+                {LIST_LABEL: ["Another option of the list has just been given this label."]}
+            ) from None
         if not unique.is_clash(error):
             raise
         raise Invalid(
