@@ -6,6 +6,11 @@ name: Release
 #     CycloneDX SBOM attestation, plus a SHA256SUMS file;
 #   - the Helm chart, with a CycloneDX SBOM, also signed and attested in ghcr.io;
 #   - @ikisci/component, @ikisci/science and @ikisci/ui on npm, at the release version;
+#   - iki-writer, the SDK plugins' writers build against, on crates.io, at the release
+#     version: packaged in the writer builder, checked against the checksum committed
+#     beside it (which Iki's own writers' Cargo.locks pin), then published;
+#     its version moves with the workspace's, so the commit that bumps it runs
+#     scripts/pin-iki-writer.sh and rebuilds Iki's writers' digests;
 #   - a GitHub release with the worker and chart artifacts.
 # Container images are published by publish.yml on the same tag.
 #
@@ -80,7 +85,8 @@ jobs:
             # A tag must match the versions committed in the repo.
             chart=$(awk '/^version:/ {print $2}' deploy/helm/iki/Chart.yaml)
             cargo=$(awk -F'"' '/^version =/ {print $2; exit}' worker/Cargo.toml)
-            for found in "$chart" "$cargo"; do
+            writer=$(awk -F'"' '/^version =/ {print $2; exit}' worker/crates/iki-writer/Cargo.toml)
+            for found in "$chart" "$cargo" "$writer"; do
               if [ "$found" != "$version" ]; then
                 echo "::error::Tag $REF_NAME doesn't match committed version $found"
                 exit 1
@@ -422,6 +428,54 @@ jobs:
           case "$VERSION" in *-*) tag=next ;; esac
           npm publish --ignore-scripts --access public --provenance --tag "$tag" \
             "$RUNNER_TEMP/ikisci-$PACKAGE-$VERSION.tgz"
+
+  iki-writer:
+    name: Package and publish iki-writer to crates.io
+    needs: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # crates.io trusted publishing, bound to release.yml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # In the writer builder, as a plugin image's build packages it: the checksum it
+      # must have is committed beside it, and Iki's own writers' Cargo.locks pin it.
+      - name: Package it, and check it's the crate Iki's writers pin
+        run: |
+          image=$(scripts/writer-toolchain.sh --image)
+          mkdir -p "$RUNNER_TEMP/iki-writer"
+          docker run --rm --platform linux/amd64 \
+            -v "$PWD/worker/crates/iki-writer:/sdk:ro" -v "$RUNNER_TEMP/iki-writer:/dist" \
+            "$image" sh /sdk/build-writer.sh package /dist > "$RUNNER_TEMP/iki-writer.sha256"
+          diff -u worker/crates/iki-writer/iki-writer.crate.sha256 "$RUNNER_TEMP/iki-writer.sha256"
+      # Configure the crate's trusted publisher for this repository and release.yml.
+      - name: Get a crates.io token
+        if: github.event_name == 'push' && needs.version.outputs.publish == 'true'
+        id: crates-io
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+      - name: Publish the checked crate
+        if: github.event_name == 'push' && needs.version.outputs.publish == 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io.outputs.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          image=$(scripts/writer-toolchain.sh --image)
+          docker run --rm --platform linux/amd64 -e CARGO_REGISTRY_TOKEN \
+            -v "$PWD/worker/crates/iki-writer:/sdk:ro" -v "$RUNNER_TEMP/iki-writer:/dist" \
+            "$image" sh /sdk/build-writer.sh publish /dist
+          # What crates.io serves is the crate that was checked.
+          want=$(cut -d' ' -f1 worker/crates/iki-writer/iki-writer.crate.sha256)
+          for _ in 1 2 3 4 5 6; do
+            if curl -fsSL "https://static.crates.io/crates/iki-writer/iki-writer-$VERSION.crate" \
+                -o "$RUNNER_TEMP/published.crate"; then
+              break
+            fi
+            sleep 10
+          done
+          echo "$want  $RUNNER_TEMP/published.crate" | sha256sum -c -
 
   github-release:
     name: GitHub release
