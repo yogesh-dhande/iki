@@ -14,12 +14,12 @@
       <li class="row">
         <div class="row-main">
           <span class="row-title">{{ registrar.user.get_full_name }}{% if registrar.user == user %} <span class="muted">(you)</span>{% endif %}</span>
-          <span class="row-meta">{{ registrar.user.email }}{% if not registrar.user.is_active %} · deactivated{% endif %} · appointed {{ registrar.appointed_at|date:"Y-m-d" }}{% if registrar.appointed_by %} by {{ registrar.appointed_by.get_full_name }}{% endif %}</span>
+          <span class="row-meta">{{ registrar.user.email }}{% if not registrar.user.is_active %} · deactivated{% endif %} · appointed {{ registrar.granted_at|date:"Y-m-d" }}{% if registrar.granted_by %} by {{ registrar.granted_by.get_full_name }}{% endif %}</span>
         </div>
         <form class="row-actions" method="post">
           {% csrf_token %}
-          <input type="hidden" name="action" value="dismiss">
-          <input type="hidden" name="user" value="{{ registrar.user.pk }}">
+          <input type="hidden" name="action" value="remove">
+          <input type="hidden" name="role" value="{{ registrar.pk }}">
           <button class="button button-quiet button-danger" type="submit" aria-label="Remove {{ registrar.user.get_full_name }} as a registrar">Remove</button>
         </form>
       </li>
@@ -46,13 +46,12 @@
       <li class="row">
         <div class="row-main">
           <span class="row-title">{{ curator.user.get_full_name }}{% if curator.user == user %} <span class="muted">(you)</span>{% endif %}</span>
-          <span class="row-meta">{{ curator.user.email }}{% if not curator.user.is_active %} · deactivated{% endif %} · appointed {{ curator.appointed_at|date:"Y-m-d" }}{% if curator.appointed_by %} by {{ curator.appointed_by.get_full_name }}{% endif %}</span>
+          <span class="row-meta">{{ curator.user.email }}{% if not curator.user.is_active %} · deactivated{% endif %} · appointed {{ curator.granted_at|date:"Y-m-d" }}{% if curator.granted_by %} by {{ curator.granted_by.get_full_name }}{% endif %}</span>
         </div>
         <form class="row-actions" method="post">
           {% csrf_token %}
-          <input type="hidden" name="action" value="dismiss_curator">
-          <input type="hidden" name="list" value="{{ list.type }}">
-          <input type="hidden" name="user" value="{{ curator.user.pk }}">
+          <input type="hidden" name="action" value="remove">
+          <input type="hidden" name="role" value="{{ curator.pk }}">
           <button class="button button-quiet button-danger" type="submit" aria-label="Remove {{ curator.user.get_full_name }} as a curator of {{ list.label }}">Remove</button>
         </form>
       </li>

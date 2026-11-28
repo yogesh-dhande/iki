@@ -1381,9 +1381,10 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
         # Moving a project's lots to the replacement flags each lot that named it, and
         # only those, and works it out again where the project turned the calculation on.
         from iki_server.entities import entries, lists
-        from iki_server.org.models import Project, Registrar, Registry
+        from iki_server.org.models import Project, Registry, RegistryRole
         registry = Registry.objects.get(pk=project.registry_id)
-        Registrar.objects.create(registry=registry, user=admin)
+        RegistryRole.objects.create(registry=registry, user=admin,
+                                    role=RegistryRole.Role.REGISTRAR)
         ProjectTrigger.objects.create(project=project,
                                       trigger="iki/lots.compute_protein_lot_when_measured",
                                       enabled_by=admin, enabled_at=timezone.now())

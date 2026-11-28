@@ -476,21 +476,25 @@ function onList(over: Partial<Schemas["ListOut"]> = {}, reg = registry()): void 
   onLab();
   answer("GET /api/v1/registries", page([reg]));
   answer(`GET /api/v1/lists/${METHOD}`, list(over));
-  answer(`GET /api/v1/registries/${MAIN_REGISTRY.id}/list-curators`, [
-    {
-      list: METHOD,
-      user: {
-        id: "00000000-0000-7000-8000-000000000009",
-        name: "Ada Purifier",
-        email: "ada@example.com",
-        active: true,
-        kind: "person",
-        imported_from: "",
-      },
-      appointed_by: null,
-      appointed_at: "2026-11-01T00:00:00Z",
+  // Its own curators are a registry role, asked for by role and list (ADR 0292).
+  const curator: Schemas["RegistryRoleOut"] = {
+    id: "00000000-0000-7000-8000-0000000000c1",
+    role: "list_curator",
+    list: METHOD,
+    user: {
+      id: "00000000-0000-7000-8000-000000000009",
+      name: "Ada Purifier",
+      email: "ada@example.com",
+      active: true,
+      kind: "person",
+      imported_from: "",
     },
-  ]);
+    granted_by: null,
+    granted_at: "2026-11-01T00:00:00Z",
+  };
+  answer(`GET /api/v1/registries/${MAIN_REGISTRY.id}/roles`, ({ query }: Sent) =>
+    page(query.get("role") === "list_curator" && query.get("list") === METHOD ? [curator] : []),
+  );
 }
 
 const PAGE = `/types/${METHOD}/`;
@@ -880,7 +884,7 @@ describe("a list's page", () => {
         ? list({ registry: partner })
         : problem(404, "not_found", "No such project, or you can’t read it."),
     );
-    answer(`GET /api/v1/registries/${partner.id}/list-curators`, []);
+    answer(`GET /api/v1/registries/${partner.id}/roles`, page([]));
     await renderApp(`${PAGE}?project=kinase-atlas`);
     await screen.findByRole("table", { name: /Purification methods/ });
     expect(

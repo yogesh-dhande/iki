@@ -20,11 +20,11 @@ from iki_server.entities.models import Entity, RuleHold
 from iki_server.entities.values import Invalid
 from iki_server.notifications.models import Notification
 from iki_server.org.models import (
-    ListCurator,
     Project,
     ProjectMembership,
     ProjectRole,
     Registry,
+    RegistryRole,
 )
 from iki_spec.model import LIST_HRID_PREFIX, ListSpec, Rule
 
@@ -58,16 +58,21 @@ def api_as(world: World, principal: str) -> Api:
 def registrar(world: World, principal: str = "auditor") -> Api:
     admin = api_as(world, "org_admin")
     user = world.users[principal]
-    put = admin.put(f"/registries/{Registry.default().pk}/registrars/{user.pk}")
-    assert put.status_code in (200, 201), put.content
+    granted = admin.post(
+        f"/registries/{Registry.default().pk}/roles", {"role": "registrar", "user": str(user.pk)}
+    )
+    assert granted.status_code in (200, 201), granted.content
     return api_as(world, principal)
 
 
 def curator(world: World, principal: str = "auditor", type_name: str = METHOD) -> Api:
     admin = api_as(world, "org_admin")
     user = world.users[principal]
-    put = admin.put(f"/registries/{Registry.default().pk}/list-curators/{type_name}/{user.pk}")
-    assert put.status_code in (200, 201), put.content
+    granted = admin.post(
+        f"/registries/{Registry.default().pk}/roles",
+        {"role": "list_curator", "list": type_name, "user": str(user.pk)},
+    )
+    assert granted.status_code in (200, 201), granted.content
     return api_as(world, principal)
 
 
@@ -332,22 +337,27 @@ def test_registrars_and_the_lists_curators_curate_it(world: World) -> None:
     )
     listed = lead.get("/lists", **scope(world)).json()
     assert {i["type"]: i["can"]["curate"] for i in listed} == {METHOD: True, CATEGORY: False}
-    curators = org_admin.get(f"/registries/{Registry.default().pk}/list-curators").json()
+    roles = f"/registries/{Registry.default().pk}/roles"
+    curators = org_admin.get(roles, role="list_curator").json()["items"]
     assert [(c["list"], c["user"]["id"]) for c in curators] == [
         (METHOD, str(world.users["team_member"].pk))
     ]
-    # Dismissed, they don't.
-    gone = org_admin.delete(
-        f"/registries/{Registry.default().pk}/list-curators/{METHOD}/{world.users['team_member'].pk}"
-    )
+    # Removed, they don't.
+    gone = org_admin.delete(f"{roles}/{curators[0]['id']}")
     assert gone.status_code == 204, gone.content
     problem(
         lead.post(OPTIONS, {"code": "uf", "label": "Ultrafiltration"}, **scope(world)),
         403,
         "forbidden",
     )
-    assert AuditEvent.objects.filter(action="registry.list_curator_appointed").count() == 1
-    assert AuditEvent.objects.filter(action="registry.list_curator_removed").count() == 1
+    expected = {
+        "role": "list_curator",
+        "list": METHOD,
+        "user": str(world.users["team_member"].pk),
+        "email": world.users["team_member"].email,
+    }
+    assert AuditEvent.objects.get(action="registry.role_granted").data == expected
+    assert AuditEvent.objects.get(action="registry.role_removed").data == expected
     assert AuditEvent.objects.get(action="list.option_added").data["code"] == "hplc"
 
 
@@ -406,7 +416,7 @@ def test_org_admins_appoint_a_lists_curators_on_its_registrys_page(world: World)
     )
     assert appointed.status_code == 302, appointed.content.decode()[:2000]
     assert appointed["Location"].endswith("#list-curators-title")
-    assert ListCurator.objects.filter(list_type=METHOD, user=lead).exists()
+    grant = RegistryRole.objects.get(role="list_curator", list_type=METHOD, user=lead)
     shown = admin.get(page).content.decode()
     assert "Remove Team Member as a curator of Purification methods" in shown
     # A deactivated person is refused, at the field, and the page says why.
@@ -428,12 +438,11 @@ def test_org_admins_appoint_a_lists_curators_on_its_registrys_page(world: World)
         {"action": "appoint_curator", "curator-list_type": PREP, "curator-person": lead.email},
     )
     assert bogus.status_code == 200 and "Select a valid choice" in bogus.content.decode()
-    dismissed = post(
-        admin, page, {"action": "dismiss_curator", "list": METHOD, "user": str(lead.pk)}
-    )
+    dismissed = post(admin, page, {"action": "remove", "role": str(grant.pk)})
     assert dismissed.status_code == 302
-    assert not ListCurator.objects.filter(list_type=METHOD, user=lead).exists()
-    assert AuditEvent.objects.filter(action="registry.list_curator_removed").count() == 1
+    assert dismissed["Location"].endswith("#list-curators-title")
+    assert not RegistryRole.objects.filter(pk=grant.pk).exists()
+    assert AuditEvent.objects.get(action="registry.role_removed").data["list"] == METHOD
     # It's an Org Admin's page: nobody else's.
     assert world.browser("team_member").get(page).status_code in (302, 403)
 
