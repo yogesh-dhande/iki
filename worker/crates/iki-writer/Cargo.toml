@@ -1,10 +1,16 @@
 [package]
 name = "iki-writer"
 description = "Write an Iki plugin's export format in Rust: the WebAssembly ABI an Iki writer module exports, as a trait with typed records."
-# Nothing here is inherited from the worker workspace, unlike its other crates. A writer
-# crate gets this one through a path patch (build-writer.sh), from wherever the SDK sits:
-# in this checkout, or copied alone into the plugin image's builder stage, where there is
-# no worker/Cargo.toml above it to inherit from. Keep these in step with the workspace's.
+# Published to crates.io with each Iki release, at the release's version, which is the
+# workspace's. A writer crate pins it in its Cargo.lock with its checksum, so a writer's
+# module doesn't change when Iki does. Nothing here is inherited from the worker
+# workspace, unlike its other crates: build-writer.sh packages it from a copy of this
+# directory alone, as `cargo publish` does, where there is no worker/Cargo.toml above it.
+# Keep these in step with the workspace's (a test does).
+#
+# Its .crate's SHA-256 is committed beside it, in iki-writer.crate.sha256: what crates.io
+# has of this version, or will. A change to anything the crate carries changes it, and
+# scripts/pin-iki-writer.sh writes it again and re-pins Iki's own writers.
 version = "0.1.0-dev.0"
 edition = "2024"
 rust-version = "1.93"
@@ -16,12 +22,12 @@ documentation = "https://docs.rs/iki-writer"
 readme = "README.md"
 keywords = ["iki", "wasm", "export", "plugin", "lims"]
 categories = ["wasm", "encoding", "science"]
-# What a published crate carries: the SDK, its build script and its documentation.
-include = ["src/**/*.rs", "build-writer.sh", "README.md", "Cargo.toml"]
+# What a published crate carries: the SDK and its documentation, and the Cargo.lock beside
+# this file, which Cargo adds. build-writer.sh is the builder's, not the crate's: the
+# Iki that builds a writer runs its own.
+include = ["src/**/*.rs", "README.md", "Cargo.toml"]
 
-# A writer's build puts the SDK inside the writer's workspace (build-writer.sh), where it
-# is a member, so Cargo resolves its dev-dependencies too, and each writer's Cargo.lock
-# would need them. It has none: its tests need nothing more than these.
+# Its tests need nothing more than these, so a writer's Cargo.lock pins only them.
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

@@ -10,12 +10,12 @@
  *   every project the reader can read, with the same filters and sorting.
  */
 
-import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
+import { unwrap, type Schemas } from "@ikisci/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 
-import { iki, problemOf, useApiMutation, type Project } from "../api";
+import { iki, isStale, problemOf, useApiMutation, useOpenedRevision, type Project } from "../api";
 import {
   ENTITIES,
   entityProjectsQuery,
@@ -304,13 +304,10 @@ function Freeze({ entity }: { entity: Entity }) {
   const client = useQueryClient();
   const { say } = useMessages();
   const freeze = useApiMutation(
-    async () =>
+    async (header: { "If-Match": string }) =>
       unwrap(
         await iki.POST("/api/v1/collections/{ref}/freeze", {
-          params: {
-            path: { ref: entity.id },
-            header: { "If-Match": `"${String(entity.revision)}"` },
-          },
+          params: { path: { ref: entity.id }, header },
           body: { reason: reason.trim() },
         }),
       ),
@@ -321,7 +318,9 @@ function Freeze({ entity }: { entity: Entity }) {
     setReason("");
     freeze.reset();
   };
-  const stale = freeze.error instanceof ApiError && freeze.error.problem.code === "stale";
+  // From the revision it was opened at, whose members the person saw.
+  const opened = useOpenedRevision(entity.revision, { open: asking, error: freeze.error });
+  const stale = isStale(freeze.error);
   return (
     <>
       <Button
@@ -350,7 +349,7 @@ function Freeze({ entity }: { entity: Entity }) {
         }
         onCancel={close}
         onConfirm={() => {
-          freeze.mutate(undefined, {
+          freeze.mutate(opened.ifMatch, {
             onSuccess: (saved) => {
               client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
               close();

@@ -8,8 +8,8 @@
 
 A stability study scheduled exactly one pull for every condition at every whole month.
 Each pull was one volume from one tube and got every test. Under ICH Q1A(R2), the
-protocol sets the conditions, frequency and tests. ICH Q1D allows a reduced design,
-bracketed or matrixed, that tests only some combinations when the protocol justifies it.
+protocol sets the conditions, frequency and tests, and a protocol can test only some
+combinations when it justifies it (see the Amendment on ICH Q1D).
 
 Labs also count short studies, such as in-use or photostability holds, in days or
 weeks, and pull replicate containers at one time point. Some plan a draw by the mass a
@@ -29,10 +29,10 @@ every test. Recording a measurement refuses a test the protocol doesn't plan for
 pull.
 
 **A reduced design says why.** A design that skips a combination of condition, time
-point or test needs its design justification, such as "matrixing per protocol §4.2".
+point or test needs its design justification, such as "sterility at T0 and the last
+time point only, per protocol §4.2".
 Scheduling refuses it otherwise. Iki checks that the justification is there, not
-whether it holds. The protocol's reviewers judge that, as ICH Q1D leaves the design to
-the applicant's justification.
+whether it holds. The protocol's reviewers judge that.
 
 **Time points count in days, weeks or calendar months.** Each has a code and an
 interval in its unit. Months keep their calendar anniversary, clamped at a shorter
@@ -65,3 +65,20 @@ The sources are still tubes, whose ledgers are in µL. Drawing straight from a c
 container, such as vials or blister packs, needs a stored container with a count ledger
 that holds a lot. Inventory has none yet. A study that groups several lots is still
 one study per lot, linked by its protocol.
+
+## Amendment. A study's reduced schedule isn't an ICH Q1D design
+
+This record first called a study's reduced schedule bracketing or matrixing under ICH
+Q1D, and its example justification said "matrixing per protocol §4.2". That was wrong.
+Q1D brackets or matrixes across design factors: lots, strengths, and container sizes and
+fills (§2.3, §2.4). A study is one lot of one material, so it has none of them. Q1D also
+says matrixing isn't performed across test attributes (§2.4), which is what a test plan
+that skips a test at some pulls does.
+
+So Iki calls it a **reduced schedule**: some conditions, time points or tests left out,
+as the protocol says and its justification explains. A test run only at the first and
+last time points, such as sterility, is one. Iki doesn't lay out a Q1D design across
+studies. A lab running a bracketed or matrixed design across lots plans each lot's study
+as the design assigns it, and that study's justification names the design. Iki doesn't
+check Q1D's requirements for such a design, such as testing every combination at the
+initial and final time points (§2.4.2).

@@ -326,11 +326,13 @@ jobs:
         with:
           pattern: python-shard-*
           path: ${{ runner.temp }}/shards
-      # Fails if a test ran in no shard or in two: a shard missing from the matrix, one
-      # there twice, or shards that collected different suites.
+      # Fails if a shard of the matrix above left no report (a whole version or kind
+      # included), or a test ran in no shard or in two: one there twice, or shards that
+      # collected different suites.
       - name: Every test ran exactly once
         run: |
           python3 scripts/ci/shard_summary.py "$RUNNER_TEMP/shards" \
+            --workflow .github/workflows/ci.yml --job python-tests \
             --durations "$RUNNER_TEMP/test-durations.json" --markdown "$GITHUB_STEP_SUMMARY"
       # Copy it to scripts/ci/test-durations.json when the shards drift apart.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -438,6 +440,20 @@ jobs:
         run: ../scripts/build-plasmid-tools-wasm.sh --check
       - name: Check the packaged primer-checks module
         run: ../scripts/build-oligo-checks-wasm.sh --check
+      # In the writer builder, as a plugin image's build does it: iki-writer packages to the
+      # checksum Iki's writers pin, and each writer's own tests pass against that crate.
+      - name: iki-writer is the crate Iki's writers pin, and their tests pass
+        working-directory: .
+        run: |
+          image=$(scripts/writer-toolchain.sh --image)
+          docker run --rm --platform linux/amd64 -v "$PWD:/iki:ro" -w /iki "$image" sh -ec '
+            sh worker/crates/iki-writer/build-writer.sh package /tmp/iki-writer > /tmp/sum
+            diff -u worker/crates/iki-writer/iki-writer.crate.sha256 /tmp/sum
+            for toml in plugins/*/writers/*/Cargo.toml examples/plugins/*/writers/*/Cargo.toml; do
+              [ -f "$toml" ] || continue
+              sh worker/crates/iki-writer/build-writer.sh fetch "${toml%/Cargo.toml}"
+              sh worker/crates/iki-writer/build-writer.sh test "${toml%/Cargo.toml}"
+            done'
 
   server-wasm:
     name: Build server Wasm
@@ -595,9 +611,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # A published release, and the last one: development adopts each new release.
       - name: Check ImmuneBuilder weights pin
         if: matrix.image == 'iki-antibody-structure-tools'
-        run: bash scripts/ci/check-immunebuilder-weights.sh
+        run: bash scripts/ci/check-immunebuilder-weights.sh --latest
       - name: Build
         env:
           IMAGE: ${{ matrix.image }}

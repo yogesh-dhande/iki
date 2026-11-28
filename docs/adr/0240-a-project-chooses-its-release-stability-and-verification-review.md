@@ -1,6 +1,7 @@
 # 0240. A project chooses its release, stability and verification review
 
 - Status: Accepted
+- Superseded in part by [0301](0301-a-review-procedure-is-declared-once-and-a-type-says-what-it-needs.md) (procedures declare their routes), [0302](0302-a-project-chooses-each-types-review-procedure-and-the-server-pins-it.md) (the server pins), [0304](0304-lab-roles-are-shared-and-a-procedures-slots-are-bound-at-setup.md) (shared QA) and [0305](0305-a-type-is-a-kind-of-work-not-a-review-procedure.md) (one certificate type)
 - Date: 2026-11-26
 - Refines: [0198](0198-a-project-applies-a-versioned-assay-starter.md),
   [0223](0223-applying-an-assay-starter-configures-the-project.md),

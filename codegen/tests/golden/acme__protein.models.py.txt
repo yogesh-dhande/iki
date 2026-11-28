@@ -468,6 +468,59 @@ class Batch_proteins(models.Model):
         ]
 
 
+class Binding(Entity):
+    """Binding measurement (acme/protein.Binding), schema version 1. How tightly a bispecific antibody binds one of its targets, by SPR."""
+
+    IKI_TYPE = 'acme/protein.Binding'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    bispecific = models.ForeignKey('Bispecific_Entry', models.PROTECT, related_name='+')
+    target = models.CharField(max_length=40, null=True)
+    kd = models.FloatField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_binding'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('target'), 1),
+                name='acme__protein_binding__target__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(target__regex='[\\r\\n]'),
+                name='acme__protein_binding__target__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(kd__gt=float('-inf'), kd__lt=float('inf')),
+                name='acme__protein_binding__kd__finite',
+            ),
+            models.CheckConstraint(condition=Q(kd__gte=0), name='acme__protein_binding__kd__min'),
+        ]
+
+
+class Binding_History(models.Model):
+    """The history of acme__protein_binding: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Binding'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    bispecific = models.UUIDField(db_column='bispecific_id', null=True)
+    target = models.TextField(null=True)
+    kd = models.FloatField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_binding__history'
+
+
 class Bispecific(iki_plugin_iki__core.models.Complex):
     """Bispecific antibody (acme/protein.Bispecific), schema version 2. An IgG-like bispecific antibody, by its chains and how many copies of each: its two heavy chains, its light chains (one protein twice where both arms share it, as emicizumab's do) and at most one linker. Its chains and copies are its identity, whatever their order (ADR 0138); which light chain pairs with which heavy chain is its arms, a fact of its registry entry, so a mispaired assembly of the same chains is the same molecule's impurity, not another molecule."""
 
@@ -1338,6 +1391,206 @@ class Prep_steps(models.Model):
                 name='acme__protein_prep__steps__position__max_items',
             ),
         ]
+
+
+class Reagent(Entity):
+    """Reagent (acme/protein.Reagent), schema version 1. A bought-in antibody, by its vendor and catalog number."""
+
+    IKI_TYPE = 'acme/protein.Reagent'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    lims_id = models.CharField(max_length=40, null=True, db_index=True)
+
+    class Meta:
+        db_table = 'acme__protein_reagent'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('lims_id'), 1),
+                name='acme__protein_reagent__lims_id__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(lims_id__regex='[\\r\\n]'),
+                name='acme__protein_reagent__lims_id__one_line',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['lims_id'],
+                opclasses=['gin_trgm_ops'],
+                name='lims_id_trgm_39c0bba458724766f',
+            ),
+        ]
+
+
+class Reagent_History(models.Model):
+    """The history of acme__protein_reagent: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Reagent'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    lims_id = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_reagent__history'
+
+
+class Reagent_Entry(Entity):
+    """Registry entries of Reagent (acme/protein.Reagent), ADR 0115."""
+
+    IKI_TYPE = 'acme/protein.Reagent'
+    IKI_ENTRY = True
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    vendor = models.CharField(max_length=100)
+    catalog_number = models.CharField(max_length=40)
+    rrid = models.CharField(max_length=20, null=True, db_index=True)
+
+    class Meta:
+        db_table = 'acme__protein_reagent__entry'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('vendor'), 1),
+                name='acme__protein_reagent__entry__vendor__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(vendor__regex='[\\r\\n]'),
+                name='acme__protein_reagent__entry__vendor__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('catalog_number'), 1),
+                name='acme__protein_reagent__entry__catalog_number__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(catalog_number__regex='[\\r\\n]'),
+                name='acme__protein_reagent__entry__catalog_number__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('rrid'), 1),
+                name='acme__protein_reagent__entry__rrid__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(rrid__regex='[\\r\\n]'),
+                name='acme__protein_reagent__entry__rrid__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(rrid__regex='^(?:^AB_[0-9]+$)$'),
+                name='acme__protein_reagent__entry__rrid__pattern',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['rrid'],
+                opclasses=['gin_trgm_ops'],
+                name='rrid_trgm_13f519723ef3c3a77b30',
+            ),
+        ]
+
+
+class Reagent_Entry_History(models.Model):
+    """The history of acme__protein_reagent__entry: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Reagent_Entry'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    vendor = models.TextField(null=True)
+    catalog_number = models.TextField(null=True)
+    rrid = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_reagent__entry__history'
+
+
+class PrimaryAntibody(Reagent):
+    """Primary antibody (acme/protein.PrimaryAntibody), schema version 1. An antibody that binds the target itself."""
+
+    IKI_TYPE = 'acme/protein.PrimaryAntibody'
+
+    reagent_ptr = models.OneToOneField(
+        Reagent,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+
+    class Meta:
+        db_table = 'acme__protein_primaryantibody'
+
+
+class PrimaryAntibody_History(models.Model):
+    """The history of acme__protein_primaryantibody: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'PrimaryAntibody'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = 'acme__protein_primaryantibody__history'
+
+
+class PrimaryAntibody_Entry(Reagent_Entry):
+    """Registry entries of Primary antibody (acme/protein.PrimaryAntibody), ADR 0115: the registry fields it adds to its parent's (ADR 0165)."""
+
+    IKI_TYPE = 'acme/protein.PrimaryAntibody'
+    IKI_ENTRY = True
+
+    reagent_entry_ptr = models.OneToOneField(
+        Reagent_Entry,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    host = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_primaryantibody__entry'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(host__in=['mouse', 'rabbit', 'goat', 'donkey']),
+                name='acme__protein_primaryantibody__entry__host__values',
+            ),
+        ]
+
+
+class PrimaryAntibody_Entry_History(models.Model):
+    """The history of acme__protein_primaryantibody__entry: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'PrimaryAntibody_Entry'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    host = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_primaryantibody__entry__history'
 
 
 class Protein(iki_plugin_acme__dna.models.Sequence):
@@ -2213,3 +2466,82 @@ class Sample_helpers(models.Model):
                 name='acme__protein_sample__helpers__position__max_items',
             ),
         ]
+
+
+class SecondaryAntibody(Reagent):
+    """Secondary antibody (acme/protein.SecondaryAntibody), schema version 1. An antibody that binds another species' antibodies, to detect a primary."""
+
+    IKI_TYPE = 'acme/protein.SecondaryAntibody'
+
+    reagent_ptr = models.OneToOneField(
+        Reagent,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+
+    class Meta:
+        db_table = 'acme__protein_secondaryantibody'
+
+
+class SecondaryAntibody_History(models.Model):
+    """The history of acme__protein_secondaryantibody: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'SecondaryAntibody'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = 'acme__protein_secondaryantibody__history'
+
+
+class SecondaryAntibody_Entry(Reagent_Entry):
+    """Registry entries of Secondary antibody (acme/protein.SecondaryAntibody), ADR 0115: the registry fields it adds to its parent's (ADR 0165)."""
+
+    IKI_TYPE = 'acme/protein.SecondaryAntibody'
+    IKI_ENTRY = True
+
+    reagent_entry_ptr = models.OneToOneField(
+        Reagent_Entry,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    raised_against = models.TextField(null=True)
+    host = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_secondaryantibody__entry'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(raised_against__in=['mouse', 'rabbit', 'goat', 'human']),
+                name='acme__protein_secondaryantibody__entry__raised_against__values',
+            ),
+            models.CheckConstraint(
+                condition=Q(host__in=['mouse', 'rabbit', 'goat', 'donkey']),
+                name='acme__protein_secondaryantibody__entry__host__values',
+            ),
+        ]
+
+
+class SecondaryAntibody_Entry_History(models.Model):
+    """The history of acme__protein_secondaryantibody__entry: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'SecondaryAntibody_Entry'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    raised_against = models.TextField(null=True)
+    host = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_secondaryantibody__entry__history'

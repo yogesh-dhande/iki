@@ -351,6 +351,42 @@ def test_a_part_that_drifted_keeps_the_identity_it_matched_at(
     assert pcdna["ori"][0]["qualifiers"]["identity"] == "99.3%"
 
 
+def _every(bases: str, start: int, end: int, step: int) -> str:
+    """``bases`` with every ``step``-th base from ``start`` to ``end`` (from 1) changed to
+    the next of A, C, G and T, so no exact stretch longer than ``step - 1`` is left."""
+    change = {"A": "C", "C": "G", "G": "T", "T": "A"}
+    out = list(bases)
+    for i in range(start - 1 + step // 2, end, step):
+        out[i] = change[out[i]]
+    return "".join(out)
+
+
+def test_a_part_without_an_exact_seed_is_found_where_it_aligns(tmp_path: Path) -> None:
+    """A seed is an exact 18 bases, so a part with a mismatch in every 18 has none: pUC19's
+    origin with every 15th base changed is 93% identical to the library's, above the 0.9
+    the run asks, though its longest exact stretch is 14 bases. It's found, at that
+    identity, as is a second copy of it; with every 8th base changed (87%) it isn't."""
+    bases, _, _ = read("L09137.2")
+    (ori,) = found(annotated(tmp_path / "pUC19", bases))["ori"]
+    start, end = ori["start"], ori["end"]
+    assert ori["strand"] == "reverse" and end > start
+    every15 = _every(bases, start, end, 15)
+    hits = found(annotated(tmp_path / "every-15th", every15))
+    assert [(h["start"], h["end"]) for h in hits["ori"]] == [(start, end)]
+    identity = float(hits["ori"][0]["qualifiers"]["identity"].rstrip("%"))
+    assert 92.5 < identity < 94.0
+    assert sorted(hits) == ["AmpR", "lac promoter", "ori"]
+    # Twice, the second copy after the first: each is a hit.
+    twice = every15 + every15[start - 1 : end]
+    copies = found(annotated(tmp_path / "twice", twice))["ori"]
+    assert sorted((h["start"], h["end"]) for h in copies) == [
+        (start, end),
+        (len(bases) + 1, len(bases) + end - start + 1),
+    ]
+    every8 = _every(bases, start, end, 8)
+    assert "ori" not in found(annotated(tmp_path / "every-8th", every8))
+
+
 def test_a_linear_sequence_is_annotated_without_wrapping_its_origin(tmp_path: Path) -> None:
     """pUC19 cut open at its origin: the parts that don't cross the cut are still found,
     and none is annotated across the ends, since a linear molecule has none."""

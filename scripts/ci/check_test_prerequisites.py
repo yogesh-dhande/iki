@@ -145,7 +145,8 @@ def writers() -> None:
             if not (crate / "Cargo.toml").is_file():
                 continue
             filename = f"{crate.name}.wasm"
-            pin = lock.read_text().split()
+            # The digest and the module's name, then what it was built with, as comments.
+            pin = lock.read_text().splitlines()[0].split() if lock.read_text().strip() else []
             if (
                 len(pin) != 2
                 or not re.fullmatch(r"[0-9a-f]{64}", pin[0])

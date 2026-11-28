@@ -21,8 +21,9 @@ def add_command(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -
         help="List a plugin's writers, or build them and write their digests.",
         description=(
             "List each writer the plugin declares, with the digest it tracks and the crates "
-            "its Cargo.lock pins. With --update, build each in the linux/amd64 builder a "
-            "deployment's image uses (needs Docker) and write writers/<name>.wasm.sha256: "
+            "its Cargo.lock pins. With --update, build each in the linux/amd64 writer "
+            "builder a deployment's image uses (needs Docker) and write "
+            "writers/<name>.wasm.sha256, the module's digest and what it was built with: "
             "commit it with the change to the Rust, so a reviewer sees both."
         ),
     )
@@ -90,11 +91,13 @@ def run_writers(args: argparse.Namespace, out: TextIO | None = None) -> int:
                     + "\n"
                 )
                 return 1
-            line = writer_build.digest_line(writer, module)
-            (root / f"{writer.module}.wasm.sha256").write_text(line)
+            text = writer_build.digest_text(
+                writer, module, writer_build.built_with(root / writer.module)
+            )
+            (root / f"{writer.module}.wasm.sha256").write_text(text)
             if _canonical_host():
                 (root / f"{writer.module}.wasm").write_bytes(module)
-            out.write(f"Wrote {writer.module}.wasm.sha256: {line.split()[0]}\n")
+            out.write(f"Wrote {writer.module}.wasm.sha256: {text.split()[0]}\n")
         return 0
     for qualified, writer in writers.items():
         out.write(f"{qualified}: {writer.label} ({writer.format}, many: {writer.many})\n")

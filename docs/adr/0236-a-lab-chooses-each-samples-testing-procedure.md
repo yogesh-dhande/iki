@@ -1,6 +1,6 @@
 # 0236. A lab chooses each sample's testing procedure
 
-- Status: Accepted
+- Status: Superseded by [0302](0302-a-project-chooses-each-types-review-procedure-and-the-server-pins-it.md) and [0305](0305-a-type-is-a-kind-of-work-not-a-review-procedure.md): one Sample, its procedure chosen by the project and pinned at create
 - Date: 2026-11-26
 - Refines: [0211](0211-lots-inventory-samples-and-requests.md),
   [0179](0179-a-corrected-result-goes-back-for-review.md)
