@@ -1336,36 +1336,21 @@ def _reclaim_unique(record: Entity) -> None:
     """A record being restored holds its unique values again (ADR 0082), those it gave the
     record its move to an entry of another type made (ADR 0165) included. Refused if one is
     another record's now."""
-    from iki_server.entities.models import UniqueValue
-
     if record.owner_project_id is None:
         return
-    form = shape(record.type)
-    rows = Rows.of(_specific(record))
-    for part in form.parts:
-        if part.entry:
-            continue
-        for name, f in part.fields.items():
-            value = rows.value(part, f) if f.unique and not f.removed else None
-            if value is None:
-                continue
-            key = unique.key(part.model, name)
-            held = UniqueValue.objects.filter(
-                project_id=record.owner_project_id, key=key, value=str(value)
-            )
-            holder = held.exclude(entity_id=record.pk).values_list("entity__hrid", flat=True)
-            if found := holder.first():
-                raise Refused(
-                    f"Its {f.label or name} is {found}'s now, as a move gave it there: "
-                    f"{record.hrid} can't have it again, so it stays archived."
-                )
-            if not held.exists():
-                UniqueValue.objects.create(
-                    project_id=record.owner_project_id,
-                    key=key,
-                    value=str(value),
-                    entity_id=record.pk,
-                )
+    found = constraints.reclaim(record)
+    if found is None:
+        return
+    c, hrid = found
+    if c.rule.from_field:
+        name = c.rule.unique[0]
+        what, it = f"Its {c.fields[name].label or name} is", "it"
+    else:
+        what, it = f"Its values of “{c.rule.label}” are", "them"
+    raise Refused(
+        f"{what} {hrid}'s now, as a move gave {it} there: "
+        f"{record.hrid} can't have {it} again, so it stays archived."
+    )
 
 
 def link(user: User, entity: Entity, project: Project) -> bool:

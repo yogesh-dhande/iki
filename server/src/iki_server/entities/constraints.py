@@ -31,7 +31,7 @@ from functools import cache
 from typing import Any
 from uuid import UUID
 
-from django.db import IntegrityError, models
+from django.db import IntegrityError, connection, models
 from psycopg import sql
 
 from iki_server.entities import registry
@@ -41,6 +41,7 @@ from iki_server.entities.models import (
     UNIQUE_CONSTRAINT,
     UNIQUE_IN_REGISTRY,
     Entity,
+    UniqueValue,
 )
 from iki_server.entities.values import FOREIGN_KEYS, Shape, shape
 from iki_spec.model import Field, Rule
@@ -209,11 +210,47 @@ def taken(
                 continue
             found = _overlapping(c, rows, low, high)
         else:
-            found = rows.values_list("entity_id", flat=True).first()
+            # Only a record or entry that still holds its values of the rule: one moved
+            # to another type, or superseded by an entry of one, has handed them on.
+            held = UniqueValue.objects.filter(entity_id=models.OuterRef("entity_id"), key=c.key)
+            found = rows.filter(models.Exists(held)).values_list("entity_id", flat=True).first()
         if found is not None:
             hrid = Entity.objects.filter(pk=found).values_list("hrid", flat=True).first()
             out.append((c, hrid or "another record", found))
     return out
+
+
+def reclaim(record: Entity) -> tuple[Constraint, str] | None:
+    """A record being restored holds its values of its project's ``unique`` rules again
+    (ADR 0082), those it handed on when it was moved to another type (ADR 0165) included.
+    The first rule whose values another record holds now, with that record's HRID, if
+    any: then it takes none of them back."""
+    mine = [c for c in constraints_of(record.type) if c.rule.kind == "unique" and not c.in_registry]
+    with connection.cursor() as cursor:
+        for c in mine:
+            cursor.execute(
+                sql.SQL(
+                    "SELECT o.hrid FROM ({computed}) x JOIN iki_unique_value u "
+                    "ON u.project_id = x.scope_id AND u.key = %s AND u.digest = {digest} "
+                    "AND u.entity_id <> x.entity_id JOIN iki_entity o ON o.id = u.entity_id "
+                    "WHERE x.entity_id = %s AND x.value IS NOT NULL LIMIT 1"
+                ).format(computed=_computed(c), digest=sql.SQL(DIGEST.format("x.value"))),
+                [c.key, record.pk],
+            )
+            found = cursor.fetchone()
+            if found is not None:
+                return c, found[0]
+        for c in mine:
+            cursor.execute(
+                sql.SQL(
+                    "INSERT INTO iki_unique_value (project_id, key, value, digest, entity_id) "
+                    "SELECT x.scope_id, %s, x.value, {digest}, x.entity_id FROM ({computed}) x "
+                    "WHERE x.entity_id = %s AND x.value IS NOT NULL "
+                    "ON CONFLICT (entity_id, key) DO NOTHING"
+                ).format(computed=_computed(c), digest=sql.SQL(DIGEST.format("x.value"))),
+                [c.key, record.pk],
+            )
+    return None
 
 
 def _typed(f: Field, allowed: Iterable[str]) -> list[Any]:
