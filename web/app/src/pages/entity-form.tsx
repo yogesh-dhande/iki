@@ -68,7 +68,7 @@ import { fieldLabels, isServiceField, listed, writableFields } from "../requests
 import { breakErrors, useRuleBreaks, type RuleBreak } from "../rules";
 
 import { AppPreview } from "./app-preview";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
 
 type Drafts = Record<string, Draft>;
 
