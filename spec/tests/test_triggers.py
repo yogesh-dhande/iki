@@ -788,6 +788,8 @@ def test_a_reference_is_watched_when_none_is(tmp_path: Path) -> None:
     result = reads(tmp_path, body)
     assert codes(result) == ["trigger-reads-unwatched"] * 2
     assert {p.message.split("`")[3] for p in result.problems} == {"method", "reagent"}
+    # It's pinned on the action the trigger runs, as there's no `watch_included` to point at.
+    assert {p.path for p in result.problems} == {("action",)}
 
 
 @pytest.mark.parametrize("reference", ["reagent", "standard"])

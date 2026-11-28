@@ -347,7 +347,7 @@ class _Rules:
                         f"doesn't watch it: a record worked out from one would stay as it was "
                         "when it changes, with no notice that it needs working out again.",
                         source,
-                        ("watch_included",) if trigger.watch_included else ("run",),
+                        ("watch_included",) if trigger.watch_included else ("action",),
                         hint=f"Add `watch_included: {{ {name}: [...] }}`, naming the fields of "
                         "it the calculation reads; a fixed one never changes, and naming it "
                         "says the calculation reads it.",
