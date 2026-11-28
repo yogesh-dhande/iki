@@ -77,7 +77,7 @@ describe("positions", () => {
       resolution: null,
       resolution_stale: false,
       resolved_by: null,
-      line_revision: 1,
+      revision: 1,
       observation: null,
       reviewed_observation: null,
     };

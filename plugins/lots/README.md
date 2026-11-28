@@ -32,19 +32,18 @@ which every project in a registry picks from. Each starts with the common method
 a list's curators add the lab's own, relabel, reorder and archive them, each with a
 reason:
 
-| List                                  | Used by                                    | Starts with                                                                                  |
-| ------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| `iki/lots.ProteinConcentrationMethod` | A biologic lot's concentration method      | A280, BCA assay, Bradford assay, amino acid analysis                                         |
-| `iki/lots.PurityMethod`               | A biologic lot's purity method             | SEC-HPLC, CE-SDS non-reduced and reduced, RP-HPLC, SDS-PAGE densitometry                     |
-| `iki/lots.AggregatesMethod`           | A biologic lot's aggregates method         | SEC-HPLC, SEC-MALS, AUC sedimentation velocity                                               |
-| `iki/lots.DNAConcentrationMethod`     | A plasmid prep's concentration method      | A260, fluorescent dye assay                                                                  |
-| `iki/lots.PlasmidPrepMethod`          | A plasmid prep's method                    | Silica spin column, anion exchange, endotoxin-free anion exchange, caesium chloride gradient |
-| `iki/lots.PlasmidVerificationMethod`  | How a plasmid prep's sequence was verified | Whole-plasmid sequencing, Sanger sequencing, restriction digest                              |
-| `iki/lots.MolarMassMethod`            | A polymer lot's Mn and Mw methods          | SEC (conventional, universal, MALS), MALDI-TOF MS, NMR end groups, osmometry, SLS, AUC       |
-| `iki/lots.SECCalibrationStandard`     | A polymer lot's SEC calibration standards  | Polystyrene, PMMA, PEG, PEO, pullulan, dextran                                               |
-| `iki/lots.OligoPurification`          | An oligonucleotide lot's purification      | Desalted, cartridge, RP-HPLC, IE-HPLC, PAGE                                                  |
-| `iki/lots.OligoPurityMethod`          | An oligonucleotide lot's purity method     | IP-RP-HPLC, AEX-HPLC, capillary electrophoresis, LC-MS                                       |
-| `iki/lots.OligoCounterion`            | An oligonucleotide lot's counterion        | Sodium, ammonium, triethylammonium                                                           |
+| List                                  | Used by                                    | Starts with                                                                                    |
+| ------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `iki/lots.ProteinConcentrationMethod` | A biologic lot's concentration method      | A280, BCA assay, Bradford assay, amino acid analysis                                           |
+| `iki/lots.PurityMethod`               | Every lot's purity method                  | SEC-HPLC, CE-SDS, RP-HPLC, SDS-PAGE, IP-RP-HPLC, AEX-HPLC, CE, LC-MS, GC-FID, quantitative NMR |
+| `iki/lots.AggregatesMethod`           | A biologic lot's aggregates method         | SEC-HPLC, SEC-MALS, AUC sedimentation velocity                                                 |
+| `iki/lots.DNAConcentrationMethod`     | A plasmid prep's concentration method      | A260, fluorescent dye assay                                                                    |
+| `iki/lots.PlasmidPrepMethod`          | A plasmid prep's method                    | Silica spin column, anion exchange, endotoxin-free anion exchange, caesium chloride gradient   |
+| `iki/lots.PlasmidVerificationMethod`  | How a plasmid prep's sequence was verified | Whole-plasmid sequencing, Sanger sequencing, restriction digest                                |
+| `iki/lots.MolarMassMethod`            | A polymer lot's Mn and Mw methods          | SEC (conventional, universal, MALS), MALDI-TOF MS, NMR end groups, osmometry, SLS, AUC         |
+| `iki/lots.SECCalibrationStandard`     | A polymer lot's SEC calibration standards  | Polystyrene, PMMA, PEG, PEO, pullulan, dextran                                                 |
+| `iki/lots.OligoPurification`          | An oligonucleotide lot's purification      | Desalted, cartridge, RP-HPLC, IE-HPLC, PAGE                                                    |
+| `iki/lots.OligoCounterion`            | An oligonucleotide lot's counterion        | Sodium, ammonium, triethylammonium                                                             |
 
 Iki's own calculations run only for the methods they implement. A concentration
 method's option says which, its **calculation**: A280 for a biologic lot, A260 for a
@@ -60,8 +59,9 @@ Mn, not Mw.
 `iki/lots.Lot` (abstract) gives every kind:
 
 - **Where it came from:** its lot number (its supplier's, or the lab's own),
-  whether it was made or bought, its supplier and catalogue number, who made
-  it, when it was made and received, and when it's retested and expires,
+  whether it was made or bought, its supplier (one of the registry's
+  `iki/inventory.Supplier`, so a search by supplier finds every kind of lot)
+  and catalogue number, who made it, when it was made and received, and when it's retested and expires,
   with its storage conditions, and who's responsible for it, such as whoever
   ordered a bought lot. Its expiry is after it was made, and its retest date
   by its expiry: the type's rules keep both at every save.

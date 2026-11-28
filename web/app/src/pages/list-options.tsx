@@ -10,7 +10,7 @@
  * each option, in every project, never which. Everyone else reads it.
  */
 
-import { ApiError, unwrap } from "@ikisci/sdk";
+import { isStale, unwrap } from "@ikisci/sdk";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import {
@@ -38,6 +38,7 @@ import {
 } from "react-aria-components";
 
 import { iki, problemOf, useApiMutation } from "../api";
+import { useRevisioned, type IfMatch } from "../revisioned";
 import {
   inSentence,
   personName,
@@ -46,8 +47,7 @@ import {
   type FieldDef,
   type Ref,
 } from "../entities";
-import { FieldInput } from "../entity-inputs";
-import { encode, isBlank, same, toDraft, type Draft } from "../entity-values";
+import { toDraft } from "../entity-values";
 import { required, useForm } from "../forms";
 import {
   curatorsQuery,
@@ -76,6 +76,7 @@ import {
   TextField,
   useMessages,
 } from "../ui";
+import { FactsForm } from "./facts-form";
 
 interface Scope {
   registry: string;
@@ -721,11 +722,6 @@ function Curators({ list, registry }: { list: LabList; registry: Registry | unde
 
 // --- Changing it ----------------------------------------------------------------------------
 
-/** A list's change was refused because the option changed since it was read (412). */
-function isStale(error: unknown): boolean {
-  return error instanceof ApiError && error.problem.code === "stale";
-}
-
 function Shell({
   title,
   busy,
@@ -817,193 +813,94 @@ function OptionDialog({
   refs: Record<string, Ref>;
   onClose: () => void;
 }) {
-  const client = useQueryClient();
   const { say } = useMessages();
   const adding = given === undefined;
   const fields = editable(type, adding);
-  // The option as it was read: brought up to date when a save finds it changed since.
-  const [option, setOption] = useState(given);
+  // The option as the page has it now, which a refetch brings up to date.
+  const options = useQuery(optionsQuery(type.name, scope, true));
+  const live = given && (options.data?.find((o) => o.code === given.code) ?? given);
   const valuesOf = (o: ListOption | undefined): Record<string, unknown> =>
     o ? { ...o.values, code: o.code, label: o.label, description: o.description || null } : {};
-  const start = (o: ListOption | undefined) =>
-    Object.fromEntries(
-      fields.map((f) => [
-        f.name,
-        toDraft(f, valuesOf(o)[f.name] ?? null, { refs, files: {}, people: {} }),
-      ]),
-    );
-  const [base, setBase] = useState<Record<string, Draft>>(() => start(option));
-  const [drafts, setDrafts] = useState<Record<string, Draft>>(() => start(option));
-  const [reason, setReason] = useState("");
-  const [unchanged, setUnchanged] = useState(false);
-  const [reloading, setReloading] = useState(false);
-  const save = useApiMutation(
-    async (values: Record<string, unknown>): Promise<ListOption> => {
-      if (!option) {
-        const { code, label, description, ...facts } = values;
+  return (
+    <FactsForm
+      item={live}
+      name={given?.label ?? "it"}
+      fields={fields}
+      type={type}
+      types={types}
+      registryId={scope.registry}
+      draftsOf={(o) =>
+        Object.fromEntries(
+          fields.map((f) => [
+            f.name,
+            toDraft(f, valuesOf(o)[f.name] ?? null, { refs, files: {}, people: {} }),
+          ]),
+        )
+      }
+      save={async ({ values, reason, header }): Promise<ListOption> => {
+        if (!given || !header) {
+          const { code, label, description, ...facts } = values;
+          return unwrap(
+            await iki.POST("/api/v1/lists/{name}/options", {
+              params: { path: { name: type.name }, query: scope },
+              body: {
+                code: typeof code === "string" ? code : "",
+                label: typeof label === "string" ? label : "",
+                description: typeof description === "string" ? description : "",
+                values: facts,
+                reason,
+              },
+            }),
+          );
+        }
+        const { label, description, ...facts } = values;
         return unwrap(
-          await iki.POST("/api/v1/lists/{name}/options", {
-            params: { path: { name: type.name }, query: scope },
+          await iki.PATCH("/api/v1/lists/{name}/options/{code}", {
+            params: { path: { name: type.name, code: given.code }, query: scope, header },
             body: {
-              code: typeof code === "string" ? code : "",
-              label: typeof label === "string" ? label : "",
-              description: typeof description === "string" ? description : "",
+              ...(label !== undefined ? { label: typeof label === "string" ? label : "" } : {}),
+              ...(description !== undefined
+                ? { description: typeof description === "string" ? description : "" }
+                : {}),
               values: facts,
-              reason: reason.trim(),
+              reason,
             },
           }),
         );
-      }
-      const { label, description, ...facts } = values;
-      return unwrap(
-        await iki.PATCH("/api/v1/lists/{name}/options/{code}", {
-          params: {
-            path: { name: type.name, code: option.code },
-            query: scope,
-            header: { "If-Match": `"${String(option.revision)}"` },
-          },
-          body: {
-            ...(label !== undefined ? { label: typeof label === "string" ? label : "" } : {}),
-            ...(description !== undefined
-              ? { description: typeof description === "string" ? description : "" }
-              : {}),
-            values: facts,
-            reason: reason.trim(),
-          },
-        }),
-      );
-    },
-    [LAB_LISTS],
-  );
-  const stale = isStale(save.error);
-  const form = useForm(stale ? null : save.error, save.isPending);
-  const reasonError = form.errors["reason"] ?? form.errors["values/reason"];
-
-  const reload = async () => {
-    setReloading(true);
-    try {
-      const fresh = await client.query({
-        ...optionsQuery(type.name, scope, true),
-        staleTime: 0,
-      });
-      const now = fresh.find((o) => o.code === option?.code);
-      setOption(now);
-      const drafted = start(now);
-      setBase(drafted);
-      setDrafts(drafted);
-      save.reset();
-    } finally {
-      setReloading(false);
-    }
-  };
-
-  return (
-    <Shell
-      title={adding ? `Add an option to ${inSentence(list.label_plural)}` : `Edit ${given.label}`}
-      busy={save.isPending}
-      onClose={onClose}
+      }}
+      invalidate={[LAB_LISTS]}
+      refresh={LAB_LISTS}
+      reasonHelp="Why, for the record. Every project in the registry sees it in its history."
+      reasonMissing="Say why: every project in the registry sees it."
+      submitLabel={adding ? "Add option" : "Save"}
+      onSaved={(saved) => {
+        onClose();
+        say(
+          adding
+            ? `Added ${saved.label}. Every project in the registry can pick it.`
+            : `Saved ${saved.label}. Records that name it show it as it’s called now.`,
+        );
+      }}
+      onCancel={onClose}
+      frame={(form, busy) => (
+        <Shell
+          title={
+            adding ? `Add an option to ${inSentence(list.label_plural)}` : `Edit ${given.label}`
+          }
+          busy={busy}
+          onClose={onClose}
+        >
+          {form}
+        </Shell>
+      )}
     >
-      <form
-        {...form.props}
-        onSubmit={(event: SubmitEvent<HTMLFormElement>) => {
-          event.preventDefault();
-          setUnchanged(false);
-          const values: Record<string, unknown> = {};
-          const checks: Record<string, string | false> = adding
-            ? {}
-            : { reason: required(reason, "Say why: every project in the registry sees it.") };
-          for (const f of fields) {
-            const draft = drafts[f.name] ?? null;
-            if (!adding && same(draft, base[f.name])) continue;
-            if (isBlank(f, draft)) {
-              if (f.required) checks[`values/${f.name}`] = `Enter its ${inSentence(f.label)}.`;
-              else if (!adding) values[f.name] = f.name === "description" ? "" : null;
-              continue;
-            }
-            const encoded = encode(f, draft, type);
-            if (encoded.ok) values[f.name] = encoded.value;
-            else checks[`values/${f.name}`] = encoded.error;
-          }
-          if (!form.validate(checks)) return;
-          if (!adding && !Object.keys(values).length) {
-            setUnchanged(true);
-            return;
-          }
-          save.mutate(values, {
-            onSuccess: (saved) => {
-              onClose();
-              say(
-                adding
-                  ? `Added ${saved.label}. Every project in the registry can pick it.`
-                  : `Saved ${saved.label}. Records that name it show it as it’s called now.`,
-              );
-            },
-          });
-        }}
-      >
-        {stale ? (
-          <div className="alert alert-warning" role="alert">
-            <p>
-              Someone changed {given?.label ?? "it"} since you opened it, so nothing was saved. Load
-              the latest to see what it says now, then make your change again.
-            </p>
-            <div className="actions">
-              <Button
-                busy={reloading}
-                busyText="Loading…"
-                onClick={() => {
-                  void reload();
-                }}
-              >
-                Load the latest
-              </Button>
-            </div>
-          </div>
-        ) : unchanged ? (
-          <div className="alert alert-warning" role="alert">
-            <p>Nothing to save: you haven’t changed anything.</p>
-          </div>
-        ) : (
-          form.alert
-        )}
-        {!adding && option ? (
-          <p className="muted">
-            Its code is <code>{option.code}</code>, which never changes. If it’s wrong, add an
-            option with the right one and supersede this one with it.
-          </p>
-        ) : null}
-        {fields.map((f) => (
-          <FieldInput
-            key={f.name}
-            field={f}
-            type={type}
-            types={types}
-            draft={drafts[f.name] ?? null}
-            onChange={(draft) => {
-              setDrafts((current) => ({ ...current, [f.name]: draft }));
-            }}
-            error={form.errors[`values/${f.name}`]}
-            projectId=""
-            registryId={scope.registry}
-          />
-        ))}
-        <ReasonField value={reason} onChange={setReason} error={reasonError} optional={adding} />
-        <div className="actions">
-          <Button
-            type="submit"
-            variant="primary"
-            busy={save.isPending}
-            busyText="Saving…"
-            disabled={stale}
-          >
-            {adding ? "Add option" : "Save"}
-          </Button>
-          <Button variant="quiet" onClick={onClose} disabled={save.isPending}>
-            Cancel
-          </Button>
-        </div>
-      </form>
-    </Shell>
+      {!adding && live ? (
+        <p className="muted">
+          Its code is <code>{live.code}</code>, which never changes. If it’s wrong, add an option
+          with the right one and supersede this one with it.
+        </p>
+      ) : null}
+    </FactsForm>
   );
 }
 
@@ -1027,21 +924,23 @@ function ArchiveDialog({
   const { say } = useMessages();
   const [reason, setReason] = useState("");
   const run = useApiMutation(
-    async () =>
+    async (header: IfMatch) =>
       unwrap(
         archive
           ? await iki.POST("/api/v1/lists/{name}/options/{code}/archive", {
-              params: { path: { name: list.type, code: option.code }, query: scope },
+              params: { path: { name: list.type, code: option.code }, query: scope, header },
               body: { reason: reason.trim() },
             })
           : await iki.POST("/api/v1/lists/{name}/options/{code}/restore", {
-              params: { path: { name: list.type, code: option.code }, query: scope },
+              params: { path: { name: list.type, code: option.code }, query: scope, header },
               body: { reason: reason.trim() },
             }),
       ),
     [LAB_LISTS],
   );
-  const form = useForm(run.error, run.isPending);
+  // Made from the option as the dialog opened (ADR 0300).
+  const rev = useRevisioned(option, { error: run.error, refresh: LAB_LISTS });
+  const form = useForm(isStale(run.error) ? null : run.error, run.isPending || rev.rereading);
   const uses = option.uses ?? 0;
   return (
     <Shell
@@ -1056,20 +955,31 @@ function ArchiveDialog({
           if (!form.validate({ reason: required(reason, "Say why: every project sees it.") })) {
             return;
           }
-          run.mutate(undefined, {
-            onSuccess: () => {
-              onChanged(option);
-              onClose();
-              say(
-                archive
-                  ? `Archived ${option.label}. Dropdowns don’t offer it; records that name it keep it.`
-                  : `Restored ${option.label}. Dropdowns offer it again.`,
-              );
-            },
+          rev.submit((header) => {
+            run.mutate(header, {
+              onSuccess: () => {
+                onChanged(option);
+                onClose();
+                say(
+                  archive
+                    ? `Archived ${option.label}. Dropdowns don’t offer it; records that name it keep it.`
+                    : `Restored ${option.label}. Dropdowns offer it again.`,
+                );
+              },
+            });
           });
         }}
       >
-        {form.alert}
+        {rev.changed ? (
+          <div className="alert alert-warning" role="alert">
+            <p>
+              Someone changed {option.label} while this was open, so nothing was saved yet. The list
+              now shows their change: check it, then {archive ? "archive" : "restore"} it again.
+            </p>
+          </div>
+        ) : (
+          form.alert
+        )}
         {archive ? (
           <p>
             No dropdown will offer it, in any project in the {list.registry.name} registry.{" "}
@@ -1122,16 +1032,18 @@ function SupersedeDialog({
   const [replacement, setReplacement] = useState("");
   const [reason, setReason] = useState("");
   const run = useApiMutation(
-    async () =>
+    async (header: IfMatch) =>
       unwrap(
         await iki.POST("/api/v1/lists/{name}/options/{code}/supersede", {
-          params: { path: { name: list.type, code: option.code }, query: scope },
+          params: { path: { name: list.type, code: option.code }, query: scope, header },
           body: { replacement, reason: reason.trim() },
         }),
       ),
     [LAB_LISTS],
   );
-  const form = useForm(run.error, run.isPending);
+  // Made from the option as the dialog opened (ADR 0300).
+  const rev = useRevisioned(option, { error: run.error, refresh: LAB_LISTS });
+  const form = useForm(isStale(run.error) ? null : run.error, run.isPending || rev.rereading);
   const chosen = others.find((o) => o.code === replacement);
   const uses = option.uses ?? 0;
   return (
@@ -1148,18 +1060,29 @@ function SupersedeDialog({
           ) {
             return;
           }
-          run.mutate(undefined, {
-            onSuccess: (saved) => {
-              onChanged(option);
-              onClose();
-              say(
-                `Superseded ${saved.label} with ${saved.superseded_by?.label ?? replacement}. Each project whose records name it has been told.`,
-              );
-            },
+          rev.submit((header) => {
+            run.mutate(header, {
+              onSuccess: (saved) => {
+                onChanged(option);
+                onClose();
+                say(
+                  `Superseded ${saved.label} with ${saved.superseded_by?.label ?? replacement}. Each project whose records name it has been told.`,
+                );
+              },
+            });
           });
         }}
       >
-        {form.alert}
+        {rev.changed ? (
+          <div className="alert alert-warning" role="alert">
+            <p>
+              Someone changed {option.label} while this was open, so nothing was saved yet. The list
+              now shows their change: check it, then supersede it again.
+            </p>
+          </div>
+        ) : (
+          form.alert
+        )}
         <p>
           For an option added by mistake, such as one with the wrong code: it’s replaced for good,
           and dropdowns offer its replacement instead.{" "}
@@ -1216,6 +1139,11 @@ export function movedTo(order: readonly string[], from: number, to: number): str
   if (code === undefined) return next;
   next.splice(Math.max(0, Math.min(next.length, to)), 0, code);
   return next;
+}
+
+/** Each option's revision, by code: what a new order is made from. */
+function revisionsOf(options: readonly ListOption[]): Record<string, number> {
+  return Object.fromEntries(options.map((o) => [o.code, o.revision]));
 }
 
 /** A reordering: the new order, the option last moved, the page shown, and what's being
@@ -1298,6 +1226,9 @@ function ReorderOptions({
     over: null,
   }));
   const { order, page } = state;
+  // Each option's revision as the order was read: one changed, added or removed since, by
+  // someone else, refuses the save (412) rather than undo their change.
+  const [read, setRead] = useState(() => revisionsOf(options));
   const [reason, setReason] = useState("");
   const [placing, setPlacing] = useState<string | null>(null);
   const focusing = useRef<{ code: string; direction: Direction } | null>(null);
@@ -1308,7 +1239,7 @@ function ReorderOptions({
       unwrap(
         await iki.PUT("/api/v1/lists/{name}/order", {
           params: { path: { name: list.type }, query: scope },
-          body: { codes: order, reason: reason.trim() },
+          body: { codes: order, expected_revisions: read, reason: reason.trim() },
         }),
       ),
     [LAB_LISTS],
@@ -1325,6 +1256,7 @@ function ReorderOptions({
         staleTime: 0,
       });
       dispatch({ kind: "start", order: fresh.map((o) => o.code) });
+      setRead(revisionsOf(fresh));
       save.reset();
     } finally {
       setReloading(false);

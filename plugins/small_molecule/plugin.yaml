@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/small_molecule
-version: 0.3.0
+version: 0.3.1
 title: Small molecule
 description: >-
   Compounds, registered by their standard InChIKey, and their batches, with RDKit's
@@ -10,3 +10,5 @@ description: >-
 license: Apache-2.0
 iki: ">=0.1"
 homepage: https://ikisci.org/plugins/small_molecule
+dependencies:
+  iki/inventory: { types: { Supplier: ">=1" } }

@@ -5,7 +5,7 @@ name: GenericLot
 label: Generic lot
 label_plural: Generic lots
 extends: Lot
-schema_version: 1
+schema_version: 2
 description: >-
   A lot of any entity that has no lot type of its own, kept by mass: its concentration,
   if it's a solution, and its purity. A liquid kept by volume is a Generic lot by volume,
@@ -40,9 +40,9 @@ fields:
     indexed: true
     description: How pure it is.
   purity_method:
-    type: string
+    type: ref
+    to: PurityMethod
     label: Purity by
-    max_length: 200
-    description: How its purity was measured, such as HPLC at 254 nm.
+    description: How its purity was measured, from the lab's list, such as RP-HPLC or quantitative NMR.
 display:
   title: "{{ lot_number or hrid }}"

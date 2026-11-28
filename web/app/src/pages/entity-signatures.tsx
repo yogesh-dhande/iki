@@ -8,13 +8,14 @@
  * `?signing=` and the attempt's ID, whose outcome this page then shows.
  */
 
-import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
+import { unwrap, type Schemas, isStale } from "@ikisci/sdk";
 import { keepPreviousData, queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useState } from "react";
 
 import { fieldErrors, iki, meQuery, problemOf, useApiMutation } from "../api";
 import { apiRef, ENTITIES, type Entity } from "../entities";
+import { useRevisioned, type IfMatch } from "../revisioned";
 import {
   Badge,
   Button,
@@ -88,13 +89,7 @@ export function EntitySignatures({ entity, signing }: { entity: Entity; signing?
   const signatures = listed.data?.items ?? [];
   const missing = listed.data?.missing ?? [];
   const wanted = entity.can.sign;
-  const version = `${entity.id}:${String(entity.revision)}:${entity.entry?.id ?? ""}:${String(entity.entry?.revision ?? "")}`;
-  const [chosen, setChosen] = useState<{
-    field: string;
-    to: string;
-    index: number;
-    version: string;
-  } | null>(null);
+  const [chosen, setChosen] = useState<{ field: string; to: string; index: number } | null>(null);
   const [withdrawing, setWithdrawing] = useState<Signature | null>(null);
   const chosenChange = chosen
     ? wanted.find((change) => change.field === chosen.field && change.to === chosen.to)
@@ -113,7 +108,7 @@ export function EntitySignatures({ entity, signing }: { entity: Entity; signing?
           key={`${change.field}:${change.to}`}
           change={change}
           onSign={(slot) => {
-            setChosen({ field: change.field, to: change.to, index: slot.index, version });
+            setChosen({ field: change.field, to: change.to, index: slot.index });
           }}
         />
       ))}
@@ -157,11 +152,9 @@ export function EntitySignatures({ entity, signing }: { entity: Entity; signing?
       ) : null}
       {chosen && chosenChange && chosenSlot ? (
         <SignDialog
-          key={version}
           entity={entity}
           change={chosenChange}
           slot={chosenSlot}
-          changed={chosen.version !== version}
           onClose={() => {
             setChosen(null);
           }}
@@ -295,13 +288,11 @@ function SignDialog({
   entity,
   change,
   slot,
-  changed,
   onClose,
 }: {
   entity: Entity;
   change: SignCan;
   slot: Slot;
-  changed: boolean;
   onClose: () => void;
 }) {
   // Whether it's their first signature, and so needs their agreement, comes after the
@@ -316,13 +307,10 @@ function SignDialog({
   const [agreed, setAgreed] = useState(false);
   const [missing, setMissing] = useState<"" | "reason" | "agreement">("");
   const begin = useApiMutation(
-    async () =>
+    async ({ header, entry }: { header: IfMatch; entry: number | undefined }) =>
       unwrap(
         await iki.POST("/api/v1/entities/{ref}/signatures", {
-          params: {
-            path: { ref: entity.id },
-            header: { "If-Match": `"${String(entity.revision)}"` },
-          },
+          params: { path: { ref: entity.id }, header },
           body: {
             field: change.field,
             state: change.to,
@@ -330,16 +318,28 @@ function SignDialog({
             reason: reason.trim(),
             acknowledge: agreed,
             return_to: here,
-            ...(entity.entry ? { entry_revision: entity.entry.revision } : {}),
+            ...(entry !== undefined ? { entry_revision: entry } : {}),
           },
         }),
       ),
     [],
   );
-  const client = useQueryClient();
-  const problem = begin.error ? problemOf(begin.error) : undefined;
+  // It signs the revision it was opened at, and its registry entry's: what the person
+  // read. If either moves on, it says so and they review and sign again.
+  const rev = useRevisioned(entity, {
+    error: begin.error,
+    refresh: ENTITIES,
+    version: (e) => `${String(e.revision)}:${String(e.entry?.revision ?? "")}`,
+    onCatchUp: () => {
+      setReason("");
+      setAgreed(false);
+      setMissing("");
+    },
+  });
+  const read = rev.read;
+  const changed = rev.changed;
+  const problem = begin.error && !isStale(begin.error) ? problemOf(begin.error) : undefined;
   const errors = fieldErrors(problem);
-  const stale = begin.error instanceof ApiError && begin.error.problem.code === "stale";
   const acknowledging = mine ? !mine.acknowledged : false;
   const reasonRequired = change.reason === "required" || (changed && change.reason === "optional");
   const reasonError =
@@ -351,28 +351,22 @@ function SignDialog({
       title={`Sign ${entity.hrid}: ${slot.label}`}
       confirmLabel="Sign in again to sign"
       confirmVariant="primary"
-      confirmDisabled={mine === undefined || stale || !slot.allowed}
-      busy={begin.isPending || begin.isSuccess}
+      confirmDisabled={mine === undefined || !slot.allowed}
+      busy={begin.isPending || begin.isSuccess || rev.rereading}
       problem={
-        stale && problem
-          ? {
-              ...problem,
-              detail:
-                "It changed while this was open. Read the current revision before signing again.",
-            }
-          : problem && !errors["reason"]
-            ? problem
-            : signing.error
-              ? problemOf(signing.error)
-              : mine && !mine.can_sign && mine.why_not
-                ? {
-                    type: "about:blank",
-                    title: "Can’t sign",
-                    status: 403,
-                    code: "cannot_sign",
-                    detail: mine.why_not,
-                  }
-                : undefined
+        problem && !errors["reason"]
+          ? problem
+          : signing.error
+            ? problemOf(signing.error)
+            : mine && !mine.can_sign && mine.why_not
+              ? {
+                  type: "about:blank",
+                  title: "Can’t sign",
+                  status: 403,
+                  code: "cannot_sign",
+                  detail: mine.why_not,
+                }
+              : undefined
       }
       onCancel={onClose}
       onConfirm={() => {
@@ -384,18 +378,15 @@ function SignDialog({
           setMissing("agreement");
           return;
         }
-        begin.mutate(undefined, {
-          onSuccess: (started) => {
-            leave.to(started.sign_in_url);
-          },
-          onError: (error) => {
-            if (error.problem.code === "stale") {
-              setReason("");
-              setAgreed(false);
-              setMissing("");
-              void client.invalidateQueries({ queryKey: ENTITIES });
-            }
-          },
+        rev.submit((header) => {
+          begin.mutate(
+            { header, entry: read.entry?.revision },
+            {
+              onSuccess: (started) => {
+                leave.to(started.sign_in_url);
+              },
+            },
+          );
         });
       }}
     >
@@ -408,10 +399,10 @@ function SignDialog({
       ) : null}
       {!slot.allowed && slot.why_not ? <p role="alert">{slot.why_not}</p> : null}
       <p>
-        You sign revision {entity.revision} of {entity.hrid} as it is now, for setting its{" "}
+        You sign revision {read.revision} of {entity.hrid} as it is now, for setting its{" "}
         {change.field_label.toLowerCase()} to {change.to_label}.
       </p>
-      {entity.entry ? <p>Shared registry facts at revision {entity.entry.revision}.</p> : null}
+      {read.entry ? <p>Shared registry facts at revision {read.entry.revision}.</p> : null}
       <blockquote className="statement">
         <p>
           <strong>{slot.meaning_label}.</strong> {slot.statement}

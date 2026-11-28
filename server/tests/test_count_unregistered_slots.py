@@ -3,7 +3,7 @@
 from typing import Any
 
 import pytest
-from api_client import Api
+from api_client import Api, problem, seen
 from org_world import World
 from test_count_observation_history import history, review
 from test_storage import box, contents, errors, tube, world
@@ -61,14 +61,14 @@ def test_rack_file_preserves_three_separate_observations_through_completion(worl
         saved = api.patch(
             f"{path}/lines/{line['id']}",
             {
-                "line_revision": line["line_revision"],
                 "resolution": "kept",
                 "note": f"Physical tube observed at {line['found']}",
             },
+            headers=seen(line["revision"]),
         )
         assert saved.status_code == 200, saved.content
-    revision = api.get(path).json()["plan_revision"]
-    done = api.post(f"{path}/complete", {"plan_revision": revision})
+    revision = api.get(path).json()["revision"]
+    done = api.post(f"{path}/complete", {}, headers=seen(revision))
     assert done.status_code == 200, done.content
     closed = by_slot(done.json())
     assert {slot: row["id"] for slot, row in closed.items()} == {
@@ -146,7 +146,7 @@ def test_moving_one_of_two_identical_labels_checks_the_named_line_revision_and_r
     )
     assert refreshed.status_code == 200, refreshed.content
     seen = by_slot(refreshed.json())["A2"]
-    assert seen["id"] == a2["id"] and seen["line_revision"] > a2["line_revision"]
+    assert seen["id"] == a2["id"] and seen["revision"] > a2["revision"]
     assert seen["observation"]["id"] != a2["observation"]["id"]
     before = snapshot(editor, path)
     move = reading("A3", unregistered={"action": "move", "line_id": a2["id"]})
@@ -155,8 +155,7 @@ def test_moving_one_of_two_identical_labels_checks_the_named_line_revision_and_r
         refused = editor.post(
             f"{path}/scans", {"scans": [move], "reviewed_lines": bad_review, "reason": why}
         )
-        assert refused.status_code == 409, refused.content
-        assert refused.json()["affected_lines"] == [review(seen)]
+        assert problem(refused, 412, "stale")["affected_lines"] == [review(seen)]
     no_reason = editor.post(f"{path}/scans", {"scans": [move], "reviewed_lines": [review(seen)]})
     assert "#/reason" in errors(no_reason)
     assert snapshot(editor, path) == before
@@ -286,8 +285,7 @@ def test_correcting_an_unregistered_label_preserves_its_slot_line_and_the_other_
     corrected = reading("A1", "CORRECTED-Y")
     why = "Read the label again under better light"
     missing_review = admin.post(f"{path}/scans", {"scans": [corrected], "reason": why})
-    assert missing_review.status_code == 409, missing_review.content
-    assert missing_review.json()["affected_lines"] == [review(old["A1"])]
+    assert problem(missing_review, 412, "stale")["affected_lines"] == [review(old["A1"])]
     payload = {"scans": [corrected], "reviewed_lines": [review(old["A1"])]}
     assert "#/reason" in errors(admin.post(f"{path}/scans", payload))
     assert snapshot(editor, path) == initial
@@ -296,9 +294,7 @@ def test_correcting_an_unregistered_label_preserves_its_slot_line_and_the_other_
     assert saved.status_code == 200, saved.content
     at = by_slot(saved.json())
     assert set(at) == {"A1", "A2"} and at["A2"] == old["A2"]
-    assert (
-        at["A1"]["id"] == old["A1"]["id"] and at["A1"]["line_revision"] > old["A1"]["line_revision"]
-    )
+    assert at["A1"]["id"] == old["A1"]["id"] and at["A1"]["revision"] > old["A1"]["revision"]
     assert at["A1"]["entity"] is None and at["A1"]["code"] == "CORRECTED-Y"
     events = history(admin, path)
     assert events[:-1] == initial[1]

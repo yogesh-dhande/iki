@@ -82,22 +82,134 @@ def test_openapi_is_published_without_a_bundled_ui() -> None:
     problem(api.get("/docs"), 404, "not_found")
 
 
+# --- Preconditions (ADR 0289) ---------------------------------------------------------
+
+#: What has a revision, by the path that addresses it, and the read that answers its ETag.
+_REVISIONED = {
+    "/api/v1/entities/{ref}": "/api/v1/entities/{ref}",
+    "/api/v1/entities/{ref}/amount": "/api/v1/entities/{ref}/amount",
+    "/api/v1/entries/{ref}": "/api/v1/entries/{ref}",
+    "/api/v1/lists/{name}/options/{code}": "/api/v1/lists/{name}/options/{code}",
+    "/api/v1/spreadsheet-imports/{import_id}": "/api/v1/spreadsheet-imports/{import_id}",
+    "/api/v1/spreadsheet-mappings/{mapping_id}": None,
+    "/api/v1/receipts/{receipt_id}": "/api/v1/receipts/{receipt_id}",
+    "/api/v1/reconciliations/{reconciliation_id}": "/api/v1/reconciliations/{reconciliation_id}",
+}
+#: Changes under a revisioned path that replace nothing recorded, so name no revision: an
+#: addition (two at once are two, and neither loses the other), or a change to something
+#: else (a person's watch, a project's share), or one whose revisions are in its body.
+_NO_PRECONDITION = {
+    ("post", "/api/v1/entities/{ref}/aliquots"),
+    ("post", "/api/v1/entities/{ref}/amount/draw"),
+    ("post", "/api/v1/entities/{ref}/amount/transfer"),
+    ("put", "/api/v1/entities/{ref}/projects/{project_id}"),
+    ("delete", "/api/v1/entities/{ref}/projects/{project_id}"),
+    ("post", "/api/v1/entities/{ref}/receipts"),
+    ("put", "/api/v1/entities/{ref}/watch"),
+    ("post", "/api/v1/entries/{ref}/records"),
+    ("post", "/api/v1/lists/{name}/options/{code}/move"),
+    ("post", "/api/v1/receipts/{receipt_id}/scan"),
+    ("post", "/api/v1/reconciliations/{reconciliation_id}/scans"),
+}
+
+
+def _headers(operation: dict[str, Any]) -> set[str]:
+    return {p["name"] for p in operation.get("parameters", []) if p["in"] == "header"}
+
+
+def test_every_change_to_something_with_a_revision_names_it_and_says_so() -> None:
+    paths = Api().get("/openapi.json").json()["paths"]
+    unguarded = []
+    for path, operations in paths.items():
+        if not any(path == r or path.startswith(r + "/") for r in _REVISIONED):
+            continue
+        for method, operation in operations.items():
+            if method == "get" or (method, path) in _NO_PRECONDITION:
+                continue
+            if not _headers(operation) & {"If-Match", "If-None-Match"}:
+                unguarded.append((method, path))
+    assert unguarded == []
+    # An exception that's gone from the API is gone from the list too.
+    assert {(m, p) for m, p in _NO_PRECONDITION if m not in paths.get(p, {})} == set()
+
+
+def test_each_precondition_declares_its_refusals_and_each_revision_its_etag() -> None:
+    paths = Api().get("/openapi.json").json()["paths"]
+    for path, operations in paths.items():
+        for method, operation in operations.items():
+            headers = _headers(operation)
+            responses = operation["responses"]
+            # A read's If-None-Match is a conditional GET (304), not a precondition.
+            checked = "If-Match" in headers or (method != "get" and "If-None-Match" in headers)
+            if not checked:
+                continue
+            assert "ETag" in responses["412"].get("headers", {}), (method, path)
+            if method != "get":
+                assert "428" in responses, (method, path)
+    for read in filter(None, _REVISIONED.values()):
+        ok = paths[read]["get"]["responses"]["200"]
+        assert "ETag" in ok.get("headers", {}), read
+
+
+@pytest.mark.parametrize(
+    ("header", "revision"),
+    [('"3"', 3), (' "3" ', 3), ('"abc"', -1), ('""', -1)],
+    ids=["strong", "spaced", "not-ours", "empty"],
+)
+def test_if_match_names_one_strong_etag(header: str, revision: int) -> None:
+    from iki_server.api import preconditions
+
+    # An ETag Iki never gave matches no revision: it's answered as stale, not refused.
+    assert preconditions.expected(header) == revision
+
+
+@pytest.mark.parametrize("header", [None, "*", '"1", "2"', 'W/"3"', "3", '"3'])
+def test_if_match_that_names_no_one_reading_is_required(header: str | None) -> None:
+    from iki_server.api import preconditions
+    from iki_server.api.problems import Problem
+
+    with pytest.raises(Problem) as refused:
+        preconditions.expected(header)
+    assert (refused.value.status, refused.value.code) == (428, "precondition_required")
+
+
+def test_if_none_match_says_nothing_was_recorded() -> None:
+    from iki_server.api import preconditions
+    from iki_server.api.problems import Problem
+
+    assert preconditions.expected_or_nothing(None, "*") is None
+    assert preconditions.expected_or_nothing('"2"', None) == 2
+    for if_match, if_none_match in ((None, None), ('"2"', "*"), (None, '"2"'), (None, "*, *")):
+        with pytest.raises(Problem) as refused:
+            preconditions.expected_or_nothing(if_match, if_none_match)
+        assert refused.value.status == 428, (if_match, if_none_match)
+
+
+def test_a_stale_answer_carries_the_current_etag() -> None:
+    from iki_server.api import preconditions
+
+    stale = preconditions.stale_revision(7)
+    assert (stale.status, stale.code, stale.headers) == (412, "stale", {"ETag": '"7"'})
+    assert not preconditions.stale(None).headers
+
+
 def test_receipt_and_count_write_bodies_publish_only_the_fields_callers_must_supply() -> None:
     from iki import schema
 
     published = Api().get("/openapi.json").json()["components"]["schemas"]
+    # The revisions they're made from are If-Match (ADR 0289), not body fields.
     for body, required in {
-        "ReceiptIn": {"plan_revision"},
+        "ReceiptIn": set(),
         "ReceiptLineIn": {"outcome"},
         "ScansIn": {"scans"},
-        "ResolveIn": {"line_revision", "resolution"},
-        "CompleteReceiptIn": {"plan_revision"},
-        "CompleteReconciliationIn": {"plan_revision"},
-        "ReviewedExtraIn": {"line_revision", "reason"},
-        "CancelReceiptIn": {"plan_revision", "reason"},
-        "CancelReconciliationIn": {"plan_revision", "reason"},
+        "ResolveIn": {"resolution"},
+        "CompleteReceiptIn": set(),
+        "CompleteReconciliationIn": set(),
+        "ExtraReasonIn": {"reason"},
+        "CancelReceiptIn": {"reason"},
+        "CancelReconciliationIn": {"reason"},
     }.items():
-        assert set(published[body]["required"]) == required, body
+        assert set(published[body].get("required", [])) == required, body
         fields = get_type_hints(getattr(schema, body), include_extras=True)
         assert {
             name for name, kind in fields.items() if get_origin(kind) is not NotRequired

@@ -187,6 +187,55 @@ def test_a_lists_registrar_curates_its_options_on_its_page(
     fits_a_phone(page)
 
 
+def test_a_colleagues_change_comes_into_an_open_edit_and_nothing_is_lost(
+    open_as: Any, world: World
+) -> None:
+    """Two registrars at once (ADR 0300): one relabels an option while the other has it
+    open to describe it. Saving refuses the old revision, brings the new label in, keeps
+    what was typed and the reason, and saving again makes both changes."""
+    registrar(world)
+    colleague = world.users["org_admin"]
+    registries.grant_role(Registry.default(), RegistryRole.Role.REGISTRAR, colleague, by=colleague)
+    page = open_as("auditor", LIST_PAGE)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    expect(options_table(page)).to_be_visible()
+
+    page.get_by_role("button", name="Change Size exclusion").click()
+    page.get_by_role("menuitem", name="Edit…").click()
+    dialog = page.get_by_role("dialog", name="Edit Size exclusion")
+    described = "Superdex 200 Increase 10/300 GL, in PBS at 0.5 mL/min."
+    dialog.get_by_role("textbox", name=re.compile("^Description")).fill(described)
+    reason(dialog).fill("Which column the core runs")
+    read = option("sec").entry
+    lists.change(
+        colleague,
+        read,
+        {"label": "Gel filtration"},
+        reason="What the core calls it",
+        expected_revision=Entity.objects.get(pk=read.pk).revision,
+    )
+    dialog.get_by_role("button", name="Save").click()
+
+    alert = dialog.get_by_role("alert")
+    expect(alert).to_contain_text("Someone changed Size exclusion while you were editing")
+    expect(alert).to_contain_text("Label now has its new value.")
+    expect(dialog.get_by_role("textbox", name="Label")).to_have_value("Gel filtration")
+    expect(dialog.get_by_role("textbox", name=re.compile("^Description"))).to_have_value(described)
+    expect(reason(dialog)).to_have_value("Which column the core runs")
+    assert option("sec").description != described
+    # Chromium and WebKit log the refusal's 412 as a failed load: that, and nothing else.
+    PAGE_ERRORS[page][:] = [
+        e for e in PAGE_ERRORS[page] if "status of 412 (Precondition Failed)" not in e
+    ]
+    checked(page)
+
+    dialog.get_by_role("button", name="Save").click()
+    expect(dialog).to_be_hidden()
+    expect(options_table(page).get_by_role("link", name="Gel filtration")).to_be_visible()
+    saved = option("sec")
+    assert (saved.label, saved.description) == ("Gel filtration", described)
+
+
 def test_a_long_list_is_read_a_page_at_a_time_and_an_option_moved_to_a_position(
     open_as: Any, world: World
 ) -> None:
@@ -270,7 +319,10 @@ def test_a_prep_picks_its_method_and_everyone_reads_it_by_its_label(
 ) -> None:
     curator = registrar(world)
     held = prep(world, "Anti-HER2 prep 11", method=str(option("dialysis").entry.pk))
-    lists.archive(curator, option("dialysis").entry, reason="Desalting columns now")
+    dialysis = option("dialysis").entry
+    lists.archive(
+        curator, dialysis, expected_revision=dialysis.revision, reason="Desalting columns now"
+    )
 
     page = open_as("editor", f"/projects/kinase-atlas/entities/new/?type={PREP}")
     page.set_viewport_size({"width": 1440, "height": 900})
@@ -418,7 +470,13 @@ def test_a_projects_records_move_off_a_superseded_option(open_as: Any, world: Wo
     wrong = lists.add(curator, registry, METHOD, {"code": "protien_g", "label": "Protein G (typo)"})
     right = lists.add(curator, registry, METHOD, {"code": "protein_g", "label": "Protein G"})
     made = prep(world, "Anti-TNF prep 3", method=str(wrong.entry.pk))
-    entries.supersede(curator, wrong.entry, right.entry, reason="Added twice, once misspelled")
+    entries.supersede(
+        curator,
+        wrong.entry,
+        right.entry,
+        expected_revision=wrong.entry.revision,
+        reason="Added twice, once misspelled",
+    )
 
     # The project's Admins are told, and the notice opens the option's page for the project.
     notice = Notification.objects.get(recipient=world.users["admin"])

@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from api_client import Api
+from api_client import Api, seen
 from django.db import DatabaseError, connection, transaction
 from test_requests import ANALYST, Lab
 from test_storage import box, sent_with_tubes, tube
@@ -57,10 +57,9 @@ def change(
     status: int = 200,
     **fields: Any,
 ) -> JsonObject:
-    if reviewed is not None:
-        key = "line_revision" if "line_revision" in reviewed else "plan_revision"
-        fields[key] = reviewed[key]
-    response = api.call(method, path, fields)
+    # Made from the revision reviewed: the receipt's, or its line's (ADR 0289).
+    headers = seen(reviewed["revision"]) if reviewed is not None else None
+    response = api.call(method, path, fields, headers=headers)
     assert response.status_code == status, response.content
     data: JsonObject = response.json()
     if method == "PATCH" and "/lines/" in path and status == 200:
@@ -119,7 +118,7 @@ def test_two_receivers_correct_a_check_and_keep_the_original_observation(
         second, "PATCH", line_path, row(matched, line), outcome=None, reason="Adjacent tube"
     )
     assert row(cleared, line)["outcome"] is None and row(cleared, line)["checked_by"] is None
-    assert cleared["plan_revision"] == matched["plan_revision"] + 1
+    assert cleared["revision"] == matched["revision"] + 1
     rescanned = change(first, "POST", path + "/scan", code="RC000")["receipt"]
     damaged = change(
         second,
@@ -225,9 +224,9 @@ def test_a_removed_extra_can_only_be_restored_explicitly_to_the_same_line(
     )
     assert removed["outcomes"]["extra"] == 0 and all(x["id"] != line for x in removed["lines"])
     assert [x["id"] for x in removed["removed_lines"]] == [line]
-    change(first, "POST", line_path + "/restore", status=422, reason="Check waybill")
+    change(first, "POST", line_path + "/restore", status=428, reason="Check waybill")
     change(
-        first, "POST", line_path + "/restore", row(noted, line), status=409, reason="Check waybill"
+        first, "POST", line_path + "/restore", row(noted, line), status=412, reason="Check waybill"
     )
     again = change(first, "POST", path + "/scan", code="EXTRA-71")
     assert again["found"] == "removed" and again["line"] == line and again["receipt"] == removed
@@ -303,7 +302,7 @@ def test_handoff_corrections_and_cancellation_are_attributed_to_the_receiver(
     assert cancelled["status"] == "cancelled" and cancelled["received_by"] is None
     assert cancelled["cancelled_by"]["id"] == str(lab.users["tech"].pk)
     assert cancelled["cancel_reason"] == "Request withdrawn" and cancelled["completed_at"]
-    assert cancelled["plan_revision"] == corrected["plan_revision"] + 1
+    assert cancelled["revision"] == corrected["revision"] + 1
     assert read(second, path) == cancelled
     final_history = read(second, path + "/history")
     change(
@@ -369,7 +368,7 @@ def test_failed_completion_rolls_back_missing_observations_and_custody(
         keep_in_custody=[scan["line"]],
     )
     assert final["outcomes"]["matched"] == final["outcomes"]["missing"] == 1
-    assert final["plan_revision"] == before["plan_revision"] + 1
+    assert final["revision"] == before["revision"] + 1
     assert final["received_by"]["id"] == str(lab.users["core_qa"].pk)
     assert [item["kind"] for item in read(second, movements)["items"]] == ["received"]
     final_history = read(second, path + "/history")
@@ -378,7 +377,7 @@ def test_failed_completion_rolls_back_missing_observations_and_custody(
     assert read(first, path) == final
     assert read(first, path + "/history") == final_history
 
-    final_events = [e for e in final_history["items"] if e["revision"] == final["plan_revision"]]
+    final_events = [e for e in final_history["items"] if e["revision"] == final["revision"]]
     assert {e["kind"] for e in final_events} == {"outcome", "status"} and len(final_events) == 2
     assert len({e["operation"] for e in final_events}) == 1
     assert all(e["actor"]["id"] == final["received_by"]["id"] for e in final_events)
@@ -398,11 +397,15 @@ def test_receipt_scoped_writes_require_the_revision_the_receiver_read(receiving:
         ("POST", path + "/complete", {"missing_rest": True}),
         ("POST", path + "/cancel", {"reason": "Request withdrawn"}),
     ]
+    # Without the receipt's revision (If-Match, ADR 0289) it's refused; with an old one, stale.
     for method, target, fields in writes:
-        change(second, method, target, status=422, **fields)
-        change(second, method, target, before, status=409, **fields)
-    for invalid in (True, 0, -1, "2"):
-        change(second, "PATCH", path, status=422, plan_revision=invalid, handed_over_by="Courier")
+        change(second, method, target, status=428, **fields)
+        change(second, method, target, before, status=412, **fields)
+    for unusable in ("*", 'W/"1"', '"1", "2"', "1"):
+        refused = second.call(
+            "PATCH", path, {"handed_over_by": "Courier"}, headers={"If-Match": unusable}
+        )
+        assert refused.status_code == 428, (unusable, refused.content)
     assert read(first, path) == checked
 
 
@@ -410,23 +413,22 @@ def test_corrections_follow_the_line_even_when_another_line_changes(receiving: R
     first, second, path = receiving
     scan = change(first, "POST", path + "/scan", code="RC000")
     original = row(scan["receipt"], scan["line"])
-    assert original["line_revision"] > 0
+    assert original["revision"] > 0
     line_path = f"{path}/lines/{scan['line']}"
     other = change(second, "POST", path + "/scan", code="RC001")["receipt"]
-    change(second, "PATCH", line_path, status=422, outcome=None, reason="Wrong tube")
-    for invalid in (True, 0, -1, "2"):
-        change(
-            second,
+    # Correcting a check names the line's revision reviewed (If-Match).
+    change(second, "PATCH", line_path, status=428, outcome=None, reason="Wrong tube")
+    for unusable in ("*", 'W/"1"', "1"):
+        refused = second.call(
             "PATCH",
             line_path,
-            status=422,
-            line_revision=invalid,
-            outcome=None,
-            reason="Wrong tube",
+            {"outcome": None, "reason": "Wrong tube"},
+            headers={"If-Match": unusable},
         )
+        assert refused.status_code == 428, (unusable, refused.content)
     cleared = change(first, "PATCH", line_path, original, outcome=None, reason="Wrong tube")
-    assert cleared["plan_revision"] == other["plan_revision"] + 1
-    assert row(cleared, scan["line"])["line_revision"] == original["line_revision"] + 1
+    assert cleared["revision"] == other["revision"] + 1
+    assert row(cleared, scan["line"])["revision"] == original["revision"] + 1
     history = read(first, path + "/history")
     audits = AuditEvent.objects.filter(
         action="storage.observation_recorded", target_id=cleared["id"]
@@ -437,7 +439,7 @@ def test_corrections_follow_the_line_even_when_another_line_changes(receiving: R
         "PATCH",
         line_path,
         original,
-        status=409,
+        status=412,
         outcome="missing",
         reason="Second inventory",
     )
@@ -491,12 +493,12 @@ def test_receivers_can_enter_first_observations_concurrently(
         results = list(pool.map(observe, [first, second], [0, 1]))
     assert results[0][2] != results[1][2]
     findings = [found for found, _, _ in results]
-    revisions = [snapshot["plan_revision"] for _, snapshot, _ in results]
+    revisions = [snapshot["revision"] for _, snapshot, _ in results]
     after = read(first, path)
     if manual:
         assert sorted(findings) == ["again", "recorded"]
-        assert revisions == [before["plan_revision"] + 1] * 2
-        assert after["plan_revision"] == revisions[0]
+        assert revisions == [before["revision"] + 1] * 2
+        assert after["revision"] == revisions[0]
         winner = findings.index("recorded")
         accepted = after["lines"][0]
         assert accepted["outcome"] == ["matched", "missing"][winner]
@@ -506,8 +508,8 @@ def test_receivers_can_enter_first_observations_concurrently(
         assert all(snapshot["lines"][0] == accepted for _, snapshot, _ in results)
     else:
         assert findings == ["matched", "matched"]
-        assert sorted(revisions) == [before["plan_revision"] + 1, before["plan_revision"] + 2]
-        assert after["plan_revision"] == max(revisions) and after["outcomes"]["matched"] == 2
+        assert sorted(revisions) == [before["revision"] + 1, before["revision"] + 2]
+        assert after["revision"] == max(revisions) and after["outcomes"]["matched"] == 2
         actors = {"RC000": "tech@example.com", "RC001": "core_qa@example.com"}
         assert {r["code"]: r["checked_by"]["email"] for r in after["lines"]} == actors
         for code, (_, snapshot, _) in zip(actors, results, strict=True):
@@ -515,7 +517,7 @@ def test_receivers_can_enter_first_observations_concurrently(
             assert saved["outcome"] == "matched" and saved["checked_by"]["email"] == actors[code]
     events = timeline(first, path)
     assert [e["revision"] for e in events] == list(
-        range(before["plan_revision"] + 1, after["plan_revision"] + 1)
+        range(before["revision"] + 1, after["revision"] + 1)
     )
 
 
@@ -540,7 +542,7 @@ def test_an_audit_write_failure_rolls_back_the_observation_and_its_revisions(
     assert read(first, path + "/history") == history_before
     retry = change(second, "POST", path + "/scan", code="RC000")
     assert retry["found"] == "matched"
-    assert retry["receipt"]["plan_revision"] == before["plan_revision"] + 1
+    assert retry["receipt"]["revision"] == before["revision"] + 1
 
 
 @pytest.mark.django_db(transaction=True)
@@ -621,9 +623,9 @@ def test_an_older_writer_can_insert_a_receipt_during_the_rolling_migration(
             [line_id, legacy_id, source["lines"][0]["id"]],
         )
     legacy = read(first, f"/receipts/{legacy_id}")
-    assert legacy["plan_revision"] == 1 and legacy["cancel_reason"] == ""
+    assert legacy["revision"] == 1 and legacy["cancel_reason"] == ""
     assert legacy["cancelled_by"] is None and legacy["removed_lines"] == []
-    assert row(legacy, str(line_id))["line_revision"] == 1
+    assert row(legacy, str(line_id))["revision"] == 1
     assert timeline(first, f"/receipts/{legacy_id}") == []
 
 
@@ -695,9 +697,7 @@ def test_resuming_an_open_receipt_returns_the_open_snapshot_before_completion(
         assert resumed.result(timeout=15) == reviewed
     assert not available, "An in-progress resume must retain its receipt lock."
     final = change(second, "POST", path + "/complete", reviewed, missing_rest=True)
-    assert (
-        final["status"] == "completed" and final["plan_revision"] == reviewed["plan_revision"] + 1
-    )
+    assert final["status"] == "completed" and final["revision"] == reviewed["revision"] + 1
 
 
 @pytest.mark.parametrize("code,outcome", [("RC000", "matched"), ("EXTRA-71", "extra")])
@@ -716,7 +716,7 @@ def test_a_receiver_can_volunteer_a_reason_for_a_first_note_on_a_reviewed_line(
         second,
         "PATCH",
         line_path,
-        status=422,
+        status=428,
         outcome=outcome,
         note="Blue cap",
         reason="Packaging examined",
@@ -754,7 +754,7 @@ def test_first_manual_observation_preserves_a_retained_note(receiving: Receiving
     )
     assert row(cleared, line)["outcome"] is None
     history = timeline(first, path)
-    change(first, "PATCH", line_path, status=422, outcome="matched", note="Different note")
+    change(first, "PATCH", line_path, status=428, outcome="matched", note="Different note")
     assert read(second, path) == cleared and timeline(second, path) == history
     confirmed = first.patch(line_path, {"outcome": "matched"})
     assert confirmed.status_code == 200, confirmed.content
@@ -807,16 +807,16 @@ def test_a_first_condition_note_preserves_the_observer_and_later_corrections_nee
         {
             "outcome": outcome,
             "note": "Blue cap",
-            "line_revision": checked["line_revision"],
             **first_reason,
         },
+        headers=seen(checked["revision"]),
     )
     assert response.status_code == 200, response.content
     assert response.json()["found"] == "recorded"
     receipt = response.json()["receipt"]
     noted = row(receipt, line_id)
-    assert noted["line_revision"] == checked["line_revision"] + 1
-    assert receipt["plan_revision"] == scan["receipt"]["plan_revision"] + 1
+    assert noted["revision"] == checked["revision"] + 1
+    assert receipt["revision"] == scan["receipt"]["revision"] + 1
     assert (
         noted["checked_by"] == checked["checked_by"]
         and noted["checked_at"] == checked["checked_at"]
@@ -831,7 +831,7 @@ def test_a_first_condition_note_preserves_the_observer_and_later_corrections_nee
         == checked["checked_by"]["id"]
     )
 
-    change(first, "PATCH", line_path, checked, status=409, outcome=outcome, note="Different cap")
+    change(first, "PATCH", line_path, checked, status=412, outcome=outcome, note="Different cap")
     for attempted in ("Red cap", ""):
         refusal = change(
             first,
@@ -879,16 +879,16 @@ def test_an_explicit_note_clear_needs_its_review_and_reason_but_omission_retains
     assert events[-1]["before"]["note"] == events[-1]["after"]["note"] == "Blue cap"
 
     amendment = {"outcome": "matched", "note": clear}
-    for preconditions in (
-        {},
-        {"reason": "Note was a transcription error"},
-        {"line_revision": saved["line_revision"]},
-        {"line_revision": saved["line_revision"], "reason": None},
-        {"line_revision": saved["line_revision"], "reason": ""},
-        {"line_revision": saved["line_revision"], "reason": "   "},
+    for headers, reason, status in (
+        (None, {}, 428),
+        (None, {"reason": "Note was a transcription error"}, 428),
+        (seen(saved["revision"]), {}, 422),
+        (seen(saved["revision"]), {"reason": None}, 422),
+        (seen(saved["revision"]), {"reason": ""}, 422),
+        (seen(saved["revision"]), {"reason": "   "}, 422),
     ):
-        refusal = first.patch(line_path, {**amendment, **preconditions})
-        assert refusal.status_code == 422, refusal.content
+        refusal = first.patch(line_path, {**amendment, **reason}, headers=headers)
+        assert refusal.status_code == status, refusal.content
     assert read(first, path) == reviewed and timeline(second, path, line_id=line) == events
 
     cleared = change(

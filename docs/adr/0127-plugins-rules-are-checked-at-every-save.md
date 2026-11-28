@@ -1,6 +1,7 @@
 # 0127. Plugins' rules are checked at every save, and a rule can hold a record for review
 
 - Status: Accepted (amended by [0297](0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md): computed values are worked out at every save, before the rules; refined by [0280](0280-every-change-is-checked-and-written-by-one-pipeline.md): every save is checked by one pipeline)
+- Clarified 2026-11-27: a rule and a guard reading the same expression treat an empty value oppositely, documented side by side, with a validator warning
 - Date: 2026-11-18
 - Refines: [0035](0035-entity-revisions-provenance-and-edit-rules.md),
   [0056](0056-bulk-imports.md),
@@ -187,3 +188,17 @@ reason when only rules that hold are broken.
 - **Check every rule on every edit.** A rule added later would block unrelated
   edits of every record that breaks it. Ratcheting, with a deploy's report,
   doesn't.
+
+## Clarification of 2026-11-27: a rule and a guard on the same expression
+
+A rule whose check can't be worked out because a value it reads is empty passes, as a
+database's CHECK does; a guard's refuses ([ADR 0128](0128-guards-say-when-a-state-may-be-set.md)).
+Both defaults stand: a draft is saved before every value is known, and a state that
+moves a record on needs what it reads to be there. The manifest spec documents them side
+by side, and the validator warns (`same-condition-rule-and-guard`) when one type has a
+rule and a guard with the same check, since one of them may not mean what its author
+expects of an empty value. The warning names both and says how to make either explicit:
+`required`, or `record.x == null || …` in the guard.
+
+No `on_empty` key is added. Each expression can already say what it means of an empty
+value, and a key would add a third way to say it without a case it fixes.

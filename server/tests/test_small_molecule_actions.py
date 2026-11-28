@@ -920,12 +920,13 @@ def test_records_name_from_a_field_and_batches_from_theirs(tmp_path: Path) -> No
     result, output = imported(tmp_path, text, name_field="name", parent=True, batches=True)
     assert result.returncode == 0, result.stdout + result.stderr
     assert output is not None
-    salt, compound, base, pheniramine = (
-        output["creates"][1],
-        output["creates"][0],
-        output["creates"][2],
-        output["creates"][3],
-    )
+    # Its Supplier field names the registry's supplier, registered by that name first.
+    enamine, compound, salt, base, pheniramine = output["creates"]
+    assert enamine == {
+        "type": "iki/inventory.Supplier",
+        "key": "supplier-1",
+        "values": {"name": "Enamine"},
+    }
     assert compound["values"]["inchikey"] == ASPIRIN_KEY
     # Its name is the salt's, so it's the batch's, not its parent compound's.
     assert "name" not in compound["values"]
@@ -938,7 +939,7 @@ def test_records_name_from_a_field_and_batches_from_theirs(tmp_path: Path) -> No
         "formula_weight": 202.141,
         "purity": 98.5,
         "amount": 250.0,
-        "supplier": "Enamine",
+        "supplier": {"$create": "supplier-1"},
         "catalogue_number": "EN300-1",
         "supplier_lot": "B-17",
         "received": "2026-11-02",

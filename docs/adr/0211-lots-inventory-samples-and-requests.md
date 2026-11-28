@@ -1,6 +1,7 @@
 # 0211. Lots, inventory, samples and requests have separate owners
 
 - Status: Accepted
+- Amended 2026-11-27: suppliers are an inventory registry type; a request and its work items share one priority scale; a work item's instrument is an equipment booking
 - Lab roles refined by [0304](0304-lab-roles-are-shared-and-a-procedures-slots-are-bound-at-setup.md): a procedure's slots bind to the shared roles
 - Date: 2026-11-24
 - Service fields: production, sequencing and analytical fields and checks are each
@@ -50,3 +51,25 @@ ADR 0132 makes `sends` a declaration on the type. Subtypes inherit the declarati
 A storage-only deployment can run without Protein or an external LIMS. A tester can trace a measurement to an actual debit. The owner of a lot can distinguish reviewed observations from the decision to release the batch. A team can receive a request without sharing the work still in progress.
 
 The split changes plugin names, role grants, type names, component routes, dependency manifests, generated migrations and the dev deployment. This is a pre-M1 cutover on a fresh database. The implementation order, affected paths and acceptance tests are in the [migration plan](../plugin-split-plan.md).
+
+## Amendment of 2026-11-27: one vocabulary for the same thing
+
+Field shapes freeze at M1, and four fields said one thing in two ways:
+
+- **Suppliers.** `iki/inventory` owns **Supplier**, a registry type identified by its
+  name. A lot's, a catalogue pack's, a compound batch's and a cell line catalogue
+  source's `supplier` refer to it, rather than each holding free text, so one search by
+  supplier finds all of them across projects. Imports that read a supplier's name
+  (Cellosaurus, SDF) register it by that name, or find the registry's. Whether a
+  supplier is approved for GMP material stays the lab's own procedure. Inventory is the
+  owner because it already holds what is received and stored, and every plugin that
+  names a supplier already depends on it or can without a cycle.
+- **Priority.** A request and its work items share `[routine, high, urgent]`, the work
+  item's scale, so the priority the asking team sees is the one the service works to.
+- **A work item's instrument** is no longer a free-text field. The instrument a work item
+  runs on is an `iki/equipment` Booking whose `work` is the work item: it checks the
+  instrument is in service and shows on the work item's lineage, and `iki/requests`
+  keeps no dependency on equipment.
+- **A plasmid prep's host strain** refers to the registry's `iki/strains.BaseStrain`.
+
+Lots' purity methods are one list; see [ADR 0270's amendment](0270-a-lab-curates-its-own-lists.md#amendment-of-2026-11-27-one-purity-method-list).

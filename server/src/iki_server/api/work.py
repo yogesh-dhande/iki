@@ -10,11 +10,13 @@ from uuid import UUID
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q
 from django.http import HttpRequest, HttpResponse
-from ninja import Field, HeaderEx, P, Query, Router, Schema
+from ninja import Field, Query, Router, Schema
 
+from iki_server.api import preconditions
 from iki_server.api.common import caller, project
-from iki_server.api.entities import EntityOut, _expected, _find, _invalid, _one, _out
+from iki_server.api.entities import EntityOut, _find, _invalid, _one, _out
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT
+from iki_server.api.preconditions import IfMatch
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page
 from iki_server.entities import assignments, people, registry, services
@@ -194,20 +196,25 @@ class TakeIn(Schema):
     reason: str = Field("", max_length=2000, description="Why, for the record.")
 
 
-@router.post("/entities/{ref}/take", response=EntityOut, summary="Assign a record to yourself")
+@router.post(
+    "/entities/{ref}/take",
+    response=EntityOut,
+    summary="Assign a record to yourself",
+    openapi_extra=preconditions.changes(),
+)
 def take(
     request: HttpRequest,
     ref: str,
     payload: TakeIn,
     response: HttpResponse,
-    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
     """Names you in an assignment field limited to one of your lab roles (ADR 0122),
     while it names nobody who can be named: open work, as `can.take` lists it. A revision,
     like any edit. Send If-Match with the ETag you read."""
     me = caller(request)
     entity = _find(me, ref)
-    expected = _expected(if_match)
+    expected = preconditions.expected(if_match)
     try:
         assignments.take(
             me, entity, payload.field, expected_revision=expected, reason=payload.reason
@@ -215,12 +222,10 @@ def take(
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None
     except services.Stale as stale:
-        raise Problem(
-            412,
+        raise preconditions.stale(
+            stale.current,
             f"Someone changed it since you read it: it’s at revision {stale.current} now. "
             "Read it again, then take it.",
-            code="stale",
-            headers={"ETag": f'"{stale.current}"'},
         ) from None
     except Invalid as error:
         raise _invalid(error) from None
@@ -259,7 +264,12 @@ class AssignOut(Schema):
     )
 
 
-@router.post("/entities/assign", response=AssignOut, summary="Reassign many records")
+@router.post(
+    "/entities/assign",
+    response=AssignOut,
+    summary="Reassign many records",
+    openapi_extra=preconditions.changes(tagged=False),
+)
 def assign(request: HttpRequest, payload: AssignIn) -> dict[str, Any]:
     """Names someone in an assignment field of many records at once (ADR 0122), such as a
     grid's selection: each record you may edit changes as its own revision, and each person
@@ -271,10 +281,8 @@ def assign(request: HttpRequest, payload: AssignIn) -> dict[str, Any]:
     me = caller(request)
     revisions = payload.expected_revisions
     if revisions is None:
-        raise Problem(
-            428,
-            "Send the revision you observed for each entity in expected_revisions.",
-            code="precondition_required",
+        raise preconditions.required(
+            "Send the revision you observed for each entity in expected_revisions."
         )
     if set(revisions) != set(payload.entities):
         raise Problem(

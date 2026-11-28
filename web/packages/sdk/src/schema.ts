@@ -1129,7 +1129,7 @@ export interface paths {
         /**
          * How much there is of it
          * @description 404 for a type without an amount, or a record with none recorded yet: adjust it to
-         *     record one.
+         *     record one. Its ETag is its `revision`, which a recount sends as If-Match.
          */
         get: operations["iki_server_api_amounts_get_amount"];
         put?: never;
@@ -1151,9 +1151,9 @@ export interface paths {
         put?: never;
         /**
          * Adjust its amount
-         * @description Records an absolute count, with a reason. Send the observed amount's exact
-         *     `updated_at` string in `If-Balance-Revision`, or `unrecorded` if it had no amount.
-         *     A missing header answers 428. A changed balance answers 409 and must be recounted.
+         * @description Records an absolute count, with a reason. Send the amount's ETag you read as
+         *     If-Match, or `If-None-Match: *` if it had none recorded. Neither answers 428. A
+         *     balance that changed since answers 412: recount it.
          */
         post: operations["iki_server_api_amounts_adjust"];
         delete?: never;
@@ -1489,9 +1489,10 @@ export interface paths {
         put?: never;
         /**
          * Move a record to the entry that superseded its own
-         * @description An Editor of its project. It keeps its data, history and runs; the project's own
-         *     records that refer to the superseded entry are changed to refer to the new one, each a
-         *     revision with the reason. Refused if the project has a record of the new one already.
+         * @description An Editor of its project, from the record's revision they read (If-Match). It keeps
+         *     its data, history and runs; the project's own records that refer to the superseded
+         *     entry are changed to refer to the new one, each a revision with the reason. Refused if
+         *     the project has a record of the new one already.
          *
          *     A record can't change its type, so to a replacement of another type (ADR 0165) it's the
          *     project's new record of the replacement that's returned: with this one's values for the
@@ -2161,11 +2162,11 @@ export interface paths {
         /**
          * Supersede a registry entry
          * @description Its registry's registrars replace a mistaken entry with another in the registry, for
-         *     good: one of its type, or of another type under its identity; or with a new entry of its
-         *     identity as another type (``type``, ADR 0165). Each holding project's Admins, and
-         *     whoever added its record, are told, to move their records to the replacement. A lab
-         *     list's option is superseded on its list (`/lists/{name}/options/{code}/supersede`), not
-         *     here, either way.
+         *     good, from the revision they read (If-Match): one of its type, or of another type under
+         *     its identity; or with a new entry of its identity as another type (``type``, ADR 0165).
+         *     Each holding project's Admins, and whoever added its record, are told, to move their
+         *     records to the replacement. A lab list's option is superseded on its list
+         *     (`/lists/{name}/options/{code}/supersede`), not here, either way.
          */
         post: operations["iki_server_api_registries_supersede_entry"];
         delete?: never;
@@ -2627,7 +2628,7 @@ export interface paths {
         /**
          * Archive a lab list's option
          * @description No dropdown offers it from now on. The records that name it keep it, and it's still
-         *     in their search, filters, exports and the API.
+         *     in their search, filters, exports and the API. Send the ETag you read as If-Match.
          */
         post: operations["iki_server_api_lists_archive_option"];
         delete?: never;
@@ -2669,7 +2670,8 @@ export interface paths {
         put?: never;
         /**
          * Restore a lab list's archived option
-         * @description Dropdowns offer it again, in its place in the list.
+         * @description Dropdowns offer it again, in its place in the list. Send the ETag you read as
+         *     If-Match.
          */
         post: operations["iki_server_api_lists_restore_option"];
         delete?: never;
@@ -2691,7 +2693,7 @@ export interface paths {
          * Supersede a lab list's option
          * @description For a wrong code: the option is replaced for good by another of the list, which
          *     dropdowns offer instead. The Admins of each project whose records name it are told, to
-         *     move them to the replacement.
+         *     move them to the replacement. Send the option's ETag as If-Match.
          */
         post: operations["iki_server_api_lists_supersede_option"];
         delete?: never;
@@ -3796,14 +3798,20 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** A receipt */
+        /**
+         * A receipt
+         * @description Its ETag is its `revision`.
+         */
         get: operations["iki_server_api_storage_get_receipt"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** Describe a receipt */
+        /**
+         * Describe a receipt
+         * @description Who handed it over and its note, from the revision you reviewed (If-Match).
+         */
         patch: operations["iki_server_api_storage_update_receipt"];
         trace?: never;
     };
@@ -3818,7 +3826,8 @@ export interface paths {
         put?: never;
         /**
          * Cancel a receipt
-         * @description An open receipt, abandoned: nothing is received with it. It's kept, cancelled.
+         * @description An open receipt, abandoned, from the revision you reviewed (If-Match): nothing is
+         *     received with it. It's kept, cancelled.
          */
         post: operations["iki_server_api_storage_cancel_receipt"];
         delete?: never;
@@ -3838,8 +3847,9 @@ export interface paths {
         put?: never;
         /**
          * Complete a receipt
-         * @description Name each matched or damaged line once in put_away or keep_in_custody. Custody,
-         *     placements and discrepancy notices are recorded together.
+         * @description From the revision you reviewed (If-Match). Name each matched or damaged line once in
+         *     put_away or keep_in_custody. Custody, placements and discrepancy notices are recorded
+         *     together.
          */
         post: operations["iki_server_api_storage_complete_receipt"];
         delete?: never;
@@ -3878,11 +3888,19 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Remove an observed extra */
+        /**
+         * Remove an observed extra
+         * @description From the line's revision you reviewed (If-Match), with a reason.
+         */
         delete: operations["iki_server_api_storage_drop_line"];
         options?: never;
         head?: never;
-        /** Check a receipt's line */
+        /**
+         * Check a receipt's line
+         * @description A first check records what you saw and needs no If-Match: if someone checked it
+         *     first, it answers `found: "again"` and keeps theirs. Correcting or clearing what was
+         *     recorded sends the line's ETag as If-Match (428 without it).
+         */
         patch: operations["iki_server_api_storage_check_line"];
         trace?: never;
     };
@@ -3895,7 +3913,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Restore a removed extra on an open receipt */
+        /**
+         * Restore a removed extra on an open receipt
+         * @description From the line's revision you reviewed (If-Match), with a reason.
+         */
         post: operations["iki_server_api_storage_restore_line"];
         delete?: never;
         options?: never;
@@ -3916,7 +3937,8 @@ export interface paths {
          * Which of a receipt's accepted lines can go in a box
          * @description Each matched or damaged line, and why it can't be put in the box if it can't, whatever
          *     the well: archived, a type the box doesn't hold, or a project the box's readers don't
-         *     read. Completing checks the same again.
+         *     read, for the receipt's revision you reviewed (If-Match). Completing checks the same
+         *     again.
          */
         post: operations["iki_server_api_storage_receipt_placeable"];
         delete?: never;
@@ -3934,7 +3956,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Review a receipt's put-away positions */
+        /**
+         * Review a receipt's put-away positions
+         * @description What completing it would do, for the receipt's revision you reviewed (If-Match).
+         */
         post: operations["iki_server_api_storage_preview_receipt_placement"];
         delete?: never;
         options?: never;
@@ -3969,7 +3994,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** A reconciliation */
+        /**
+         * A reconciliation
+         * @description Its ETag is its `revision`.
+         */
         get: operations["iki_server_api_storage_get_reconciliation"];
         put?: never;
         post?: never;
@@ -3988,7 +4016,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Cancel a reconciliation */
+        /**
+         * Cancel a reconciliation
+         * @description From the revision you reviewed (If-Match), with a reason.
+         */
         post: operations["iki_server_api_storage_cancel_reconciliation"];
         delete?: never;
         options?: never;
@@ -4007,8 +4038,9 @@ export interface paths {
         put?: never;
         /**
          * Complete a reconciliation
-         * @description Applies the reviewed plan atomically. A stale plan revision returns 409. A decision
-         *     that needs review or a change in the container's recorded contents returns 422.
+         * @description Applies the revision you reviewed (If-Match) atomically: a newer one answers 412. A
+         *     decision that needs review or a change in the container's recorded contents returns
+         *     422.
          */
         post: operations["iki_server_api_storage_complete_reconciliation"];
         delete?: never;
@@ -4052,9 +4084,9 @@ export interface paths {
         head?: never;
         /**
          * Resolve a reconciliation's line
-         * @description Save or clear the decision for the reviewed line_revision. A changed finding,
-         *     supporting scan, or decision on this line returns 409. Superseding a decision
-         *     requires a reason in addition to any note supporting the new decision.
+         * @description Save or clear the decision for the line's revision you reviewed (If-Match). A
+         *     changed finding, supporting scan, or decision on this line answers 412. Superseding a
+         *     decision requires a reason in addition to any note supporting the new decision.
          */
         patch: operations["iki_server_api_storage_resolve_line"];
         trace?: never;
@@ -4072,9 +4104,9 @@ export interface paths {
          * Scan positions
          * @description Record the scans in one transaction. Fresh positions and tubes need no precondition.
          *     Supply the reviewed line revisions for observations being replaced or repeated.
-         *     A change of slot or contents also needs a reason. A conflict returns 409 with the
-         *     currently affected line IDs and versions in `affected_lines`. A shared label at its
-         *     expected slot records a positional match. An ambiguous label elsewhere returns 409
+         *     A change of slot or contents also needs a reason. One that changed since answers 412
+         *     `stale`, with the affected line IDs and their revisions in `affected_lines`. A shared
+         *     label at its expected slot records a positional match. An ambiguous label elsewhere returns 409
          *     with the readable candidates and the zero-based scan index. A selected candidate
          *     is rechecked against the original label when the rack is submitted again.
          *
@@ -4813,7 +4845,8 @@ export interface paths {
         post?: never;
         /**
          * Discard a spreadsheet import
-         * @description Before it's committed. The workbook stays in the project.
+         * @description Before it's committed, from the revision you read (If-Match). The workbook stays in
+         *     the project.
          */
         delete: operations["iki_server_api_spreadsheets_discard_import"];
         options?: never;
@@ -4866,8 +4899,7 @@ export interface paths {
          * Save a spreadsheet import's mapping
          * @description Keeps how its columns map, by their headers, for the project's next sheet of the same
          *     kind: one from the same instrument or vendor maps itself. Send the revision you read
-         *     (If-Match): its mapping is what's kept. To replace a template send its ID and reviewed
-         *     target_revision. A stale template returns 409; a stale import returns 412.
+         *     (If-Match): its mapping is what's kept. To replace a saved mapping, PUT it.
          */
         post: operations["iki_server_api_spreadsheets_save_mapping"];
         delete?: never;
@@ -4927,9 +4959,18 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /**
+         * Replace a saved mapping
+         * @description Replaces it with an import's mapping, from the revision of it you read (If-Match),
+         *     and the import's revision whose mapping you reviewed (`import_revision`). If either
+         *     changed, it answers 412 and nothing changes.
+         */
+        put: operations["iki_server_api_spreadsheets_replace_mapping"];
         post?: never;
-        /** Delete a saved mapping */
+        /**
+         * Delete a saved mapping
+         * @description From the revision of it you read (If-Match). Imports that used it keep saying so.
+         */
         delete: operations["iki_server_api_spreadsheets_delete_mapping"];
         options?: never;
         head?: never;
@@ -6245,6 +6286,11 @@ export interface components {
              */
             label: string;
             /**
+             * Revision
+             * @description One more with each movement. Its ETag: send it as If-Match to recount it.
+             */
+            revision: number;
+            /**
              * Unit
              * @description The unit its type keeps it in.
              */
@@ -6252,7 +6298,7 @@ export interface components {
             /**
              * Updated At
              * Format: date-time
-             * @description The balance revision. Send this exact string in If-Balance-Revision when recording an absolute count.
+             * @description When it last moved.
              */
             updated_at: string;
             /**
@@ -7314,21 +7360,11 @@ export interface components {
         };
         /** CancelReceiptIn */
         CancelReceiptIn: {
-            /**
-             * Plan Revision
-             * @description The receipt revision you reviewed.
-             */
-            plan_revision: number;
             /** Reason */
             reason: string;
         };
         /** CancelReconciliationIn */
         CancelReconciliationIn: {
-            /**
-             * Plan Revision
-             * @description The revision of the reconciliation plan being reviewed.
-             */
-            plan_revision: number;
             /**
              * Reason
              * @description Why this count is being cancelled.
@@ -7670,11 +7706,6 @@ export interface components {
              * @description The put-away preview hash. Required when choosing the next free position.
              */
             plan?: string | null;
-            /**
-             * Plan Revision
-             * @description The receipt revision you reviewed.
-             */
-            plan_revision: number;
             /** Put Away */
             put_away?: components["schemas"]["PutAwayIn"][];
         };
@@ -7690,11 +7721,6 @@ export interface components {
              * @description Completion note. Defaults to empty.
              */
             note?: string | null;
-            /**
-             * Plan Revision
-             * @description The revision of the reconciliation plan being reviewed.
-             */
-            plan_revision: number;
         };
         /** ComponentEntitiesIn */
         ComponentEntitiesIn: {
@@ -9486,6 +9512,11 @@ export interface components {
              */
             type?: string | null;
             where?: components["schemas"]["Condition"] | null;
+        };
+        /** ExtraReasonIn */
+        ExtraReasonIn: {
+            /** Reason */
+            reason: string;
         };
         /** FacetParams */
         FacetParams: {
@@ -12986,6 +13017,13 @@ export interface components {
              */
             codes: string[];
             /**
+             * Expected Revisions
+             * @description Each option's revision as you read it, by code: every option's. An option changed, added or removed since answers 412, as a second curator's order would otherwise undo the first's.
+             */
+            expected_revisions?: {
+                [key: string]: number;
+            } | null;
+            /**
              * Reason
              * @description Why: every project's dropdowns follow it.
              */
@@ -15084,11 +15122,6 @@ export interface components {
             /** Box Choice */
             box_choice?: string | null;
             box_mode?: components["schemas"]["ScanMode"];
-            /**
-             * Plan Revision
-             * @description The receipt revision you reviewed.
-             */
-            plan_revision: number;
         };
         /** ReceiptIn */
         ReceiptIn: {
@@ -15103,11 +15136,6 @@ export interface components {
              */
             note?: string | null;
             /**
-             * Plan Revision
-             * @description The receipt revision you reviewed.
-             */
-            plan_revision: number;
-            /**
              * Reason
              * @description Defaults to empty. Required when correcting existing handoff information.
              */
@@ -15116,18 +15144,13 @@ export interface components {
         /** ReceiptLineIn */
         ReceiptLineIn: {
             /**
-             * Line Revision
-             * @description Version of the line being corrected.
-             */
-            line_revision?: number | null;
-            /**
              * Note
              * @description Omit to keep the current note. Send null, an empty string, or whitespace to clear it.
              */
             note?: string | null;
             /**
              * Outcome
-             * @description Null clears an expected line. First observations can omit line_revision.
+             * @description Null clears an expected line, which takes its If-Match.
              */
             outcome: ("matched" | "missing" | "extra" | "damaged" | "rejected") | null;
             /**
@@ -15152,11 +15175,6 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /**
-             * Line Revision
-             * @description The version of this line’s saved observation.
-             */
-            line_revision: number;
             /** Note */
             note: string;
             /** Outcome */
@@ -15169,6 +15187,11 @@ export interface components {
              */
             received_unplaced: boolean;
             ref: components["schemas"]["RefOut"] | null;
+            /**
+             * Revision
+             * @description One more with each change to its observation. Its ETag: send it as If-Match to correct, remove or restore it.
+             */
+            revision: number;
         };
         /** ReceiptOut */
         ReceiptOut: {
@@ -15201,11 +15224,6 @@ export interface components {
                 [key: string]: number;
             };
             /**
-             * Plan Revision
-             * @description The receipt revision shown for review.
-             */
-            plan_revision: number;
-            /**
              * Project
              * Format: uuid
              * @description The service receiving it.
@@ -15218,6 +15236,11 @@ export interface components {
              */
             removed_lines: components["schemas"]["ReceiptLineOut"][];
             request: components["schemas"]["StepOut"];
+            /**
+             * Revision
+             * @description One more with each change to it or its lines. Its ETag: send it as If-Match to describe, complete or cancel it.
+             */
+            revision: number;
             /**
              * Started At
              * Format: date-time
@@ -15232,11 +15255,6 @@ export interface components {
         };
         /** ReceiptPlacementIn */
         ReceiptPlacementIn: {
-            /**
-             * Plan Revision
-             * @description The receipt revision you reviewed.
-             */
-            plan_revision: number;
             /** Put Away */
             put_away?: components["schemas"]["PutAwayIn"][];
         };
@@ -15309,11 +15327,6 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /**
-             * Line Revision
-             * @description The version of this line and its supporting slot evidence.
-             */
-            line_revision: number;
             /** Note */
             note: string;
             /** @description The scan supporting the finding, including a missing tube's expected slot. */
@@ -15329,6 +15342,11 @@ export interface components {
             resolved_by: components["schemas"]["UserOut"] | null;
             /** @description The exact scan on which the saved decision was based. */
             reviewed_observation: components["schemas"]["CountScanEvidenceOut"] | null;
+            /**
+             * Revision
+             * @description One more with each change to the line or its slot's evidence. Its ETag: send it as If-Match to resolve it.
+             */
+            revision: number;
         };
         /** ReconciliationOut */
         ReconciliationOut: {
@@ -15355,10 +15373,10 @@ export interface components {
             /** Note */
             note: string;
             /**
-             * Plan Revision
-             * @description The version of the count's observations and decisions.
+             * Revision
+             * @description One more with each change to its observations and decisions. Its ETag: send it as If-Match to complete or cancel it.
              */
-            plan_revision: number;
+            revision: number;
             shape: components["schemas"]["ShapeOut"];
             /**
              * Started At
@@ -15914,6 +15932,22 @@ export interface components {
              */
             reason: string;
         };
+        /** ReplacedMappingIn */
+        ReplacedMappingIn: {
+            /**
+             * Import
+             * Format: uuid
+             * @description The spreadsheet import whose mapping replaces it.
+             */
+            import: string;
+            /**
+             * Import Revision
+             * @description The import's revision you reviewed: its mapping is what's kept.
+             */
+            import_revision: number;
+            /** Name */
+            name: string;
+        };
         /** ReproduceIn */
         ReproduceIn: {
             /**
@@ -16059,8 +16093,6 @@ export interface components {
         };
         /** ResolveIn */
         ResolveIn: {
-            /** Line Revision */
-            line_revision: number;
             /**
              * Note
              * @description Omit to keep the current note. Send null, an empty string, or whitespace to clear it.
@@ -16131,18 +16163,11 @@ export interface components {
              * Format: uuid
              */
             line_id: string;
-            /** Line Revision */
-            line_revision: number;
-        };
-        /** ReviewedExtraIn */
-        ReviewedExtraIn: {
             /**
-             * Line Revision
-             * @description The reviewed version of the extra line.
+             * Revision
+             * @description The line's revision you reviewed.
              */
-            line_revision: number;
-            /** Reason */
-            reason: string;
+            revision: number;
         };
         /** RevisionDetailOut */
         RevisionDetailOut: {
@@ -17209,16 +17234,6 @@ export interface components {
         SavedMappingIn: {
             /** Name */
             name: string;
-            /**
-             * Replace
-             * @description A saved mapping to change, rather than add.
-             */
-            replace?: string | null;
-            /**
-             * Target Revision
-             * @description The reviewed saved template revision, with replace.
-             */
-            target_revision?: number | null;
         };
         /** SavedMappingMatch */
         SavedMappingMatch: {
@@ -22349,6 +22364,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
                 "If-Match"?: string | null;
             };
             path: {
@@ -22365,10 +22381,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23278,6 +23316,26 @@ export interface operations {
                     "application/json": components["schemas"]["AssignOut"];
                 };
             };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -23420,6 +23478,8 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -23440,6 +23500,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
                 "If-Match"?: string | null;
             };
             path: {
@@ -23456,10 +23517,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23506,6 +23589,8 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -23519,7 +23604,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                "If-Balance-Revision"?: string | null;
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+                /** @description `*` when nothing was recorded yet, in place of If-Match. */
+                "If-None-Match"?: string | null;
             };
             path: {
                 ref: string;
@@ -23535,10 +23623,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AmountMovedOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23865,6 +23975,7 @@ export interface operations {
                 project?: string | null;
             };
             header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
                 "If-Match"?: string | null;
             };
             path: {
@@ -23882,10 +23993,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -23968,7 +24101,10 @@ export interface operations {
     iki_server_api_registries_move_entity: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 ref: string;
             };
@@ -23983,10 +24119,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["MovedOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24306,6 +24464,7 @@ export interface operations {
                 project?: string | null;
             };
             header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
                 "If-Match"?: string | null;
             };
             path: {
@@ -24328,6 +24487,26 @@ export interface operations {
                     "application/json": components["schemas"]["SigningOut"];
                 };
             };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -24337,6 +24516,7 @@ export interface operations {
                 project?: string | null;
             };
             header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
                 "If-Match"?: string | null;
             };
             path: {
@@ -24354,10 +24534,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24369,6 +24571,7 @@ export interface operations {
                 project?: string | null;
             };
             header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
                 "If-Match"?: string | null;
             };
             path: {
@@ -24385,10 +24588,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24398,6 +24623,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
                 "If-Match"?: string | null;
             };
             path: {
@@ -24414,10 +24640,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24780,6 +25028,8 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -24793,6 +25043,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
                 "If-Match"?: string | null;
             };
             path: {
@@ -24809,10 +25060,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["EntryOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -24913,7 +25186,10 @@ export interface operations {
     iki_server_api_registries_supersede_entry: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 ref: string;
             };
@@ -24928,10 +25204,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["EntryOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25566,6 +25864,8 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -25584,6 +25884,7 @@ export interface operations {
                 registry?: string | null;
             };
             header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
                 "If-Match"?: string | null;
             };
             path: {
@@ -25601,10 +25902,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["OptionOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25618,7 +25941,10 @@ export interface operations {
                 /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
                 registry?: string | null;
             };
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 name: string;
                 code: string;
@@ -25634,10 +25960,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["OptionOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25679,7 +26027,10 @@ export interface operations {
                 /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
                 registry?: string | null;
             };
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 name: string;
                 code: string;
@@ -25695,10 +26046,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["OptionOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25712,7 +26085,10 @@ export interface operations {
                 /** @description A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects. */
                 registry?: string | null;
             };
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 name: string;
                 code: string;
@@ -25728,10 +26104,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["OptionOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -25764,6 +26162,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OptionOut"][];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -26899,6 +27317,26 @@ export interface operations {
                     "application/json": components["schemas"]["SheetEditSaveOut"];
                 };
             };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -27354,6 +27792,8 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -27366,7 +27806,10 @@ export interface operations {
     iki_server_api_storage_update_receipt: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 receipt_id: string;
             };
@@ -27381,10 +27824,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27393,7 +27858,10 @@ export interface operations {
     iki_server_api_storage_cancel_receipt: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 receipt_id: string;
             };
@@ -27408,10 +27876,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27420,7 +27910,10 @@ export interface operations {
     iki_server_api_storage_complete_receipt: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 receipt_id: string;
             };
@@ -27435,10 +27928,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27476,7 +27991,10 @@ export interface operations {
     iki_server_api_storage_drop_line: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 receipt_id: string;
                 line_id: string;
@@ -27485,7 +28003,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReviewedExtraIn"];
+                "application/json": components["schemas"]["ExtraReasonIn"];
             };
         };
         responses: {
@@ -27498,13 +28016,36 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_check_line: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 receipt_id: string;
                 line_id: string;
@@ -27526,13 +28067,36 @@ export interface operations {
                     "application/json": components["schemas"]["CheckedReceiptOut"];
                 };
             };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_restore_line: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 receipt_id: string;
                 line_id: string;
@@ -27541,7 +28105,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReviewedExtraIn"];
+                "application/json": components["schemas"]["ExtraReasonIn"];
             };
         };
         responses: {
@@ -27554,13 +28118,36 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_receipt_placeable: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 receipt_id: string;
             };
@@ -27581,13 +28168,36 @@ export interface operations {
                     "application/json": components["schemas"]["PlaceableLineOut"][];
                 };
             };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_preview_receipt_placement: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 receipt_id: string;
             };
@@ -27606,6 +28216,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MovesOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27652,6 +28282,8 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -27664,7 +28296,10 @@ export interface operations {
     iki_server_api_storage_cancel_reconciliation: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 reconciliation_id: string;
             };
@@ -27679,10 +28314,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReconciliationOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27691,7 +28348,10 @@ export interface operations {
     iki_server_api_storage_complete_reconciliation: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 reconciliation_id: string;
             };
@@ -27706,10 +28366,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReconciliationOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27747,7 +28429,10 @@ export interface operations {
     iki_server_api_storage_resolve_line: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 reconciliation_id: string;
                 line_id: string;
@@ -27767,6 +28452,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReconciliationOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -27794,6 +28499,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReconciliationOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -28945,6 +29670,8 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -28957,7 +29684,10 @@ export interface operations {
     iki_server_api_spreadsheets_discard_import: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 import_id: string;
             };
@@ -28972,6 +29702,26 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -28979,6 +29729,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
                 "If-Match"?: string | null;
             };
             path: {
@@ -28995,10 +29746,32 @@ export interface operations {
             /** @description OK */
             200: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["SpreadsheetImportOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29008,6 +29781,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
                 "If-Match"?: string | null;
             };
             path: {
@@ -29024,10 +29798,32 @@ export interface operations {
             /** @description Accepted */
             202: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["SpreadsheetImportOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29037,6 +29833,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
                 "If-Match"?: string | null;
             };
             path: {
@@ -29059,6 +29856,26 @@ export interface operations {
                     "application/json": components["schemas"]["SavedMappingOut"];
                 };
             };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -29066,6 +29883,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
                 "If-Match"?: string | null;
             };
             path: {
@@ -29078,10 +29896,32 @@ export interface operations {
             /** @description Accepted */
             202: {
                 headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["SpreadsheetImportOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             default: components["responses"]["Problem"];
@@ -29098,6 +29938,7 @@ export interface operations {
                 outcome?: ("create" | "register" | "add" | "reuse" | "same" | "problem")[] | null;
             };
             header?: {
+                /** @description The ETag of the revision you're reading. Optional: a newer one answers 412. */
                 "If-Match"?: string | null;
             };
             path: {
@@ -29116,13 +29957,79 @@ export interface operations {
                     "application/json": components["schemas"]["Page_PreviewRowOut_"];
                 };
             };
+            /** @description `stale`: a newer revision replaced the one you're reading. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    iki_server_api_spreadsheets_replace_mapping: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
+            path: {
+                mapping_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplacedMappingIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedMappingOut"];
+                };
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
     iki_server_api_spreadsheets_delete_mapping: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description The ETag of the revision you read, such as `"3"`. Required. */
+                "If-Match"?: string | null;
+            };
             path: {
                 mapping_id: string;
             };
@@ -29136,6 +30043,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description `stale`: what you read isn't current. Nothing changed. Its current ETag comes with it. */
+            412: {
+                headers: {
+                    /** @description Its revision, quoted: `"7"`. Send it as If-Match to change it. */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `precondition_required`: send the ETag you read as If-Match. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
             default: components["responses"]["Problem"];
         };

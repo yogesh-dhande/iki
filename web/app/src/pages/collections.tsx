@@ -10,12 +10,12 @@
  *   every project the reader can read, with the same filters and sorting.
  */
 
-import { unwrap, type Schemas } from "@ikisci/sdk";
+import { unwrap, type Schemas, isStale } from "@ikisci/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 
-import { iki, isStale, problemOf, useApiMutation, useOpenedRevision, type Project } from "../api";
+import { iki, problemOf, useApiMutation, type Project } from "../api";
 import {
   ENTITIES,
   entityProjectsQuery,
@@ -25,6 +25,7 @@ import {
   type EntitySearch,
   type EntityType,
 } from "../entities";
+import { changedProblem, useRevisioned, type IfMatch } from "../revisioned";
 import { Button, ConfirmDialog, RadioField, TextField, useMessages } from "../ui";
 
 type Keep = "search" | "members";
@@ -304,7 +305,7 @@ function Freeze({ entity }: { entity: Entity }) {
   const client = useQueryClient();
   const { say } = useMessages();
   const freeze = useApiMutation(
-    async (header: { "If-Match": string }) =>
+    async (header: IfMatch) =>
       unwrap(
         await iki.POST("/api/v1/collections/{ref}/freeze", {
           params: { path: { ref: entity.id }, header },
@@ -319,8 +320,7 @@ function Freeze({ entity }: { entity: Entity }) {
     freeze.reset();
   };
   // From the revision it was opened at, whose members the person saw.
-  const opened = useOpenedRevision(entity.revision, { open: asking, error: freeze.error });
-  const stale = isStale(freeze.error);
+  const rev = useRevisioned(entity, { open: asking, error: freeze.error, refresh: ENTITIES });
   return (
     <>
       <Button
@@ -335,36 +335,31 @@ function Freeze({ entity }: { entity: Entity }) {
         title={`Freeze ${entity.title}?`}
         confirmLabel="Freeze"
         confirmVariant="primary"
-        busy={freeze.isPending}
+        busy={freeze.isPending || rev.rereading}
         problem={
-          stale && freeze.error
-            ? {
-                ...freeze.error.problem,
-                detail:
-                  "Someone changed it while this was open. The page now shows their change: check it, then try again.",
-              }
-            : freeze.error
+          rev.changed
+            ? changedProblem(
+                "Someone changed it while this was open. The page now shows their change: check it, then try again.",
+              )
+            : freeze.error && !isStale(freeze.error)
               ? problemOf(freeze.error)
               : undefined
         }
         onCancel={close}
         onConfirm={() => {
-          freeze.mutate(opened.ifMatch, {
-            onSuccess: (saved) => {
-              client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
-              close();
-              const count = Array.isArray(saved.values["members"])
-                ? saved.values["members"].length
-                : 0;
-              say(
-                `Froze ${saved.hrid}: it lists ${count === 1 ? "1 entity" : `${String(count)} entities`}.`,
-              );
-            },
-            onError: (error) => {
-              if (error.problem.code === "stale") {
-                void client.invalidateQueries({ queryKey: ENTITIES });
-              }
-            },
+          rev.submit((header) => {
+            freeze.mutate(header, {
+              onSuccess: (saved) => {
+                client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
+                close();
+                const count = Array.isArray(saved.values["members"])
+                  ? saved.values["members"].length
+                  : 0;
+                say(
+                  `Froze ${saved.hrid}: it lists ${count === 1 ? "1 entity" : `${String(count)} entities`}.`,
+                );
+              },
+            });
           });
         }}
       >

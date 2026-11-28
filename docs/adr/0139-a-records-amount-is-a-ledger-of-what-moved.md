@@ -1,6 +1,6 @@
 # 0139. A record's amount is a ledger of what moved
 
-- Status: Accepted (pooling and exact movements refined by [0157](0157-a-pool-has-the-concentration-of-what-was-pooled.md))
+- Status: Accepted (pooling and exact movements refined by [0157](0157-a-pool-has-the-concentration-of-what-was-pooled.md); preconditions amended by [0289](0289-a-change-names-the-revision-it-replaces-in-if-match.md))
 - Date: 2026-11-18
 - Refines: [0115](0115-registries-keep-identities-projects-keep-records.md),
   [0123](0123-queries-walk-the-graph-of-what-depends-on-what.md),
