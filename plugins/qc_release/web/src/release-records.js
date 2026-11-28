@@ -38,13 +38,16 @@ function summary(item) {
   const v = item.values;
   if (v.attribute) {
     const out = v.outcome === "pass" ? "Pass" : "Out of specification";
-    // A conforming result says whether it met its requirement; a number, its value.
+    // A conforming result says whether it met its requirement; a number, the value its
+    // limits were compared with, and the value as measured when rounding changed it.
+    const measured =
+      v.reported != null && Number(v.reported) !== v.value ? ` (measured ${v.value})` : "";
     const seen =
       v.kind === "conforms"
         ? v.result === "conforms"
           ? "Conforms"
           : "Does not conform"
-        : `${v.value} ${v.unit}`;
+        : `${v.reported ?? v.value} ${v.unit}${measured}`;
     // An investigational test informs its investigation and replaces nothing.
     const role = v.purpose === "investigational" ? " · Investigational" : "";
     return [v.attribute, `${seen} · ${out}${role} · ${v.method}`];

@@ -38,18 +38,20 @@ def inputs() -> dict[str, Any]:
                 "attribute": "Assay",
                 "method": "Synthetic example",
                 "unit": "AU",
-                "lower": 90,
-                "upper": 110,
+                "lower": "90",
+                "upper": "110",
             },
         ],
     )
     lot = record("lot1", 8, lot_number="Corrected after testing", retest_on="2023-04-01")
+    material = record("material1", 4, name="Synthetic assay standard")
     case = record(
         "case1",
         1,
         lot=lot["id"],
         lot_revision=7,
         lot_number="Synthetic lot 1",
+        material=material["id"],
         schedule="schedule1",
         schedule_revision=3,
         specification=specification["id"],
@@ -60,7 +62,7 @@ def inputs() -> dict[str, Any]:
         attempts=[],
         sealed=False,
     )
-    case["included"] = {"specification": [specification], "lot": [lot]}
+    case["included"] = {"specification": [specification], "lot": [lot], "material": [material]}
     return {
         "run": {"requested_by": "analyst1"},
         "inputs": {"case": [case]},
@@ -172,14 +174,23 @@ def test_certificate_preserves_original_and_ordered_retest(qc_actions: ModuleTyp
         "revision": 8,
         "retest_on": "2023-04-01",
     }
+    # It names the material, read when the certificate was prepared (ICH Q7 §11.41).
+    assert coa["material"] == {"name": "Synthetic assay standard", "hrid": "MATERIAL1"}
+    assert report["material"] == {
+        "id": "material1",
+        "hrid": "MATERIAL1",
+        "revision": 4,
+        "name": "Synthetic assay standard",
+    }
     assert coa["results"] == [
         {
             "attribute": "Assay",
             "method": "Synthetic example",
             "unit": "AU",
-            "lower": 90,
-            "upper": 110,
-            "value": 90,
+            "lower": "90",
+            "upper": "110",
+            "rounding": "limit_places",
+            "reported": "90",
             "kind": "numeric",
         }
     ]
@@ -323,7 +334,8 @@ def opening(qc_actions: ModuleType, **more: Any) -> dict[str, Any]:
         ],
     )
     schedule = record("schedule1", 3, material="material1", context="Release", versions=["spec1"])
-    schedule["included"] = {"versions": [version]}
+    material = record("material1", 4, name="Synthetic assay standard")
+    schedule["included"] = {"versions": [version], "material": [material]}
     lot = record("lot1", 8, of="material1", lot_number="Synthetic lot 1")
     lot["material_field"] = "of"
     return {
@@ -482,7 +494,7 @@ def test_an_investigation_tests_under_its_plan_and_replaces_nothing(
     assert report["investigations"][0]["plan"] == plan
     # The certificate states the reportable repeat, not the investigation's own test.
     stated = certificate["values"]["coa"]["results"]
-    assert [row["value"] for row in stated] == [tests[2]["values"]["value"]]
+    assert [row["reported"] for row in stated] == [tests[2]["values"]["reported"]]
 
 
 #: USP Sodium Chloride's Identification A, a test for sodium under USP <191>, whose
@@ -556,7 +568,7 @@ def test_an_identification_conforms_to_its_requirement_or_is_out_of_specificatio
     (certificate,) = prepared["creates"]
     # What the certificate states: a number, and a requirement it conforms to.
     stated = {row["attribute"]: row for row in certificate["values"]["coa"]["results"]}
-    assert stated["Assay"]["value"] == 100
+    assert (stated["Assay"]["reported"], "value" in stated["Assay"]) == ("100", False)
     assert stated[IDENTIFICATION["attribute"]]["result"] == "conforms"
     assert stated[IDENTIFICATION["attribute"]]["acceptance"] == "Meets the requirements"
     assert "value" not in stated[IDENTIFICATION["attribute"]]
@@ -630,7 +642,7 @@ def test_a_certificate_of_analysis_is_issued_from_its_signed_record_alone(
         qc_actions.issue_certificate({"inputs": {"certificate": [certificate]}})
     certificate["values"]["review"] = "released"
     tampered = deepcopy(certificate)
-    tampered["values"]["coa"]["results"][0]["value"] = 101
+    tampered["values"]["coa"]["results"][0]["reported"] = "101"
     with pytest.raises(ValueError, match="doesn't match its digest"):
         qc_actions.issue_certificate({"inputs": {"certificate": [tampered]}})
 
@@ -658,10 +670,11 @@ def schedule_with(qc_actions: ModuleType, first: date, **schedule: Any) -> dict[
         effective_from=first.isoformat(),
         approval="approved",
         source="Synthetic specification",
-        criteria=[{"attribute": "Assay", "method": "Synthetic", "unit": "AU", "lower": 1}],
+        criteria=[{"attribute": "Assay", "method": "Synthetic", "unit": "AU", "lower": "1"}],
     )
     found = record("sched1", 2, material="material1", versions=["v1"], **schedule)
-    found["included"] = {"versions": [version]}
+    material = record("material1", 1, name="Synthetic material")
+    found["included"] = {"versions": [version], "material": [material]}
     return found
 
 
@@ -758,3 +771,125 @@ def test_opening_a_case_records_the_latest_testing_date(qc_actions: ModuleType) 
         (update,) = qc_actions.open_release(run)["updates"]["schedule"]
         assert update["values"] == {"versions": ["v1"], "tested_through": latest.isoformat()}
         assert update["require_unchanged"]
+
+
+#: USP-NF General Notices 7.20's own examples: the limit, the unrounded result, the
+#: result rounded to the limit's places, and whether it conforms. A number is a string
+#: here as the analyst reads it; the run takes it as entered.
+USP_7_20 = [
+    ("98.0", None, 97.96, "98.0", "pass"),
+    ("98.0", None, 97.92, "97.9", "oos"),
+    ("98.0", None, 97.95, "98.0", "pass"),
+    (None, "101.5", 101.55, "101.6", "oos"),
+    (None, "101.5", 101.46, "101.5", "pass"),
+    (None, "101.5", 101.45, "101.5", "pass"),
+    (None, "0.02", 0.025, "0.03", "oos"),
+    (None, "0.02", 0.015, "0.02", "pass"),
+    (None, "0.02", 0.027, "0.03", "oos"),
+    (None, "3", 3.5, "4", "oos"),
+    (None, "3", 3.4, "3", "pass"),
+    (None, "3", 2.5, "3", "pass"),
+]
+
+
+@pytest.mark.parametrize(("lower", "upper", "measured", "reported", "outcome"), USP_7_20)
+def test_a_result_is_rounded_to_its_limits_places_before_its_compared(
+    qc_actions: ModuleType,
+    lower: str | None,
+    upper: str | None,
+    measured: float,
+    reported: str,
+    outcome: str,
+) -> None:
+    run = inputs()
+    (criterion,) = run["inputs"]["case"][0]["included"]["specification"][0]["values"]["criteria"]
+    criterion.update(lower=lower, upper=upper)
+    run["params"]["value"] = measured
+    test = qc_actions.record_test(run)["creates"][0]["values"]
+    # The limits are as stated, the value as measured, and the reportable value is compared.
+    assert (test["lower"], test["upper"], test["value"]) == (lower, upper, measured)
+    assert (test["reported"], test["rounding"], test["outcome"]) == (
+        reported,
+        "limit_places",
+        outcome,
+    )
+
+
+def test_a_criterion_can_compare_a_result_unrounded(qc_actions: ModuleType) -> None:
+    run = inputs()
+    (criterion,) = run["inputs"]["case"][0]["included"]["specification"][0]["values"]["criteria"]
+    criterion.update(lower="98.0", upper=None, rounding="unrounded")
+    run["params"]["value"] = 97.96
+    test = qc_actions.record_test(run)["creates"][0]["values"]
+    assert (test["reported"], test["rounding"], test["outcome"]) == ("97.96", "unrounded", "oos")
+
+
+@pytest.mark.parametrize(
+    ("limits", "why"),
+    [
+        ({"lower": "98", "upper": "102.0"}, "same decimal place"),
+        ({"lower": 98.0}, "as a decimal number"),
+        ({"upper": "1e2"}, "as a decimal number"),
+        ({"upper": "100.", "lower": None}, "as a decimal number"),
+        ({"lower": "98.0", "rounding": "nearest"}, "rounded to its limits' places"),
+    ],
+)
+def test_a_limit_is_a_decimal_stated_to_its_place(
+    qc_actions: ModuleType, limits: dict[str, Any], why: str
+) -> None:
+    row = {"attribute": "Assay", "method": "Synthetic", "unit": "%"} | limits
+    with pytest.raises(ValueError, match=why):
+        qc_actions.criteria({"values": {"criteria": [row]}})
+    # Unrounded, a range may mix places: nothing is rounded to either.
+    mixed = {"attribute": "Assay", "method": "M", "unit": "%", "lower": "98", "upper": "102.0"}
+    assert qc_actions.criteria({"values": {"criteria": [mixed | {"rounding": "unrounded"}]}})
+
+
+def test_a_case_pins_its_material_and_grade_and_needs_its_name(qc_actions: ModuleType) -> None:
+    run = opening(qc_actions)
+    schedule = run["inputs"]["schedule"][0]
+    schedule["values"]["grade"] = "USP"
+    (case,) = qc_actions.open_release(run)["creates"]
+    assert (case["values"]["material"], case["values"]["grade"]) == ("material1", "USP")
+    # A registered material is pinned as its record in the project, under its entry.
+    entry = schedule["included"]["material"][0]
+    schedule["included"]["material"] = [entry | {"id": "record1", "entry_id": "material1"}]
+    assert qc_actions.open_release(run)["creates"][0]["values"]["material"] == "material1"
+    schedule["included"]["material"] = [entry | {"id": "record1", "entry_id": "material2"}]
+    with pytest.raises(ValueError, match="material is missing"):
+        qc_actions.open_release(run)
+    schedule["included"]["material"] = [entry]
+    schedule["included"]["material"][0]["values"]["name"] = " "
+    with pytest.raises(ValueError, match="Name MATERIAL1 on its record first"):
+        qc_actions.open_release(run)
+    schedule["included"]["material"] = []
+    with pytest.raises(ValueError, match="material is missing"):
+        qc_actions.open_release(run)
+
+
+def test_a_certificate_names_the_material_as_it_is_when_prepared(qc_actions: ModuleType) -> None:
+    run = inputs()
+    case = run["inputs"]["case"][0]
+    case["values"] |= {"review_flow": "research", "grade": "Reagent grade"}
+    run["params"]["value"] = 100
+    output = qc_actions.record_test(run)
+    case["values"].update(output["updates"]["case"][0]["values"])
+    test = record("test1", 1, **output["creates"][0]["values"])
+    prepare = {"inputs": {"case": [case], "tests": [test]}}
+    (certificate,) = qc_actions.prepare_certificate(prepare)["creates"]
+    assert certificate["values"]["coa"]["material"] == {
+        "name": "Synthetic assay standard",
+        "hrid": "MATERIAL1",
+        "grade": "Reagent grade",
+    }
+    material = case["included"]["material"][0]
+    case["included"]["material"] = [material | {"id": "record1", "entry_id": "material1"}]
+    (certificate,) = qc_actions.prepare_certificate(prepare)["creates"]
+    assert certificate["values"]["coa"]["material"]["name"] == "Synthetic assay standard"
+    case["included"]["material"] = []
+    with pytest.raises(ValueError, match="material is missing"):
+        qc_actions.prepare_certificate(prepare)
+    case["included"]["material"] = [material]
+    case["included"]["material"][0]["values"]["name"] = None
+    with pytest.raises(ValueError, match="names the material"):
+        qc_actions.prepare_certificate(prepare)

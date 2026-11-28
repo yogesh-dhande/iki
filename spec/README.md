@@ -32,6 +32,7 @@ environments/        # kind: Environment
 workflows/           # kind: Workflow
 triggers/            # kind: Trigger
 components/          # kind: Component, with each one's JavaScript module
+procedures/          # kind: ReviewProcedure
 migrations/          # made by `iki plugin makemigrations`, committed and reviewed
 ```
 
@@ -50,6 +51,7 @@ version: 3.0.0 # semantic version, for people (deployments pin the git commit)
 iki: ">=0.1,<0.3" # the Iki releases it works with: others refuse it
 title: Proteins
 license: Apache-2.0
+homepage: https://github.com/acme/iki-proteins # https only: where to read about it
 dependencies:
   iki/dna:
     types:
@@ -57,6 +59,20 @@ dependencies:
 settings:
   uniprot_mirror: { type: string, format: uri, default: "https://rest.uniprot.org" }
 ```
+
+`starters` names the project setup recipes a plugin ships, each at an exact
+version, such as `starters: { lot-release-testing: "1.0.0" }` (ADR 0198). A
+starter lets a project's Admin choose a review procedure, such as **Research**
+or **Regulated QC**, and grant the lab roles it needs. The recipes are Iki's
+own, so only Iki's plugins declare starters. A lab plugin's `starters` does
+nothing, and the validator warns of it (`unknown-starter`).
+
+A lab plugin that offers more than one review procedure lets each deployment
+choose one instead. Declare an `enum` setting of the procedures, copy its value
+onto each result when the action records it (an immutable, computed field),
+and have the result's state guards read that field. Each result then keeps
+the procedure it was recorded under. The lots plugin's `verification_flow`
+setting and its plasmid verification's `review_flow` field are an example.
 
 ### Names
 
@@ -539,6 +555,16 @@ rules:
   checked again: those that break one are listed on them, and org admins are
   told; a rule that holds holds them, by Iki. A bundle's records are checked
   as they're brought, as they were.
+- A check reads a reference at the revision the record pinned with
+  `reference_revisions`, which maps the reference to an `int` field holding
+  that revision: `reference_revisions: { alignment: alignment_revision }`
+  reads `record.alignment` as it was at `record.alignment_revision`, not as
+  it is now (`rule-reference-revision`). A verification checked against the
+  alignment it was recorded from stays checked against that alignment.
+- `recheck_before_signing: true` checks a rule again whenever someone signs
+  one of the record's states, even if the record was saved before the rule
+  changed or what it refers to has moved on. A signature can't then be given
+  on an answer that no longer holds (ADR 0235).
 - A rule names fields of its type (`rule-field`, `unknown-field`), and a
   subtype's can't share a name with its parent's (`rule-shadows-parent`). An
   extension's rules read the type's fields with its own; they're named
@@ -603,10 +629,157 @@ approved:
   `guard_refused`, with the guard's name.
 - A state has at most 20.
 
+#### Who signs, declared
+
+A signed state can say who may sign it instead of writing the guard
+([ADR 0301](../docs/adr/0301-a-review-procedure-is-declared-once-and-a-type-says-what-it-needs.md)).
+`maker: {person: field}` says the signer is the person a field names.
+`independent_of` says whom the signer must not be:
+
+```yaml
+released:
+  set_by: [qa]
+  locks: true
+  signatures: [{ meaning: approval }]
+  independent_of:
+    - { creator: true, when: record.source == "made" }
+    - { editors: { in: [quarantined, retest_due] } }
+    - { people: [made_by] }
+```
+
+- `creator`: whoever created the record. `{editors: {in: [states]}}`:
+  whoever edited it since it last entered those states; add `fields:` to
+  count only those who changed some fields. `{signers: [states]}`: whoever
+  last signed into those states. `{people: [fields]}`: whom a person field,
+  a list of people, or one a reference away (`test.observed_by`) names.
+- Each mapping may take a `when`: it applies only while that's true.
+- Iki compiles them into the state's `maker` and `independent` guards, with
+  a message saying whom, and checks them as any guard. A hand-written guard
+  can't take either name.
+
 The [construct review example](../examples/plugins/construct_review/README.md)
 adds a state field to an Assembly subtype. Its guards check the current product
 comparison, who recorded the build and who edited it afterward. Its notifications
 tell the creator and watchers when a comparison fails or a reviewer verifies the record.
+
+### Review procedures
+
+Research, Regulated QC and Record only are review procedures. One is
+declared once, as `kind: ReviewProcedure` under `procedures/`, by Iki's core
+or by any plugin, a lab's own included
+([ADR 0301](../docs/adr/0301-a-review-procedure-is-declared-once-and-a-type-says-what-it-needs.md)).
+A type says what it needs of a procedure, and a project chooses one that fits
+([ADR 0302](../docs/adr/0302-a-project-chooses-each-types-review-procedure-and-the-server-pins-it.md)).
+
+```yaml
+apiVersion: iki/v1
+kind: ReviewProcedure
+name: gmp_result_review
+version: 2
+label: GMP result review (SOP-QA-012)
+slots:
+  analyst: { label: Analyst }
+  reviewer: { label: Second-person reviewer }
+  qa: { label: QA }
+states:
+  recorded: { label: In progress, by: [analyst, reviewer], reason: required }
+  submitted:
+    label: Submitted
+    by: analyst
+    locks: true
+    signature: { meaning: authorship }
+    maker: true
+  first_review:
+    label: First review
+    by: reviewer
+    locks: true
+    signature: { meaning: review }
+    independent_of: [creator, editors, signers: [submitted]]
+  second_review:
+    label: Second review
+    by: reviewer
+    locks: true
+    signature: { meaning: review }
+    independent_of: [creator, editors, signers: [submitted, first_review]]
+  released:
+    label: Approved
+    by: qa
+    locks: true
+    signature: { meaning: approval }
+    independent_of: [creator, editors, signers: [submitted, first_review, second_review]]
+flows:
+  gmp:
+    label: GMP
+    summary: Submitted, reviewed by two people and approved by QA.
+    route: [recorded, submitted, first_review, second_review, released]
+    moves: { recorded: [submitted, first_review, second_review] }
+```
+
+- It's referred to as `plugin.name@version`: `acme/qms.gmp_result_review@2`,
+  or core's `iki/core.result_review@1`, whose flows are `record_only`,
+  `accepted` (Accept without sign-off), `research` and `regulated_qc`.
+  Records pin a version, so a published one never changes: change it in a
+  new version.
+- `slots` are the parts people play. A starter binds each to a lab role, by
+  default the `iki/lab_roles` role of its name
+  ([ADR 0304](../docs/adr/0304-lab-roles-are-shared-and-a-procedures-slots-are-bound-at-setup.md)).
+  A state's `by` names the slots whose holders set it.
+- A flow's `route` is its states in order. Records start in the first, where
+  the work is recorded and edited, which can't lock. Each later state is set
+  from the one before; `moves` adds others, such as a return for correction.
+  The last is the flow's final state.
+- A state has `label`, `description`, `by`, `locks`, `reason`, `on_edit`
+  and at most one `signature`. A signed state declares exactly one of
+  `maker: true` (whoever created the record or edited it since it entered
+  the flow's first state) and `independent_of` (`creator`, `editors`,
+  `{editors: {fields: [...]}}` and `{signers: [states]}`). An authorship
+  signature is the maker's. A procedure can't name a type's fields or read
+  its records: the type adds those.
+- Iki compiles each flow into the guards a state field has: `route`,
+  `maker` and `independent`. The setup page and the flow diagram read the
+  same declarations, so what they say is what the server enforces.
+
+#### A reviewed type
+
+```yaml
+review:
+  pinned: create
+  needs:
+    open: recorded
+    final: [signed_off, released]
+    states: [submitted]
+    locks: signed
+  independent_of: [people: [analysts]]
+  guards:
+    sealed:
+      on: [submitted, signed_off]
+      check: record.case.sealed == true
+      message: Seal the release case before signing its certificate.
+```
+
+- Iki adds the state field the procedure drives (`review`, or `field:`),
+  labelled `label:`, and two immutable fields the server stamps when a
+  record is created: `review_procedure` and `review_flow`. The type doesn't
+  declare them.
+- `pinned` is `create` (the project's choice, or the deployment's default)
+  or `{by: field}`: the procedure of the record a required, immutable
+  reference names. `review: {opens: true}` is a type with no review of its
+  own that pins one for the records that follow it.
+- `needs`: `open`, the state its actions write in (`recorded` unless said);
+  `final`, the states its readers take as complete; `states`, others it
+  names; `locks`, `signed` or `final`; and `slots`, those its fields and
+  guards name. Its notifications, assignments, guards and rules name only
+  these states.
+- `independent_of` adds people to every state that declares independence.
+  `guards` add conditions `on` named states, `signed` or `final`.
+- `derived: true` re-issues a record already reviewed under the same flow,
+  such as a certificate of analysis: its route is the flow's first and final
+  states.
+- A procedure fits when each flow chosen starts in `open`, ends in one of
+  `final`, has `states`, locks as `locks` says, declares `slots` and has the
+  states its guards are on. One that doesn't is refused, saying which need
+  it misses.
+- A type is reviewed once in its lineage: its subtypes follow its review.
 
 ### Notifications
 
@@ -899,6 +1072,35 @@ fields:
   `/entities/{ref}/aliquots` splits it. Each change is in the audit log,
   and the webhook event `entity.amount_moved` says so.
 
+A type says when material may be taken with `draw_guards`, and who may
+draw it for each purpose with `draw_purposes` (ADR 0139):
+
+```yaml
+draw_purposes:
+  qa_sampling: { by: [qa] } # QA sampling needs the QA lab role in the record's project
+draw_guards:
+  not_expired:
+    check: record.expires_on == null || record.expires_on > today
+    message: This lot has reached its expiry date. No material can be taken.
+  sampling_only_in_quarantine:
+    when: operation == "draw"
+    check: record.disposition != "quarantined" || purpose == "qa_sampling"
+    message: This lot is quarantined. Only a QA sampling draw is allowed.
+```
+
+- Each draw has a purpose: `routine`, the default, or `qa_sampling`. A
+  routine draw is open to whoever may draw from the record, unless
+  `draw_purposes` names roles for it. QA sampling is refused unless the type
+  or an ancestor names the roles for it. One of the roles is needed, in the
+  record's own project, as well as permission to draw. A subtype inherits
+  each purpose's roles and may narrow them.
+- A draw guard is like a state's guard: a `check`, a `message` and an
+  optional `when`. It reads the `record`, `now`, `today` (midnight UTC), the
+  `operation` (`draw`, `transfer` or `split`) and the `purpose`. A transfer
+  or split counts as routine use. The record's references are their IDs.
+  A guard that's false, or can't be worked out, refuses the draw before
+  anything moves. A subtype keeps its ancestors' guards.
+
 A catalogue type opts into the project's stock view and reorder list with
 `stock_catalogue` (ADR 0190). A lab declares its item, lot, order and
 recipient fields on its own types.
@@ -937,6 +1139,73 @@ ID and position only when they can read it. The low-stock list
 threshold, including items without lots. An item's `threshold` is null
 when it has none. The periodic stock check notifies
 the declared project lab roles once per low-stock episode.
+
+### Lab lists
+
+A type marked `list` is a list the lab curates, such as purification
+methods or deviation categories (ADR 0270). Its entities are the list's
+options, and a field that refers to it is an ordinary reference, which forms
+show as a dropdown of its options:
+
+```yaml
+apiVersion: iki/v1
+kind: EntityType
+name: PurificationMethod
+label: Purification method
+schema_version: 1
+hrid: { prefix: PUM }
+list:
+  options: # each registry starts with these, in this order
+    - { code: protein_a, label: Protein A, description: Affinity capture on protein A. }
+    - { code: imac, label: IMAC, category: chromatography }
+fields:
+  category: { type: ref, to: MethodCategory } # another list
+  sop: { type: string, format: uri }
+---
+# Elsewhere, a record's field that picks one:
+method: { type: ref, to: PurificationMethod }
+```
+
+`list: true` makes a list with no starting options.
+
+- Every option has four fields of its own: `code`, its identity in the list,
+  which never changes (exports and the API give it); `label`, what people
+  see and pick, once in the list; `description`; and `position`, its place in
+  the list's order. A type can't declare fields with those names
+  (`list-field-reserved`). Its other fields are its options' facts too, such
+  as a method's SOP. A reference among them names another list, never a
+  record (`list-refers-to-entry`).
+- Options are registry entries (ADR 0115): every project in a registry picks
+  from the same options. The registry's registrars, and the curators Org
+  Admins appoint for a list, add options, relabel them, change their facts,
+  reorder, archive and restore them, and supersede a wrong code, each with
+  a reason. Each change is a revision of the option and an audit event.
+- A form offers the active options, in order. An archived or superseded
+  option isn't offered for a new value. A record that names one already
+  keeps it, and it stays in search, filters, exports and the API.
+- Starting options give a `code` and a `label`, and may give a `description`
+  and values for the type's other fields. A reference names the other
+  list's starting option by its code (`list-option-unknown`). Codes and
+  labels are each the list's once (`list-option-twice`, `list-label-twice`),
+  and a required field needs a value (`list-option-incomplete`). Installing
+  the plugin adds them to every registry, and to one made later. An upgrade
+  adds those a registry hasn't got, by code, at the end of its list. It never
+  changes, reorders or restores the options a registry has.
+- A list isn't a record type: it has no states, rules, identity, computed
+  fields, amounts, viewers or other record keys (`list-key`, `list-state`,
+  `list-computed`). An extension of a list adds facts only
+  (`list-extension-record-field`). A reference to a list names that list
+  alone (`list-among-types`).
+- Only descriptive vocabulary is a list. A value that a state, guard, rule,
+  signature or calculation reads stays an `enum`, because a curator's change
+  to a list mustn't change what a plugin's logic does. A rule or guard that
+  compares an option's `code` is warned of (`list-code-in-expression`): once
+  a curator supersedes the code, records name the replacement and the
+  comparison silently stops applying. A condition may read an option's other
+  facts only when they're fixed (`immutable: true`, ADR 0143): one a curator
+  can change, its label among them, is refused (`reads-curated-fact`), and so
+  is a run that includes an option whose enums, numbers or Booleans aren't
+  fixed (`include-curated-fact`). A message may show any of them.
 
 ### Extensions
 
@@ -994,6 +1263,16 @@ lims_id:
 A field is never deleted, because its history is kept. To stop using one,
 mark it `removed: true`: its column is dropped, and its values stay in the
 type's history. Identity fields can't be removed.
+
+A `text` field is `searchable` unless it says `searchable: false`: a search
+finds its words (`matches`), from a full-text index of its first 100,000
+characters (ADR 0233). Turn it off for machine text whose words mean nothing
+to a reader, such as a Molfile or an instrument's export: it gets no
+full-text index, and a search finds text in it with `contains`.
+
+An editable `bool` field can say `reason_on_clear: true`: changing it from
+true to false, or unsetting it, then needs a reason in the edit, which the
+record's revision keeps, as a container's "in use" flag does.
 
 | Type       | Options                                                         | Notes                                                                                                         |
 | ---------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -1054,6 +1333,29 @@ refused when it's saved, each problem pointing at its row and field
 (`#/values/components/1/part`). Anything subtler than a role's count and
 types is a rule's. `identity` names the row fields that tell two rows
 apart when the list is part of its type's identity (see Identities).
+
+`row_id` names a row's optional string field that holds its stable ID, as an
+experiment's observations have:
+
+```yaml
+observations:
+  type: list
+  items:
+    type: row
+    row_id: observation_id
+    fields:
+      observed_at: { type: datetime, required: true }
+      note: { type: text, required: true }
+      observation_id: { type: string, max_length: 36 }
+```
+
+Iki gives a new row a UUID there, and keeps each row's ID through edits. An
+edit keeps a row by sending its ID, and adds one by leaving it out. An edit
+naming an ID the record's rows don't have, or one twice, is refused. A client
+that sends the list without IDs keeps them if the rows are unchanged, or if
+each matches one current row by its other fields. Rows it can't tell apart
+need their IDs. The field can't be required or have a default, and holds at
+least 36 characters (`row-id-field`).
 
 A list of rows is stored in its own table, a row per row and a column per
 row field, each with its foreign key and checks. Its value is a list of
@@ -1598,6 +1900,43 @@ On `entity.updated`, `fields` narrows it to changes of those fields. A
 change a triggered run makes never fires a trigger, so a trigger can't fire
 itself, or another that fires it back: chain actions in a workflow instead.
 
+`recheck` makes such a trigger re-verify what an edit changed (ADR 0080):
+
+```yaml
+on: entity.updated
+type: Assembly
+fields: [product, method, enzymes, backbone, inserts]
+recheck: verification_note # a computed text field the action updates
+run: check_assembly
+```
+
+An edit of one of the `fields` clears the action's computed outputs on the
+record in the same transaction. The record names its `recheck` field to say
+why it needs re-verifying, and the action runs again with the editor's own
+permissions. A project's Admin can turn the automatic run off, giving a
+reason; the edit still clears the outputs. The action must be a
+deterministic backend calculation that only updates optional, computed
+fields of the edited record, one of them the `recheck` text field
+(`trigger-recheck`).
+
+`watch_included` runs it again when a record its input includes changes, as
+a lot's computed values follow its oligonucleotide's weight:
+
+```yaml
+on: entity.updated
+type: OligoLot
+fields: [measured_mass, yield_od]
+watch_included:
+  oligonucleotide: [molecular_weight, extinction_260] # the input's included reference
+run: compute_oligo_lot
+```
+
+When one of those fields of the referenced record changes, each record that
+refers to it shows which calculation needs to run again. A project that
+turned the trigger on queues a run for each of its editable records. A
+change to a registry entry reaches every project's records. Each reference
+named must be one the action's input includes (`trigger-reference`).
+
 An `entity.created` trigger can import a file into the record that holds it,
 as an instrument's uploader makes one record for each export. Iki refuses a
 record whose file field holds a file that is still being scanned or is held,
@@ -1757,6 +2096,27 @@ exports:
   - { export: protein, sequence: residues } # FASTA
   - { export: compound, structure: molfile } # SDF, Molfile
 ```
+
+A `sequence` or `protein` export can also name a `description` field, which
+goes in GenBank's DEFINITION and the FASTA header, and an `organism`, a
+reference to `iki/core.Organism` written as GenBank's source feature or
+NCBI's `[organism=…]` modifier. A `sequence` export can name its
+`accession`, such as L09137.2.
+
+A signed report exports with the signatures that issued it (ADR 0171), as a
+printable HTML report and as JSON with each signature's proof:
+
+```yaml
+exports:
+  - { export: signed_report, report: coa, review: review, issued: [issued, released] }
+```
+
+`report` is the JSON field holding the report, `review` the state field
+whose signed transitions issue it, and `issued` the signed states at which an
+issued revision may be exported. Each of those states locks the record and
+has no `on_edit` destination. Before writing either file, Iki checks the
+issuance and each signature, and refuses if the report differs from what
+was signed.
 
 ### A plugin's own format
 
@@ -1972,7 +2332,8 @@ slots:
 
 A search is the API's, of `entities.type`: `where` conditions on its fields
 and `hrid`, `created_by`, `created_at` and `updated_at`, at most 20, 4
-levels deep, and a field to `sort` by. `{{ entity }}` is the entity whose
+levels deep, and a field to `sort` by, with `descending: true` for the
+latest first. `{{ entity }}` is the entity whose
 page it is, for a reference to its type; `{{ me }}` is whoever reads it, for
 `created_by`, `assigned` or a field naming people; `{{ now }}` is now, for a date or datetime field. Iki's server runs it, as the person may read, and the element
 gets the results as its `entities` property: `items`, each with `id`,
@@ -2392,6 +2753,7 @@ When a worker leases a job, it gets the run input and writes it to
         "id": "…",
         "hrid": "PRT-000042",
         "type": "iki/protein.Protein",
+        "types": ["iki/protein.Protein", "iki/core.Sequence", "iki/core.Entity"],
         "schema_version": 1,
         "revision": 3,
         "values": { "sequence": "MKV…" }
@@ -2428,6 +2790,14 @@ registered records, `entry_id` identifies the registry entry held at that
 record revision and `entry_revision` gives the registry revision pinned at
 launch. Included records use the same fields. An action that seals evidence
 should keep both pairs, since registry facts can change independently.
+
+An input record's `type` is its own type, and `types` is that type and each
+type it extends, nearest first, ending with `iki/core.Entity`. An input that
+takes a type also offers the lab's subtypes of it, so a command that asks
+what a record is, such as whether a complex's part is a protein, looks in
+`types`: `"iki/protein.Protein" in part["types"]` holds for a lab's
+`acme/enzymes.Enzyme` that extends it, where `part["type"] ==
+"iki/protein.Protein"` doesn't.
 
 Each input is a list, even when the input takes one entity. Values are the
 ones at the revision the run was launched on, as the REST API shows them,
@@ -2850,6 +3220,9 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `schema`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Anything the JSON Schemas catch |
 | `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Names                           |
 | `unknown-role`; `duplicate-role-label` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Lab roles                       |
+| `unknown-starter` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Starters                        |
+| `list-key`, `list-state`, `list-computed`, `list-field-reserved`, `list-refers-to-entry`, `list-among-types`, `list-extension-record-field`, `list-option-twice`, `list-label-twice`, `list-option-incomplete`, `list-option-unknown`, `list-option-value`, `reads-curated-fact`, `include-curated-fact`; `list-code-in-expression` (warning)                                                                                                                                                                                                                                                                                                         | Lab lists                       |
+| `row-role-not-enum`, `row-role-optional`, `unknown-row-role`, `unknown-row-field`, `row-role-not-reference`, `row-role-type-not-allowed`, `row-id-field`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Lists of rows                   |
 | `state-initial`, `state-removed`, `unknown-state`, `state-unreachable`, `state-signatures`, `state-on-edit`, `state-field-in-extension`, `state-field-in-list`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | States                          |
 | `rule-kind`, `rule-field`, `rule-while`, `rule-shadows-parent`, `invalid-expression`, `expressions-unchecked`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Rules and guards                |
 | `assignment-not-people`, `assignment-without-states`, `due-not-a-date`, `due-in-registry`, `person-in-registry`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | People in records               |

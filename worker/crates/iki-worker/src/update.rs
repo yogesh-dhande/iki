@@ -187,24 +187,16 @@ pub fn install(update: &UpdateOut, exe: &Path, allow_http: bool) -> Result<PathB
     result.map(|()| exe.to_path_buf())
 }
 
-/// Starts `exe` in this process's place, with the same arguments. Returns only if it can't.
-pub fn restart(exe: &Path) -> String {
+/// Starts `exe` in this process's place, with the same arguments, handing it the
+/// registration token on stdin as the worker hands it to itself at start. Returns only if
+/// it can't.
+pub fn restart(exe: &Path, registration_token: Option<&str>) -> String {
     say::info(
         "Starting the updated iki-worker.",
         &[("path", &exe.display())],
     );
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        let error = std::process::Command::new(exe)
-            .args(std::env::args_os().skip(1))
-            .exec();
-        format!("Couldn't start the updated iki-worker: {error}")
-    }
-    #[cfg(not(unix))]
-    {
-        "Updated iki-worker: start it again.".to_owned()
-    }
+    let error = crate::between::restart(exe, registration_token);
+    format!("Couldn't start the updated iki-worker: {error}")
 }
 
 #[cfg(test)]

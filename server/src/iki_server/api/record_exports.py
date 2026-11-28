@@ -8,6 +8,7 @@ from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 from ninja import Field, Query, Router, Schema
 from ninja.responses import Status
+from pydantic import ConfigDict
 
 from iki_server.api.common import caller, project
 from iki_server.api.entities import Condition, SortIn, _searching
@@ -29,7 +30,11 @@ ManyFormat = Annotated[str, Field(min_length=1, max_length=200, pattern=r"^[a-z0
 
 
 class ExportSearchIn(Schema):
-    """The records a table shows, as ``POST /entities/search`` finds them."""
+    """The records a table shows, as ``POST /entities/search`` finds them, in its order."""
+
+    # A part of the table's search this didn't take would export other records, or the
+    # same ones in another order, than the table shows: refused, never left out.
+    model_config = ConfigDict(extra="forbid")
 
     type: str | None = Field(None, description="This type and its subtypes.")
     exact_type: bool = Field(False, description="Only the type itself, not its subtypes.")
@@ -40,6 +45,11 @@ class ExportSearchIn(Schema):
     run: str | None = Field(None, max_length=100)
     where: Condition | None = None
     sort: SortIn | None = None
+    then: list[SortIn] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Further sorts, in order, for what `sort` ties, as the table sorts them.",
+    )
 
 
 class RecordExportIn(Schema):
@@ -145,9 +155,11 @@ def start_record_export(request: HttpRequest, payload: RecordExportIn) -> Status
     those picked, in order, or every one a search finds, up to 10,000. Each is written at
     the revision it has now, read in one snapshot, so editing one afterwards doesn't change
     the file. Up to 100 are written at once (201, ready to download); more in the
-    background (202): read the export until it's ready. A record the format can't be
-    written for fails it, naming each such record, so no file holds fewer than asked for.
-    Asking and each download are in the audit log."""
+    background (202): read the export until it's ready. You may have three waiting in
+    the background at once, and a project's records ten: past that, it's refused (429)
+    until one is written. A record the format can't be written for fails it, naming each
+    such record, so no file holds fewer than asked for. Asking and each download are in
+    the audit log."""
     me = caller(request)
     _storage()
     place = project(me, payload.project) if payload.project else None
@@ -169,6 +181,7 @@ def start_record_export(request: HttpRequest, payload: RecordExportIn) -> Status
             else None,
             sort=given.sort.field if given.sort else None,
             descending=given.sort.descending if given.sort else False,
+            then=tuple((t.field, t.descending) for t in given.then),
         )
         described = _described(wanted, searched_in)
     try:
@@ -184,6 +197,10 @@ def start_record_export(request: HttpRequest, payload: RecordExportIn) -> Status
             )
     except exporting.NotReadable as error:
         raise Problem(404, str(error), code="not_found") from None
+    except exporting.TooMany as error:
+        raise Problem(
+            429, str(error), code="too_many_exports", headers={"Retry-After": "60"}
+        ) from None
     except Refused as error:
         raise _refused(error) from None
     return Status(201 if made.state != "queued" else 202, made)

@@ -18,6 +18,7 @@ const STYLE = `
   li { padding: .55rem 0; border-bottom: 1px solid var(--border); }
   .row-title { font-weight: 650; }
   .use { font-weight: 650; margin-block: .25rem .75rem; }
+  .note { color: var(--muted); margin-block-end: .25rem; }
   dd { font-variant-numeric: tabular-nums; }
 `;
 function node(tag, ...contents) {
@@ -53,7 +54,11 @@ function acceptance(row) {
 }
 function observed(row) {
 	if (row.kind === "conforms") return row.result === "conforms" ? "Conforms" : "Does not conform";
-	return `${row.value} ${row.unit}`;
+	const unrounded = row.rounding === "unrounded" ? " · compared unrounded" : "";
+	return `${row.reported ?? row.value} ${row.unit}${unrounded}`;
+}
+function material(stated) {
+	return [stated.name, stated.grade].filter(Boolean).join(" · ");
 }
 function result(test, tests, investigations) {
 	const exit = investigations.find((investigation) => investigation.test === test.id);
@@ -65,6 +70,7 @@ function result(test, tests, investigations) {
 		["Test", label(test)],
 		["Method", test.method],
 		["Observed", test.kind === "conforms" ? test.result === "conforms" ? "Conforms" : "Does not conform" : `${test.value} ${test.unit}`],
+		...test.kind !== "conforms" && test.reported != null ? [["Reportable", observed(test)]] : [],
 		...test.observation ? [["Observation", test.observation]] : [],
 		["Acceptance", limit(test)],
 		["Outcome", test.outcome === "pass" ? "Pass" : "Out of specification"],
@@ -104,6 +110,7 @@ var ReleaseCertificate = class extends HTMLElement {
 			const { lot, specification } = coa;
 			body.push(facts([
 				["Issued by", coa.issuer],
+				...coa.material ? [["Material", material(coa.material)]] : [],
 				["Lot", lot.lot_number],
 				...[
 					["Made", lot.made_on],
@@ -116,7 +123,7 @@ var ReleaseCertificate = class extends HTMLElement {
 					label(specification)
 				].filter(Boolean).join(" · ")],
 				["Testing date", coa.testing_on]
-			]), node("h3", "Results"), listOf(coa.results, (row) => {
+			]), node("h3", "Results"), ...coa.results.some((row) => row.rounding === "limit_places") ? [Object.assign(node("p", "Each result is rounded to its limits' last place before it's compared (USP General Notices 7.20)."), { className: "note" })] : [], listOf(coa.results, (row) => {
 				const title = node("p", row.attribute);
 				title.className = "row-title";
 				return node("li", title, facts([
@@ -131,6 +138,7 @@ var ReleaseCertificate = class extends HTMLElement {
 			const lot = report.lot;
 			const spec = report.specification;
 			body.push(facts([
+				...report.material ? [["Material", `${report.material.name} · ${label(report.material)}`]] : [],
 				["Lot", lot.lot_number ? `${lot.lot_number} · ${label(lot)}` : label(lot)],
 				["Testing date", report.testing_on],
 				["Specification", `${spec.version} · ${label(spec)}`],

@@ -19,8 +19,8 @@ inputs:
               attribute: NaCl assay,
               method: USP Sodium Chloride assay (2015),
               unit: "% NaCl, dried basis",
-              lower: 99.0,
-              upper: 100.5,
+              lower: "99.0",
+              upper: "100.5",
             }
 expect:
   output:
@@ -65,7 +65,7 @@ inputs:
                     attribute: synthetic check,
                     method: synthetic method,
                     unit: arbitrary,
-                    lower: 0,
+                    lower: "0",
                   }
   version:
     - values:
@@ -75,7 +75,7 @@ inputs:
         approval: approved
         source: Synthetic method fixture
         criteria:
-          - { attribute: synthetic check, method: synthetic method, unit: arbitrary, lower: 0 }
+          - { attribute: synthetic check, method: synthetic method, unit: arbitrary, lower: "0" }
 expect: { error: after its predecessor }
 ---
 apiVersion: iki/v1
@@ -88,10 +88,13 @@ params: { testing_on: 2024-12-31 }
 inputs:
   lot:
     - type: iki/lots.GenericLot
-      values: { of: 00000000-0000-7000-8003-000000000099, lot_number: SYNTHETIC-NACL-01 }
+      values: { of: 00000000-0000-7000-8003-000000000005, lot_number: SYNTHETIC-NACL-01 }
   schedule:
-    - values: { material: 00000000-0000-7000-8003-000000000099 }
+    - values: { grade: USP }
       included:
+        material:
+          - type: iki/core.Sequence
+            values: { name: Sodium chloride }
         versions:
           - values:
               schedule: 00000000-0000-7000-8003-000000000002
@@ -105,8 +108,8 @@ inputs:
                     attribute: NaCl assay,
                     method: USP Sodium Chloride assay (2015),
                     unit: "% NaCl, dried basis",
-                    lower: 99.0,
-                    upper: 100.5,
+                    lower: "99.0",
+                    upper: "100.5",
                   }
           - values:
               schedule: 00000000-0000-7000-8003-000000000002
@@ -119,7 +122,7 @@ inputs:
                     attribute: synthetic check,
                     method: synthetic method,
                     unit: arbitrary,
-                    lower: 0,
+                    lower: "0",
                   }
 expect:
   output:
@@ -141,7 +144,9 @@ expect:
           testing_on: 2024-12-31
           review_flow: regulated_qc
           sealed: false
+          material: 00000000-0000-7000-8003-000000000005
           context: Release
+          grade: USP
           cycle: 1
 ---
 apiVersion: iki/v1
@@ -152,10 +157,13 @@ params: { testing_on: 2023-12-31 }
 inputs:
   lot:
     - type: iki/lots.GenericLot
-      values: { of: 00000000-0000-7000-8003-000000000099, lot_number: SYNTHETIC-NACL-01 }
+      values: { of: 00000000-0000-7000-8003-000000000004, lot_number: SYNTHETIC-NACL-01 }
   schedule:
-    - values: { material: 00000000-0000-7000-8003-000000000099 }
+    - values: {}
       included:
+        material:
+          - type: iki/core.Sequence
+            values: { name: Sodium chloride }
         versions:
           - values:
               schedule: 00000000-0000-7000-8003-000000000002
@@ -168,6 +176,6 @@ inputs:
                     attribute: synthetic check,
                     method: synthetic method,
                     unit: arbitrary,
-                    upper: 1,
+                    upper: "1",
                   }
 expect: { error: effective }

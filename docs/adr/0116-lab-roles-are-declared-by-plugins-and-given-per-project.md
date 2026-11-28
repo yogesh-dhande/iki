@@ -1,6 +1,7 @@
 # 0116. Lab roles are declared by plugins and given per project
 
 - Status: Accepted
+- Refined by [0304](0304-lab-roles-are-shared-and-a-procedures-slots-are-bound-at-setup.md): a generic-named role of a plugin's own needs a declared reason
 - Date: 2026-11-17
 - Amended by [0210](0210-delegated-actions-require-a-shared-lab-role.md) for delegated actions
 - Refines: [0003](0003-roles-and-permissions.md),

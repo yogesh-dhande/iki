@@ -172,3 +172,15 @@ the changes before saving.
   update meets the second's value. Change one, save, then the other.
 - People are named by ID or email in a cell, as an import reads them.
 - A record's location and amount change elsewhere, with their own reasons.
+
+## Amendment of 2026-11-27 — a save takes the position the check found
+
+Only the check finds a container's next free position. A save names each new
+record's container and its exact position, as the check returned it. A
+container with positions refuses a save without one (422, at the row's
+`location`); only a container without positions, such as a freezer,
+takes none. The save holds the containers while it puts the records away.
+If another placement took a position since the check, it refuses the whole
+save as stale (412, `stale`), listing those positions in `places` beside the
+records in `rows`. The sheet then checks every row again, so the person
+reviews where the new rows go now (ADR 0207).

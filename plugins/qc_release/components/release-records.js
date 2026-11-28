@@ -68,7 +68,8 @@ function summary(item) {
 	const v = item.values;
 	if (v.attribute) {
 		const out = v.outcome === "pass" ? "Pass" : "Out of specification";
-		const seen = v.kind === "conforms" ? v.result === "conforms" ? "Conforms" : "Does not conform" : `${v.value} ${v.unit}`;
+		const measured = v.reported != null && Number(v.reported) !== v.value ? ` (measured ${v.value})` : "";
+		const seen = v.kind === "conforms" ? v.result === "conforms" ? "Conforms" : "Does not conform" : `${v.reported ?? v.value} ${v.unit}${measured}`;
 		const role = v.purpose === "investigational" ? " · Investigational" : "";
 		return [v.attribute, `${seen} · ${out}${role} · ${v.method}`];
 	}

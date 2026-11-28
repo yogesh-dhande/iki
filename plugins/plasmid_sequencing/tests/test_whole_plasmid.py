@@ -202,6 +202,40 @@ def test_a_deletion_across_the_origin_is_one_named_round_it(
     assert "depth" not in only  # a consensus has no reads of its own
 
 
+def test_alleles_longer_than_a_record_keeps_have_their_whole_lengths(
+    results: dict[str, tuple[dict[str, Any], Path]],
+) -> None:
+    """300 bases gone, and 300 replaced by 250 others: the record keeps each allele's
+    first 200 bases, with its whole length beside them, and differences.tsv has each
+    allele whole."""
+    found = values(results, "long-alleles")["differences"]
+    # minimap2 matches the first 2 of the 250 new bases to the 300, so the replacement is a
+    # deletion of 298 and an insertion of 248 beside it.
+    assert [
+        (d["hgvs"], d["reference_length"], d["observed_length"], d["length_change"]) for d in found
+    ] == [
+        ("o.1101_1400del", 300, 0, -300),
+        ("o.2001_2298del", 298, 0, -298),
+        ("o.2300_2301ins[PLS-000002_consensus:o.1703_1950]", 0, 248, 248),
+    ]
+    assert [(len(d["reference"]), len(d["observed"])) for d in found] == [
+        (200, 0),
+        (200, 0),
+        (0, 200),
+    ]
+    reference = replay.puc19()
+    _, out_dir = results["long-alleles"]
+    with (out_dir / "differences.tsv").open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    assert [(r["reference"], r["observed"]) for r in rows[:2]] == [
+        (reference[1100:1400], ""),
+        (reference[2000:2298], ""),
+    ]
+    assert rows[2]["observed"] == replay.unrelated(250)[2:]
+    assert [r["reference_length"] for r in rows] == ["300", "298", "0"]
+    assert [r["observed_length"] for r in rows] == ["0", "0", "248"]
+
+
 def test_a_consensus_on_the_other_strand_is_turned_round(
     results: dict[str, tuple[dict[str, Any], Path]],
 ) -> None:

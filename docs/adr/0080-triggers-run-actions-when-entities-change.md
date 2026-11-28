@@ -112,6 +112,15 @@ within their project. Filling a previously empty registry value can wake its
 dependents because that value can be filled only once. A completed calculation
 clears its notice after checking its input and evidence revisions.
 
+## Amendment of 2026-11-27 — a firing whose launch keeps breaking
+
+A launch can fail for a reason that has no answer for the lab, such as a bug.
+Then the launch is undone and the firing stays `pending`, with the failure
+counted and logged for the operator. The minute's sweep tries it again. After
+five failures it ends `failed`, saying its run couldn't start and that the
+server's log records why. No firing stays pending for good, and none holds up
+the firings after it.
+
 ## Consequences
 
 - Automatic work stays accountable. Every triggered run names a person, the
