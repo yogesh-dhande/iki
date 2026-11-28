@@ -79,6 +79,7 @@ ACTIONS: dict[str, str] = {
     "plugin.updated": "Updated a plugin",
     "plugin.preflight": "Checked a proposed plugin against existing records",
     "plugin.rules_checked": "Checked records against a plugin's changed rules",
+    "plugin.computed_worked_out": "Worked out records' computed values by changed expressions",
     "plugin.detached": "Detached a plugin",
     "plugin.reattached": "Reattached a plugin",
     "plugin.purge_requested": "Asked for a plugin’s data to be purged",
@@ -93,6 +94,7 @@ ACTIONS: dict[str, str] = {
     "bundle.import_discarded": "Discarded a bundle from another deployment, unimported",
     "bundle.imported": "Imported a bundle's entities, with their history, from another deployment",
     "bundle.import_failed": "Tried to import a bundle from another deployment, and nothing changed",
+    "bundle.signing_key_trusted": "Trusted another deployment's signing key that a bundle brought",
     "file.added": "Added a file",
     "file.download_link_issued": "Issued a file download link",
     "file.quarantined": "Quarantined content after a malware finding",
@@ -189,10 +191,8 @@ ACTIONS: dict[str, str] = {
     "registry.facts_changed": "Changed a registry entry's facts",
     "registry.created": "Added a registry",
     "registry.updated": "Changed a registry",
-    "registry.registrar_appointed": "Made someone a registrar",
-    "registry.registrar_removed": "Removed a registrar",
-    "registry.list_curator_appointed": "Made someone a lab list's curator",
-    "registry.list_curator_removed": "Removed a lab list's curator",
+    "registry.role_granted": "Made someone a registrar, or a lab list's curator",
+    "registry.role_removed": "Removed a registrar, or a lab list's curator",
     "list.option_added": "Added an option to a lab list",
     "list.option_changed": "Changed a lab list's option",
     "list.reordered": "Reordered a lab list",
@@ -238,6 +238,11 @@ ACTIONS: dict[str, str] = {
     "scim.group_linked": "Linked a group to a team",
     "scim.group_unlinked": "Unlinked a group from a team",
 }
+
+#: Actions whose event can concern records of several projects. Such an event has no one
+#: ``project``; its data lists each in ``projects``, and filtering the log by a project
+#: finds it too.
+SPANNING_PROJECTS = frozenset({"entities.export_requested", "entities.exported"})
 
 
 @dataclass(frozen=True)

@@ -9,13 +9,13 @@ from typing import TYPE_CHECKING
 from django.core.management.base import CommandError
 from psycopg import sql
 
-from iki_server.entities.values import FOREIGN_KEYS, is_list_table
+from iki_server.entities.values import FOREIGN_KEYS
 from iki_server.plugins.makemigrations import linear_conversion
 from iki_server.plugins.preflight_projection import fill_default, project
 from iki_server.plugins.preflight_types import Finding, Record
 from iki_server.plugins.preflight_values import field_findings
 from iki_spec import helm
-from iki_spec.model import FORMATS, Field
+from iki_spec.model import FORMATS, Field, stored_in_list_table
 from iki_spec.units import UnitError
 
 if TYPE_CHECKING:
@@ -106,7 +106,7 @@ def _field_checks(
     if old == new:
         return
     # Normalized lists always read as a list (empty when no rows), and have no scalar column.
-    normalized = old is not None and is_list_table(old)
+    normalized = old is not None and stored_in_list_table(old)
     raw = sql.SQL("TRUE") if normalized else scope.column(name)
     if new is None or new.removed:
         if old and old.type == "state":
@@ -122,7 +122,7 @@ def _field_checks(
             True,
         )
         return
-    if old is None and is_list_table(new):
+    if old is None and stored_in_list_table(new):
         # Creating the new child table inserts no rows, including when a default
         # supplies a list to newly created records. Existing owners read as [].
         needs_items = bool(
@@ -289,7 +289,7 @@ def sampled_fields(old: Mapping[str, Field], new: Mapping[str, Field]) -> set[st
             out.add(name)
         if (
             f.type == "list"
-            and (is_list_table(f) or is_list_table(previous))
+            and (stored_in_list_table(f) or stored_in_list_table(previous))
             and (
                 previous.type != f.type
                 or (previous.min_items, previous.max_items) != (f.min_items, f.max_items)
@@ -313,7 +313,7 @@ def sampled_findings(
     """Project the values expression checks read; report only checks outside SQL."""
     sampled = sampled_fields(old, new)
     required = projection_inputs(new, reads | sampled)
-    lists = {n for n in sampled if is_list_table(old[n]) or is_list_table(new[n])}
+    lists = {n for n in sampled if stored_in_list_table(old[n]) or stored_in_list_table(new[n])}
     findings, projected = field_findings(
         {k: v for k, v in old.items() if k in required},
         {k: v for k, v in new.items() if k in required},

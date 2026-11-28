@@ -476,3 +476,13 @@ def test_urls_are_shown_without_credentials() -> None:
         "unable to access 'https://github.com/a/b.git/': 403, "
         "and ssh://git@host/x, and https://host/y"
     )
+
+
+def test_a_lockfile_takes_annotations_and_x_keys(tmp_path: Path) -> None:
+    file = tmp_path / "plugins.lock.yaml"
+    file.write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\n"
+        "annotations: { change_control: CC-2026-118 }\nx-acme-ticket: OPS-12\nplugins: []\n"
+    )
+    result = load_lock(file)
+    assert result.ok, result.problems

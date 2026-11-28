@@ -520,6 +520,103 @@ def test_new_tubes_are_put_away_and_start_with_their_volume(world: World) -> Non
         assert movement.reason == "Aliquoted for stability"
 
 
+def test_a_well_taken_after_the_check_saves_nothing_and_says_where(world: World) -> None:
+    """The check found the box's next free well for a tube; another tube went in it, in
+    another session, before the save. The save is refused as stale (ADR 0207): the tube
+    isn't put in another well than the one reviewed."""
+    from iki_server.storage import services as storage
+
+    box = make(world, BOX, {"name": "Batch 12 retains", "rows": 9, "columns": 9})
+    first = make(world, TUBE, {"barcode": "TB-0001"})
+    storage.move(world.users["editor"], [storage.Wanted(first, box, "A1")], reason="Filed")
+    [row] = checked(
+        world,
+        [{"key": "t2", "cells": {"barcode": "TB-0002"}, "location": "Batch 12 retains"}],
+        type=TUBE,
+    )
+    assert row["location"]["shown"] == f"{box.hrid} A2"
+    # In another session, a retain goes in A2.
+    other = make(world, TUBE, {"barcode": "TB-0101"})
+    storage.move(world.users["admin"], [storage.Wanted(other, box, "A2")], reason="Retains")
+
+    answer = save(world, to_save([row]), type=TUBE, reason="Aliquoted for stability")
+    body = problem(answer, 412, "stale")
+    assert body["rows"] == []
+    assert body["places"] == [
+        {"key": "t2", "container": str(box.pk), "hrid": box.hrid, "position": "A2"}
+    ]
+    assert f"{box.hrid} A2" in body["detail"]
+    # Nothing was made, and nothing else moved.
+    assert not Entity.objects.filter(type=TUBE).exclude(pk__in=[first.pk, other.pk]).exists()
+    assert Place.objects.filter(container=box).count() == 2
+    assert not AuditEvent.objects.filter(action="records.sheet_saved").exists()
+    # Checked again, it goes in the next free well, to review.
+    [again] = checked(
+        world,
+        [{"key": "t2", "cells": {"barcode": "TB-0002"}, "location": "Batch 12 retains"}],
+        type=TUBE,
+    )
+    assert again["location"]["shown"] == f"{box.hrid} A3"
+    saved = save(world, to_save([again]), type=TUBE, reason="Aliquoted")
+    assert saved.status_code == 200, saved.content
+    made = Entity.objects.get(hrid=saved.json()["rows"][0]["hrid"])
+    place = Place.objects.get(pk=made.pk)
+    assert (place.container_id, place.row, place.column) == (box.pk, 1, 3)
+
+
+def test_a_new_records_position_is_the_one_reviewed_never_the_next_free_one(world: World) -> None:
+    """A save names each new record's exact position, as the check gave it: only the check
+    finds a box's next free one. A container without positions takes none."""
+    box = make(world, BOX, {"name": "Batch 12 retains", "rows": 9, "columns": 9})
+    without = save(
+        world,
+        [
+            {
+                "key": "t2",
+                "values": {"barcode": "TB-0002"},
+                "location": {"container": str(box.pk), "position": None},
+            }
+        ],
+        type=TUBE,
+    )
+    body = problem(without, 422, "sheet_problems")
+    assert body["errors"] == [
+        {
+            "pointer": "#/rows/0/location",
+            "detail": f"{box.hrid} has positions: save the one the check gave this new tube.",
+            "kind": "invalid",
+        }
+    ]
+    assert not Entity.objects.filter(type=TUBE).exists()
+    # The key is required: a client says the position, or that there's none.
+    unsaid = save(
+        world,
+        [{"key": "t2", "values": {"barcode": "TB-0002"}, "location": {"container": str(box.pk)}}],
+        type=TUBE,
+    )
+    assert unsaid.status_code == 422
+    assert not Entity.objects.filter(type=TUBE).exists()
+    # A box goes in a freezer, which has shelves, not positions.
+    freezer = make(world, "acme/protein.Freezer", {"name": "Freezer 3", "asset_tag": "AT-0003"})
+    [row] = checked(
+        world,
+        [
+            {
+                "key": "b1",
+                "cells": {"name": "Batch 13 retains", "rows": "9", "columns": "9"},
+                "location": "Freezer 3",
+            }
+        ],
+        type=BOX,
+    )
+    assert row["location"]["position"] is None, row["problems"]
+    saved = save(world, to_save([row]), type=BOX, reason="New retains box")
+    assert saved.status_code == 200, saved.content
+    made = Entity.objects.get(hrid=saved.json()["rows"][0]["hrid"])
+    place = Place.objects.get(pk=made.pk)
+    assert (place.container_id, place.row, place.column) == (freezer.pk, None, None)
+
+
 def test_a_location_or_volume_of_an_existing_record_is_changed_elsewhere(world: World) -> None:
     tube = make(world, TUBE, {"barcode": "TB-0009"})
     [row] = checked(

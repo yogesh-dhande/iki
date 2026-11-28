@@ -20,12 +20,13 @@ and audit trail, kept as long as runs' are.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from django.db import connection, transaction
-from django.db.models import Max, Q
+from django.db.models import F, Max, QuerySet
 from django.utils import timezone
 
 from iki_server.audit import log as audit
@@ -33,7 +34,8 @@ from iki_server.entities import hrids, registry
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
-from iki_server.runs import catalog, egress, live
+from iki_server.runs import catalog, egress, leases, live
+from iki_server.runs.leases import HEARTBEAT_EVERY, LEASE_TTL
 from iki_server.runs.models import (
     SETUP_HRID_PREFIX,
     SETUP_HRID_SEQUENCE,
@@ -87,25 +89,8 @@ SHARED = "shared_filesystem"
 OBJECTS = "object_mount"
 #: Those whose versions are a directory that machines mount, rather than a snapshot.
 MOUNTED = {SHARED, OBJECTS}
-#: A lease lasts this long unless a heartbeat renews it, as for runs' jobs.
-LEASE_TTL = timedelta(seconds=60)
-HEARTBEAT_EVERY = timedelta(seconds=20)
-#: How long past its timeout a build may run before the server ends it.
-TIMEOUT_GRACE = timedelta(minutes=5)
-#: The most log one build keeps.
-MAX_LOG_BYTES = 16 * 1024**2
 #: A setup with no timeout of its own may run this long.
 DEFAULT_TIMEOUT = 6 * 3600
-
-
-class Stale(Exception):  # noqa: N818 - reads as "the lease is stale"
-    """The worker doesn't hold this build's current lease."""
-
-
-class LogGap(Exception):  # noqa: N818 - reads as "there's a gap in the log"
-    def __init__(self, expected: int) -> None:
-        super().__init__(f"The log continues at byte {expected}.")
-        self.expected = expected
 
 
 # --- What an environment needs ---------------------------------------------------------------
@@ -687,16 +672,9 @@ def _settings(plugin: str) -> dict[str, Any]:
 
 
 def _holds(worker: Worker, build_id: uuid.UUID, token: uuid.UUID) -> SetupBuild:
+    """The build, locked, if this worker holds its current lease."""
     build = SetupBuild.objects.select_for_update().filter(pk=build_id, worker=worker).first()
-    if (
-        build is None
-        or build.state != SetupState.RUNNING
-        or build.lease_token != token
-        or build.lease_expires_at is None
-        or build.lease_expires_at <= timezone.now()
-    ):
-        raise Stale
-    return build
+    return leases.fenced(build, token, (SetupState.RUNNING,))
 
 
 def heartbeat(worker: Worker, build_id: uuid.UUID, token: uuid.UUID) -> tuple[datetime, bool]:
@@ -713,35 +691,23 @@ def progress(
 ) -> None:
     with transaction.atomic():
         build = _holds(worker, build_id, token)
-        build.progress = max(0.0, min(1.0, fraction))
-        build.progress_message = message[:500]
-        build.save(update_fields=["progress", "progress_message"])
+        leases.set_progress(build, fraction, message)
         live.setup_changed(build.pk)
 
 
 def append_log(
     worker: Worker, build_id: uuid.UUID, token: uuid.UUID, offset: int, text: str
 ) -> int:
-    """Adds a chunk at `offset`, as a run's job's log does."""
-    size = len(text.encode())
+    """Adds a chunk at `offset` and returns where the next one goes, by the rules of
+    :func:`leases.append_log`, as a run's job's log does."""
     with transaction.atomic():
         build = _holds(worker, build_id, token)
-        end = build.log_size
-        if offset < end and offset + size <= end:
-            return end
-        if offset != end:
-            raise LogGap(end)
-        build.log_size = end + size
-        build.save(update_fields=["log_size"])
-        live.setup_changed(build.pk)
-        if end >= MAX_LOG_BYTES:
-            return build.log_size
-        if end + size > MAX_LOG_BYTES:
-            text = text.encode()[: MAX_LOG_BYTES - end].decode(errors="ignore")
-            text += (
-                f"\n[iki: the log is over {MAX_LOG_BYTES // 1024**2} MiB; the rest isn't kept]\n"
-            )
-        SetupLog.objects.create(build=build, offset=offset, text=text.replace("\x00", "�"))
+
+        def keep(text: str) -> None:
+            SetupLog.objects.create(build=build, offset=offset, text=text)
+
+        if leases.append_log(build, offset, text, keep):
+            live.setup_changed(build.pk)
         return build.log_size
 
 
@@ -786,34 +752,29 @@ def finish(
 
 def recover_expired() -> int:
     """Ends builds whose worker stopped sending heartbeats, and those running well past
-    their timeout. The task runner calls it with runs' jobs'."""
+    their timeout. The task runner calls it with runs' jobs'. As for those, each sweep
+    selects only what's due, soonest first, and each build ends in its own transaction
+    (``sweeps.each``): one that can't is logged and left for the next pass."""
     now = timezone.now()
-    ended = 0
-    with transaction.atomic():
-        for build in SetupBuild.objects.select_for_update(skip_locked=True).filter(
-            Q(lease_expires_at__lt=now)
-            | Q(started_at__lt=now - TIMEOUT_GRACE, lease_expires_at__isnull=False),
-            state=SetupState.RUNNING,
-        )[:100]:
-            assert build.started_at is not None  # noqa: S101 - a running build has started
-            if build.lease_expires_at is not None and build.lease_expires_at < now:
-                _end(
-                    build,
-                    SetupState.FAILED,
-                    {"code": "worker_lost", "message": "Its worker stopped sending heartbeats."},
-                    now,
-                )
-                ended += 1
-            elif build.started_at + timedelta(seconds=build.timeout) + TIMEOUT_GRACE < now:
-                _end(
-                    build,
-                    SetupState.TIMED_OUT,
-                    {
-                        "code": "timed_out",
-                        "message": f"It ran past its {build.timeout}s timeout, and its worker "
-                        "didn't stop it.",
-                    },
-                    now,
-                )
-                ended += 1
-    return ended
+    running = SetupBuild.objects.filter(state=SetupState.RUNNING)
+    lost = leases.lost(running, now)
+    overdue = leases.overdue(
+        running.filter(lease_expires_at__isnull=False), F("started_at"), "timeout", now
+    )
+
+    def worker_lost(build: SetupBuild) -> None:
+        error = {"code": "worker_lost", "message": "Its worker stopped sending heartbeats."}
+        _end(build, SetupState.FAILED, error, now)
+
+    def timed_out(build: SetupBuild) -> None:
+        error = {
+            "code": "timed_out",
+            "message": f"It ran past its {build.timeout}s timeout, and its worker didn't stop it.",
+        }
+        _end(build, SetupState.TIMED_OUT, error, now)
+
+    return _each(lost, worker_lost) + _each(overdue, timed_out)
+
+
+def _each(found: QuerySet[SetupBuild], end: Callable[[SetupBuild], None]) -> int:
+    return leases.end_each(found, end, failed="setup_recovery_failed", key="build")

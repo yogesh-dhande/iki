@@ -38,6 +38,8 @@ pub struct RunInputEntity {
     pub entry_revision: Option<i64>,
     /// The qualified type, such as `iki/protein.Protein`.
     pub r#type: String,
+    /// The type and each type it extends, nearest first, ending with `iki/core.Entity`. A command that asks whether a record is, say, a protein looks for `iki/protein.Protein` here, not in `type`, so that a lab’s subtype of it is one too.
+    pub types: Vec<String>,
     pub schema_version: i64,
     /// The revision the run reads.
     pub revision: i64,

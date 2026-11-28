@@ -25,6 +25,8 @@ effects:
     - type: CalibrationImpact
       cardinality: many
       match_on: key
+      # One case for each result a failure affects: one opened first stands.
+      on_match: keep
       derived_from: [instrument, calibrations, uses]
 runs_on: { tier: backend, environment: equipment-tools }
 command: [python, ./scripts/equipment.py, trace]

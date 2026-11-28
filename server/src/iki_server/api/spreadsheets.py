@@ -29,6 +29,7 @@ from django.db import transaction
 from django.http import HttpRequest, HttpResponse
 from ninja import Field, Query, Router, Schema
 from ninja.responses import Status
+from pydantic import ConfigDict
 
 from iki_server.accounts.models import User
 from iki_server.api import preconditions
@@ -165,10 +166,16 @@ class SpreadsheetCommitIn(Schema):
 
 
 class SavedMappingIn(Schema):
+    # A member it doesn't take is refused: `replace` and `target_revision` replaced a
+    # mapping here once, and now would save a new one (ADR 0289).
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=100)
 
 
 class ReplacedMappingIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=100)
     import_: UUID = Field(
         alias="import", description="The spreadsheet import whose mapping replaces it."

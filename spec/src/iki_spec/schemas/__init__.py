@@ -14,14 +14,14 @@ from functools import cache
 from importlib.resources import files
 from typing import Any
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, validators
 from jsonschema.exceptions import ValidationError
 from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
 
 from iki_spec.problems import Path, describe_path
 
-__all__ = ["NAMES", "SchemaIssue", "check", "load", "registry", "url"]
+__all__ = ["MARKS", "NAMES", "Mark", "SchemaIssue", "check", "load", "marks", "registry", "url"]
 
 #: Every published schema, by name.
 NAMES = (
@@ -29,6 +29,7 @@ NAMES = (
     "plugin",
     "entity-type",
     "entity-type-extension",
+    "list",
     "field",
     "rule",
     "settings",
@@ -38,6 +39,7 @@ NAMES = (
     "environment",
     "workflow",
     "trigger",
+    "review-procedure",
     "component",
     "compute",
     "compute-template",
@@ -78,16 +80,81 @@ def _validator(name: str, part: str | None = None) -> Draft202012Validator:
     return Draft202012Validator(schema, registry=registry())
 
 
+#: The keywords a schema property says how it's versioned with (ADR 0293): the release it
+#: came in, that it's deprecated (with `x-iki-deprecated-since` and `x-iki-use`), and that
+#: it's provisional, so a minor release may change it.
+MARKS = ("x-iki-since", "deprecated", "x-iki-provisional")
+
+
+class Mark:
+    """A key a document uses whose schema property carries one of `MARKS`."""
+
+    def __init__(self, path: Path, keyword: str, schema: dict[str, Any]) -> None:
+        self.path = path  # the key's path in the document
+        self.keyword = keyword
+        self.schema = schema  # the property's schema, with the mark and its details
+
+    def __repr__(self) -> str:
+        return f"Mark({self.path!r}, {self.keyword!r})"
+
+
+def _marked(keyword: str) -> Any:  # noqa: ANN401 - a jsonschema keyword function
+    def check(validator: Any, value: Any, instance: Any, schema: dict[str, Any]) -> Any:  # noqa: ANN401
+        if value is not False:
+            yield ValidationError(keyword, validator=keyword, schema=schema)
+
+    return check
+
+
+_Marking = validators.extend(  # type: ignore[no-untyped-call]
+    Draft202012Validator, {k: _marked(k) for k in MARKS}
+)
+
+
+@cache
+def _marking(name: str) -> Any:  # noqa: ANN401 - a jsonschema validator
+    return _Marking(load(name), registry=registry())
+
+
+def marks(name: str, document: Any) -> list[Mark]:  # noqa: ANN401 - manifest data is JSON-shaped
+    """The keys `document` uses that its schema marks as versioned (`MARKS`), in reading order.
+
+    A property's marks apply wherever its key is used, so they're found by validating the
+    document with a validator for which every mark "fails" where it applies.
+    """
+    found: dict[tuple[Path, str], Mark] = {}
+
+    def collect(errors: Any) -> None:  # noqa: ANN401 - jsonschema errors
+        for error in errors:
+            if error.validator in MARKS:
+                path: Path = tuple(error.absolute_path)
+                if path:
+                    keyword = str(error.validator)
+                    found.setdefault((path, keyword), Mark(path, keyword, error.schema))
+            if error.context:
+                collect(error.context)
+
+    collect(_marking(name).iter_errors(document))
+    return sorted(found.values(), key=lambda m: (list(map(str, m.path)), m.keyword))
+
+
 class SchemaIssue:
     """One way a document doesn't match its schema, said plainly."""
 
     def __init__(
-        self, path: Path, message: str, *, hint: str | None = None, at_key: bool = False
+        self,
+        path: Path,
+        message: str,
+        *,
+        hint: str | None = None,
+        at_key: bool = False,
+        code: str | None = None,
     ) -> None:
         self.path = path
         self.message = message
         self.hint = hint
         self.at_key = at_key  # point at the key rather than the value
+        self.code = code  # a problem code more specific than `schema`, if there is one
 
     def __repr__(self) -> str:
         return f"SchemaIssue({self.path!r}, {self.message!r})"
@@ -139,6 +206,28 @@ def _explain(error: ValidationError, document: Any) -> Iterator[SchemaIssue]:  #
         name = str(error.instance)
         key_path = (*path, name)
         parent = _at(document, path)
+        if (
+            validator == "enum"
+            and isinstance(document, dict)
+            and document.get("kind") == "List"
+            and len(path) == 2
+            and path[0] == "fields"
+        ):
+            # A list's fields are its options' facts (ADR 0295): its schema allows a fact's
+            # options only, besides what each kind of field allows. A field of a kind no fact
+            # is is reported as such, not also for its kind's options.
+            kinds = load("list")["$defs"]["fact"]["properties"]["type"]["enum"]
+            if isinstance(parent, dict) and parent.get("type") not in kinds:
+                return
+            yield SchemaIssue(
+                key_path,
+                f"`{name}` isn't an option for a list's fields: they're its options' facts, "
+                "which its curators give.",
+                hint="A fact is never computed, and each of a list's fields is one already. "
+                "Make it `immutable: true` for a fact fixed when the option is added.",
+                at_key=True,
+            )
+            return
         if validator == "enum" and isinstance(parent, dict) and isinstance(parent.get("type"), str):
             allowed = [str(v) for v in _values(error)]
             if path[:1] == ("settings",):
@@ -170,7 +259,10 @@ def _explain(error: ValidationError, document: Any) -> Iterator[SchemaIssue]:  #
     if validator == "required":
         missing = _missing(error)
         yield SchemaIssue(
-            path, f"`{missing}` is missing{_in(where)}.", hint=_required_hint(missing)
+            path,
+            f"`{missing}` is missing{_in(where)}.",
+            hint=_required_hint(missing),
+            code=_MISSING_CODES.get(missing) if not path else None,
         )
         return
     if validator in ("additionalProperties", "unevaluatedProperties"):
@@ -337,8 +429,13 @@ def _type_hint(expected: Any, instance: Any) -> str | None:  # noqa: ANN401 - ma
     return None
 
 
+#: Top-level keys whose absence has a problem code of its own.
+_MISSING_CODES = {"iki": "missing-iki"}
+
+
 def _required_hint(missing: str) -> str | None:
     return {
+        "iki": 'Say which Iki releases the plugin works with, such as `iki: ">=0.1"` (ADR 0293).',
         "apiVersion": "Start each manifest with `apiVersion: iki/v1`.",
         "schema_version": "Start at `schema_version: 1`, and increase it when the fields change.",
         "unit": "Quantities need the UCUM unit their values are stored in, such as `unit: mg`.",

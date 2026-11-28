@@ -41,12 +41,12 @@ use rustix::process::{Pid, Signal, kill_process_group};
 pub mod setup;
 
 use crate::api::{self, Api, Error};
-use crate::checkpoint;
 use crate::config::Config;
 use crate::files;
 use crate::logs::{self, Log};
 use crate::plugins::{self, Built, Kind};
 use crate::say;
+use crate::{between, checkpoint};
 
 /// The most `output.json` may hold, as the server accepts.
 pub const MAX_OUTPUT: u64 = 2_500_000;
@@ -114,8 +114,8 @@ pub trait Host: Send + Sync + 'static {
         "Uploaded the result files."
     }
     /// Keeps a file the command wrote as an artifact; `relative` is its path in the output
-    /// directory.
-    fn keep(&self, relative: &str, path: &Path) -> Result<(), files::Failed>;
+    /// directory, and `file` is it, opened without following a link.
+    fn keep(&self, relative: &str, file: &std::fs::File) -> Result<(), files::Failed>;
     /// What to say once `keep` has kept some artifacts.
     fn kept(&self) -> &'static str {
         "Kept"
@@ -448,8 +448,8 @@ impl Host for Job {
         files::upload_results(&self.lease(), &files::storage_agent(), out_dir, output)
     }
 
-    fn keep(&self, relative: &str, path: &Path) -> Result<(), files::Failed> {
-        files::upload_artifact(&self.lease(), &files::storage_agent(), relative, path)
+    fn keep(&self, relative: &str, file: &std::fs::File) -> Result<(), files::Failed> {
+        files::upload_artifact(&self.lease(), &files::storage_agent(), relative, file)
     }
 
     fn line(&self, text: &str) {
@@ -1349,6 +1349,12 @@ fn run_here<H: Host>(
 
     let deadline = Instant::now() + plan.timeout;
     let (status, stopped) = supervise(host.as_ref(), &mut child, interrupted, deadline);
+    // Nothing the command started outlives it while the worker reads what it left: in a
+    // container the worker owns, every other process is stopped before any output is
+    // opened (ADR 0062). One that won't stop leaves nothing to trust.
+    if let Err(message) = between::end_strays() {
+        return Err(Report::Fail(FailInReason::Failed, message));
+    }
     // The readers end when the pipes close; one a stray process holds open isn't waited on.
     let wait_until = Instant::now() + Duration::from_secs(5);
     while readers_done
@@ -1555,8 +1561,14 @@ fn human_size(bytes: u64) -> String {
 fn keep_artifacts(host: &impl Host, dirs: &Dirs, patterns: &[String]) -> Result<(), Error> {
     let (found, over) = files::find_artifacts(&dirs.out, patterns);
     let mut kept = 0usize;
-    for (relative, path) in &found {
-        match host.keep(relative, path) {
+    for relative in &found {
+        // Opened once, never through a link: what's kept is what the command wrote there.
+        let opened = files::open_in(&dirs.out, Path::new(relative)).map_err(|e| {
+            files::Failed::Job(format!(
+                "Couldn't keep {relative}: it isn't a regular file in IKI_OUT_DIR now ({e})."
+            ))
+        });
+        match opened.and_then(|file| host.keep(relative, &file)) {
             Ok(()) => kept += 1,
             Err(files::Failed::Lost(error)) => return Err(error),
             Err(files::Failed::Job(message)) => {
@@ -1814,7 +1826,7 @@ mod tests {
             Ok(0)
         }
 
-        fn keep(&self, _relative: &str, _path: &Path) -> Result<(), files::Failed> {
+        fn keep(&self, _relative: &str, _file: &std::fs::File) -> Result<(), files::Failed> {
             Ok(())
         }
 

@@ -3,6 +3,8 @@
 - Errors that never reached an endpoint (unknown paths, unsupported
   methods, crashes) become problem details too.
 - Responses carry the caller's rate-limit headers.
+- A deprecated operation's responses say when it was deprecated and when it goes
+  (``Deprecation`` and ``Sunset``, ADR 0293).
 - 401s say how to authenticate (RFC 9110 requires ``WWW-Authenticate``):
   with a bearer token, and where to find the authorization server (RFC 9728).
 """
@@ -10,7 +12,7 @@
 from django.http import HttpRequest, HttpResponse
 from django.utils.deprecation import MiddlewareMixin
 
-from iki_server.api import problems
+from iki_server.api import deprecation, problems
 from iki_server.api.security import bearer_challenge, rate_limit_headers
 
 PREFIX = "/api/"
@@ -35,6 +37,7 @@ class ApiResponseMiddleware(MiddlewareMixin):
             # Keep cookies set further in (a refreshed session, the CSRF cookie).
             replacement.cookies = response.cookies
             response = replacement
+        deprecation.add_headers(request, response)
         decision = getattr(request, "iki_rate_limit", None)
         if decision is not None:
             for header, value in rate_limit_headers(decision).items():

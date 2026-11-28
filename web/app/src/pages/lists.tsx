@@ -18,7 +18,8 @@ import { requestTypes } from "../requests";
 import { TypeDot } from "../type-color";
 import { buttonClass, PageHeader } from "../ui";
 import { EntityGrid } from "./entity-grid";
-import { RemoveSearchDialog, SaveSearchDialog, toAddress } from "./saved-searches";
+import { toAddress } from "../search-address";
+import { RemoveSearchDialog, SaveSearchDialog } from "./saved-searches";
 
 /** "New": a record is made in a project, so it asks which, of those its maker edits. With
  * `importing`, the same for importing a spreadsheet's rows as the type's (ADR 0178). */

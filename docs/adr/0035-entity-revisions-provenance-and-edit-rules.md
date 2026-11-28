@@ -1,6 +1,6 @@
 # 0035. Entity revisions, provenance, edit rules, duplicates and projects
 
-- Status: Accepted (duplicates and linking amended by [0115](0115-registries-keep-identities-projects-keep-records.md); preconditions amended by [0289](0289-a-change-names-the-revision-it-replaces-in-if-match.md))
+- Status: Accepted (duplicates and linking amended by [0115](0115-registries-keep-identities-projects-keep-records.md); computed fields amended by [0297](0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md); preconditions amended by [0289](0289-a-change-names-the-revision-it-replaces-in-if-match.md))
 - Date: 2026-11-10
 - Refines: [0007](0007-typed-table-per-type-entity-storage.md),
   [0008](0008-archive-first-deletion-with-purge-and-tombstones.md),

@@ -21,6 +21,7 @@ import time
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import IO, Any
 
 import pytest
@@ -30,6 +31,7 @@ from writer_modules import compiled
 
 from iki_spec import writer_sandbox
 from iki_spec.writers import BUILD, child, install
+from iki_spec.writers import build as writer_build
 from iki_spec.writers.check import (
     MAX_BR_TABLE_TARGETS,
     MAX_FUNCTION_BODY,
@@ -49,6 +51,7 @@ from iki_spec.writers.runtime import (
     FUEL_PER_BYTE,
     MAX_MEMORY,
     Instance,
+    Limits,
     WriterFailed,
     engine,
 )
@@ -185,16 +188,92 @@ def test_output_beyond_its_memory_is_refused() -> None:
     assert failed.value.code == "abi"
 
 
-def test_a_writer_of_another_abi_doesnt_start() -> None:
-    with pytest.raises(WriterFailed, match="ABI 2"):
-        instance(wat.ABI_2)
-
-
 def test_a_request_over_its_limit_is_refused_before_its_written() -> None:
     writer = instance(wat.ECHO)
     with pytest.raises(WriterFailed) as failed:
         writer.call("record", b" " * (64 * MiB + 1))
     assert failed.value.code == "request_limit"
+
+
+def test_a_deployment_may_lower_a_writers_limits_or_raise_its_fuel() -> None:
+    """ADR 0230: a deployment's limits, within Iki's: lowered, a writer meets them sooner;
+    fuel raised, a writer gets more of it; any other limit raised is refused."""
+    module = wasmtime.Module(ENGINE, compiled(wat.ECHO))
+    lowered = Instance(module, ENGINE, 16 * MiB, Limits(max_output=len(RECORD) + 2))
+    with pytest.raises(WriterFailed) as failed:
+        lowered.call("record", RECORD)
+    assert failed.value.code == "output_limit"
+    assert f"{len(RECORD) + 2:,} bytes" in str(failed.value)
+    with pytest.raises(WriterFailed) as failed:
+        Instance(module, ENGINE, 16 * MiB, Limits(max_request=10)).call("record", RECORD)
+    assert failed.value.code == "request_limit"
+    with pytest.raises(WriterFailed) as failed:
+        Instance(module, ENGINE, 16 * MiB, Limits(max_note_chars=10)).call("record", RECORD)
+    assert failed.value.code == "notes"
+    # One memory.fill over 48 MiB costs millions of fuel: within Iki's, not within less.
+    fills = wasmtime.Module(ENGINE, compiled(wat.FILLS))
+    needs = Instance(fills, ENGINE, 64 * MiB).call("record", RECORD).fuel
+    short = Instance(fills, ENGINE, 64 * MiB, Limits(fuel_base=needs // 2, fuel_per_byte=0))
+    with pytest.raises(WriterFailed) as failed:
+        short.call("record", RECORD)
+    assert failed.value.code == "out_of_fuel"
+    raised = Limits(fuel_base=FUEL_BASE * 4, fuel_per_byte=FUEL_PER_BYTE * 4)
+    assert Instance(fills, ENGINE, 64 * MiB, raised).call("record", RECORD).fuel == needs
+    for too_much in (
+        {"max_output": 64 * MiB + 1},
+        {"max_request": 64 * MiB + 1},
+        {"max_notes": 1_001},
+        {"max_note_chars": 501},
+        {"fuel_base": 0},
+        {"fuel_per_byte": -1},
+    ):
+        with pytest.raises(ValueError, match=r"A writer.s"):
+            Limits(**too_much)
+    assert Limits.of(None) == Limits()
+    assert Limits.of({"fuel_base": 5}).header() == {"fuel_base": 5}
+    with pytest.raises(ValueError):
+        Limits.of({"wall_clock": 5})
+
+
+def test_a_child_runs_a_writer_under_the_limits_its_header_gives(
+    module_file: tuple[Path, str],
+) -> None:
+    path, sha256 = module_file
+    started = writer_sandbox.start_child(None)
+    assert started.stdout is not None and started.stdin is not None
+    talk = Session(started.stdout, started.stdin)
+    talk.open(
+        {
+            "writer": "acme/x.echo",
+            "sha256": sha256,
+            "memory": 16 * MiB,
+            "deadline": 30,
+            "path": str(path),
+            "limits": {"max_output": 4},
+        }
+    )
+    talk.call("begin", canonical({"abi": 1}))
+    with pytest.raises(SessionFailed) as failed:
+        talk.call("record", RECORD)
+    assert failed.value.code == "output_limit"
+    finish(started)
+    # A header that raises a limit past Iki's isn't served.
+    started = writer_sandbox.start_child(None)
+    assert started.stdout is not None and started.stdin is not None
+    talk = Session(started.stdout, started.stdin)
+    with pytest.raises(Unavailable) as refused:
+        talk.open(
+            {
+                "writer": "acme/x.echo",
+                "sha256": sha256,
+                "memory": 16 * MiB,
+                "deadline": 30,
+                "path": str(path),
+                "limits": {"max_output": 65 * MiB},
+            }
+        )
+    assert refused.value.code == "malformed"
+    finish(started)
 
 
 # --- One export's process ------------------------------------------------------------------------
@@ -341,7 +420,6 @@ def test_the_tecan_writer_writes_the_same_worklist_in_two_processes() -> None:
         {
             "hrid": "TRF-000001",
             "id": "0190e9a4-0000-7000-8000-000000000002",
-            "latest": True,
             "name": "B3 to A1",
             "revised_at": "2026-11-25T09:00:00Z",
             "revision": 1,
@@ -491,15 +569,100 @@ def test_the_image_installs_a_writer_whose_digest_is_the_tracked_one(tmp_path: P
     assert json.loads((out / "manifest.json").read_text())["writers"] == found["writers"]
 
 
-def test_the_image_refuses_a_module_that_isnt_the_reviewed_one(tmp_path: Path) -> None:
+SDK_PIN = "0.1.0 " + "5" * 64
+
+
+def recorded(tmp_path: Path, **changed: str) -> tuple[Path, Path]:
+    """A build of a writer whose tracked digest isn't its module's, with what the digest
+    was written with in its file, and the inputs of the build here, which differ by
+    ``changed``: the crate's ``source``, its ``sdk``, the ``builder`` or the ``script``."""
     build, made = built(tmp_path, wat.ECHO, tracked="ab" * 32)
-    built_from = r"acme/x\.echo: the module built from its source"
-    with pytest.raises(install.InstallError, match=built_from):
-        install.install(build, made, tmp_path / "out")
-    assert install.main([str(build), str(made), str(tmp_path / "out")]) == 1
+    crate = build / "acme__x" / "echo"
+    (crate / "src").mkdir(parents=True)
+    (crate / "src" / "lib.rs").write_text("// The writer.\n")
+    (crate / "Cargo.lock").write_text(
+        '[[package]]\nname = "iki-writer"\nversion = "0.1.0"\n'
+        'source = "registry+https://github.com/rust-lang/crates.io-index"\n'
+        f'checksum = "{"5" * 64}"\n'
+    )
+    sdk = build / "sdk" / "iki-writer"
+    sdk.mkdir(parents=True)
+    (sdk / "build-writer.sh").write_text("#!/bin/sh\n")
+    (made / writer_build.BUILT_BY).write_text(writer_build.BUILDER + "\n")
+    then = writer_build.built_with(crate, sdk=sdk)
+    assert then.sdk == SDK_PIN
+    then = writer_build.BuiltWith(
+        changed.get("source", then.source),
+        changed.get("sdk", then.sdk),
+        changed.get("builder", then.builder),
+        changed.get("script", then.script),
+    )
+    fake = SimpleNamespace(module="writers/echo")
+    text = writer_build.digest_text(fake, b"", then)  # type: ignore[arg-type]
+    (build / "acme__x" / "echo.wasm.sha256").write_text(("ab" * 32) + text[64:])
+    return build, made
 
 
-@pytest.mark.parametrize("source", [wat.IMPORTS_WASI, wat.INCOMPLETE, wat.ABI_2, wat.TOO_BIG])
+def refusal(build: Path, made: Path, out: Path) -> str:
+    with pytest.raises(install.InstallError) as refused:
+        install.install(build, made, out)
+    assert install.main([str(build), str(made), str(out)]) == 1
+    said = str(refused.value)
+    module = hashlib.sha256((made / "acme__x" / "echo.wasm").read_bytes()).hexdigest()
+    tracked = "ab" * 32
+    assert said.startswith(
+        f"acme/x.echo: the module built here is {module}, but echo.wasm.sha256 says {tracked}"
+    )
+    return said
+
+
+def test_the_image_refuses_a_module_that_isnt_the_reviewed_one_saying_its_source_changed(
+    tmp_path: Path,
+) -> None:
+    said = refusal(*recorded(tmp_path, source="0" * 64), tmp_path / "out")
+    assert "its source (the Rust, or its Cargo.lock) isn't what the digest was written from" in said
+    assert "the source isn't what was reviewed" in said
+    assert "builder" not in said
+
+
+def test_a_module_built_against_another_iki_writer_says_so(tmp_path: Path) -> None:
+    said = refusal(*recorded(tmp_path, sdk="0.0.9 " + "4" * 64), tmp_path / "out")
+    assert "its Cargo.lock pins iki-writer 0.1.0 (555555555555…)" in said
+    assert "the digest was written with iki-writer 0.0.9 (444444444444…)" in said
+    assert "isn't what was reviewed" not in said
+
+
+def test_a_module_built_in_another_builder_says_which(tmp_path: Path) -> None:
+    said = refusal(
+        *recorded(tmp_path, builder="rust:1.92.0-slim@sha256:" + "1" * 64), tmp_path / "out"
+    )
+    assert "written with the writer builder rust:1.92.0-slim@sha256:" in said
+    assert f"this build ran in {writer_build.BUILDER}" in said
+    assert "--build-arg IKI_WRITER_BUILDER=rust:1.92.0-slim" in said
+    assert "source" not in said
+
+
+def test_a_module_built_by_another_build_script_says_so(tmp_path: Path) -> None:
+    said = refusal(*recorded(tmp_path, script="2" * 64), tmp_path / "out")
+    assert "another Iki's build-writer.sh" in said
+
+
+def test_a_module_whose_inputs_are_all_the_same_is_a_build_that_didnt_reproduce(
+    tmp_path: Path,
+) -> None:
+    said = refusal(*recorded(tmp_path), tmp_path / "out")
+    assert "the build didn't reproduce the module, which is Iki's bug" in said
+
+
+def test_a_digest_file_that_doesnt_say_what_it_was_built_with_says_that(tmp_path: Path) -> None:
+    build, made = built(tmp_path, wat.ECHO, tracked="ab" * 32)
+    said = refusal(build, made, tmp_path / "out")
+    assert "doesn't say what the module was built with" in said
+
+
+@pytest.mark.parametrize(
+    "source", [wat.IMPORTS_WASI, wat.INCOMPLETE, wat.ABI_0, wat.ABI_2, wat.TOO_BIG]
+)
 def test_the_image_refuses_a_module_that_cant_be_a_writer(tmp_path: Path, source: str) -> None:
     build, made = built(tmp_path, source)
     with pytest.raises(install.InstallError, match=r"acme/x\.echo"):

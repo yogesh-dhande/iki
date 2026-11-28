@@ -45,6 +45,13 @@ console.
   the person to confirm again. ESLint refuses a hand-built `If-Match`.
   `src/pages/facts-form.tsx` is the one form for a registry entry's facts,
   on its page and on a lab list's.
+- `src/search-picker.tsx`: the one combo box that finds as people type
+  (`SearchPicker`), with React Aria's keyboard and announcements, Iki's
+  Escape and list placement, and a status line. A reference, a person, a long
+  lab list's options and `RecordPicker` are thin adapters over it, saying
+  only where it finds (a server search, or options it has) and how each one
+  reads, so a fix there reaches every picker. A sheet's list cell keeps its
+  own, for the grid's keyboard, and shares its matching (`lab-lists.ts`).
 - `src/uploads.ts`: uploading a file as the files API takes it (ADR 0036):
   its SHA-256 a slice at a time on the page (the CSP allows no worker
   scripts), then its parts straight to storage, retried and re-signed as
@@ -59,9 +66,13 @@ console.
   as a collection (ADR 0038), an entity of its own, and shows a collection's
   members in the grid.
 - `src/router.tsx` and `src/pages/`: the pages, at the server pages' old
-  addresses. Pages other than the frame, home and a project's overview load
-  when they're first opened (`lazyRouteComponent`), so the first page stays
-  small.
+  addresses, and the parts they share. Pages other than the frame and home
+  load when they're first opened, or when a link to one is pointed at
+  (`lazyRouteComponent`), so the first page stays small. Nothing imports a
+  page, the router included, or the page would load with whatever imported
+  it: eslint refuses it, and what pages share goes in a module of its own.
+  `make web` checks what the app starts with against its budget
+  (`ikiSizeBudgets` in `package.json`).
 
 ## Tests
 

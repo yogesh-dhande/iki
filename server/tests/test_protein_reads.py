@@ -349,6 +349,72 @@ def test_a_stop_codon_is_selenocysteine_or_pyrrolysine_only_where_it_recodes_one
     assert rows(tmp_path)[1][1][41] == (site if named is None else "*")
 
 
+def test_the_consensus_of_reads_with_aan_counts_each_as_k_or_n(tmp_path: Path) -> None:
+    """Two reads with AAN at residue 42 (K or N, by NCBI's standard code) and one with
+    AAA (K): the mapper writes each AAN as X and says what it could be, and the
+    consensus of those rows, run on the alignment the mapper wrote, has K there."""
+    protein = PROTEIN[:41] + "A" + PROTEIN[42:]
+    reads = [
+        coding(PROTEIN[:41]) + "AAN" + coding(PROTEIN[42:200]),
+        coding(PROTEIN[:41]) + "AAN" + coding(PROTEIN[42:200]),
+        coding(PROTEIN[:41]) + "AAA" + coding(PROTEIN[42:200]),
+    ]
+    fasta = "".join(f">r{i}\n{bases}\n" for i, bases in enumerate(reads, start=1))
+    _, output = run(tmp_path, {"r.fasta": fasta.encode()}, sequence=protein)
+    assert output is not None
+    aligned = rows(tmp_path)
+    assert [h.rsplit(" ", 1)[-1] for h, _ in aligned[1:3]] == ["possible=42:KN"] * 2
+    reference = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "hrid": "PRT-000001",
+        "type": "iki/protein.Protein",
+        "schema_version": 1,
+        "revision": 1,
+        "values": {},
+    }
+    alignment = {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "hrid": "ALN-000001",
+        "type": "iki/protein.ProteinAlignment",
+        "schema_version": 1,
+        "revision": 1,
+        "values": {"name": "Clone 4 reads", "aligned": "f1"},
+        "included": {"reference": [reference]},
+    }
+    (tmp_path / "consensus.json").write_text(
+        json.dumps(
+            {
+                "run": {"hrid": "RUN-000002"},
+                "inputs": {"alignment": [alignment]},
+                "params": {"include_reference": False},
+                "files": {
+                    "f1": {
+                        "name": "alignment.fasta",
+                        "path": str(tmp_path / "out" / "alignment.fasta"),
+                    }
+                },
+            }
+        )
+    )
+    result = subprocess.run(  # noqa: S603 - our own script
+        [sys.executable, "-I", str(PLUGINS / "protein" / "scripts" / "consensus.py"), "protein"],
+        env={
+            "IKI_INPUT": str(tmp_path / "consensus.json"),
+            "IKI_OUTPUT": str(tmp_path / "consensus-output.json"),
+            "IKI_OUT_DIR": str(tmp_path / "out"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    made = json.loads((tmp_path / "consensus-output.json").read_text())
+    (created,) = made["creates"]
+    assert created["values"]["sequence"] == PROTEIN[:41] + "K" + PROTEIN[42:200]
+    assert made["metrics"]["ambiguous"] == 0
+
+
 @pytest.mark.parametrize(
     ("codon", "named"),
     [

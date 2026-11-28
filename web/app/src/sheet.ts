@@ -54,6 +54,7 @@ export interface SheetColumn {
  * to it; null if they can. */
 export function whyNotInACell(field: FieldDef, service = false): string | null {
   if (field.detached) return "It’s been removed from the type.";
+  if (field.cel) return "It’s worked out from the record’s other values as it’s saved.";
   if (field.computed) return "It’s computed: only its plugin’s actions set it.";
   if (field.type === "state") return "It’s a state: set it on the record’s page.";
   if (service) return "It’s the service’s: set once a request is submitted.";

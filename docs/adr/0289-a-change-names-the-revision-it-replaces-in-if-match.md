@@ -53,11 +53,13 @@ and a line's `line_revision` are now each one's `revision`. An amount, whose
 `If-Match`, on the thing it addresses.** That is every `PATCH`, `PUT` and
 `DELETE` of something with a revision, and every action that changes one:
 setting a state, taking, submitting, signing, reviewing a hold, freezing a
-collection, moving a record to a superseding entry, superseding an entry,
+collection, moving a record to a superseding entry, superseding an entry (by
+another, or as another type of its identity, ADR 0165),
 archiving, restoring or superseding a list option, recounting an amount,
 changing, previewing, committing or discarding a spreadsheet import, saving
 or deleting a saved mapping, describing, completing or cancelling a receipt
-(and previewing its put-away), correcting, removing or restoring a receipt
+(and previewing its put-away, or asking which of its lines a box can take),
+correcting, removing or restoring a receipt
 line, and resolving, completing or cancelling a count.
 
 - No `If-Match`, `If-Match: *`, a list of ETags or a weak one answers **428**
@@ -102,7 +104,12 @@ transaction:
   what was overwritten in the body.
 
 Each is required. Leaving one out answers 428 `precondition_required` and a
-stale one 412 `stale`, naming which (`stale`, `affected_lines`).
+stale one 412 `stale`, naming which (`stale`, `affected_lines`). The one
+exception is a count scan's `reviewed_lines`, where an empty list is a real
+answer (the scan re-observes nothing recorded): leaving it out reads as
+empty, so a scan of a slot whose lines it didn't name is 412 `stale`, with
+those lines. A saved mapping's inputs refuse members they don't take, so a
+client still sending `replace` gets 422 rather than a new mapping.
 
 **A preview that came out differently is a 409, with the new preview.** A
 move plan (`moves_plan_changed`), a starter's plan (`starter_plan_changed`)

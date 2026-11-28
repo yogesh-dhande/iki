@@ -97,6 +97,26 @@ this default. A separate CI or live-check deployment can pass `--test-only`
 to build an official example in place. An entry using `local:` also needs
 `--allow-local`.
 
+## When two plugins take one HRID prefix
+
+All the types in a deployment share one space of HRID prefixes. If a lab's
+plugin and one of Iki's choose the same prefix, the build refuses and names
+both types. It also gives the override that settles the clash, which goes in
+`plugins.lock.yaml`:
+
+```yaml
+hrids:
+  acme/assays.Buffer: ABUF
+```
+
+The build then uses `ABUF` in place of the plugin's prefix everywhere: in the
+manifests the server reads, and in the HRIDs and their sequences. Give the
+override before the type has records. HRIDs are printed on labels, so the
+deploy refuses to move a type that has records under its old prefix. Core's
+prefixes can't be overridden. Iki lists the prefixes its own plugins use and
+reserve in `iki_spec/reserved_hrid_prefixes.json`, and `iki plugin validate`
+warns a lab's plugin that takes one (`reserved-hrid-prefix`).
+
 ## Compute
 
 Plugins' actions say what they need; `compute.yaml` says what this

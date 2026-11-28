@@ -70,6 +70,7 @@ SAMPLES = {
     "savedId": "01a1c452-a14b-7195-acd0-4b6ba266a656",
     "id": "01a1c452-a14b-7195-acd0-4b6ba266a657",
     "decisionId": "01a1c452-a14b-7195-acd0-4b6ba266a658",
+    "number": "2",
     # A splat, `$`, takes the rest of the path: a name with its `/`, as a type's or a
     # component's has (ADR 0113).
     "": "acme/protein.Protein",
@@ -578,6 +579,33 @@ def test_the_published_openapi_document_is_current() -> None:
     assert json.loads(committed.read_text()) == json.loads(json.dumps(current)), (
         "The API changed. Run `make client` and commit web/packages/sdk."
     )
+
+
+def test_every_operation_says_its_errors_are_problems() -> None:
+    """ADR 0027: every error under /api/ is an RFC 9457 problem. A client generated from
+    the document reads one as such, with `parameter` beside `pointer`."""
+    from iki_server.api.v1 import api
+
+    document = json.loads(json.dumps(api.get_openapi_schema()))
+    problem = document["components"]["schemas"]["Problem"]
+    assert {"type", "title", "status", "code", "detail"} <= set(problem["required"])
+    error = document["components"]["schemas"]["ProblemError"]["properties"]
+    assert {"pointer", "parameter", "detail", "rule", "hold"} == set(error)
+    as_problem = {"schema": {"$ref": "#/components/schemas/Problem"}}
+    assert document["components"]["responses"]["Problem"]["content"] == {
+        "application/problem+json": as_problem
+    }
+    for path, operations in document["paths"].items():
+        for method, operation in operations.items():
+            responses = operation["responses"]
+            assert responses["default"] == {"$ref": "#/components/responses/Problem"}, path
+            for status, answer in responses.items():
+                if status[0] in "45":
+                    assert answer["content"]["application/problem+json"] == as_problem, (
+                        method,
+                        path,
+                        status,
+                    )
 
 
 def test_the_worker_protocol_document_is_current() -> None:

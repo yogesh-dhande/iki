@@ -36,6 +36,7 @@ import {
   cancelReceipt,
   checkReceiptLine,
   completeReceipt,
+  placeableQuery,
   previewReceiptPlacement,
   containerQuery,
   describeReceipt,
@@ -797,13 +798,25 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   const shownBox = boxShown && shape ? container.data : undefined;
   const typesRead = useQuery(typesQuery);
   const types = typesRead.data;
+  // Whether each tube can go in this box at all, as completing will check: its project's
+  // data, say, isn't readable by the box's project.
+  const placeable = useQuery({
+    ...placeableQuery(receipt.id, receipt.revision, shownBox?.id ?? "-"),
+    enabled: receipt.status === "open" && !!shownBox && putting.length > 0,
+  });
   const waitingFor = findBox.isPending
     ? "Finding the box and its free positions…"
     : boxFound?.kind === "ambiguous"
       ? `Choose which box “${boxFound.code.trim()}” is, above.`
-      : (boxShown && container.isPending) || reread.isPending || (shownBox && typesRead.isPending)
+      : (boxShown && container.isPending) ||
+          reread.isPending ||
+          (shownBox && typesRead.isPending) ||
+          (shownBox && putting.length > 0 && placeable.isPending)
         ? "Loading the box’s free positions…"
         : null;
+  const refusedHere = new Map(
+    (placeable.data ?? []).flatMap((p) => (p.problem ? [[p.line, p.problem] as const] : [])),
+  );
   // Only wells that can be used are offered: the server checks again when it's completed.
   const boxWhyNot = !shownBox
     ? null
@@ -826,6 +839,10 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           l.id,
           `${shownBox.hrid} doesn’t hold a ${typeLabel(types, l.ref.type)}: choose another box, or keep it in your custody.`,
         );
+      else {
+        const refused = refusedHere.get(l.id);
+        if (refused) whyNot.set(l.id, `${refused} Choose another box, or keep it in your custody.`);
+      }
     }
   }
   const cannot = new Set(boxWhyNot ? putting.map((l) => l.id) : whyNot.keys());

@@ -57,6 +57,7 @@ from Bio.Seq import Seq
 from Bio.SeqUtils.IsoelectricPoint import IsoelectricPoint
 from Bio.SeqUtils.ProtParam import ProteinAnalysis
 from Bio.SeqUtils.ProtParamData import kd
+from weights import average_mass, chain_formula
 
 STANDARD = frozenset("ACDEFGHIKLMNPQRSTVWY")
 #: The residues each property has values for. J is I or L: both weigh the same, neither
@@ -133,7 +134,9 @@ def properties(sequence: str) -> tuple[dict[str, Any], str | None]:
     # J weighs, charges and absorbs as I and L both do.
     analysis = ProteinAnalysis(residues.replace("J", "L"))
     compute = {
-        "molecular_weight": lambda: {"molecular_weight": round(analysis.molecular_weight(), 2)},
+        "molecular_weight": lambda: {
+            "molecular_weight": round(average_mass(chain_formula(residues)), 2)
+        },
         # Kept unrounded until it's checked against the scale, then rounded.
         "isoelectric_point": lambda: {"isoelectric_point": isoelectric_point(residues)},
         "extinction_coefficient_oxidized": lambda: dict(

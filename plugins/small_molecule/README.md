@@ -193,6 +193,11 @@ run, naming it, so nothing is half fetched.
   stereochemistry included if asked; saved as a collection, in the order
   given. SMARTS RDKit can't read fails the run, saying why.
 
+Both read their compounds one at a time and keep only each one's ID, name and
+SMILES, so a search of 100,000, each with its Molfile, InChI and descriptors,
+fits its 1 GiB: 158 MiB at its peak, measured over a 240 MB run input of
+100,000 drug-like compounds, where reading them all at once took 2.2 GB.
+
 The searches' results are static collections (`iki/core.Collection`), so they're
 what was found when the run ran, kept as they were, to share, export or run
 another action on; a collection holds 10,000, and past that the run keeps the
@@ -295,8 +300,11 @@ formula weight for each parent must be what the drawing weighs; when it isn't
 
 From the compound's SMILES, as RDKit 2026.09.2 computes them:
 
-- **Molecular weight**: from IUPAC's standard atomic weights
-  (`Descriptors.MolWt`); **exact mass**, monoisotopic (`ExactMolWt`). An atom
+- **Molecular weight**: as `Descriptors.MolWt` counts its atoms, but by
+  CIAAW's standard atomic weights 2024, the table every Iki plugin weighs by
+  ([ADR 0272](../../docs/adr/0272-one-table-of-atomic-weights-weighs-every-molecule.md)), not RDKit's own: chlorine 35.45 and sulfur 32.06, where RDKit has
+  35.453 and 32.067. An element with no standard atomic weight, such as
+  technetium, is weighed only when drawn as its isotope (`[99Tc]`); **exact mass**, monoisotopic (`ExactMolWt`). An atom
   drawn as a particular isotope counts at that isotope's mass in both, and the
   **formula** writes it so (`CalcMolFormula` with separate isotopes): heavy
   water is D2O, and carbon-13 methanol [13C]H4O.

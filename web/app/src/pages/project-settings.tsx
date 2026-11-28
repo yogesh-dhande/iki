@@ -23,7 +23,7 @@ import {
 import { Exports } from "./project-exports";
 import { Imports } from "./project-imports";
 import { Intake } from "./project-intake";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
 
 function usePatchProject(project: Project) {
   return useApiMutation(

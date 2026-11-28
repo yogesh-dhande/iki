@@ -575,16 +575,25 @@ def my_signing(request: HttpRequest) -> dict[str, Any]:
     }
 
 
+class UnlockIn(Schema):
+    reason: str = Field(
+        max_length=2000, description="Why it's safe to unlock: who made the failed attempts."
+    )
+
+
 @router.post("/users/{user_id}/signing/unlock", response={204: None}, summary="Unlock signing")
-def unlock_signing(request: HttpRequest, user_id: UUID) -> Any:  # noqa: ANN401 - a status
-    """Unlocks someone's signing after failed attempts to sign as them locked it. Org
-    Admins only."""
+def unlock_signing(request: HttpRequest, user_id: UUID, payload: UnlockIn) -> Any:  # noqa: ANN401 - a status
+    """Unlocks someone's signing after failed attempts to sign as them locked it, saying
+    why; the audit log keeps it. Another Org Admin unlocks theirs, signed in to Iki's web
+    app: no token, app or AI agent can."""
     me = caller(request)
     require(me, Action.ORG_MANAGE)
     try:
-        services.unlock(me, person(user_id))
+        services.unlock(me, person(user_id), payload.reason)
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None
+    except Invalid as error:
+        raise _invalid(error) from None
     return Status(204, None)
 
 

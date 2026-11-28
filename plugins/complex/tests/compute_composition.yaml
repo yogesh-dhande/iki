@@ -49,7 +49,7 @@ expect:
       complex:
         - values:
             molecular_formula: C2954H4508Fe4N780O806S12
-            molecular_weight: 64452.3
+            molecular_weight: 64453.31
             monoisotopic_mass: 64412.9788
             chain_count: 4
             part_disulfides: 0
@@ -229,7 +229,7 @@ expect:
       complex:
         - values:
             molecular_formula: C6472H10046N1730O2023S46
-            molecular_weight: 145932.38
+            molecular_weight: 145934.41
             monoisotopic_mass: 145842.3559
             chain_count: 4
             extinction_coefficient_reduced: 214410
@@ -237,7 +237,7 @@ expect:
             part_bonds_complete: true
     messages:
       - level: info
-        text: "With its 16 disulfides: C6472H10014N1730O2023S46, 145,900.13 u average and 145,810.1054 u monoisotopic, and 216,410 L/(mol.cm) at 280 nm."
+        text: "With its 16 disulfides: C6472H10014N1730O2023S46, 145,902.15 u average and 145,810.1054 u monoisotopic, and 216,410 L/(mol.cm) at 280 nm."
 ---
 apiVersion: iki/v1
 kind: ActionTest
@@ -503,7 +503,7 @@ expect:
       complex:
         - values:
             molecular_formula: C4980H7745N1389O1538S65
-            molecular_weight: 113766.39
+            molecular_weight: 113767.82
             monoisotopic_mass: 113694.238
             chain_count: 3
             extinction_coefficient_reduced: 133620
@@ -511,7 +511,7 @@ expect:
             part_bonds_complete: true
     messages:
       - level: info
-        text: "With its 23 disulfides: C4980H7699N1389O1538S65, 113,720.02 u average and 113,647.8780 u monoisotopic, and 136,495 L/(mol.cm) at 280 nm. Its parts have 4 disulfides of their own (trastuzumab Fab's 4), which are their bonds, shown on them. With those as well as its own: C4980H7691N1389O1538S65, 113,711.96 u average and 113,639.8154 u monoisotopic, and 136,995 L/(mol.cm) at 280 nm."
+        text: "With its 23 disulfides: C4980H7699N1389O1538S65, 113,721.46 u average and 113,647.8780 u monoisotopic, and 136,495 L/(mol.cm) at 280 nm. Its parts have 4 disulfides of their own (trastuzumab Fab's 4), which are their bonds, shown on them. With those as well as its own: C4980H7691N1389O1538S65, 113,713.39 u average and 113,639.8154 u monoisotopic, and 136,995 L/(mol.cm) at 280 nm."
 ---
 apiVersion: iki/v1
 kind: ActionTest
@@ -575,7 +575,7 @@ expect:
       complex:
         - values:
             molecular_formula: C257H389N65O77S6
-            molecular_weight: 5813.62
+            molecular_weight: 5813.68
             monoisotopic_mass: 5809.6846
             chain_count: 2
             extinction_coefficient_reduced: 5960
@@ -583,7 +583,7 @@ expect:
             part_bonds_complete: true
     messages:
       - level: info
-        text: "With its 3 disulfides: C257H383N65O77S6, 5,807.57 u average and 5,803.6377 u monoisotopic, and 6,335 L/(mol.cm) at 280 nm."
+        text: "With its 3 disulfides: C257H383N65O77S6, 5,807.63 u average and 5,803.6377 u monoisotopic, and 6,335 L/(mol.cm) at 280 nm."
       - level: error
         text: "partly read chain has 'X', an ambiguous or unknown residue, which has no one formula."
 ---
@@ -638,13 +638,13 @@ expect:
       complex:
         - values:
             molecular_formula: C257H389N65O77S6
-            molecular_weight: 5813.62
+            molecular_weight: 5813.68
             monoisotopic_mass: 5809.6846
             chain_count: 2
             extinction_coefficient_reduced: 5960
     messages:
       - level: info
-        text: "With its 3 disulfides: C257H383N65O77S6, 5,807.57 u average and 5,803.6377 u monoisotopic, and 6,335 L/(mol.cm) at 280 nm. insulin A chain's 4 Js (leucine or isoleucine) are weighed as either, as they have one formula. insulin B chain's 4 Js (leucine or isoleucine) are weighed as either, as they have one formula."
+        text: "With its 3 disulfides: C257H383N65O77S6, 5,807.63 u average and 5,803.6377 u monoisotopic, and 6,335 L/(mol.cm) at 280 nm. insulin A chain's 4 Js (leucine or isoleucine) are weighed as either, as they have one formula. insulin B chain's 4 Js (leucine or isoleucine) are weighed as either, as they have one formula."
 ---
 apiVersion: iki/v1
 kind: ActionTest
@@ -686,7 +686,7 @@ expect:
       complex:
         - values:
             molecular_formula: C2562H4030D6N624O706S36
-            molecular_weight: 56035.59
+            molecular_weight: 56036.33
             monoisotopic_mass: 55998.942
             chain_count: 1
 ---
@@ -764,9 +764,9 @@ expect:
       complex:
         - values:
             molecular_formula: C250H322N102O149P24
-            molecular_weight: 7883.2
+            molecular_weight: 7883.26
             monoisotopic_mass: 7879.4458
             chain_count: 2
     messages:
       - level: info
-        text: "Its molar absorbance at 280 nm isn't computed: Drew-Dickerson dodecamer and netropsin aren't proteins, and Pace's values weigh only proteins' tryptophans, tyrosines and cystines. Its linear DNA's strands are weighed with a 5′ phosphate and a 3′ hydroxyl, as Biopython weighs DNA: a strand made with a 5′ hydroxyl, as a synthetic or PCR-made one is, is HPO3 (79.97 u) lighter."
+        text: "Its molar absorbance at 280 nm isn't computed: Drew-Dickerson dodecamer and netropsin aren't proteins, and Pace's values weigh only proteins' tryptophans, tyrosines and cystines. Its linear DNA's strands are weighed with a 5′ phosphate and a 3′ hydroxyl, as Biopython weighs DNA: a strand made with a 5′ hydroxyl, as a synthetic or PCR-made one is, is HPO3 (79.98 u) lighter."

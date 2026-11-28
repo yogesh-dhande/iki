@@ -84,6 +84,9 @@ pub enum Kind {
     Condition,
     /// Text with CEL expressions in it, between `{{` and `}}`.
     Message,
+    /// A CEL expression whose value a computed field holds, of the kind its `result`
+    /// declares (ADR 0297).
+    Value,
 }
 
 /// One rule's expression.
@@ -94,6 +97,9 @@ pub struct Expression {
     pub source: String,
     /// What it is.
     pub kind: Kind,
+    /// For a value: what it must work out to, as the field holding it declares it.
+    #[serde(default)]
+    pub result: Option<Schema>,
 }
 
 /// What [`check`] reads: expressions, and the variables they may read.
@@ -159,6 +165,12 @@ pub enum RuleEvaluated {
     Text {
         /// The message.
         text: String,
+    },
+    /// A computed field's value, as JSON its field reads: a number, text, yes or no, a
+    /// time in RFC 3339, or null for an empty one.
+    Computed {
+        /// The value.
+        result: serde_json::Value,
     },
     /// Why it has no outcome.
     Error {
@@ -408,6 +420,8 @@ enum Piece {
 /// One rule's expression, parsed and checked.
 struct Analysed {
     kind: Kind,
+    /// For a value: what it must work out to.
+    result: Option<Ty>,
     pieces: Vec<Piece>,
     reads: BTreeMap<String, Reads>,
 }
@@ -462,6 +476,16 @@ impl Analysed {
                 } => (source, program, paths),
             };
             let result = program.execute(scope);
+            if self.kind == Kind::Value {
+                let wanted = self.result.as_ref().unwrap_or(&Ty::Dyn);
+                return match result
+                    .map_err(|e| format!("{}.", failure(&e)))
+                    .and_then(|v| value::computed(&v, wanted))
+                {
+                    Ok(result) => RuleEvaluated::Computed { result },
+                    Err(error) => failed(error, paths),
+                };
+            }
             match (self.kind, result) {
                 (Kind::Condition, Ok(cel::Value::Bool(value))) => {
                     return RuleEvaluated::Value { value };
@@ -478,11 +502,12 @@ impl Analysed {
                     let error = format!("{}: {}.", templates::quoted(source), failure(&error));
                     return failed(error, paths);
                 }
+                (Kind::Value, _) => unreachable!("a value returns above"),
             }
         }
         match self.kind {
             Kind::Message => RuleEvaluated::Text { text },
-            Kind::Condition => RuleEvaluated::Error {
+            Kind::Condition | Kind::Value => RuleEvaluated::Error {
                 error: "It isn't an expression.".to_owned(),
                 empty: false,
             },
@@ -490,21 +515,33 @@ impl Analysed {
     }
 }
 
+/// What a piece of a rule must work out to.
+#[derive(Clone, Copy)]
+enum Wanted<'a> {
+    /// Yes or no: the whole of a condition.
+    Condition,
+    /// Anything: one of a message's expressions.
+    Anything,
+    /// A computed field's kind of value: the whole of a value.
+    Value(&'a Ty),
+}
+
 /// Parses and checks one expression, placed in its rule's text: the whole of a
-/// condition, which must be yes or no, or one of a message's, which may be anything.
+/// condition, which must be yes or no, one of a message's, which may be anything, or the
+/// whole of a computed field's value, which must be what the field holds.
 fn piece(
     placement: &Placement<'_>,
-    condition: bool,
+    wanted: Wanted<'_>,
     variables: &BTreeMap<String, Ty>,
     probes: &Probes,
 ) -> Result<(Piece, BTreeMap<String, Reads>), Rejection> {
     let expression = placement.expression;
     let program = parse(expression).map_err(|f| placement.reject(f))?;
     let mut checker = Checker::new(variables, program.source_info(), expression, probes);
-    let outcome = if condition {
-        checker.condition(program.expression())
-    } else {
-        checker.check(program.expression()).map(|_| ())
+    let outcome = match wanted {
+        Wanted::Condition => checker.condition(program.expression()),
+        Wanted::Anything => checker.check(program.expression()).map(|_| ()),
+        Wanted::Value(ty) => checker.value(program.expression(), ty),
     };
     outcome.map_err(|f| placement.reject(f))?;
     let paths = std::mem::take(&mut checker.paths);
@@ -524,19 +561,36 @@ fn analyse(
     probes: &Probes,
 ) -> Result<Analysed, Rejection> {
     let source = expression.source.as_str();
+    let result = match (expression.kind, &expression.result) {
+        (Kind::Value, Some(schema)) => Some(Ty::of(schema, "value")),
+        (Kind::Value, None) => {
+            return Err(Rejection {
+                error: "A value needs the kind of value it works out to.".to_owned(),
+                hint: None,
+                line: None,
+                column: None,
+            });
+        }
+        _ => None,
+    };
     let mut analysed = Analysed {
         kind: expression.kind,
+        result,
         pieces: Vec::new(),
         reads: BTreeMap::new(),
     };
-    if expression.kind == Kind::Condition {
+    if matches!(expression.kind, Kind::Condition | Kind::Value) {
         let placement = Placement {
             text: source,
             expression: source,
             start: 0,
             quoted: false,
         };
-        let (piece, reads) = piece(&placement, true, variables, probes)?;
+        let wanted = match &analysed.result {
+            Some(ty) => Wanted::Value(ty),
+            None => Wanted::Condition,
+        };
+        let (piece, reads) = piece(&placement, wanted, variables, probes)?;
         analysed.pieces.push(piece);
         analysed.add_reads(reads);
         return Ok(analysed);
@@ -563,7 +617,7 @@ fn analyse(
                     start,
                     quoted: true,
                 };
-                let (piece, reads) = piece(&placement, false, variables, probes)?;
+                let (piece, reads) = piece(&placement, Wanted::Anything, variables, probes)?;
                 analysed.pieces.push(piece);
                 analysed.add_reads(reads);
                 offset = start + e.len() + 2;

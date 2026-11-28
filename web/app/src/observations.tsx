@@ -506,11 +506,10 @@ export function ReasonDialog({
   );
   const serverError = fieldErrors(problem)["reason"];
   const error = missing ? "Say why you’re making this change." : serverError;
-  // A conflict, or a refusal as stale, is said by the dialog itself (`stale`), not twice.
+  // A refusal because what's recorded changed (412 stale, or a 409 conflict) is the stale
+  // note's to say, with what changed: said once.
   const shownProblem =
-    problem && problem.status !== 409 && problem.status !== 412 && !serverError
-      ? problem
-      : undefined;
+    problem && ![409, 412].includes(problem.status) && !serverError ? problem : undefined;
   return (
     <ModalOverlay
       className="dialog-overlay"

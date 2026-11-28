@@ -76,10 +76,8 @@ def kinases(world: World) -> None:
 
 
 def checked(page: Page) -> None:
-    """axe, as on every page. Playwright's Firefox crashes in axe on an import's pages, as
-    on others named by `aria-labelledby` (see assert_clean): Chromium and WebKit check
-    them, and the DOM is the same in every browser."""
-    assert_clean(page, axe_in_firefox=False)
+    """axe and the page's errors, as on every page."""
+    assert_clean(page)
 
 
 def fits_a_phone(page: Page) -> None:
@@ -427,6 +425,7 @@ def test_a_change_made_in_another_tab_is_shown_not_overwritten(
     deadline = time.monotonic() + 10
     while saved(other, import_id)["first_row"] != "5" and time.monotonic() < deadline:
         other.wait_for_timeout(50)
+    assert saved(other, import_id)["first_row"] == "5", "the other tab's change wasn't saved"
 
     # This tab still shows the first row it had, and leaves a row out.
     expect(page.get_by_role("spinbutton", name="First row")).to_have_value("4")

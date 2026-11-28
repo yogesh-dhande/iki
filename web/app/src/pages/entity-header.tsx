@@ -6,8 +6,8 @@
  */
 
 import { unwrap, isStale } from "@ikisci/sdk";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { Link, useParams, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import {
   Button as AriaButton,
@@ -48,6 +48,16 @@ import {
   TextField,
   useMessages,
 } from "../ui";
+
+/** The entity the page is about, from the `$ref` in its address, and `?project=` for a
+ * record of a registry entry. */
+export function useEntity(): { entity: Entity; type: EntityType | undefined; types: EntityType[] } {
+  const { ref } = useParams({ from: "/entities/$ref" });
+  const { project } = useSearch({ from: "/entities/$ref" });
+  const entity = useSuspenseQuery(entityQuery(ref, project)).data;
+  const types = useSuspenseQuery(typesQuery).data;
+  return { entity, type: types.find((t) => t.name === entity.type), types };
+}
 
 /** The records it's directly linked to, either way: what its Lineage tab counts, and its
  * page's rail lists. One step each way, as the graph has them (ADR 0123). */

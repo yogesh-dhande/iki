@@ -1,6 +1,7 @@
 # 0128. Guards say when a state may be set: allowed moves, four eyes and more
 
 - Status: Accepted
+- Amended by [0301](0301-a-review-procedure-is-declared-once-and-a-type-says-what-it-needs.md): declared independence (`independent_of`, `maker`) compiles into guards
 - Date: 2026-11-18
 - Refines: [0125](0125-a-state-is-a-field-each-state-says-who-sets-it.md),
   [0127](0127-plugins-rules-are-checked-at-every-save.md),
@@ -65,7 +66,8 @@ record's lock, after `set_by`, with the record as it is.
 
 **Holds come first.** While a rule holds a record for review (ADR 0127), it
 can't be set to a state that locks it, whatever its guards say: 409 `refused`,
-naming the holds.
+naming the holds. Nor is it set to a state the plugins' rules reading the field
+would refuse, or hold it for (ADR 0127).
 
 **A signed state's guards are checked at every signature.** A state that
 needs electronic signatures (ADR 0126) isn't set directly: its last signature

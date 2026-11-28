@@ -64,7 +64,7 @@ from iki_server.entities.sequence_files import (
     protein_fasta,
 )
 from iki_server.entities.services import values_at
-from iki_server.entities.values import shape, to_json
+from iki_server.entities.values import reference_ids, shape, to_json
 from iki_spec import titles
 from iki_spec.model import (
     AnyExport,
@@ -76,6 +76,7 @@ from iki_spec.model import (
     ReportExport,
 )
 from iki_spec.model import Field as SpecField
+from iki_spec.writers import abi as writer_abi
 
 __all__ = [
     "FORMATS",
@@ -240,9 +241,9 @@ def writer(file_format: str, *, background: bool = False) -> Writer:
         raise Unexportable(f"No installed plugin writes {file_format}.", "no_export")
     return PluginWriter(
         found,
-        deadline=plugin_writers.BACKGROUND_DEADLINE
+        deadline=plugin_writers.background_deadline()
         if background
-        else plugin_writers.INLINE_DEADLINE,
+        else plugin_writers.inline_deadline(),
     )
 
 
@@ -355,8 +356,10 @@ class Downloaded:
 
 @dataclass(frozen=True)
 class Gathered:
-    """What a record's file is written from at one revision, as its writer takes it; its
-    file's name alone; and every record read to gather it (itself, the sequence a
+    """What a record's file is written from at one revision, as its writer takes it: what
+    the revision holds and which record and revision it is, never whether it's still the
+    latest, so the same revision is always the same file (ADRs 0171 and 0229); its file's
+    name alone; and every record read to gather it (itself, the sequence a
     plasmid's is, its organism, what its SD data refers to), which whoever takes the file
     must be able to read."""
 
@@ -471,7 +474,7 @@ def export(
         written = Written(head + one.content + tail.content, [*one.left_out, *tail.left_out])
         if chosen.plugin is not None:
             check_signature(chosen, written.content, "a file")
-        name = gathered.name
+        name = _downloaded_as(gathered, latest=number == entity.revision)
         identity = file_writer.identity
     with transaction.atomic():
         audit.record(
@@ -495,28 +498,41 @@ def export(
     return Downloaded(name, chosen.media_type, written.content, written.left_out)
 
 
-def file_name(
-    record: SequenceFile | ProteinFile | CompoundFile | PluginRecord, chosen: Format
-) -> str:
-    """Its name, or its HRID, and the revision when it isn't the latest: ``pUC19.gb``."""
-    return _named(record, chosen)
-
-
 def _named(record: SequenceFile | ProteinFile | CompoundFile | PluginRecord, chosen: Format) -> str:
+    """Its name, or its HRID: ``pUC19.gb``. The same for every revision whenever it's
+    written, as a ZIP's file of it is named."""
     base = " ".join(_UNSAFE.sub("_", record.name).split())[:100] or record.hrid
-    if not record.latest:
-        base = f"{base} (revision {record.revision})"
     return f"{base}.{chosen.extension}"
+
+
+def _downloaded_as(gathered: Gathered, *, latest: bool) -> str:
+    """A download's name: its file's, with the revision when it isn't the record's latest
+    as it's taken, ``pUC19 (revision 2).gb``. The file itself never says that (ADR 0171):
+    the next edit would change it."""
+    if latest:
+        return gathered.name
+    stem, dot, extension = gathered.name.rpartition(".")
+    return f"{stem} (revision {gathered.record.revision}){dot}{extension}"
 
 
 # --- What a record's files are written from ------------------------------------------------------
 
 
-def _at(entity: Entity, number: int) -> tuple[dict[str, Any], str, Any]:
-    """Its values at revision ``number`` as JSON, its title then, and when it was made."""
+def _at(
+    entity: Entity, number: int, *, reader: User | None = None
+) -> tuple[dict[str, Any], str, Any]:
+    """Its values at revision ``number`` as JSON, its title then, and when it was made.
+    With a ``reader``, each reference to a record they can't read is ``"unreadable"``, as
+    the API gives it (ADR 0067): what's written never names what its reader can't read."""
     form = shape(entity.type)
     fields = form.fields()
-    values = {n: to_json(fields[n], v) for n, v in values_at(entity, number).items() if n in fields}
+    raw = {n: v for n, v in values_at(entity, number).items() if n in fields}
+    readable = (
+        access.readable_reference_ids(reader, reference_ids(fields, raw))
+        if reader is not None
+        else None
+    )
+    values = {n: to_json(fields[n], v, readable_refs=readable) for n, v in raw.items()}
     entity_type = registry.types()[entity.type]
     title = titles.render(registry.display_title(entity_type), values, entity.hrid, fields)
     when = (
@@ -556,7 +572,9 @@ def _plugin_record(
                 withheld.append(role_name)
                 continue
             read.add(target.entity.pk)
-            their, their_title, _ = _at(target.entity, target.revision)
+            # The record it refers to, one step deep: what that refers to in turn is given
+            # only where its reader can read it.
+            their, their_title, _ = _at(target.entity, target.revision, reader=user)
             roles[role_name] = {
                 "fields": their,
                 "hrid": target.entity.hrid,
@@ -573,24 +591,17 @@ def _plugin_record(
                 f"{entity.hrid}'s {field_name} can't be given in {role.unit}: {error}",
                 "writer_refused",
             ) from None
-    request = plugin_writers.request_of(
-        entity_id=entity.pk,
-        hrid=entity.hrid,
-        name=title,
-        type_name=entity.type,
-        revision=number,
-        latest=number == entity.revision,
-        revised_at=when,
-        roles=roles,
-        withheld=withheld,
-    )
     return PluginRecord(
-        hrid=entity.hrid,
-        name=title,
-        revision=number,
-        latest=number == entity.revision,
-        revised_at=when,
-        request=request,
+        writer_abi.Record(
+            id=entity.pk,
+            hrid=entity.hrid,
+            name=title,
+            type=entity.type,
+            revision=number,
+            revised_at=when,
+            roles=roles,
+            withheld=tuple(withheld),
+        )
     )
 
 
@@ -613,7 +624,6 @@ def _protein_file(
         revision=number,
         description=str(values.get(export_.description) or "") if export_.description else "",
         organism=organism.name if organism is not None else "",
-        latest=number == entity.revision,
     )
 
 
@@ -677,7 +687,6 @@ def _compound_file(
         revision=number,
         structure=structure,
         data=tuple(_sd_data(user, fields, values, names, read)),
-        latest=number == entity.revision,
     )
 
 
@@ -762,7 +771,6 @@ def _sequence_file(
             description=description or inner.description,
             features=(*inner.features, *_beyond(own, inner.features)),
             sequence_of=target.entity.hrid,
-            latest=number == entity.revision,
         )
     bases = str(values.get(export_.sequence) or "")
     topology = str(values.get(spec.topology) or "linear") if spec and spec.topology else "linear"
@@ -784,7 +792,6 @@ def _sequence_file(
             else None
         ),
         features=own,
-        latest=number == entity.revision,
     )
 
 

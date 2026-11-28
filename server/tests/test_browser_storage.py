@@ -72,10 +72,8 @@ SIZES = [(390, 844), (1024, 768), (768, 1024), (1440, 900)]
 
 
 def checked(page: Page) -> None:
-    """axe, as on every page. Playwright's Firefox crashes in axe on these pages, as on
-    others named by `aria-labelledby` (see assert_clean): Chromium and WebKit check them,
-    and the DOM is the same in every browser."""
-    assert_clean(page, axe_in_firefox=False)
+    """axe and the page's errors, as on every page."""
+    assert_clean(page)
 
 
 def fits(page: Page) -> None:
@@ -1416,6 +1414,9 @@ def test_draw_holds_still_as_the_box_map_comes_above_it(open_as: Any, world: Wor
     grid = page.get_by_role(
         "grid", name=f"Kinase retains’s positions, with {ours['hrid']}’s marked"
     )
+    # The first load's map is in before its read is held: held as it came, the reload would
+    # abort it and the reload's own read would wait for ever.
+    expect(grid).to_be_visible()
     held: list[Route] = []
     box_read = f"**/api/v1/storage/containers/{retains['hrid']}"
     page.route(box_read, lambda route: held.append(route))
@@ -1757,7 +1758,7 @@ def held_by(page: Page, path: str) -> dict[str, Any]:
     out = page.request.get("/api/v1/storage/checked-out")
     waiting = page.request.get("/api/v1/storage/awaiting-put-away")
     assert receipt.ok and out.ok and waiting.ok
-    return {"receipt": receipt.json(), "out": out.json(), "waiting": waiting.json()}
+    return {"receipt": receipt.json(), "out": out.json(), "waiting": waiting.json()["items"]}
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])

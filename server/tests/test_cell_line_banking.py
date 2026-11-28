@@ -151,6 +151,24 @@ def exercise_history() -> None:
     authentication = check(working, "str_authentication", "match")
     mycoplasma = check(working, "mycoplasma", "negative")
     unrelated = check(master, "str_authentication", "inconclusive")
+    # A test the plugin doesn't name is one from the lab's list, never a typed name, and
+    # its results are those its option gives: endotoxin is judged against a limit.
+    endotoxin = lists.find(world.project.registry_id, PREFIX + "CellCheckTest", "endotoxin")
+    assert endotoxin is not None
+    lab_test = {
+        "bank": str(working.pk),
+        "kind": "other",
+        "lab_test": str(endotoxin.entry.pk),
+        "method": "Kinetic chromogenic LAL, synthetic report",
+        "checked_on": "2026-01-06",
+    }
+    with pytest.raises(Invalid, match="conforms or does not conform"):
+        make("CellCheck", **lab_test, result="negative")
+    with pytest.raises(Invalid, match="the lab's test for a check of kind Other"):
+        make("CellCheck", **{**lab_test, "lab_test": None}, result="conforms")
+    with pytest.raises(Invalid, match="the lab's test for a check of kind Other"):
+        make("CellCheck", **{**lab_test, "kind": "sterility"}, result="negative")
+    make("CellCheck", **lab_test, result="conforms")
     thaw_values = {
         "event": "thaw",
         "bank": str(working.pk),

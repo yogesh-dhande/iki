@@ -23,6 +23,7 @@ import datetime as dt
 import hashlib
 import json
 import uuid
+from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache
@@ -30,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from iki_server.entities import registry
+from iki_server.entities import computing, registry
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid, shape, to_json
 from iki_spec import rules as spec_rules
@@ -48,6 +49,7 @@ __all__ = [
     "cel_value",
     "check_failure",
     "checks_of",
+    "computed_broken",
     "kept",
     "raise_broken",
     "record_variables",
@@ -160,6 +162,8 @@ def digest_of(type_name: str) -> str:
             for r in checks_of(type_name)
         ],
         "plugins": [[p, plugins[p].version] for p in owners if p in plugins],
+        # What its computed values are worked out by (ADR 0297), which its rules read.
+        "computed": computing.digest_of(type_name),
     }
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
@@ -380,12 +384,20 @@ def _applies(rule: Rule, changed: frozenset[str] | None) -> bool:
 
 
 def broken(
-    type_name: str, savings: Sequence[Saving], *, before_signing: bool = False
+    type_name: str,
+    savings: Sequence[Saving],
+    *,
+    before_signing: bool = False,
+    reading: frozenset[str] | None = None,
 ) -> list[list[Broken]]:
     """The checks each record about to be saved breaks: false, or not worked out for a
-    reason other than an empty value. Each record's are in its rules' order."""
+    reason other than an empty value. Each record's are in its rules' order. With
+    ``reading``, only the checks that read those fields and no others: a registry entry's,
+    of its entry fields, which a registrar registers with no record (ADR 0165)."""
     groups: dict[tuple[tuple[str, str], ...], list[Rule]] = {}
-    checks = checks_of(type_name)
+    checks = tuple(
+        r for r in checks_of(type_name) if reading is None or (r.reads and set(r.reads) <= reading)
+    )
     for rule in checks:
         if not before_signing or rule.recheck_before_signing:
             groups.setdefault(rule.reference_revisions, []).append(rule)
@@ -527,6 +539,21 @@ def check_failure(check: spec_rules.Outcome, when: spec_rules.Outcome | None) ->
     return None if check.value else ""
 
 
+def computed_broken(type_name: str, name: str, messages: Sequence[str]) -> Broken:
+    """A computed value (ADR 0297) its field refuses, as what a chunk's line breaks, so an
+    import says it where it says the rules a line breaks."""
+    f = shape(type_name).fields()[name]
+    text = f"{f.label} {' '.join(messages)}"
+    rule = Rule(
+        name=f"computed_{name}",
+        label=f.label,
+        plugin=registry.types()[type_name].plugin,
+        message=text,
+        fields=(name,),
+    )
+    return Broken(rule, text, (name,))
+
+
 def raise_broken(
     found: Sequence[Broken], *, hold_reason: str, errors: Mapping[str, list[str]] | None = None
 ) -> list[Broken]:
@@ -600,13 +627,26 @@ def apart(
 def kept(entity: Entity, changed: frozenset[str], found: Sequence[Broken]) -> None:
     """After a save: the record no longer breaks the rules it was reported for (ADR 0127)
     that this save checked and found kept."""
+    kept_each([(entity, changed, found)])
+
+
+def kept_each(saved: Sequence[tuple[Entity, frozenset[str], Sequence[Broken]]]) -> None:
+    """:func:`kept` for each of many records, (record, what changed, what it breaks): a
+    query for them all, and one for each that was reported."""
     from iki_server.entities.models import RuleBreach
 
-    reported = set(RuleBreach.objects.filter(entity_id=entity.pk).values_list("rule", flat=True))
-    if not reported:
+    if not saved:
         return
-    still = {b.rule.key for b in found}
-    checked = {r.key for r in rules_of(entity.type) if _applies(r, changed)}
-    cleared = (reported & checked) - still
-    if cleared:
-        RuleBreach.objects.filter(entity_id=entity.pk, rule__in=cleared).delete()
+    reported: dict[Any, set[str]] = defaultdict(set)
+    for entity_id, rule in RuleBreach.objects.filter(
+        entity_id__in=[e.pk for e, _, _ in saved]
+    ).values_list("entity_id", "rule"):
+        reported[entity_id].add(rule)
+    for entity, changed, found in saved:
+        if not reported[entity.pk]:
+            continue
+        still = {b.rule.key for b in found}
+        checked = {r.key for r in rules_of(entity.type) if _applies(r, changed)}
+        cleared = (reported[entity.pk] & checked) - still
+        if cleared:
+            RuleBreach.objects.filter(entity_id=entity.pk, rule__in=cleared).delete()

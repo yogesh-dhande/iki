@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: SpecificationSchedule
 label: Specification schedule
-schema_version: 2
+schema_version: 3
 hrid: { prefix: SPS }
 description: The ordered catalogue of published specification versions for one material and context in this project.
 fields:
@@ -17,6 +17,14 @@ fields:
       Which approved specification this is for the material, such as Release, Shelf life,
       a market or a product grade (ICH Q6A §2.2). Each context has its own versions and
       effective dates.
+  grade:
+    type: string
+    max_length: 120
+    immutable: true
+    description: >-
+      The grade the material is released as under this specification, where it has one,
+      such as USP or Reagent grade. Its certificate of analysis states it with the
+      material's name (ICH Q7 §11.41).
   versions:
     type: list
     items: { type: ref, to: SpecificationVersion }

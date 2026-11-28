@@ -15,7 +15,7 @@ def test_example_uses_its_transitive_dependencies_and_runs_its_python_test(
     tests.mkdir(parents=True)
     (example / "README.md").write_text("# Reports\n")
     (example / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: lab/reports\nversion: 1.0.0\n"
+        "apiVersion: iki/v1\nkind: Plugin\nname: lab/reports\nversion: 1.0.0\niki: '>=0.1'\n"
         'dependencies: {iki/protein: {types: {Protein: ">=1"}}}\n'
     )
     # The Python-only example must execute its portable test after validating with

@@ -361,6 +361,22 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__protein_multimer__history",
         "acme__protein_multimer__entry",
         "acme__protein_multimer__entry__history",
+        "acme__protein_binding",
+        "acme__protein_binding__history",
+        # Two types under one identity (ADR 0165), as Bispecific and Multimer are, under an
+        # abstract one of the lab's own whose tables both share.
+        "acme__protein_reagent",
+        "acme__protein_reagent__history",
+        "acme__protein_reagent__entry",
+        "acme__protein_reagent__entry__history",
+        "acme__protein_primaryantibody",
+        "acme__protein_primaryantibody__history",
+        "acme__protein_primaryantibody__entry",
+        "acme__protein_primaryantibody__entry__history",
+        "acme__protein_secondaryantibody",
+        "acme__protein_secondaryantibody__history",
+        "acme__protein_secondaryantibody__entry",
+        "acme__protein_secondaryantibody__entry__history",
         "acme__protein_lot",
         "acme__protein_lot__history",
         "acme__protein_lot__inputs",
@@ -557,10 +573,10 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
         assert loaded.plugin is not None and not loaded.errors, loaded.problems
         declared.append(loaded.plugin)
     prefixes = {
-        entity_type.hrid_prefix.lower()
+        entity_type.numbering_prefix.lower()
         for plugin in declared
         for entity_type in plugin.types.values()
-        if not entity_type.abstract and entity_type.hrid_prefix is not None
+        if entity_type.numbering_prefix is not None
     }
     expected = [f"  HRID sequence iki_hrid_{prefix}" for prefix in sorted(prefixes)]
     assert [line for line in report.splitlines() if line.startswith("  HRID sequence ")] == expected
@@ -818,6 +834,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+iki: ">=0.1"
 """
 
 SAMPLE = """\
