@@ -353,9 +353,10 @@ class _Rules:
                     shown = ", ".join(f"`{n}`" for n in changing[:4])
                     self.add(
                         "trigger-reads-unwatched",
-                        f"`{trigger.action}` reads what `{name}` names, whose values can change "
-                        f"({shown}{', …' if len(changing) > 4 else ''}), and this trigger "
-                        f"doesn't watch it: a record worked out from one would stay as it was "
+                        f"`{self.s.shown(trigger.action)}` reads what `{name}` names, whose "
+                        f"values can change ({shown}{', …' if len(changing) > 4 else ''}), and "
+                        "this trigger doesn't watch it: a record worked out from one would stay "
+                        "as it was "
                         "when it changes, with no notice that it needs working out again.",
                         source,
                         ("watch_included",) if trigger.watch_included else ("run",),
