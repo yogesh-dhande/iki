@@ -418,6 +418,19 @@ def _curates(user: User, entry: Entity) -> bool:
     return permissions.can(user, Action.REGISTRY_CURATE, entry.registry)
 
 
+def _not_an_option(entry: Entity, change: str, path: str) -> None:
+    """A lab list's option (ADR 0270) is changed on its list, under the list's checks: this
+    endpoint reads it, and says where."""
+    if lists.is_list(entry.type):
+        code = lists.option_of(entry).code
+        raise Problem(
+            409,
+            f"{entry.hrid} is an option of a lab list: {change} it on its list, with "
+            f"/api/v1/lists/{entry.type}/options/{code}{path}.",
+            code="refused",
+        )
+
+
 def _entry_references(
     user: User, entry: Entity, curates: bool, wanted: dict[str, set[Any]]
 ) -> tuple[dict[Any, dict[str, Any]], dict[Any, dict[str, Any]]]:
@@ -550,10 +563,12 @@ def patch_entry(
     if_match: IfMatch = None,
 ) -> dict[str, Any]:
     """Its registry's registrars, with a reason. Audited, and told to every holding project:
-    who, when and why. Its identity and derived values never change: supersede it instead."""
+    who, when and why. Its identity and derived values never change: supersede it instead.
+    A lab list's option changes on its list (`/lists/{name}/options/{code}`), not here."""
     me = caller(request)
     entry, curates = _entry(me, ref)
     assert entry.registry is not None  # noqa: S101
+    _not_an_option(entry, "change", "")
     if not curates:
         require(me, Action.REGISTRY_CURATE, entry.registry)
     expected = preconditions.expected(if_match)
@@ -609,10 +624,12 @@ def supersede_entry(
     good, from the revision they read (If-Match): one of its type, or of another type under
     its identity; or with a new entry of its identity as another type (``type``, ADR 0165).
     Each holding project's Admins, and whoever added its record, are told, to move their
-    records to the replacement."""
+    records to the replacement. A lab list's option is superseded on its list
+    (`/lists/{name}/options/{code}/supersede`), not here, either way."""
     me = caller(request)
     entry, curates = _entry(me, ref)
     assert entry.registry is not None  # noqa: S101
+    _not_an_option(entry, "supersede", "/supersede")
     if not curates:
         require(me, Action.REGISTRY_CURATE, entry.registry)
     if (payload.replacement is None) == (payload.type is None):
@@ -846,6 +863,9 @@ def move_entity(
         raise preconditions.stale_revision(stale.current) from None
     except Invalid as error:
         problem = _invalid(error)
+        if getattr(error, "broken", ()):
+            # Its new entry's values break its type's rules (ADR 0127), each named.
+            raise problem from None
         raise Problem(
             422,
             "It can’t be moved as requested.",

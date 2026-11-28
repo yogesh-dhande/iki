@@ -189,6 +189,21 @@ fn whole_literal(expr: &IdedExpr) -> Option<String> {
     }
 }
 
+/// The text literals an expression can work out to, with their nodes: itself, or each
+/// branch of a `? :`, as `record.dose > 10.0 ? 'high' : 'low'`.
+fn text_leaves<'e>(expr: &'e IdedExpr, out: &mut Vec<(u64, &'e str)>) {
+    match &expr.expr {
+        Expr::Literal(LiteralValue::String(s)) => out.push((expr.id, s.inner())),
+        Expr::Call(call) if call.func_name == operators::CONDITIONAL && call.target.is_none() => {
+            if let [_, yes, no] = call.args.as_slice() {
+                text_leaves(yes, out);
+                text_leaves(no, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Text as written, if the expression is a string literal.
 fn text_literal(expr: &IdedExpr) -> Option<&str> {
     match &expr.expr {
@@ -535,6 +550,84 @@ impl<'a> Checker<'a> {
             ty.describe()
         ))
         .hint("Compare it, as in `record.purity >= 95.0`, or test it, as in `record.tags.exists(t, t == 'urgent')`."))
+    }
+
+    /// What expression `expr` is, which must be the kind of value `wanted` is: the whole
+    /// of a computed field's value (ADR 0297). A number fits a field of numbers, a whole
+    /// one a field of whole numbers, and text an enum's only if it's one of its values.
+    pub(super) fn value(&mut self, expr: &IdedExpr, wanted: &Ty) -> Result<(), Fault> {
+        let ty = self.check(expr)?;
+        let fits = match (&ty, wanted) {
+            (Ty::Dyn | Ty::Null, _)
+            | (Ty::Int | Ty::UInt, Ty::Int)
+            | (Ty::Bool, Ty::Bool)
+            | (Ty::Timestamp, Ty::Timestamp) => true,
+            (got, Ty::Double) => got.numeric(),
+            (Ty::Str(got), Ty::Str(want)) => match (got, want) {
+                (Some(got), Some(want)) => {
+                    if let Some(other) = got.values.iter().find(|v| !want.values.contains(v)) {
+                        return Err(self.at(
+                            expr.id,
+                            Fault::new(format!(
+                                "It can be `{}`, one of {}'s values, which isn't one of {}'s.",
+                                short(other),
+                                got.label,
+                                want.label
+                            )),
+                        ));
+                    }
+                    true
+                }
+                _ => true,
+            },
+            _ => false,
+        };
+        if !fits {
+            let hint = match (&ty, wanted) {
+                (Ty::Double, Ty::Int) => Some(
+                    "Make it a whole number with `int(…)`, which drops what's after the point.",
+                ),
+                (Ty::Str(_), Ty::Timestamp) => Some(
+                    "Read text as a time with `timestamp(…)`, as `timestamp('2026-11-18T00:00:00Z')`.",
+                ),
+                (got, Ty::Str(_)) if got.numeric() || matches!(got, Ty::Timestamp | Ty::Bool) => {
+                    Some("Write it as text with `string(…)`.")
+                }
+                (Ty::Str(_), Ty::Double | Ty::Int) => {
+                    Some("Read text as a number with `double(…)` or `int(…)`.")
+                }
+                _ => None,
+            };
+            let fault = Fault::new(format!(
+                "It works out to {}, but the field holds {}.",
+                ty.describe(),
+                wanted.describe()
+            ));
+            return Err(self.at(expr.id, fault.maybe(hint.map(str::to_owned))));
+        }
+        if let Ty::Str(Some(want)) = wanted {
+            let mut leaves = Vec::new();
+            text_leaves(expr, &mut leaves);
+            for (id, text) in leaves {
+                if !want.values.iter().any(|v| v == text) {
+                    let fault = Fault::new(format!(
+                        "`{}` isn't one of {}'s values.",
+                        short(text),
+                        want.label
+                    ))
+                    .maybe(
+                        closest(text, want.values.iter().map(String::as_str)).map(|c| {
+                            format!(
+                                "Did you mean `{c}`? It's one of {}.",
+                                listed(want.values.iter().map(String::as_str))
+                            )
+                        }),
+                    );
+                    return Err(self.at(id, fault));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// What `expr` is.

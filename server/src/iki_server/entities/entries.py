@@ -7,6 +7,9 @@ is what's done to the entry itself, and to the records that name one:
 - **Curating facts.** A holder sets a fact while it's empty. After that only
   the registry's registrars change it, with a reason, audited
   (``registry.facts_changed``) and told to the holders: who, when and why.
+  Either is checked against the type's rules (ADR 0127): a registrar's change
+  breaking a rule that reads the entry alone is refused, and the other records
+  of it are checked, held or reported as a deploy holds or reports them.
 - **Superseding.** A registrar replaces a mistaken entry (CPD-000123, drawn
   with the wrong stereochemistry) with another of the same type in the same
   registry (CPD-000456), with a reason. It can't be undone. The superseded
@@ -48,7 +51,9 @@ from iki_server.audit import log
 from iki_server.core.ids import uuid7
 from iki_server.entities import (
     access,
+    breaches,
     checking,
+    holds,
     identity,
     registry,
     requests,
@@ -152,13 +157,18 @@ def curate(
 ) -> Revision | None:
     """A registrar's change to an entry's facts: set, changed or cleared, with why. Their
     identity and derived values are the identity's, and never change. A lab list's option
-    (ADR 0270) is its list's curators' too: its required values can't be cleared, and its
-    place changes by reordering the list (:mod:`.lists`)."""
+    (ADR 0270) is its list's curators' too: its required values can't be cleared, its
+    place changes by reordering the list, and its label names no other option of the list,
+    under the list's lock (:mod:`.lists`)."""
+    from iki_server.entities import lists
+
     _registrar(user, entry)
     listed = _is_list(entry.type)
     if not reason.strip():
         raise Invalid({"reason": ["Say why: a fact's change is every holder's."]})
     with transaction.atomic(), services._unique_values():
+        if listed:
+            lists.lock(entry.registry_id, entry.type)
         locked = Entity.objects.select_for_update().get(pk=entry.pk)
         if locked.revision != expected_revision:
             raise services.Stale(locked.revision)
@@ -209,20 +219,27 @@ def curate(
         if not errors and new:
             errors = _taken_in_registry(form, locked, new)
         if not errors and listed and isinstance(new.get(LIST_LABEL), str):
-            from iki_server.entities import lists
-
-            taken = lists.label_taken(form, locked.registry_id, new[LIST_LABEL], besides=locked.pk)
-            if taken is not None:
-                errors = {LIST_LABEL: [f"is `{taken}`'s label already: the list has each once."]}
+            errors = lists.names_taken(
+                form, locked.registry_id, label=new[LIST_LABEL], besides=locked.pk
+            )
         if errors:
             raise Invalid(errors)
         if not new:
             return None
+        _keeps_its_rules(form, locked, rows, new)
         before = {n: to_json(fields[n], rows.get(n)) for n in new}
         touched = services._write(form, rows, new, locked.pk)
         revision = services._revise(locked, RevisionKind.CURATED, sorted(new), user, reason)
         services._write_history(touched, rows, revision.number)
         services._use_files(fields, locked.pk, new, revision.number)
+        # Every record of it, as its registrars' changes are every holder's (ADR 0127).
+        breaches.check_holders(
+            locked,
+            frozenset(new),
+            user=user,
+            reason=reason.strip(),
+            entry_revision=revision.number,
+        )
         log.record(
             "list.option_changed" if listed else "registry.facts_changed",
             actor=user,
@@ -237,6 +254,28 @@ def curate(
             },
         )
     return revision
+
+
+def _keeps_its_rules(
+    form: Any,  # noqa: ANN401 - a Shape
+    entry: Entity,
+    rows: Any,  # noqa: ANN401 - its Rows
+    new: Mapping[str, Any],
+) -> None:
+    """Refuses a change that breaks a rule of the entry's type reading only the entry's
+    values (ADR 0127): every record of it would break it alike. A rule that also reads a
+    record's own values is each record's, checked on them (:func:`breaches.check_holders`),
+    and one that holds holds them."""
+    fields = form.entry_fields()
+    saving = checking.Saving(
+        lambda n: new[n] if n in new else rows.get(n) if n in fields else None,
+        frozenset(new),
+        id=entry.pk,
+        hrid=entry.hrid,
+    )
+    found = checking.broken(entry.type, [saving])[0]
+    refusing = [b for b in found if not b.held and set(b.rule.reads) <= fields.keys()]
+    checking.raise_broken(refusing, hold_reason="")
 
 
 def _registrar(user: User, entry: Entity) -> Registry:
@@ -305,11 +344,17 @@ def supersede(
     user: User, entry: Entity, replacement: Entity, *, expected_revision: int, reason: str
 ) -> Revision:
     """Replaces a mistaken entry with another, for good, from the revision of it the
-    registrar read, and tells its holders. Raises :class:`services.Stale`."""
+    registrar read, and tells its holders. A lab list's option (ADR 0270) is replaced, under
+    the list's lock, by one its dropdowns offer. Raises :class:`services.Stale`."""
+    from iki_server.entities import lists
+
     found = _registrar(user, entry)
     if not reason.strip():
         raise Invalid({"reason": ["Say why: its holders are told."]})
+    listed = _is_list(entry.type)
     with transaction.atomic():
+        if listed:
+            lists.lock(entry.registry_id, entry.type)
         locked = Entity.objects.select_for_update().get(pk=entry.pk)
         other = Entity.objects.select_for_update().get(pk=replacement.pk)
         if locked.revision != expected_revision:
@@ -324,6 +369,15 @@ def supersede(
             raise Invalid({"replacement": [unlike]})
         if other.superseded_by_id is not None:
             raise Invalid({"replacement": [f"{other.hrid} was superseded itself."]})
+        if listed and other.archived_at is not None:
+            raise Invalid(
+                {
+                    "replacement": [
+                        f"`{lists.option_of(other).code}` is archived: restore it first, so "
+                        "dropdowns offer it instead."
+                    ]
+                }
+            )
         if services.frozen(shape(locked.type)) is not None:
             raise Refused(services.frozen(shape(locked.type)) or "")
         locked.superseded_by = other
@@ -340,7 +394,7 @@ def supersede(
                 "reason": reason.strip(),
             },
         )
-        if _is_list(locked.type):
+        if listed:
             _tell_referrers(user, locked, other, reason.strip())
         else:
             _tell_holders(user, locked, other, reason.strip())
@@ -488,6 +542,16 @@ def _registrable(entry: Entity, type_name: str) -> Shape:
         raise Invalid({"type": [f"There's no entity type {type_name}."]})
     if type_name == entry.type:
         raise Invalid({"type": [f"{entry.hrid} is a {type_name} already."]})
+    # A lab list's options are its list's (ADR 0270): one is added, and superseded, on it.
+    if target.is_list or registry.types()[entry.type].is_list:
+        raise Invalid(
+            {
+                "type": [
+                    "A lab list's option isn't registered as another type, nor another "
+                    "type's entry as one: add or supersede it on its list."
+                ]
+            }
+        )
     if unlike := _unlike(entry, type_name):
         raise Invalid({"type": [unlike]})
     if target.abstract:
@@ -684,9 +748,35 @@ def move(
             raise Invalid(
                 {"values": [f"{new.hrid} is a {new.type}, as the record is: it keeps its values."]}
             )
+        was = services.current_values(services.specific(locked))
         Entity.objects.filter(pk=locked.pk).update(entry=new, hrid=new.hrid)
+        locked.refresh_from_db()
+        changed, holding = _checked_on(locked, was, said)
         revision = services._revise(locked, RevisionKind.MOVED, [], user, said, moved_from=old.pk)
+        if holding:
+            holds.hold(
+                Entity.objects.select_related("owner_project").get(pk=locked.pk),
+                holding,
+                user=user,
+                reason=said,
+                revision=revision.number,
+                entry_revision=new.revision,
+            )
+        if changed:
+            # What the record's checks read of its entry changed: their results go.
+            services.update(
+                user,
+                locked,
+                {},
+                expected_revision=revision.number,
+                reason=said,
+                _entry_moved=changed,
+            )
         repointed = _repoint(user, project, old, new, said)
+        from iki_server.runs import triggers
+
+        # What the project's records read through it is the replacement's now (ADR 0080).
+        triggers.moved(locked)
         log.record(
             "entity.moved",
             actor=user,
@@ -700,6 +790,24 @@ def move(
             },
         )
     return Moved(services.specific(Entity.objects.get(pk=locked.pk)), revision, repointed)
+
+
+def _checked_on(
+    record: Entity, was: Mapping[str, Any], reason: str
+) -> tuple[frozenset[str], list[checking.Broken]]:
+    """A moved record checked against its rules (ADR 0127), by the values its new entry
+    gives it that differ from its old one's: one it would break refuses the move; one
+    that holds holds it, for the move's reason. Returns what changed, and what holds it."""
+    form = shape(record.type)
+    now = services.current_values(services.specific(record))
+    changed = frozenset(n for n in form.entry_fields() if was.get(n) != now.get(n))
+    if not changed:
+        return changed, []
+    saving = checking.Saving(now.get, changed, id=record.pk, hrid=record.hrid)
+    found = checking.broken(record.type, [saving])[0]
+    holding = checking.raise_broken(found, hold_reason=reason)
+    checking.kept(record, changed, found)
+    return changed, holding
 
 
 def carried(record_type: str, replacement_type: str) -> tuple[str, ...]:
@@ -776,7 +884,14 @@ def _move_across(
         key__in=[unique.key(was.part_of(n).model, n) for n in taking if was.fields()[n].unique],
     ).delete()
     saved = services.create(
-        user, new.type, project, given, reason=reason, keeping=frozenset(named["ref"])
+        user,
+        new.type,
+        project,
+        given,
+        reason=reason,
+        # A rule that holds holds it for the move's reason, as a move within a type does.
+        hold_reason=reason,
+        keeping=frozenset(named["ref"]),
     )
     repointed = _repoint(user, project, old, new, reason)
     log.record(
@@ -954,6 +1069,10 @@ def _repoint_one(
         raise Refused(
             f"{locked.hrid} can't refer to {new.hrid} instead of {old.hrid}: {said}"
         ) from None
+    from iki_server.runs import triggers
+
+    # What it's worked out from is another record now (ADR 0080).
+    triggers.repointed(locked, set(values))
     return Entity.objects.get(pk=pk)
 
 

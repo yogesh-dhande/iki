@@ -57,7 +57,7 @@ from iki_server.bundles.models import (
     ImportState,
 )
 from iki_server.bundles.review import ReviewedPlan
-from iki_server.entities import breaches, hrids, lists, registry, requests, states
+from iki_server.entities import breaches, computing, hrids, lists, registry, requests, states
 from iki_server.entities import services as entity_services
 from iki_server.entities.dashboards import APP
 from iki_server.entities.models import Entity, ProjectLink, Revision
@@ -389,6 +389,12 @@ class _Writer:
         for run in self.bundle.lines("runs.ndjson"):
             self._run(run)
         self._rename_in_apps()
+        # Their computed values by this deployment's expressions (ADR 0297), after their
+        # history from there, before they're checked against its rules.
+        computing.rework_brought(
+            [r.entity_id for r in planned.values()],
+            f"imported from {self.made.trusted_as}, whose plugins may work it out otherwise.",
+        )
         checked = breaches.check_brought(
             [r.entity_id for r in planned.values()],
             user=self.made.applied_by,

@@ -3926,6 +3926,119 @@ def test_a_plugins_component_runs_sandboxed_in_its_tab(
     page.wait_for_url(re.compile(rf"/projects/kinase-atlas/runs/new/\?entities={hrid}$"))
 
 
+def test_a_witness_opens_a_pinned_revision_as_iki_shows_it(open_as: Any, world: World) -> None:
+    """A revision a component's entity pins, as an experiment pins the results its witness
+    signs (ADR 0189), opens in the app, through its router: the record, or its registry
+    entry, as it was then, read only, saying it isn't the record as it is now, with that
+    and the revision's JSON a link away. Only someone who can read the record sees it.
+    The fixture plugins have no type that pins revisions, so the protein's response is
+    given the pins an experiment's ``result_pins`` would hold, of the DNA it refers to."""
+    from iki_server.entities import services as entities
+
+    editor = world.users["editor"]
+    made = entities.create(
+        editor, "acme/dna.DNASequence", world.project, {"bases": "ATGGCC", "name": "abl.dna"}
+    )
+    dna = Entity.objects.get(pk=made.entity.pk)
+    entities.update(
+        editor, dna, {"name": "ABL1 cDNA"}, expected_revision=1, reason="Named for its insert"
+    )
+    dna_hrid, dna_entry = Entity.objects.values_list("hrid", "entry_id").get(pk=dna.pk)
+    protein = entities.create(
+        editor,
+        "acme/protein.Protein",
+        world.project,
+        {"sequence": "MKVL", "name": "ABL1", "encoded_by": dna_entry},
+    ).entity
+    hrid = Entity.objects.get(pk=protein.pk).hrid
+    pin = {
+        "record_id": str(dna.pk),
+        "record_revision": 1,
+        "entry_id": str(dna_entry),
+        "entry_revision": 1,
+    }
+
+    def pinned(route: Route) -> None:
+        response = route.fetch()
+        body = response.json()
+        body["values"]["evidence"] = [pin]
+        route.fulfill(response=response, json=body)
+
+    page = open_as("viewer", "/")
+    page.route(re.compile(rf"/api/v1/entities/{hrid}(\?.*)?$"), pinned)
+    page.goto(f"/entities/{hrid}/components/acme/protein.residues/?project=kinase-atlas")
+    tab = page.frame_locator('iframe[title="Residues"]')
+    tab.get_by_text(f"{hrid}: 4 residues").wait_for()
+    (frame,) = [f for f in page.frames if "/plugin-components/acme/protein.residues/" in f.url]
+    ask = """([entity, revision]) => document.querySelector("protein-residues").dispatchEvent(
+        new CustomEvent("iki-open", { bubbles: true, detail: { entity, revision } }))"""
+    # A revision no pin names opens nothing, not even the record as it is now.
+    frame.evaluate(ask, [str(dna.pk), 2])
+    page.wait_for_timeout(200)
+    assert "/components/acme/protein.residues/" in page.url
+    # The pinned one: Iki's page, in the app, never the API's document.
+    documents: list[str] = []
+    page.on("framenavigated", lambda f: documents.append(f.url) if f == page.main_frame else None)
+    frame.evaluate(ask, [str(dna.pk), 1])
+    page.wait_for_url(re.compile(rf"/entities/{dna.pk}/revisions/1/$"))
+    page.get_by_role("heading", level=1, name=f"Revision 1 of {dna_hrid}").wait_for()
+    assert not any("/api/" in url for url in documents)
+    note = page.get_by_role("note", name="A past revision")
+    expect(note).to_contain_text(f"You’re reading revision 1 of {dna_hrid} as it was saved on")
+    # Named since, it's later now (and later still if a run has computed something since).
+    expect(note).to_contain_text(re.compile(r"It’s at revision [2-9]\d* now"))
+    values = page.get_by_role("region", name="Values at revision 1")
+    expect(values).to_contain_text("abl.dna")
+    expect(values).not_to_contain_text("ABL1 cDNA")
+    assert page.get_by_role("navigation", name="Record").count() == 0
+    json = note.get_by_role("link", name="Revision 1 as JSON")
+    assert json.get_attribute("href") == f"/api/v1/entities/{dna.pk}/revisions/1"
+    assert_clean(page)
+    # Its JSON is the API's answer for the same person, and so is the record as it is now.
+    answer = page.request.get(f"/api/v1/entities/{dna.pk}/revisions/1")
+    assert answer.ok and answer.json()["values"]["name"] == "abl.dna"
+    note.get_by_role("link", name=f"Open {dna_hrid} as it is now").click()
+    page.wait_for_url(re.compile(rf"/entities/{dna_hrid}/\?project=kinase-atlas$"))
+    page.get_by_role("heading", level=1, name="ABL1 cDNA").wait_for()
+
+    # Its registry entry's pinned revision: the entry's page at that revision.
+    page.go_back()
+    page.go_back()
+    tab.get_by_text(f"{hrid}: 4 residues").wait_for()
+    (frame,) = [f for f in page.frames if "/plugin-components/acme/protein.residues/" in f.url]
+    frame.evaluate(ask, [str(dna_entry), 1])
+    page.wait_for_url(re.compile(rf"/entries/{dna_entry}/revisions/1/$"))
+    page.get_by_role("heading", level=1, name=f"Revision 1 of {dna_hrid}").wait_for()
+    entry_note = page.get_by_role("note", name="A past revision")
+    expect(entry_note).to_contain_text(f"You’re reading revision 1 of {dna_hrid}")
+    assert entry_note.get_by_role("link", name="Revision 1 as JSON").get_attribute("href") == (
+        f"/api/v1/entries/{dna_entry}/revisions/1"
+    )
+    page.get_by_role("region", name="Values at revision 1").get_by_text("ATGGCC").wait_for()
+    assert_clean(page)
+    page.context.close()
+
+    # Each, at a phone's width, in the light and the dark, fits and passes axe.
+    for path in (f"/entities/{dna.pk}/revisions/1/", f"/entries/{dna_entry}/revisions/1/"):
+        for scheme in ("light", "dark"):
+            phone = open_as("viewer", path, scheme)
+            phone.set_viewport_size({"width": 390, "height": 844})
+            phone.get_by_role("region", name="Values at revision 1").wait_for()
+            assert phone.evaluate(NO_SIDEWAYS_SCROLL), (path, scheme)
+            assert_clean(phone)
+            phone.context.close()
+
+    # Someone who can't read the record finds nothing there, as its revision API answers.
+    outsider = open_as("outsider", f"/entities/{dna.pk}/revisions/1/")
+    outsider.get_by_role("heading", level=1, name="Not found").wait_for()
+    assert outsider.get_by_text("abl.dna").count() == 0
+    assert outsider.request.get(f"/api/v1/entities/{dna.pk}/revisions/1").status == 404
+    outsider.goto(f"/entries/{dna_entry}/revisions/1/")
+    outsider.get_by_role("heading", level=1, name="Not found").wait_for()
+    assert outsider.request.get(f"/api/v1/entries/{dna_entry}/revisions/1").status == 404
+    outsider.context.close()
+
+
 def test_a_component_shows_many_entities_in_each_of_its_places(open_as: Any, world: World) -> None:
     """A tab, the grid shown another way, a project's section and a person's home, each
     given what its search finds as the person may read it, paged and narrowed only as the
@@ -4805,7 +4918,7 @@ def test_a_rule_holds_a_record_and_someone_else_reviews_it(open_as: Any, world: 
     assert_clean(page)
     why.fill("As measured on the SEC; retest booked.")
     page.get_by_role("button", name="Create batch").click()
-    page.wait_for_url(re.compile(r"/entities/BAT-\d+/"))
+    page.wait_for_url(re.compile(r"/entities/BTC-\d+/"))
     hrid = Entity.objects.get(type=BATCH).hrid
 
     heading = page.get_by_role("heading", name="Held for review")

@@ -454,7 +454,6 @@ function AmountDialog({
       ) : null}
       {doing === "draw" ? (
         <RecordPicker
-          name="used_in"
           label="Used in"
           types={types}
           value={usedIn}

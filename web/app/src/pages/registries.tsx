@@ -55,8 +55,8 @@ import {
   Time,
   useMessages,
 } from "../ui";
-import { registryNote, Value } from "./entity";
-import { EntryRevisionRow } from "./entity-audit";
+import { registryNote, Value } from "./entity-value";
+import { EntryRevisionRow } from "./revision-changes";
 
 // --- A registry's entries ------------------------------------------------------------------
 

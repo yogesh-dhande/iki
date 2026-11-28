@@ -53,6 +53,7 @@ from iki_server.audit import log as audit
 from iki_server.entities import (
     access,
     checking,
+    computing,
     constraints,
     holds,
     identity,
@@ -713,15 +714,42 @@ def refs_for(user: Any, project: Any) -> Refs:  # noqa: ANN401 - a User and a Pr
 
 def breaking(lines: list[tuple[str, dict[str, Any]]]) -> dict[int, list[checking.Broken]]:
     """The plugins' rules each of a chunk's prepared lines breaks, by its index: each type's
-    lines at once, as one evaluation (ADR 0127). Those breaking only rules that hold are
-    written, and held once they are (:func:`holds.hold_imported`)."""
+    lines at once, as one evaluation (ADR 0127), once their computed values are worked out
+    into them, as one evaluation per field (ADR 0297). Those breaking only rules that hold
+    are written, and held once they are (:func:`holds.hold_imported`). A line whose computed
+    value its field refuses breaks a rule of its own, which refuses it."""
     by_type: dict[str, list[int]] = {}
     for index, (type_name, _) in enumerate(lines):
         by_type.setdefault(type_name, []).append(index)
     out: dict[int, list[checking.Broken]] = {}
     for type_name, indexes in by_type.items():
+        unworked = _worked_out(type_name, [lines[i][1] for i in indexes])
         found = checking.broken(type_name, [checking.Saving(lines[i][1].get) for i in indexes])
-        out.update((i, b) for i, b in zip(indexes, found, strict=True) if b)
+        for at, (i, broken) in enumerate(zip(indexes, found, strict=True)):
+            refused = [
+                checking.computed_broken(type_name, name, messages)
+                for name, messages in unworked.get(at, {}).items()
+            ]
+            if refused or broken:
+                out[i] = [*refused, *broken]
+    return out
+
+
+def _worked_out(type_name: str, given: list[dict[str, Any]]) -> dict[int, dict[str, list[str]]]:
+    """Works the lines' computed values out into them, all at once; returns what their
+    fields refuse of those they can't take, by the line's place in ``given``."""
+    try:
+        computing.fill(type_name, given)
+    except Invalid:
+        pass
+    else:
+        return {}
+    out: dict[int, dict[str, list[str]]] = {}
+    for at, values in enumerate(given):
+        try:
+            computing.fill(type_name, [values])
+        except Invalid as error:
+            out[at] = dict(error.errors)
     return out
 
 
@@ -1850,6 +1878,16 @@ def _find_fills(cursor: Any, table: str, type_name: str) -> None:  # noqa: ANN40
     )
 
 
+def _made_of(entry_id: uuid.UUID) -> frozenset[uuid.UUID]:
+    """The records of an entry the import makes, whose lines were checked as they were
+    staged."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT entity_id FROM iki_import_resolved WHERE entry_id = %s AND new", [entry_id]
+        )
+        return frozenset(found for (found,) in cursor.fetchall())
+
+
 class _Filling:
     """What the lines compared so far fill, and the errors they make."""
 
@@ -1912,6 +1950,8 @@ class _Filling:
                         project=self.run.project,
                         reason=self.run.change_reason,
                         by_run=True,
+                        # Its own new records' rules are checked with their lines.
+                        besides=_made_of(entry_id),
                     )
                 except Invalid as error:
                     # Another entry's unique value, say: on the line that filled it.

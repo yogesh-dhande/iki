@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: acme/calibration_tracing
-version: 0.2.0
+version: 0.3.0
 title: Automatic calibration impact tracing
 description: Open impact cases for affected measurements when a project marks an instrument's calibration as failed.
 license: Apache-2.0

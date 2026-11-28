@@ -2080,6 +2080,7 @@ export interface paths {
          * Change a registry entry's facts
          * @description Its registry's registrars, with a reason. Audited, and told to every holding project:
          *     who, when and why. Its identity and derived values never change: supersede it instead.
+         *     A lab list's option changes on its list (`/lists/{name}/options/{code}`), not here.
          */
         patch: operations["iki_server_api_registries_patch_entry"];
         trace?: never;
@@ -2164,7 +2165,8 @@ export interface paths {
          *     good, from the revision they read (If-Match): one of its type, or of another type under
          *     its identity; or with a new entry of its identity as another type (``type``, ADR 0165).
          *     Each holding project's Admins, and whoever added its record, are told, to move their
-         *     records to the replacement.
+         *     records to the replacement. A lab list's option is superseded on its list
+         *     (`/lists/{name}/options/{code}/supersede`), not here, either way.
          */
         post: operations["iki_server_api_registries_supersede_entry"];
         delete?: never;
@@ -9585,8 +9587,18 @@ export interface components {
              */
             assignment_states: string[];
             /**
+             * Cel
+             * @description A computed field's CEL expression, which Iki works its value out by at every save, over `record` (ADR 0297). Null for a field people or runs set.
+             */
+            cel?: string | null;
+            /**
+             * Cel Reads
+             * @description The record's fields `cel` reads: changing one changes this field.
+             */
+            cel_reads?: string[];
+            /**
              * Computed
-             * @description Set only by actions.
+             * @description Set by Iki, never by a person: by actions' runs, or worked out from the record's own values at every save, by `cel` (ADR 0297).
              */
             computed: boolean;
             /** Description */
@@ -13707,8 +13719,18 @@ export interface components {
              */
             assignment_states: string[];
             /**
+             * Cel
+             * @description A computed field's CEL expression, which Iki works its value out by at every save, over `record` (ADR 0297). Null for a field people or runs set.
+             */
+            cel?: string | null;
+            /**
+             * Cel Reads
+             * @description The record's fields `cel` reads: changing one changes this field.
+             */
+            cel_reads?: string[];
+            /**
              * Computed
-             * @description Set only by actions.
+             * @description Set by Iki, never by a person: by actions' runs, or worked out from the record's own values at every save, by `cel` (ADR 0297).
              */
             computed: boolean;
             /**

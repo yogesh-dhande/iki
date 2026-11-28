@@ -24,7 +24,7 @@ import {
   type Side,
 } from "../requests";
 import { Loading } from "../ui";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
 import { takesWhat } from "./project-intake";
 import { EntityGrid } from "./entity-grid";
 

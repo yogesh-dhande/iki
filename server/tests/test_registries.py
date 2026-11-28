@@ -935,6 +935,77 @@ def test_a_mistaken_entry_is_superseded_by_another_type_of_its_kind(world: World
     )
 
 
+@pytest.mark.parametrize("hold", [False, True], ids=["refuses", "holds"])
+def test_a_move_to_another_type_keeps_the_new_types_rules(
+    world: World, monkeypatch: pytest.MonkeyPatch, hold: bool
+) -> None:
+    """The project's new record of the replacement is saved as any new record is (ADR
+    0127): a rule it breaks refuses the move, leaving the old record as it was, and one
+    that holds holds the new record for the move's reason."""
+    from iki_server.entities import checking
+    from iki_server.entities.models import RuleHold
+    from iki_spec.model import Rule
+
+    rule = Rule(
+        name="says_what_it_bridges",
+        label="Says what it bridges",
+        plugin="acme/protein",
+        check="record.description != null",
+        message="Say which two targets it bridges.",
+        hold=("acme/protein.qa",) if hold else (),
+        reads=("description",),
+    )
+    checks, every = checking.checks_of, checking.rules_of
+    monkeypatch.setattr(
+        checking, "checks_of", lambda t: (*checks(t), rule) if t == BISPECIFIC else checks(t)
+    )
+    monkeypatch.setattr(
+        checking, "rules_of", lambda t: (*every(t), rule) if t == BISPECIFIC else every(t)
+    )
+    editor = api_as(world, "editor")
+    mine = chains(editor, world.project)
+    multimer = create(
+        editor, world.project, {"name": "Emicizumab", "components": parts(mine, GENERIC)}, MULTIMER
+    ).json()
+    arms = [
+        {"heavy": mine[0], "light": mine[2], "target": "F9A"},
+        {"heavy": mine[1], "light": mine[2], "target": "F10"},
+    ]
+    curator = registrar(world)
+    done = curator.post(
+        f"/entries/{multimer['hrid']}/supersede",
+        {
+            "type": BISPECIFIC,
+            "values": {"components": parts(mine, ANTIBODY), "arms": arms},
+            "reason": "Its chains are emicizumab's",
+        },
+        headers=record_read(curator, f"/entries/{multimer['hrid']}"),
+    )
+    assert done.status_code == 200, done.content
+    ref = f"/entities/{multimer['id']}"
+    moved = editor.post(
+        f"{ref}/move", {"reason": "Moved with the registry"}, headers=record_read(editor, ref)
+    )
+    if not hold:
+        body = problem(moved, 422, "validation_failed")
+        assert body["errors"] == [
+            {
+                "pointer": "#/values/description",
+                "detail": "Say which two targets it bridges.",
+                "rule": "says_what_it_bridges",
+                "hold": False,
+            }
+        ]
+        kept = editor.get(f"/entities/{multimer['id']}").json()
+        assert not kept["archived"] and kept["entry"]["id"] == multimer["entry"]["id"]
+        assert not Entity.objects.filter(type=BISPECIFIC, registry_id__isnull=True).exists()
+        return
+    assert moved.status_code == 200, moved.content
+    [held] = RuleHold.objects.filter(entity_id=moved.json()["id"])
+    assert (held.rule, held.reason) == ("says_what_it_bridges", "Moved with the registry")
+    assert held.held_by == world.users["editor"]
+
+
 # --- Several projects, several registries ------------------------------------------------------
 
 
