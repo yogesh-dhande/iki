@@ -17,14 +17,12 @@ from __future__ import annotations
 
 import csv
 import os
-import sys
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import iki_action as iki
-import streamed
 from chemistry import (
     Messages,
     UnreadableError,
@@ -68,10 +66,6 @@ def _compounds(
             messages.add("warning", f"{entity['hrid']} was left out: {why}.", entity["id"])
             continue
         yield Compound(entity["id"], entity["hrid"], values.get("name", ""), values["smiles"]), mol
-
-
-def _run() -> tuple[dict[str, Any], Iterator[dict[str, Any]]]:
-    return streamed.run_input(Path(os.environ["IKI_INPUT"]), "compounds")
 
 
 def _collection(name: str, description: str, members: list[str]) -> dict[str, Any]:
@@ -177,22 +171,22 @@ def substructure(run: dict[str, Any], records: Iterable[dict[str, Any]]) -> dict
     }
 
 
-def main() -> None:
-    """The search the command line names, on a run input read a compound at a time: the
-    action helper's `iki.main` would read the whole input at once, more than 100,000
-    compounds' structures fit in the action's memory, so only its output and refusals go
-    through the helper."""
-    searches = {"similar": similar, "substructure": substructure}
-    search = searches.get(sys.argv[1] if len(sys.argv) > 1 else "")
-    if search is None:
-        iki.fail(f"Name one of these commands: {', '.join(sorted(searches))}.")
-    try:
-        iki.write(search(*_run()))
-    except UnreadableError as why:
-        iki.fail(f"{why}.")
-    except iki.Refused as why:
-        iki.fail(str(why))
+def searching(search: Any) -> Any:  # noqa: ANN401 - a search, as an action
+    """The search as an action: on the compounds read a record at a time (a run input
+    of 100,000 with their Molfiles is more than the action's memory holds at once), and
+    with a structure RDKit can't read refused."""
+
+    def run_search(run: iki.Run) -> dict[str, Any]:
+        try:
+            return search(run, run.stream("compounds"))
+        except UnreadableError as why:
+            raise iki.Refused(f"{why}.") from None
+
+    return run_search
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(
+        {"similar": searching(similar), "substructure": searching(substructure)},
+        streamed=("compounds",),
+    )

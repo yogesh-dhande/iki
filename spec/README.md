@@ -3119,6 +3119,11 @@ names an input by its registry entry if it has one; `iki.progress` prints
 `::progress`; `run.out_dir` is `IKI_OUT_DIR`. Compare an entity's type with
 `iki.is_a`, which reads its `types`, never by its name.
 
+An input too large to hold at once, such as 100,000 compounds each with its
+Molfile, is streamed: `iki.main(fn, streamed=("compounds",))` reads the rest of
+the run with that input's list left empty, and `run.stream("compounds")` reads
+its records one at a time, holding only the one in hand.
+
 A `checkpointable` action saves its progress in `IKI_CHECKPOINT_DIR`
 ([ADR 0069](../docs/adr/0069-checkpointable-runs-resume.md)). While the command
 runs, the worker saves the directory every 10 minutes (as the deployment sets

@@ -27,23 +27,31 @@ What a run gives, a :class:`Run` and its :class:`Entity` objects, are still the 
 dicts: ``run["params"]`` and ``entity["values"]`` read as they always did, with names for
 what most commands read beside them. None of the names hides a dict's own method, so code
 that walks the JSON as dicts walks these too.
+
+An input too large to hold at once, such as 100,000 compounds each with its Molfile, is
+read a record at a time: name it in ``main(..., streamed=("compounds",))`` and read it
+with ``run.stream("compounds")``.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import (
     Any,
     Callable,
     Dict,
+    FrozenSet,
     Iterable,
+    Iterator,
     List,
     Mapping,
     NoReturn,
     Optional,
+    TextIO,
     Tuple,
     Type,
     Union,
@@ -60,6 +68,8 @@ MAX_MESSAGES = 100
 MAX_METRICS = 100
 #: The most of a message, or of the reason a run failed, that a run keeps.
 MAX_TEXT = 2000
+#: How much of a run input a streamed read holds at once, in characters.
+CHUNK = 1 << 20
 
 __all__ = [
     "API_VERSION",
@@ -153,10 +163,17 @@ class Run(Dict[str, Any]):
     """The run input: the run, its params and its inputs at the revisions it was launched
     on. Read it with :func:`read`."""
 
-    def __init__(self, given: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        given: Mapping[str, Any],
+        source: Optional[Path] = None,
+        streamed: Iterable[str] = (),
+    ) -> None:
         super().__init__(given)
         inputs = self.get("inputs") or {}
         self["inputs"] = {name: [_entity(e) for e in items] for name, items in inputs.items()}
+        self._source = source
+        self._streamed = frozenset(streamed)
 
     @property
     def id(self) -> str:
@@ -205,6 +222,19 @@ class Run(Dict[str, Any]):
         items: List[Entity] = self["inputs"].get(name, [])
         return items
 
+    def stream(self, name: str) -> Iterator[Entity]:
+        """The entities given as input ``name``, one at a time. For an input :func:`read`
+        was told to stream, each is read from the run input as it's reached and let go
+        after, so the run never holds them all; for any other, they're its
+        :meth:`inputs`."""
+        if name not in self._streamed or self._source is None:
+            yield from self.inputs(name)
+            return
+        with self._source.open(encoding="utf-8") as source:
+            for given, record in _walk(source, self._streamed, {}):
+                if given == name:
+                    yield _entity(record)
+
     def input(self, name: str) -> Entity:
         """The one entity given as input ``name``. Refuses the run if there isn't
         exactly one."""
@@ -236,11 +266,20 @@ class Run(Dict[str, Any]):
         return Output(self)
 
 
-def read(path: Union[str, os.PathLike[str], None] = None) -> Run:
+def read(path: Union[str, os.PathLike[str], None] = None, streamed: Iterable[str] = ()) -> Run:
     """The run input, from ``path`` or ``$IKI_INPUT``. One that names a version or kind
-    this helper doesn't read is refused; a test's input may leave them out."""
+    this helper doesn't read is refused; a test's input may leave them out. The inputs
+    ``streamed`` names are left out, an empty list in their place, for
+    :meth:`Run.stream` to read a record at a time."""
     source = Path(path if path is not None else os.environ["IKI_INPUT"])
-    given = json.loads(source.read_text(encoding="utf-8"))
+    names = frozenset(streamed)
+    if names:
+        given: Any = {}
+        with source.open(encoding="utf-8") as text:
+            for _ in _walk(text, names, given):
+                pass
+    else:
+        given = json.loads(source.read_text(encoding="utf-8"))
     if not isinstance(given, dict):
         raise Refused(f"{source} isn't a run input.")
     if given.get("apiVersion", API_VERSION) != API_VERSION:
@@ -250,7 +289,109 @@ def read(path: Union[str, os.PathLike[str], None] = None) -> Run:
         )
     if given.get("kind", "RunInput") != "RunInput":
         raise Refused(f"{source} is a {given['kind']}, not a RunInput.")
-    return Run(given)
+    return Run(given, source, names)
+
+
+_SPACE = re.compile(r"[ \t\n\r]*")
+_DECODER = json.JSONDecoder()
+
+
+class _Reader:
+    """A JSON text, read :data:`CHUNK` characters at a time: what's left of it is
+    ``buffer[at:]``. Each value is decoded by the standard library's decoder."""
+
+    def __init__(self, source: TextIO) -> None:
+        self.source = source
+        self.buffer = ""
+        self.at = 0
+        self.ended = False
+
+    def _more(self) -> bool:
+        piece = "" if self.ended else self.source.read(CHUNK)
+        if not piece:
+            self.ended = True
+            return False
+        self.buffer = self.buffer[self.at :] + piece
+        self.at = 0
+        return True
+
+    def peek(self) -> str:
+        """The next character that isn't white space, or "" at the end."""
+        while True:
+            space = _SPACE.match(self.buffer, self.at)
+            self.at = space.end() if space else self.at
+            if self.at < len(self.buffer):
+                return self.buffer[self.at]
+            if not self._more():
+                return ""
+
+    def take(self, character: str) -> None:
+        if self.peek() != character:
+            raise Refused(f"The run input isn't JSON: expected {character!r}.")
+        self.at += 1
+
+    def comma(self, closing: str) -> bool:
+        """Past a separating comma, whether another member follows before ``closing``."""
+        if self.peek() == ",":
+            self.at += 1
+            return True
+        return self.peek() != closing
+
+    def value(self) -> Any:
+        """The next whole value, read on until the buffer holds all of it."""
+        self.peek()
+        while True:
+            try:
+                value, end = _DECODER.raw_decode(self.buffer, self.at)
+            except json.JSONDecodeError:
+                if self._more():
+                    continue
+                raise Refused("The run input isn't JSON.") from None
+            # A number may go on past the buffer: read on, and decode it again.
+            past = end == len(self.buffer) and not isinstance(value, (dict, list, str))
+            if past and self._more():
+                continue
+            self.at = end
+            return value
+
+
+def _walk(
+    source: TextIO,
+    names: FrozenSet[str],
+    run: Dict[str, Any],
+) -> Iterator[Tuple[str, Any]]:
+    """Each record of the inputs ``names`` names, in order, with its input's name;
+    everything else fills ``run``, with an empty list for each of those inputs."""
+    reader = _Reader(source)
+    reader.take("{")
+    while reader.peek() != "}":
+        key = reader.value()
+        reader.take(":")
+        if key != "inputs":
+            run[key] = reader.value()
+        else:
+            inputs: Dict[str, Any] = {}
+            reader.take("{")
+            while reader.peek() != "}":
+                name = reader.value()
+                reader.take(":")
+                if name not in names:
+                    inputs[name] = reader.value()
+                else:
+                    inputs[name] = []
+                    reader.take("[")
+                    while reader.peek() != "]":
+                        yield name, reader.value()
+                        if not reader.comma("]"):
+                            break
+                    reader.take("]")
+                if not reader.comma("}"):
+                    break
+            reader.take("}")
+            run["inputs"] = inputs
+        if not reader.comma("}"):
+            break
+    reader.take("}")
 
 
 def _id(entity: Union[Mapping[str, Any], str]) -> str:
@@ -406,12 +547,14 @@ def main(
     action: Union[Action, Mapping[str, Action]],
     argv: Optional[Iterable[str]] = None,
     refuse: Union[Type[Exception], Tuple[Type[Exception], ...]] = (),
+    streamed: Iterable[str] = (),
 ) -> None:
     """Runs ``action`` on the run input and writes what it returns: an :class:`Output`,
     run-output's fields as a dict, or nothing for an empty output. Given commands by name,
     runs the one the command line's first argument names. A :class:`Refused` fails the
     attempt with its reason, and so does an exception of a class in ``refuse``, such as
-    the ``ValueError`` a parser raises for a file it can't read."""
+    the ``ValueError`` a parser raises for a file it can't read. The inputs ``streamed``
+    names are read a record at a time, with :meth:`Run.stream`."""
     args = list(sys.argv[1:] if argv is None else argv)
     try:
         if isinstance(action, Mapping):
@@ -420,7 +563,7 @@ def main(
             chosen = action[args[0]]
         else:
             chosen = action
-        run = read()
+        run = read(streamed=streamed)
         try:
             result = chosen(run)
         except refuse as why:

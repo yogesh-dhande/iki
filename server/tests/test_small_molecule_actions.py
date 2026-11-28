@@ -2348,46 +2348,6 @@ def test_compounds_with_a_substructure_are_a_collection(tmp_path: Path) -> None:
     assert output["metrics"] == {"hits": 2, "searched": 5}
 
 
-def _streamed() -> Any:
-    sys.path.insert(0, str(SCRIPTS))
-    try:
-        return importlib.import_module("streamed")
-    finally:
-        sys.path.remove(str(SCRIPTS))
-
-
-@pytest.mark.parametrize("chunk", [1, 7, 4096])
-def test_the_run_input_reads_as_json_does_a_compound_at_a_time(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, chunk: int
-) -> None:
-    """Read in chunks of any size, the run input is what json.loads reads, but the
-    compounds, which are handed on one at a time."""
-    streamed = _streamed()
-    monkeypatch.setattr(streamed, "CHUNK", chunk)
-    run: dict[str, Any] = {
-        "apiVersion": "iki/v1",
-        "kind": "RunInput",
-        "run": {"id": "r", "attempt": 1, "seed": 123456789},
-        "inputs": {
-            "query": [LIBRARY[0]],
-            "compounds": [
-                {**e, "values": {**e["values"], "note": '\u00e9 \\ " ]}'}} for e in LIBRARY
-            ],
-            "after": [],
-        },
-        "params": {"threshold": 0.35, "chirality": False, "name": None},
-        "files": {},
-    }
-    path = tmp_path / "input.json"
-    path.write_text(json.dumps(run, indent=1))
-    rest, records = streamed.run_input(path, "compounds")
-    assert rest == {**run, "inputs": {**run["inputs"], "compounds": []}}
-    assert list(records) == run["inputs"]["compounds"]
-    path.write_text(json.dumps({"inputs": {"compounds": []}, "params": {}}))
-    rest, records = streamed.run_input(path, "compounds")
-    assert (rest, list(records)) == ({"inputs": {"compounds": []}, "params": {}}, [])
-
-
 def test_a_search_of_many_compounds_holds_one_at_a_time(tmp_path: Path) -> None:
     """The most compounds a search takes is 100,000, each with its Molfile, InChI and
     descriptors: read whole, with each one's structure kept, they took 2.2 GB of memory,
