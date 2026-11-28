@@ -26,7 +26,8 @@ def timestamp(value: str) -> datetime:
 
 
 def key(*values: object) -> str:
-    """Use Equipment’s failure/use key so a manual trace finds the same case."""
+    """Use Equipment’s failure/result key, so this trace, a manual one, an instrument use
+    and Equipment QA find the one case a result has for a failure."""
     return hashlib.sha256(json.dumps(values).encode("utf-8")).hexdigest()
 
 
@@ -69,7 +70,7 @@ def trace(run: Record) -> list[Record]:
         next_pass = bisect_right(passes, discovery)
         cleared = passes[next_pass] if next_pass < len(passes) else None
         for at, use in measurements:
-            case = key(failure["id"], use["id"])
+            case = key(failure["id"], use["values"]["result"])
             if at < start or (cleared is not None and at >= cleared) or case in already:
                 continue
             affected = (failure["id"], use["values"]["result"])

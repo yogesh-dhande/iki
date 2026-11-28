@@ -126,14 +126,23 @@ export interface PinnedContext {
   refs?: Record<string, { purged: boolean }>;
 }
 
-/** Builds a same-origin historical record link from a pin stored in the host's copy
- * of the entity. A registry pin also holds the entry UUID used by its typed ref.
- * The revision API independently checks the person's access to that exact record. */
-export function pinnedRevisionUrl(
+/** A stored revision a component asked to open (ADR 0189): a project record's, or its
+ * registry entry's, by UUID. */
+export interface PinnedRevision {
+  of: "record" | "entry";
+  id: string;
+  revision: number;
+}
+
+/** The revision a component asked to open, if it's one a pin in the host's copy of the
+ * entity names, of a reference the person can read: a record's `record_id` and
+ * `record_revision`, or a registry pin's `entry_id` and `entry_revision`. Iki opens its page,
+ * whose revision API checks the person's access to that exact record again. */
+export function pinnedRevision(
   given: PinnedContext | undefined,
   id: string,
   revision: number,
-): string | null {
+): PinnedRevision | null {
   if (!RECORD_UUID.test(id) || !Number.isSafeInteger(revision) || revision < 1) return null;
   if (!given?.refs || !given.values) return null;
   for (const rows of Object.values(given.values)) {
@@ -145,10 +154,10 @@ export function pinnedRevisionUrl(
       const readable = given.refs[ref];
       if (!readable || readable.purged) continue;
       if (row["record_id"] === id && row["record_revision"] === revision) {
-        return `/api/v1/entities/${id}/revisions/${String(revision)}`;
+        return { of: "record", id, revision };
       }
       if (row["entry_id"] === id && row["entry_revision"] === revision) {
-        return `/api/v1/entries/${id}/revisions/${String(revision)}`;
+        return { of: "entry", id, revision };
       }
     }
   }

@@ -129,6 +129,7 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
                 cardinality=c.get("cardinality", "one"),
                 derived_from=tuple(c.get("derived_from", ())),
                 match_on=c.get("match_on"),
+                on_match=c.get("on_match", "update"),
                 receive_into=c.get("receive_into"),
             )
             for c in effects.get("creates", ())
@@ -876,6 +877,15 @@ class _Rules:
                 self.receipt(action, creates, target, source, (*path, "receive_into"))
             if creates.match_on is not None and target is not None:
                 self.match_on(creates.match_on, target, source, (*path, "match_on"))
+            if creates.on_match != "update" and creates.match_on is None:
+                self.add(
+                    "on-match-without-match-on",
+                    "`on_match` says what a create that matches an entity does, and this one "
+                    "matches on no field.",
+                    source,
+                    (*path, "on_match"),
+                    hint="Give `match_on`, a unique field, or drop `on_match`.",
+                )
         seen: dict[str, int] = {}
         for index, updates in enumerate(action.updates):
             path = ("effects", "updates", index)

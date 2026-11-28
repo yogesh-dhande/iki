@@ -3,12 +3,22 @@ apiVersion: iki/v1
 kind: Component
 name: instrument_uses
 label: Instrument evidence
-description: Measurement times, the results recorded with them and the calibration revisions that covered them.
+description: Measurement times, the results recorded with them, the calibration revisions in force and whether they covered them.
 module: ./components/equipment.js
 element: iki-instrument-uses
 entities:
   type: InstrumentUse
-  fields: [instrument, result, result_revision, calibration, calibration_revision, measurement_at]
+  fields:
+    [
+      instrument,
+      result,
+      result_revision,
+      calibration,
+      calibration_revision,
+      measurement_at,
+      covered,
+      not_covered_because,
+    ]
   limit: 1000
 slots:
   - slot: entity.tab

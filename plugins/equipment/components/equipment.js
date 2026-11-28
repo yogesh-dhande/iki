@@ -18,8 +18,11 @@ function send(element, name, detail) {
 function more(element) {
 	send(element, EVENTS.more);
 }
-/** Opens an entity's page by HRID, or a stored revision pin by record UUID and
-* revision number. The host validates the target before navigating. */
+/** Opens an entity's page by HRID, one the component was given; or, by record or registry
+* entry UUID and revision number, Iki's read-only page of it as it was at a revision that
+* a stored row of the entity pins (`record_id` and `record_revision`, or `entry_id` and
+* `entry_revision`). Iki checks the target before opening it, and never falls back to the
+* record as it is now. */
 function open(element, entity, revision) {
 	send(element, EVENTS.open, revision === void 0 ? { entity } : {
 		entity,
@@ -282,11 +285,14 @@ var InstrumentUses = class extends EquipmentRecords {
 	actions = [];
 	buildRow(item) {
 		const v = item.values;
-		return this.row(item, reference(item, "result", v.result_revision), [
+		const entries = [
 			["Instrument", reference(item, "instrument")],
 			["Measured", date(v.measurement_at)],
 			["Calibration", reference(item, "calibration", v.calibration_revision)]
-		]);
+		];
+		if (v.covered === false) entries.push(["Coverage", marked(`Not covered: ${v.not_covered_because}`, "danger")]);
+		else if (v.covered === true) entries.push(["Coverage", "Covered"]);
+		return this.row(item, reference(item, "result", v.result_revision), entries);
 	}
 };
 customElements.define("iki-equipment-service", EquipmentService);

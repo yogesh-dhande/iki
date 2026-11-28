@@ -414,6 +414,10 @@
           "description": "One of the type's unique fields, such as a LIMS record's ID. A create whose value an entity in the run's project has already updates that entity instead, as a revision with its origin.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
+        "on_match": {
+          "description": "What a create that matches an entity on `match_on` does: `update` (the default) writes its values to that entity, as a revision; `keep` leaves the entity as whoever made it first made it, and the run gives it as the create's entity. `keep` is for a record only one of its makers may write, such as a result's impact case after a failed calibration, which a trace, an instrument use or Equipment QA may each open first.",
+          "enum": ["update", "keep"]
+        },
         "derived_from": {
           "description": "The inputs each created entity comes from, for its lineage.",
           "type": "array",

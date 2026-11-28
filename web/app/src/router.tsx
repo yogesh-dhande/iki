@@ -155,6 +155,9 @@ const EntityComponent = lazyRouteComponent(
   "EntityComponent",
 );
 const EntityApp = lazyRouteComponent(() => import("./pages/entity-app"), "EntityApp");
+const revisionPages = () => import("./pages/record-revision");
+const RecordRevision = lazyRouteComponent(revisionPages, "RecordRevision");
+const EntryRevision = lazyRouteComponent(revisionPages, "EntryRevision");
 const registryPages = () => import("./pages/registries");
 const RegistryEntries = lazyRouteComponent(registryPages, "RegistryEntries");
 const EntryPage = lazyRouteComponent(registryPages, "EntryPage");
@@ -673,6 +676,14 @@ const entityAppRoute = createRoute({
   component: EntityApp,
 });
 
+// The record as it was at one of its revisions, read only (ADR 0189): what a witness opens
+// from the evidence they sign, and its audit trail's rows open.
+const entityRevisionRoute = createRoute({
+  getParentRoute: () => entityRoute,
+  path: "revisions/$number",
+  component: RecordRevision,
+});
+
 // A registry's entries, for its registrars (ADR 0115).
 const registryEntriesRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -693,6 +704,18 @@ const entryRoute = createRoute({
       context.queryClient.query(typesQuery),
     ]),
   component: EntryPage,
+});
+
+// A registry entry as it was at one of its revisions, read only, as its list tells it.
+const entryRevisionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "entries/$ref/revisions/$number",
+  loader: ({ context, params }) =>
+    Promise.all([
+      context.queryClient.query(entryQuery(params.ref)),
+      context.queryClient.query(typesQuery),
+    ]),
+  component: EntryRevision,
 });
 
 const filesRoute = createRoute({
@@ -864,6 +887,7 @@ const routeTree = rootRoute.addChildren([
       entityViewerRoute,
       entityComponentRoute,
       entityAppRoute,
+      entityRevisionRoute,
     ]),
   ]),
   requestsRoute,
@@ -876,6 +900,7 @@ const routeTree = rootRoute.addChildren([
   containerRoute,
   registryEntriesRoute,
   entryRoute,
+  entryRevisionRoute,
   runRoute,
   batchRoute,
 

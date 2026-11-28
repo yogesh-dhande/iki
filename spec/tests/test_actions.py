@@ -24,6 +24,8 @@ from iki_spec.validate import Result, check_settings_text, load_plugin
 
 PLUGINS = Path(__file__).parent / "plugins"
 DNA, PROTEIN, PREDICTION = PLUGINS / "dna", PLUGINS / "protein", PLUGINS / "structure_prediction"
+FIRST_PARTY = Path(__file__).parents[2] / "plugins"
+EQUIPMENT, LAB_ROLES = FIRST_PARTY / "equipment", FIRST_PARTY / "lab_roles"
 
 PLUGIN = """\
 apiVersion: iki/v1
@@ -756,6 +758,27 @@ def test_creates(tmp_path: Path) -> None:
 def test_creates_match_on_a_unique_field(tmp_path: Path, field: str, code: str) -> None:
     creates = f"{{ creates: [{{ type: Assay, cardinality: many, match_on: {field} }}] }}"
     assert codes(make(tmp_path, action(effects=creates))) == [code]
+
+
+def test_a_create_keeps_what_it_matches_only_when_it_matches_on_a_field(tmp_path: Path) -> None:
+    """`on_match: keep` leaves the entity a create matches as its first maker made it, so
+    it needs `match_on` to match on; the equipment plugin's impact cases keep theirs."""
+    creates = "{ creates: [{ type: Assay, cardinality: many, on_match: keep }] }"
+    [problem] = make(tmp_path, action(effects=creates)).problems
+    assert (problem.code, problem.hint) == (
+        "on-match-without-match-on",
+        "Give `match_on`, a unique field, or drop `on_match`.",
+    )
+    unknown = "{ creates: [{ type: Assay, match_on: barcode, on_match: replace }] }"
+    assert "schema" in codes(make(tmp_path, action(effects=unknown)))
+    equipment = load_plugin(EQUIPMENT, dependencies=[LAB_ROLES]).plugin
+    assert equipment is not None
+    record = equipment.actions["record_instrument_use"].creates
+    assert [(c.type.rsplit(".", 1)[1], c.on_match) for c in record] == [
+        ("InstrumentUse", "update"),
+        ("CalibrationImpact", "keep"),
+    ]
+    assert equipment.actions["trace_failed_calibrations"].creates[0].on_match == "keep"
 
 
 def test_an_extensions_unique_field_can_be_matched_on() -> None:

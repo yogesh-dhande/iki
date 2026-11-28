@@ -90,6 +90,12 @@ only if, with the settings filled in, it is https. So no setting can turn a
 value into a script. The web app shows the value as a link that opens a new
 tab, with the value URL-encoded.
 
+Note of 2026-11-27: a create can say `on_match: keep`. A match is then left as
+it is, with no revision, and is the create's entity, as one that came again
+unchanged is. It's for a record whose first maker's values stand, whoever
+made it: a result's impact case after a failed calibration, which a trace,
+an instrument use or Equipment QA may open first (ADR 0194).
+
 ## Consequences
 
 - A LIMS plugin can rely on one entity per record in each project. Looking

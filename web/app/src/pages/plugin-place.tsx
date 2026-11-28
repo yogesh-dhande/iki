@@ -2,7 +2,8 @@
  * A plugin's component in one of its places (ADR 0084, ADR 0117): an entity's tab, the
  * grid's results, a project's page, a person's home or an app's panel. The page gives its
  * frame what the place shows, as the person may read it; what they pick in it is read
- * back from the API and offered to Iki's run page, and an entity it opens is opened by Iki.
+ * back from the API and offered to Iki's run page, and an entity or a pinned revision it
+ * opens is opened by Iki.
  */
 
 import type { Place } from "@ikisci/component";
@@ -13,7 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { problemOf } from "../api";
 import type { PlaceData } from "../component-entities";
 import { ComponentFrame, type GivenEntity } from "../component-frame";
-import type { PluginComponent } from "../components";
+import type { PinnedRevision, PluginComponent } from "../components";
 import { inSentence, type Entity, type EntityType } from "../entities";
 import { entitiesByHridQuery, MAX_BATCH } from "../runs";
 import { buttonClass, ProblemAlert } from "../ui";
@@ -71,6 +72,18 @@ export function PluginPlace({
     },
     [items, navigate],
   );
+  // A revision its entity pins, as evidence (ADR 0189): that revision's page, in Iki.
+  const onOpenRevision = useCallback(
+    (pin: PinnedRevision) => {
+      const params = { ref: pin.id, number: String(pin.revision) };
+      void navigate(
+        pin.of === "entry"
+          ? { to: "/entries/$ref/revisions/$number/", params }
+          : { to: "/entities/$ref/revisions/$number/", params },
+      );
+    },
+    [navigate],
+  );
   return (
     <>
       {data?.problem ? <ProblemAlert problem={data.problem} /> : null}
@@ -96,6 +109,7 @@ export function PluginPlace({
         onMore={data?.more}
         onRefine={data?.refine}
         onOpen={onOpen}
+        onOpenRevision={onOpenRevision}
         onRun={onRun}
         onFailed={onFailed}
       />

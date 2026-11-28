@@ -315,11 +315,18 @@ class InstrumentUses extends EquipmentRecords {
 
   buildRow(item) {
     const v = item.values;
-    return this.row(item, reference(item, "result", v.result_revision), [
+    const entries = [
       ["Instrument", reference(item, "instrument")],
       ["Measured", date(v.measurement_at)],
       ["Calibration", reference(item, "calibration", v.calibration_revision)],
-    ]);
+    ];
+    // Measured after a failed calibration (ADR 0194): recorded, and said so.
+    if (v.covered === false) {
+      entries.push(["Coverage", marked(`Not covered: ${v.not_covered_because}`, "danger")]);
+    } else if (v.covered === true) {
+      entries.push(["Coverage", "Covered"]);
+    }
+    return this.row(item, reference(item, "result", v.result_revision), entries);
   }
 }
 
