@@ -1,0 +1,4 @@
+Peptide	Prev AA	Next AA	Peptide Length	Protein Start	Protein End	Charges	Probability	Spectral Count	Intensity	Assigned Modifications	Observed Modifications	Protein	Protein ID	Entry Name	Gene	Protein Description	Mapped Genes	Mapped Proteins
+AAANEQLTR	R	A	9	96	104	2	0.9997	1	0.000000			sp|Q9CRB9|MIC19_MOUSE	Q9CRB9	MIC19_MOUSE	Chchd3	MICOS complex subunit Mic19		
+AAAQLLQSQAQQSGAQQTK	K	K	19	400	418	3	1.0000	2	0.000000			sp|Q8C1B7|SEP11_MOUSE	Q8C1B7	SEP11_MOUSE	Septin11	Septin-11		
+AAATPESQEPQAK	K	G	13	145	157	2	1.0000	3	0.000000			sp|P28667|MRP_MOUSE	P28667	MRP_MOUSE	Marcksl1	MARCKS-related protein		
