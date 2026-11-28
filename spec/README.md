@@ -657,6 +657,64 @@ released:
   a message saying whom, and checks them as any guard. A hand-written guard
   can't take either name.
 
+### Computed values
+
+A field worked out from the record's own values has `computed: {cel: …}`
+([ADR 0297](../docs/adr/0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md)):
+a CEL expression, type-checked as rules are, that Iki works out at every save,
+before the record's rules are checked, on every path that writes: forms, the
+API, agents, runs' results, bulk imports and bundles. Its value is stored and
+kept in the record's history like any other, and the revision names it among
+the fields it changed. No one sets it: a value given for it is refused, and so
+is an action that `updates` it (`updates-cel-computed`).
+
+```yaml
+fields:
+  mn: { type: quantity, unit: g/mol, min: 0 }
+  mw: { type: quantity, unit: g/mol, min: 0 }
+  dispersity:
+    type: float
+    computed:
+      cel: double(int(record.mw / record.mn * 1000.0 + 0.5)) / 1000.0
+```
+
+- It reads `record`, the record as it will be saved: its own fields, its
+  parent types' and its extensions'. Not what a reference refers to, a
+  reference itself, a registry field, a state field, `id`, `hrid`, `now` or
+  `today` (`computed-reads`): those change without the record being saved, so
+  its value would go stale. A value from another record is an action's. Each
+  field in `GET /entity-types` gives its `cel` and the fields it reads
+  (`cel_reads`).
+- It works out to one value of its field's type (`invalid-expression`
+  otherwise): a `string`, `text`, `int`, `float`, `quantity`, `bool`, `enum`,
+  `date` or `datetime` (`computed-kind`). An enum's must be one of its values
+  where it's written out. A quantity is a number in its field's `unit`, read
+  and given; a date is read as midnight UTC, and a time given to a date field is
+  the date it falls on in UTC. CEL has no rounding: three places are
+  `double(int(x * 1000.0 + 0.5)) / 1000.0`, for a number that isn't negative.
+- One that can't be worked out leaves the field empty, and the save goes on.
+  When a value it reads is empty, that's as a rule's check passes then. For any
+  other reason (a division by zero, text that isn't one of an enum's values),
+  Iki logs it, where a rule's check would refuse; a guard refuses whatever's
+  empty. A value its field's limits refuse (`min`, `max`, a length) refuses the
+  save, naming the field.
+- Computed values can read each other, and are worked out in the order their
+  reads give: none can read itself, however indirectly (`computed-cycle`).
+- One can't be `required` or have a `default` (`computed-required`,
+  `computed-with-default`), be `immutable` (`computed-immutable`), be `unique`
+  or one of a `unique` or `no_overlap` rule's fields (`computed-unique`: make
+  what it's worked out from unique), or be a `registry` field or part of an
+  identity (`computed-registry`).
+- When a deploy adds an expression or changes one, Iki works out each record
+  of the type again, before checking its rules again: one whose value differs
+  gets a revision by no one, via the system, naming the plugin version that
+  worked it out. A locked record keeps the value it was locked with, until it's
+  saved again once unlocked. A bundle's records are worked out again as
+  they're brought.
+
+`computed: true` is a value Iki or an action's runs set, such as one an RDKit
+script works out, or one read from another record.
+
 The [construct review example](../examples/plugins/construct_review/README.md)
 adds a state field to an Assembly subtype. Its guards check the current product
 comparison, who recorded the build and who edited it afterward. Its notifications
@@ -1229,7 +1287,9 @@ plugin, wouldn't have them), can't reuse a name the type already has, and
 ## Fields
 
 Every field has a `type`, and may have `label`, `description`, `required`,
-`immutable` (set once, never changed), `computed` (set only by actions),
+`immutable` (set once, never changed), `computed` (set by actions' runs with
+`true`, or worked out from the record's own values with `{cel: …}`: see
+[Computed values](#computed-values)),
 `indexed` (a database index for fast filtering and sorting; indexed strings
 are also fast to search for text they contain), `default` and
 `removed`.
@@ -3229,7 +3289,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Types                           |
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HRIDs                           |
 | `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                                                                                                                                                                                                              | Identities                      |
-| `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Field options                   |
+| `computed-with-default`, `computed-required`, `computed-immutable`, `computed-unique`, `computed-registry`, `computed-kind`, `computed-reads`, `computed-cycle`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                                                                                                | Field options                   |
 | `unsupported-index`, `index-needs-max-length`, `unique-needs-index`, `link-not-https`, `link-without-value`, `link-unknown-placeholder`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Indexes                         |
 | `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Units                           |
 | `unknown-format`, `format-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | File formats                    |
@@ -3240,7 +3300,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `setting-policy`, `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`, `setting-needed` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Settings                        |
 | `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `test-only-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                                                                                                                     | Lockfiles                       |
 | `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`, `from-project-one`                                                                                                                                                                                                                                                                                                                                                                                               | Actions                         |
-| `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `updates-state`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | What actions write              |
+| `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-cel-computed`, `updates-immutable`, `updates-state`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                                                                                        | What actions write              |
 | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `self-hosted-secrets`, `self-hosted-network`, `reserved-secret`, `absolute-path-on-backend`, `missing-file`                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Where actions run               |
 | `network-unknown-setting`, `network-setting-not-hostname`, `requires-unknown-setting`, `requires-setting-always-set` (warning), `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                                                              | Reuse and retries               |
 | `self-hosted-apis`, `api-in-network`, `api-credential-is-secret`, `api-credential-header`, `webhook-needs-header`, `webhook-header`, `webhook-secret-is-credential`, `api-status-twice`, `api-polls-too-often`, `api-job-timeout`, `unknown-api`, `batch-parks`, `deterministic-with-api`; `unused-api` (warning)                                                                                                                                                                                                                                                                                                                                     | Outside APIs                    |

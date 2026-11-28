@@ -9556,8 +9556,18 @@ export interface components {
              */
             assignment_states: string[];
             /**
+             * Cel
+             * @description A computed field's CEL expression, which Iki works its value out by at every save, over `record` (ADR 0297). Null for a field people or runs set.
+             */
+            cel?: string | null;
+            /**
+             * Cel Reads
+             * @description The record's fields `cel` reads: changing one changes this field.
+             */
+            cel_reads?: string[];
+            /**
              * Computed
-             * @description Set only by actions.
+             * @description Set by Iki, never by a person: by actions' runs, or worked out from the record's own values at every save, by `cel` (ADR 0297).
              */
             computed: boolean;
             /** Description */
@@ -13671,8 +13681,18 @@ export interface components {
              */
             assignment_states: string[];
             /**
+             * Cel
+             * @description A computed field's CEL expression, which Iki works its value out by at every save, over `record` (ADR 0297). Null for a field people or runs set.
+             */
+            cel?: string | null;
+            /**
+             * Cel Reads
+             * @description The record's fields `cel` reads: changing one changes this field.
+             */
+            cel_reads?: string[];
+            /**
              * Computed
-             * @description Set only by actions.
+             * @description Set by Iki, never by a person: by actions' runs, or worked out from the record's own values at every save, by `cel` (ADR 0297).
              */
             computed: boolean;
             /**

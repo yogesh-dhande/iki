@@ -222,7 +222,9 @@
       "25ee63373d4b00cb883834a76e5a984ea67d259d",
       "d72fc32793682f3b4ef54e44f51011fa26d039fa",
       "5e66a03a80edc0cbf14e0e3c4fd4c86b807b50f7",
-      "0500e9b322ee219ef20ffd84605ea4f16df0143d"
+      "0500e9b322ee219ef20ffd84605ea4f16df0143d",
+      "2c84cc4fe7a981b843d9a997e51a98a8e07855eb",
+      "baa8fe5d639a93cafcc4bb82d3b853fb46e0b7a5"
     ],
     "iki/mouse_strains": [
       "6a2ea62961cfe738c1ce948814081f567048abf1",
@@ -339,7 +341,8 @@
     "iki/polymer": [
       "cc56225c938a51b2f7fe385320b7216e50a6cb15",
       "711168c4b7af9d21daec4f7a567f5d285550f6b8",
-      "495ddc03357522a62baea49484f8b2b3fc805f6f"
+      "495ddc03357522a62baea49484f8b2b3fc805f6f",
+      "1b7566b8379b1ee921e653bf2187c2d13d52c743"
     ],
     "iki/protein": [
       "25079b3b2f8236772c7b7fc514e00d0d93499027",

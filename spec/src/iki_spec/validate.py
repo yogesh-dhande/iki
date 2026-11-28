@@ -2282,7 +2282,9 @@ class _Semantics:
                         source,
                         (*at, key, "ordered"),
                     )
-                if received and (not received.computed or received.min is None or received.min < 0):
+                if received and (
+                    not received.set_by_runs or received.min is None or received.min < 0
+                ):
                     self.add(
                         "stock-catalogue-order",
                         "Received packs must be computed and nonnegative.",
@@ -2315,7 +2317,7 @@ class _Semantics:
         elif (
             field is None
             or field.type != "json"
-            or not field.computed
+            or not field.set_by_runs
             or field.removed
             or field.immutable
             or field.required
@@ -2372,7 +2374,7 @@ class _Semantics:
                 ("draw_target", "state"),
             )
         if target.ready is not None and (
-            target.ready not in fields or not fields[target.ready].computed
+            target.ready not in fields or not fields[target.ready].set_by_runs
         ):
             self.add(
                 "invalid-draw-target",
@@ -4220,10 +4222,15 @@ class _Semantics:
                     key=True,
                     hint="Make it `type: person`, or a list with `items: { type: person }`.",
                 )
+            by = (
+                "worked out by their expression (ADR 0297)"
+                if f.cel is not None
+                else "set by actions"
+            )
             if f.computed and f.has_default:
                 self.add(
                     "computed-with-default",
-                    "Computed fields are set by actions, so they can't have a default.",
+                    f"Computed fields are {by}, so they can't have a default.",
                     source,
                     (*path, "default"),
                     key=True,
@@ -4231,11 +4238,30 @@ class _Semantics:
             if f.computed and f.required:
                 self.add(
                     "computed-required",
-                    "Computed fields are set by actions, so they can't be required: people "
+                    f"Computed fields are {by}, so they can't be required: people "
                     "creating an entity couldn't fill them in.",
                     source,
                     (*path, "required"),
                     key=True,
+                )
+            if f.cel is not None and f.immutable:
+                self.add(
+                    "computed-immutable",
+                    "A field worked out by an expression is worked out again at every save "
+                    "(ADR 0297), so it can't be immutable.",
+                    source,
+                    (*path, "immutable"),
+                    key=True,
+                )
+            if f.cel is not None and f.unique:
+                self.add(
+                    "computed-unique",
+                    "A field worked out by an expression can't be unique: a clash on a value no "
+                    "one typed can't be fixed by changing it (ADR 0297).",
+                    source,
+                    (*path, "unique"),
+                    key=True,
+                    hint="Make the fields it's worked out from unique, with a `unique` rule.",
                 )
             if f.reason_on_clear and (f.computed or f.immutable or f.registry or f.removed):
                 self.add(

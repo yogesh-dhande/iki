@@ -57,6 +57,7 @@ from iki_server.entities import (
     access,
     assignments,
     checking,
+    computing,
     constraints,
     holds,
     identity,
@@ -799,7 +800,8 @@ def prepare(
     reason.
 
     Bulk imports (ADR 0056) check each record with this, as :func:`create` does, but
-    without the plugins' rules (``check_rules=False``): they check a chunk's at once.
+    without the plugins' rules (``check_rules=False``): they work a chunk's computed values
+    out (ADR 0297) and check its rules at once.
     """
     if type_name not in registry.types() or type_name == "iki/core.Entity":
         raise Invalid({"type": [f"There's no entity type {type_name}."]})
@@ -825,6 +827,8 @@ def prepare(
             errors[name] = [kept[name]]
         elif name == ledger_field:
             errors[name] = ["is recorded by the amounts ledger when material is drawn into it."]
+        elif f.cel is not None:
+            errors[name] = [computing.REFUSED]
         elif f.computed and not by_run:
             errors[name] = ["is computed: only actions set it."]
         elif f.type == "state":
@@ -850,6 +854,15 @@ def prepare(
                 errors.update(problems_of(name, error))
         if f.required and given.get(name) is None and not _wrong(errors, name):
             errors[name] = ["is required."]
+    unworked: dict[str, list[str]] = {}
+    if not errors and check_rules:
+        # Its computed values (ADR 0297), before its rules read them; one its field refuses
+        # is said with what its rules say. A bulk import works a chunk's out at once, as
+        # it checks their rules (``imports.breaking``).
+        try:
+            computing.fill(type_name, [given])
+        except Invalid as error:
+            unworked = dict(error.errors)
     if not errors:
         from iki_server.amounts import stock
 
@@ -869,7 +882,7 @@ def prepare(
         *checking.broken(type_name, [checking.Saving(given.get)])[0],
         *checking.apart(project.pk, form, own),
     ]
-    holding = checking.raise_broken(found, hold_reason=hold_reason)
+    holding = checking.raise_broken(found, hold_reason=hold_reason, errors=unworked)
     return form, given, holding
 
 
@@ -1021,6 +1034,9 @@ def update(
             if name == ledger_field and not _recording_draw:
                 errors[name] = ["is recorded by the amounts ledger when material is drawn into it."]
                 continue
+            if f.cel is not None:
+                errors[name] = [computing.REFUSED]
+                continue
             if (
                 f.computed
                 and not by_run
@@ -1094,6 +1110,18 @@ def update(
                 value = "Needs re-verification" if name == spec.recheck else None
                 if rows.get(name) != value or name in new:
                     new[name] = value
+        unworked: dict[str, list[str]] = {}
+        if new:
+            # Its computed values (ADR 0297), from what it will hold, before its rules; one
+            # its field refuses is said with what its rules say.
+            try:
+                new.update(
+                    computing.changes(
+                        locked.type, lambda n: new[n] if n in new else rows.get(n), rows.get
+                    )
+                )
+            except Invalid as error:
+                unworked = dict(error.errors)
         changing = {**new, **for_entry}
         if changing:
             if returns:
@@ -1132,7 +1160,7 @@ def update(
                     changed=changed,
                 ),
             ]
-            holding = checking.raise_broken(found, hold_reason=hold_reason)
+            holding = checking.raise_broken(found, hold_reason=hold_reason, errors=unworked)
         entry_revision = None
         if for_entry:
             assert rows.entry is not None  # noqa: S101 - entry fields are an entry's
@@ -1191,6 +1219,29 @@ def update(
                         reason=revision.reason,
                     )
     return updated if by_run else saved
+
+
+def reworked(entity: Entity, values: Mapping[str, Any], reason: str) -> Revision:
+    """Writes computed values worked out again (ADR 0297), as a deploy or a bundle's
+    import does: a ``migrated`` revision by no one, via the system, for ``reason``, as a
+    plugin migration's values are (:class:`iki_server.plugins.operations.MigrateValues`).
+    Only an unlocked record's: the database refuses a locked one's. Like a migration's,
+    it tells no webhook and fires no trigger: the deploy's audit event counts them."""
+    locked = Entity.objects.select_for_update().get(pk=entity.pk)
+    form = shape(locked.type)
+    rows = Rows.of(_specific(locked))
+    touched = _write(form, rows, values, locked.pk)
+    changed = sorted(values)
+    with quietly():
+        revision = _revise(locked, RevisionKind.MIGRATED, changed, None, reason, via="system")
+    _write_history(touched, rows, revision.number)
+    log.record(
+        "entity.migrated",
+        target=locked,
+        project=locked.owner_project,
+        data={"revision": revision.number, "changed_fields": changed, "reason": reason},
+    )
+    return revision
 
 
 def _referred_in(f: Field, current: Any) -> set[Any]:  # noqa: ANN401 - a model value

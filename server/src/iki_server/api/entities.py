@@ -316,7 +316,19 @@ class FieldOut(Schema):
     plugin: str = Field(description="The plugin that defines the field.")
     required: bool
     immutable: bool = Field(description="Can be set once, and can't change after.")
-    computed: bool = Field(description="Set only by actions.")
+    computed: bool = Field(
+        description="Set by Iki, never by a person: by actions' runs, or worked out from "
+        "the record's own values at every save, by `cel` (ADR 0297)."
+    )
+    cel: str | None = Field(
+        None,
+        description="A computed field's CEL expression, which Iki works its value out by at "
+        "every save, over `record` (ADR 0297). Null for a field people or runs set.",
+    )
+    cel_reads: list[str] = Field(
+        default_factory=list,
+        description="The record's fields `cel` reads: changing one changes this field.",
+    )
     reason_on_clear: bool | None = Field(
         None, description="True when clearing this Boolean requires a reason."
     )
@@ -1466,6 +1478,8 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "detached": plugin in registry.detached(),
         "link": unique.link(f, plugin),
         "computed": f.computed,
+        "cel": f.cel,
+        "cel_reads": list(f.cel_reads),
         "reason_on_clear": f.reason_on_clear or None,
         "unit": f.unit,
         "unit_symbol": units.symbol(f.unit) if f.unit else None,
