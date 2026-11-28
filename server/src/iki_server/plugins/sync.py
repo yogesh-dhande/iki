@@ -104,6 +104,8 @@ class Report:
     #: What changed about each plugin, such as ``dna detached``.
     plugins: list[str] = field(default_factory=list)
     unique: list[str] = field(default_factory=list)
+    #: The lab lists whose labels the database holds once in a registry in any case.
+    labels: list[str] = field(default_factory=list)
     graph: list[str] = field(default_factory=list)
     targets: list[str] = field(default_factory=list)
     guards: list[str] = field(default_factory=list)
@@ -143,6 +145,7 @@ def sync(analyst_role: str | None = None) -> Report:
             unique.columns((model, fields) for _, model, fields, _ in _tables()),
             _barcode_types(),
         )
+        report.labels = lists.install_label_indexes(cursor)
         report.graph = edges.install(
             cursor, edges.tables((plugin, model, fields) for plugin, model, fields, _ in _tables())
         )
@@ -181,6 +184,7 @@ def describe(report: Report) -> list[str]:
     """What a sync made, a line each, as the commands print it."""
     lines = [f"  HRID sequence {name}" for name in report.sequences]
     lines += [f"  unique {key}" for key in report.unique]
+    lines += [f"  labels of {name}, once in any case" for name in report.labels]
     lines += [f"  references of {table}" for table in report.graph]
     lines += [f"  rule {key}" for key in report.rules]
     for checked in report.checked:

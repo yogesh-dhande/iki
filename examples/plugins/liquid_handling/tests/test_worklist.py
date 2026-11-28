@@ -44,7 +44,6 @@ def transfer(at: str, to: str, volume: float, **roles: Any) -> dict[str, Any]:
     return {
         "hrid": "TRF-000001",
         "id": "0190e9a4-0000-7000-8000-000000000101",
-        "latest": True,
         "name": f"{at} to {to}",
         "revised_at": "2026-11-25T09:00:00Z",
         "revision": 1,

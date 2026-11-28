@@ -26,7 +26,7 @@ export interface MapOf {
   alphabet: Viewer["alphabet"];
   length: number;
   circular: boolean;
-  features: Feature[];
+  features: readonly Feature[];
   opens: MapOpens | null;
 }
 

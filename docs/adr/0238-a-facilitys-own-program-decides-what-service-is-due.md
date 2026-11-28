@@ -57,7 +57,9 @@ the procedure it was scheduled under. That stays.
   was recorded for ([ADR 0239](0239-qa-opens-an-impact-case-for-a-result-no-use-was-recorded-for.md)).
 - `record_instrument_use` checks the one calibration selected. Telling the person about a
   later failure whose window covers the measurement would need the action to read the
-  instrument's later service records.
+  instrument's later service records. [ADR 0194](0194-equipment-use-pins-calibration-and-failures-open-impact-cases.md)'s
+  amendment of 2026-11-27 reads the instrument's own Calibration state instead: while it's
+  marked Failed, a use isn't covered.
 
 ## Amendment. A balance a result relies on stays in the calibration program
 

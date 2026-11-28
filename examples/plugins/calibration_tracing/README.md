@@ -29,9 +29,10 @@ Review the event and its three downstream reference searches in
 `triggers/trace_failed_instrument.yaml`. Review the suspect-window calculation
 in `scripts/trace.py` with the facility's quality team. The window starts at
 the earliest suspected time and ends just before the next signed passing
-calibration after the failure. The failure/use key is shared with Equipment's
-own trace so the two routes agree about which case to review, and a result
-that already has a case among the prior impacts gets no second. Keep the
+calibration after the failure. The failure/result key is shared with
+Equipment's own trace, its instrument uses and the cases Equipment QA opens, so
+every route agrees about which case to review: a result has one case for each
+failure, and the one opened first stands (`on_match: keep`). Keep the
 recovery-boundary and missing-signature cases in `tests/trace.yaml` and add
 examples from the procedure that your facility approves.
 

@@ -15,10 +15,12 @@ import {
   gcContent,
   kindOf,
   lanesPerRow,
+  lanedApart,
   lengthText,
   locationText,
   meltingTemperature,
   moved,
+  MOST_MATCHES,
   piecesIn,
   placeAt,
   readFeatures,
@@ -27,6 +29,7 @@ import {
   residuesOf,
   reverseComplement,
   selected,
+  spans,
   stepTo,
   stretchLength,
   trackScale,
@@ -218,6 +221,86 @@ describe("features", () => {
     expect(
       readFeatures([{ type: "CDS", start: 1, end: 5, parts: [{ start: 1, end: 50 }] }], 30),
     ).toEqual([]);
+  });
+
+  it("are laned as first come, first placed, longest first, for any features", () => {
+    // The plain layout: each feature, longest first, checked against every stretch of every
+    // lane until one has none it overlaps. The viewer's is quicker, and must agree with it.
+    const plain = (features: readonly Feature[], length: number) => {
+      const order = [...features].sort(
+        (a, b) => featureLength(b, length) - featureLength(a, length) || a.start - b.start,
+      );
+      const lanes: [number, number][][] = [];
+      const placed = new Map<Feature, number>();
+      for (const feature of order) {
+        const mine = spans(feature, length);
+        let lane = lanes.findIndex((taken) =>
+          taken.every(([a, b]) => mine.every(([c, d]) => d < a || c > b)),
+        );
+        if (lane < 0) lane = lanes.push([]) - 1;
+        lanes[lane]?.push(...mine);
+        placed.set(feature, lane);
+      }
+      return features.map((f) => placed.get(f));
+    };
+    // A fixed generator (mulberry32), so a failure is the same each run.
+    let seed = 20261127;
+    const random = () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const between = (low: number, high: number) => low + Math.floor(random() * (high - low + 1));
+    for (let trial = 0; trial < 400; trial++) {
+      const length = between(20, 3000);
+      const count = between(1, trial % 4 === 0 ? 400 : 60);
+      // Short, long, crowded or sparse: some lanes stay empty, others fill up.
+      const longest = Math.max(1, Math.floor(length / between(1, 50)));
+      const items = Array.from({ length: count }, () => {
+        const start = between(1, length);
+        const span = between(1, longest);
+        const end = ((start + span - 2) % length) + 1; // past the end, round the origin
+        const kind = random();
+        if (kind < 0.15 && end > start + 3) {
+          // A join of its ends, so it covers fewer bases than it spans.
+          const cut = between(start + 1, end - 2);
+          return {
+            type: "CDS",
+            start,
+            end,
+            parts: [
+              { start, end: cut },
+              { start: between(cut + 1, end), end },
+            ],
+          };
+        }
+        if (kind < 0.2 && start < length) {
+          return {
+            type: "misc_feature",
+            start,
+            end: start + 1,
+            parts: [{ start, end: start + 1, between: true }],
+          };
+        }
+        return { type: "misc_feature", start, end };
+      });
+      const read = readFeatures(items, length);
+      expect(read.map((f) => f.lane)).toEqual(plain(read, length));
+    }
+    // Copies laned apart agree with it too.
+    const read = readFeatures(PUC19, 2686);
+    expect(lanedApart(read, 2686).map((f) => f.lane)).toEqual(plain(read, 2686));
+  });
+
+  it("are read once for a list, which is laid out once, read again or not", () => {
+    const first = readFeatures(PUC19, 2686);
+    expect(readFeatures(PUC19, 2686)).toBe(first);
+    // A record page's map reads what its features card read.
+    expect(readFeatures(first, 2686)).toBe(first);
+    expect(Object.isFrozen(first)).toBe(true);
+    // At another length, they're read again: some may no longer fit.
+    expect(readFeatures(PUC19, 1000).map((f) => f.name)).toEqual(["lacZα", "MCS"]);
   });
 
   it("say how many lanes each row needs", () => {
@@ -414,6 +497,35 @@ describe("finding a motif", () => {
     expect(findMotif("ACRGT", "CNG", { ...dna, bothStrands: false }).matches).toHaveLength(1);
     // RNA's U is T.
     expect(findMotif("GAAUUC", "GAATTC", { ...dna, alphabet: "rna" }).matches).toHaveLength(1);
+  });
+
+  it("keeps the first matches along the sequence, on either strand, when there are too many", () => {
+    // Base 1 is the motif's reverse complement, and bases 2 to 10,001 are the motif itself:
+    // 10,001 matches, and the first 10,000 run from base 1 to base 10,000.
+    const bases = "T" + "A".repeat(MOST_MATCHES);
+    const linear = { ...dna, circular: false };
+    const { matches, more } = findMotif(bases, "A", linear);
+    expect(more).toBe(true);
+    expect(matches).toHaveLength(MOST_MATCHES);
+    expect(matches[0]).toEqual({ start: 1, end: 1, strand: "reverse" });
+    expect(matches[1]).toEqual({ start: 2, end: 2, strand: "forward" });
+    expect(matches.at(-1)).toEqual({ start: MOST_MATCHES, end: MOST_MATCHES, strand: "forward" });
+    // The reverse strand's match after the forward ones' cap isn't found, nor said found.
+    const last = findMotif("A".repeat(MOST_MATCHES) + "T", "A", linear);
+    expect([last.matches.length, last.matches.at(-1)?.start, last.more]).toEqual([
+      MOST_MATCHES,
+      MOST_MATCHES,
+      true,
+    ]);
+    // Where both strands match at the cap's last place, it's on both.
+    const both = findMotif("AT".repeat(MOST_MATCHES + 1), "AT", linear);
+    expect([both.matches.length, both.matches.at(-1), both.more]).toEqual([
+      MOST_MATCHES,
+      { start: 2 * MOST_MATCHES - 1, end: 2 * MOST_MATCHES, strand: "both" },
+      true,
+    ]);
+    // Exactly the cap is all of them.
+    expect(findMotif("T" + "A".repeat(MOST_MATCHES - 1), "A", linear).more).toBe(false);
   });
 
   it("finds a protein's residues, X standing for any and B for D or N", () => {

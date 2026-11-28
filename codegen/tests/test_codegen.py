@@ -197,10 +197,83 @@ def test_plugins_that_cant_be_installed_together(plugins: list[Plugin], tmp_path
         "acme/protein.ProteinStructure",
         "acme/folding and acme/prediction both add the field `ranking` to "
         "acme/protein.ProteinStructure",
-        "acme/folding.Model and acme/protein.Protein both use the HRID prefix PRT",
+        "acme/folding.Model and acme/protein.Protein both use the HRID prefix PRT. Give one "
+        "of them its own prefix in the deployment's `plugins.lock.yaml`: "
+        "`hrids: { acme/protein.Protein: APRT }`. Or, in a plugin you own, change its "
+        "`hrid.prefix` before it has records.",
     ]
     with pytest.raises(ValueError, match="both use the HRID prefix PRT"):
         build([*plugins, copy], tmp_path)
+
+
+def test_a_deployments_hrid_prefixes_are_built_in_place_of_the_plugins(
+    plugins: list[Plugin], tmp_path: Path
+) -> None:
+    """ADR 0033: the lockfile's ``hrids`` settle a clash, and the compiled manifest, which
+    the server's HRIDs and sequences read, carries the deployment's prefix."""
+    dna = plugins[0]
+    other = replace(
+        dna,
+        name="globex/dna",
+        types={
+            f"globex/dna.{t.name}": replace(
+                t,
+                plugin="globex/dna",
+                extends=t.extends.replace("acme/dna.", "globex/dna.") if t.extends else None,
+            )
+            for t in dna.types.values()
+        },
+    )
+    with pytest.raises(ValueError, match=r"`hrids: \{ globex/dna\.DNASequence: GDNA \}`"):
+        build([dna, other], tmp_path / "clash")
+    hrids = {
+        "globex/dna.DNASequence": "GDNA",
+        "globex/dna.Plasmid": "GPLS",
+        "globex/dna.Vector": "GVEC",
+    }
+    build([dna, other], tmp_path / "out", hrids=hrids)
+    manifest = json.loads(
+        (tmp_path / "out" / "iki_plugin_globex__dna" / "manifest.json").read_text()
+    )
+    compiled = plugin_from_dict(manifest["plugin"])
+    assert compiled.types["globex/dna.DNASequence"].hrid_prefix == "GDNA"
+    assert compiled.types["globex/dna.Sequence"].hrid_prefix is None
+    kept = json.loads((tmp_path / "out" / "iki_plugin_acme__dna" / "manifest.json").read_text())
+    assert plugin_from_dict(kept["plugin"]).types["acme/dna.DNASequence"].hrid_prefix == "DNA"
+
+
+@pytest.mark.parametrize(
+    ("hrids", "message"),
+    [
+        (
+            {"acme/dna.DNASequenc": "X1"},
+            "plugins.lock.yaml gives acme/dna.DNASequenc the HRID prefix X1, but no plugin it "
+            "builds has that type: did you mean acme/dna.DNASequence?",
+        ),
+        (
+            {"acme/dna.Sequence": "X1"},
+            "plugins.lock.yaml gives acme/dna.Sequence the HRID prefix X1, but it's abstract "
+            "and has no HRIDs of its own: give one to each of its subtypes",
+        ),
+    ],
+)
+def test_an_override_names_a_type_with_hrids_that_the_build_has(
+    plugins: list[Plugin], tmp_path: Path, hrids: dict[str, str], message: str
+) -> None:
+    with pytest.raises(ValueError) as refused:
+        build(plugins[:1], tmp_path, hrids=hrids)
+    assert str(refused.value) == message
+
+
+def test_no_plugin_builds_with_a_prefix_of_cores(plugins: list[Plugin]) -> None:
+    dna = plugins[0]
+    run = replace(dna.types["acme/dna.Vector"], hrid_prefix="RUN")
+    problems = conflicts([replace(dna, types={**dna.types, "acme/dna.Vector": run})])
+    assert problems[0].startswith(
+        "Iki's action runs and acme/dna.Vector both use the HRID prefix RUN. Give one of "
+        "them its own prefix in the deployment's `plugins.lock.yaml`: "
+        "`hrids: { acme/dna.Vector: ARUN }`."
+    )
 
 
 def test_the_same_name_in_two_namespaces_builds_side_by_side(

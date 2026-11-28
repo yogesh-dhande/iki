@@ -110,8 +110,8 @@ def test_a_witness_opens_the_pinned_record_and_checks_its_support(
         }""",
         ELEMENT,
     )
-    table.get_by_role("button", name="RES-000001 · Synthetic curve · revision 7 (JSON)").click()
-    table.get_by_role("button", name=f"{ENTRY} · revision 2 (JSON)").click()
+    table.get_by_role("button", name="RES-000001 · Synthetic curve · revision 7").click()
+    table.get_by_role("button", name=f"{ENTRY} · revision 2").click()
     assert page.evaluate("window.opened") == [
         {"entity": RECORD, "revision": 7},
         {"entity": ENTRY, "revision": 2},

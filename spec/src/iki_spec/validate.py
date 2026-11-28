@@ -29,6 +29,7 @@ from iki_spec import (
     components,
     conditions,
     helm,
+    hrid_prefixes,
     naming,
     notifications,
     procedures,
@@ -299,8 +300,12 @@ def load_plugin(
     core: bool = False,
     require_setting_policy: bool = True,
     historical: bool = False,
+    hrids: Mapping[str, str] | None = None,
 ) -> Result:
     """Read and check the plugin in `directory`, resolving references with `dependencies`.
+
+    ``hrids`` are a deployment's HRID prefixes for types, in place of their plugins'
+    (ADR 0033): ``iki deploy build`` checks each plugin with the prefixes it will have.
 
     ``core`` is for :mod:`iki_spec.builtin` only: the core plugin itself, which
     has the reserved name and can't use its own types before they're read.
@@ -335,7 +340,7 @@ def load_plugin(
             )
             continue
         others[other.plugin.name] = other
-    _Semantics(loaded, others, core=core, historical=historical).run(
+    _Semantics(loaded, others, core=core, historical=historical, hrids=hrids).run(
         require_setting_policy=require_setting_policy and not historical
     )
     return loaded.result()
@@ -1180,8 +1185,11 @@ class _Semantics:
         *,
         core: bool = False,
         historical: bool = False,
+        hrids: Mapping[str, str] | None = None,
     ) -> None:
         assert loaded.plugin is not None and loaded.plugin_source is not None  # noqa: S101 - an invariant, not a check
+        #: A deployment's HRID prefixes (ADR 0033); None outside a deployment's build.
+        self.hrids = hrids
         self.loaded = loaded
         self.plugin: Plugin = loaded.plugin
         self.source: Document = loaded.plugin_source
@@ -2060,6 +2068,8 @@ class _Semantics:
         assert entity_type.list_spec is not None  # noqa: S101 - only lists have options
         codes: dict[str, int] = {}
         labels: dict[str, int] = {}
+        # Each option's code and label in any case, as a sheet reads them: whose, and which.
+        names: dict[str, tuple[int, str]] = {}
         fields = entity_type.fields
         for index, option in enumerate(entity_type.list_spec.options):
             at: Path = ("list", "options", index)
@@ -2088,6 +2098,7 @@ class _Semantics:
                     )
                 else:
                     labels[key] = index
+            self.list_option_names(option, index, codes, labels, names, source, at)
             for name, value in option.items():
                 f = fields.get(name)
                 if name == LIST_POSITION or f is None or f.removed:
@@ -2115,6 +2126,43 @@ class _Semantics:
                         source,
                         at,
                     )
+
+    def list_option_names(
+        self,
+        option: dict[str, Any],
+        index: int,
+        codes: dict[str, int],
+        labels: dict[str, int],
+        names: dict[str, tuple[int, str]],
+        source: Document,
+        at: Path,
+    ) -> None:
+        """A sheet names an option by its code or its label, in any case (ADR 0270), so no
+        other option's code or label may be either: beyond a code or a label twice, which
+        :meth:`list_options` says."""
+        given = [(n, option.get(n)) for n in (LIST_CODE, LIST_LABEL)]
+        for name, value in given:
+            if not isinstance(value, str):
+                continue
+            key = value.casefold()
+            other = names.get(key)
+            same = (
+                codes.get(value) not in (None, index)
+                if name == LIST_CODE
+                else labels.get(key) not in (None, index)
+            )
+            if other is not None and other[0] != index and not same:
+                its = "code" if other[1] == LIST_CODE else "label"
+                self.add(
+                    "list-name-twice",
+                    f"“{value}” is option {other[0] + 1}'s {its}, in any case: a sheet names an "
+                    "option by its code or its label, so each names one option.",
+                    source,
+                    (*at, name),
+                )
+        for name, value in given:
+            if isinstance(value, str):
+                names.setdefault(value.casefold(), (index, name))
 
     def list_option_value(self, f: Field, value: Any, source: Document, at: Path) -> None:  # noqa: ANN401 - manifest data is JSON-shaped
         """A starting option's value for one of its type's fields. A reference to another
@@ -2256,7 +2304,9 @@ class _Semantics:
                         source,
                         (*at, key, "ordered"),
                     )
-                if received and (not received.computed or received.min is None or received.min < 0):
+                if received and (
+                    not received.set_by_runs or received.min is None or received.min < 0
+                ):
                     self.add(
                         "stock-catalogue-order",
                         "Received packs must be computed and nonnegative.",
@@ -2289,7 +2339,7 @@ class _Semantics:
         elif (
             field is None
             or field.type != "json"
-            or not field.computed
+            or not field.set_by_runs
             or field.removed
             or field.immutable
             or field.required
@@ -2355,7 +2405,7 @@ class _Semantics:
                         ("draws", "target", "state", "states", index),
                     )
         if target.ready is not None and (
-            target.ready not in fields or not fields[target.ready].computed
+            target.ready not in fields or not fields[target.ready].set_by_runs
         ):
             self.add(
                 "invalid-draw-target",
@@ -3920,25 +3970,60 @@ class _Semantics:
         )
 
     def hrid_prefixes(self) -> None:
-        seen: dict[str, str] = {}
-        for other in self.others.values():
-            assert other.plugin is not None  # noqa: S101 - an invariant, not a check
-            for t in other.plugin.types.values():
-                if t.hrid_prefix:
-                    seen[t.hrid_prefix] = t.qualified_name
+        """No two types share a prefix, here or in the plugins checked with it, nor take
+        one of core's. In a deployment's build, each type has the deployment's prefix."""
+        kept = hrid_prefixes.reserved()
+        seen: dict[str, str] = dict(kept.core)
+        if not self.core:
+            for t in BUILTIN_TYPES.values():
+                if prefix := hrid_prefixes.effective(t, None):
+                    seen[prefix] = t.qualified_name
+        for loaded in self.others.values():
+            assert loaded.plugin is not None  # noqa: S101 - an invariant, not a check
+            for t in loaded.plugin.types.values():
+                if prefix := hrid_prefixes.effective(t, self.hrids):
+                    seen.setdefault(prefix, t.qualified_name)
+        overridden = self.hrids or {}
         for qualified, t in self.plugin.types.items():
-            if not t.hrid_prefix:
+            prefix = hrid_prefixes.effective(t, self.hrids)
+            if not prefix:
                 continue
-            if t.hrid_prefix in seen:
+            source = self.loaded.type_sources[qualified]
+            given = qualified in overridden
+            at: Path = ("hrid",) if given else ("hrid", "prefix")
+            # The deployment's prefix for it is in its lockfile, not in the manifest.
+            note = " (the prefix plugins.lock.yaml gives it)" if given else ""
+            holder = seen.get(prefix)
+            if holder is not None and holder != qualified:
+                if holder == kept.core.get(prefix):
+                    message = f"`{qualified}` uses `{prefix}`{note}, the HRID prefix of {holder}."
+                else:
+                    message = (
+                        f"`{holder}` and `{qualified}` both use the HRID prefix `{prefix}`{note}."
+                    )
                 self.add(
                     "duplicate-hrid-prefix",
-                    f"`{seen[t.hrid_prefix]}` already uses the HRID prefix `{t.hrid_prefix}`.",
-                    self.loaded.type_sources[qualified],
-                    ("hrid", "prefix"),
-                    hint="Each type needs its own prefix, so an ID says what it is.",
+                    message,
+                    source,
+                    at,
+                    hint=hrid_prefixes.settle(holder, qualified, prefix, seen),
                 )
-            else:
-                seen[t.hrid_prefix] = qualified
+                continue
+            seen[prefix] = qualified
+            taken = kept.kept_for(prefix)
+            if taken and taken != qualified and self.plugin.name not in naming.FIRST_PARTY:
+                self.add(
+                    "reserved-hrid-prefix",
+                    f"Iki's plugins use or reserve the HRID prefix `{prefix}`{note}, for "
+                    f"{taken}: a deployment that installs both will have to give one of them "
+                    "another.",
+                    source,
+                    at,
+                    severity=Severity.WARNING,
+                    hint=f"Choose a prefix of your own, such as "
+                    f"`{hrid_prefixes.suggest(qualified, prefix, seen)}`, while the type has "
+                    "no records.",
+                )
 
     def table_names(self) -> None:
         """Every table and model Iki generates must have its own name, and fit PostgreSQL."""
@@ -4210,10 +4295,15 @@ class _Semantics:
                     key=True,
                     hint="Make it `type: person`, or a list with `items: { type: person }`.",
                 )
+            by = (
+                "worked out by their expression (ADR 0297)"
+                if f.cel is not None
+                else "set by actions"
+            )
             if f.computed and f.has_default:
                 self.add(
                     "computed-with-default",
-                    "Computed fields are set by actions, so they can't have a default.",
+                    f"Computed fields are {by}, so they can't have a default.",
                     source,
                     (*path, "default"),
                     key=True,
@@ -4221,11 +4311,30 @@ class _Semantics:
             if f.computed and f.required:
                 self.add(
                     "computed-required",
-                    "Computed fields are set by actions, so they can't be required: people "
+                    f"Computed fields are {by}, so they can't be required: people "
                     "creating an entity couldn't fill them in.",
                     source,
                     (*path, "required"),
                     key=True,
+                )
+            if f.cel is not None and f.immutable:
+                self.add(
+                    "computed-immutable",
+                    "A field worked out by an expression is worked out again at every save "
+                    "(ADR 0297), so it can't be immutable.",
+                    source,
+                    (*path, "immutable"),
+                    key=True,
+                )
+            if f.cel is not None and f.unique:
+                self.add(
+                    "computed-unique",
+                    "A field worked out by an expression can't be unique: a clash on a value no "
+                    "one typed can't be fixed by changing it (ADR 0297).",
+                    source,
+                    (*path, "unique"),
+                    key=True,
+                    hint="Make the fields it's worked out from unique, with a `unique` rule.",
                 )
             if f.reason_on_clear and (f.computed or f.immutable or f.registry or f.removed):
                 self.add(
