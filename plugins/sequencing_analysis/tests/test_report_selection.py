@@ -115,10 +115,10 @@ DATA = Path(__file__).parent / "data"
 
 
 def report_of(path, read, selector=""):
-    """A report read as the action reads it: through report_lines, so a gzip or BGZF
-    file is decompressed by the same code as on a worker."""
+    """A report read as the action reads it: through the plugin runtime's open_text, so a
+    gzip or BGZF file is decompressed by the same code as on a worker."""
     output = io.StringIO()
-    with SCRIPT["report_lines"](path) as lines:
+    with SCRIPT["text"].open_text(path) as lines:
         report = read(lines, selector, csv.writer(output, delimiter="\t"))
     return report, list(csv.reader(io.StringIO(output.getvalue()), delimiter="\t"))
 
